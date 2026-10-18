@@ -1,9 +1,10 @@
 import { onScopeDispose, watchEffect } from "vue";
 import type { AppShell } from "./shell";
 import { workspaceInfo } from "./routes";
+import type { Ui } from "./ui";
 
 /** Sole owner of document presentation; cached workspaces never write body state. */
-export function usePresentation(shell: AppShell) {
+export function usePresentation(shell: AppShell, ui: Ui) {
   const body = document.body;
   const imageStyle = document.querySelector<HTMLLinkElement>("#style-image")!;
   const chatStyle = document.querySelector<HTMLLinkElement>("#style-chat")!;
@@ -19,6 +20,8 @@ export function usePresentation(shell: AppShell) {
       body.classList.toggle("chat-page", workspace === "chat");
       body.classList.toggle("tags-body", workspace === "tags");
       body.dataset.workspace = workspace;
+      body.dataset.gate = ui.credential.value ? "open" : "closed";
+      body.dataset.picker = ui.pickerOpen.value ? "open" : "closed";
       const attrs: Record<string, string | undefined> = {
         state: workspace === "image" ? "empty" : undefined,
         hist:
@@ -65,6 +68,8 @@ export function usePresentation(shell: AppShell) {
       "sidebar",
       "rail",
       "tagCart",
+      "gate",
+      "picker",
     ])
       delete body.dataset[key];
   });

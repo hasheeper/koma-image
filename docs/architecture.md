@@ -1,6 +1,6 @@
 # 架构规范
 
-状态：2026-10-19；M1 单页外壳与 M2 共享服务已实现，其余模块按实施阶段推进。此文同时描述后续目标，具体已验证范围见 [外壳实现](app-shell.md) 与 [网关、数据和调度](gateway-data-scheduler.md)。
+状态：2026-10-19；M1 单页外壳、M2 共享服务与 M3 公共界面已实现，其余模块按实施阶段推进。此文同时描述后续目标，具体已验证范围见 [外壳实现](app-shell.md) 、[网关、数据和调度](gateway-data-scheduler.md) 与 [设置、备份和词典](shared-settings-tags.md)。
 
 ## 复刻原则
 
@@ -30,15 +30,15 @@ Vue 拥有节点创建、包裹、搬移和销毁。高亮组件模板包含包�
 
 Profile 明确声明以下能力，默认策略复刻现有业务，不按渠道名称或域名分支：
 
-| 能力 | 责任 |
-| --- | --- |
-| quote | 原预报价时序、防抖、失效请求与未知／零值区分 |
-| costCeiling | 执行前重报，携带 max_cost；涨价提示后继续、批量最多提示一次，无付费确认弹窗 |
-| executionRoutes | 按原条件选择原生免费、Studio 与工具路线；无自动重试或回退 |
-| quotaPolicy | 原日额度、临时 Key、300 阈值、400 警示条件及未知额度处理 |
-| quotaPresentation | 原额度环、余额单位、零值和未知态，复用既有界面布局 |
-| catalog／modelMapping | 规范模型、目录解析、手动来源与参数能力 |
-| auth／transport | 显式连接上下文、认证、规范结果、错误及取消 |
+| 能力                  | 责任                                                                        |
+| --------------------- | --------------------------------------------------------------------------- |
+| quote                 | 原预报价时序、防抖、失效请求与未知／零值区分                                |
+| costCeiling           | 执行前重报，携带 max_cost；涨价提示后继续、批量最多提示一次，无付费确认弹窗 |
+| executionRoutes       | 按原条件选择原生免费、Studio 与工具路线；无自动重试或回退                   |
+| quotaPolicy           | 原日额度、临时 Key、300 阈值、400 警示条件及未知额度处理                    |
+| quotaPresentation     | 原额度环、余额单位、零值和未知态，复用既有界面布局                          |
+| catalog／modelMapping | 规范模型、目录解析、手动来源与参数能力                                      |
+| auth／transport       | 显式连接上下文、认证、规范结果、错误及取消                                  |
 
 初始连接为空。用户配置 URL 和 Key 后才能请求上游；本地服务可使用 KOMA_GATEWAY_URL／KOMA_GATEWAY_KEY，环境变量不进入客户端产物。测试、示例、图标和默认头像不包含私有渠道指纹。用户自配直连地址可在其浏览器查看；如需隐藏实际上游，使用同源服务端网关。
 
@@ -46,7 +46,7 @@ Profile 明确声明以下能力，默认策略复刻现有业务，不按渠道
 
 全应用共用任务调度器和 Web Locks 槽位，默认 N=1，忙时提示返回；批次占同一槽位直到结束，不自动排队。后续可扩展并发与在途 max_cost 预占，本阶段不启用。
 
-数据库使用 koma-image-favorites、koma-chat、koma-handoff；偏好、连接与凭据采用 koma.*；同步频道为 koma-sync。数据锁为 koma-image-data-v1，任务门为 koma-image-generation-v1，槽位为 koma-image-generation-slot-v1:1..N。命名集中管理，避免组件硬编码。
+数据库使用 koma-image-favorites、koma-chat、koma-handoff；偏好、连接与凭据采用 koma.\*；同步频道为 koma-sync。数据锁为 koma-image-data-v1，任务门为 koma-image-generation-v1，槽位为 koma-image-generation-slot-v1:1..N。命名集中管理，避免组件硬编码。
 
 ### 数据兼容范围（已裁撤旧数据迁移）
 

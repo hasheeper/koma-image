@@ -8,11 +8,18 @@ import ChatWorkspace from "../workspaces/chat/ChatWorkspace.vue";
 import TagsWorkspace from "../workspaces/tags/TagsWorkspace.vue";
 import SettingsOverlay from "../overlays/SettingsOverlay.vue";
 import EditorOverlay from "../overlays/EditorOverlay.vue";
+import KeyDialog from "../overlays/KeyDialog.vue";
+import ConfirmSheet from "../shared/ConfirmSheet.vue";
+import ToastList from "../shared/ToastList.vue";
+import ModelLogos from "../shared/ModelLogos.vue";
+import { createUi, uiKey } from "./ui";
 
 const router = createRouter();
 const shell = createShell(router);
 provide(shellKey, shell);
-usePresentation(shell);
+const ui = createUi();
+provide(uiKey, ui);
+usePresentation(shell, ui);
 // Stable workspace keys, regardless of overlay or query ticket. Components stay non-reactive.
 const workspaces = {
   image: ImageWorkspace,
@@ -29,4 +36,8 @@ const workspaces = {
   </KeepAlive>
   <SettingsOverlay />
   <EditorOverlay />
+  <KeyDialog />
+  <ConfirmSheet />
+  <ToastList />
+  <ModelLogos />
 </template>

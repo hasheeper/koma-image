@@ -1,0 +1,163 @@
+/**
+ * NAI prompt weight highlighting.
+ *
+ * Recognised syntax
+ *   W::text::   absolute weight W (may be negative, e.g. -5::artist::)
+ *   {text}      multiply current weight by 1.05  (nestable)
+ *   [text]      divide current weight by 1.05    (nestable)
+ *
+ * Parentheses are NOT weight syntax here: real tags contain them
+ * (`sho_(sho_lwlw)`), so treating them as modifiers would corrupt the prompt.
+ *
+ * Colour, against the dark canvas:
+ *   weight > 1  → red,  brighter as the weight climbs
+ *   weight < 1  → blue, brighter as the weight drops (negatives are brightest)
+ *   weight = 1  → no tint, only a faint block so the group is still legible
+ */
+
+const BRACE_STEP = 1.05;
+
+/* A number only opens a scope when it starts a token; otherwise the trailing
+   digit of a tag such as `aku0::` would be mistaken for an opener. */
+const DELIM = /[\s,:{}[\]()|]/;
+const OPENER = /(-?\d*\.?\d+)[ \t]*::/y;
+
+/**
+ * @returns {{text:string, weight:number, depth:number, syntax:boolean}[]}
+ */
+export function analyze(text: string) {
+  const n = text.length;
+  if (!n) return [];
+
+  const weights = new Float64Array(n).fill(1);
+  const depths = new Uint8Array(n);
+  const syntax = new Uint8Array(n);
+  const stack: number[] = [];
+  const top = () => (stack.length ? stack[stack.length - 1] : 1);
+
+  const isDelim = (index: number) => index < 0 || DELIM.test(text[index]);
+  const paint = (from: number, len: number, weight: number) => {
+    for (let k = from; k < from + len && k < n; k += 1) {
+      weights[k] = weight;
+      depths[k] = stack.length;
+      syntax[k] = 1;
+    }
+  };
+
+  let i = 0;
+  while (i < n) {
+    const ch = text[i];
+
+    // ── W:: opener ────────────────────────────────────────────
+    if (
+      (ch === "-" || ch === "." || (ch >= "0" && ch <= "9")) &&
+      isDelim(i - 1)
+    ) {
+      OPENER.lastIndex = i;
+      const match = OPENER.exec(text);
+      if (match && match.index === i) {
+        const weight = Number(match[1]);
+        if (Number.isFinite(weight)) {
+          stack.push(weight);
+          paint(i, match[0].length, weight);
+          i += match[0].length;
+          continue;
+        }
+      }
+    }
+
+    // ── :: closer ─────────────────────────────────────────────
+    if (ch === ":" && text[i + 1] === ":") {
+      const closing = stack.length ? stack.pop()! : 1;
+      weights[i] = weights[i + 1] = closing;
+      depths[i] = depths[i + 1] = stack.length;
+      syntax[i] = syntax[i + 1] = 1;
+      i += 2;
+      continue;
+    }
+
+    // ── braces ────────────────────────────────────────────────
+    if (ch === "{" || ch === "[") {
+      const next = ch === "{" ? top() * BRACE_STEP : top() / BRACE_STEP;
+      stack.push(next);
+      paint(i, 1, next);
+      i += 1;
+      continue;
+    }
+    if (ch === "}" || ch === "]") {
+      const closing = stack.length ? stack.pop()! : 1;
+      weights[i] = closing;
+      depths[i] = stack.length;
+      syntax[i] = 1;
+      i += 1;
+      continue;
+    }
+
+    weights[i] = top();
+    depths[i] = stack.length;
+    i += 1;
+  }
+
+  // ── coalesce equal runs ─────────────────────────────────────
+  const out = [];
+  let start = 0;
+  const same = (a: number, b: number) =>
+    weights[a] === weights[b] &&
+    depths[a] === depths[b] &&
+    syntax[a] === syntax[b];
+
+  for (let k = 1; k <= n; k += 1) {
+    if (k === n || !same(k - 1, k)) {
+      out.push({
+        text: text.slice(start, k),
+        weight: weights[start],
+        depth: depths[start],
+        syntax: syntax[start] === 1,
+      });
+      start = k;
+    }
+  }
+  return out;
+}
+
+/** Normalised distance from neutral, 0 → 1. */
+function intensity(weight: number) {
+  if (weight <= 0) return Math.min(1, 0.72 + Math.abs(weight) / 12);
+  const ratio = weight > 1 ? weight : 1 / weight;
+  return Math.min(1, Math.log(ratio) / Math.log(5));
+}
+
+export function tint(weight: number, depth: number) {
+  if (!Number.isFinite(weight) || Math.abs(weight - 1) < 1e-6) {
+    // Explicit but neutral scope: hint the grouping without colouring it.
+    return depth > 0 ? "background-color:rgba(255,255,255,.05)" : "";
+  }
+  const t = intensity(weight);
+  const hue = weight > 1 ? 353 : 212;
+  const sat = Math.round(55 + t * 40);
+  const light = Math.round(26 + t * 34);
+  const alpha = (0.2 + t * 0.34).toFixed(3);
+  return `background-color:hsl(${hue} ${sat}% ${light}% / ${alpha})`;
+}
+
+const ESC: Record<string, string> = { "&": "&amp;", "<": "&lt;", ">": "&gt;" };
+const escape = (s: string) => s.replace(/[&<>]/g, (c) => ESC[c]);
+
+/** Build the mirror markup for a textarea's value. */
+export function render(text: string) {
+  // A trailing newline needs a filler or the mirror loses its last line box.
+  const source = text.endsWith("\n") ? `${text} ` : text;
+  let html = "";
+
+  for (const token of analyze(source)) {
+    const style = tint(token.weight, token.depth);
+    const classes = ["w"];
+    if (token.syntax) classes.push("w-mark");
+    const label =
+      Math.abs(token.weight - 1) > 1e-6
+        ? ` data-w="${token.weight.toFixed(2)}"`
+        : "";
+    html += `<span class="${classes.join(" ")}"${style ? ` style="${style}"` : ""}${label}>${escape(token.text)}</span>`;
+  }
+  return html;
+}

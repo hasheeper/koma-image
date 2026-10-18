@@ -21,6 +21,7 @@ const layout = shallowRef({
 const shapes = [1, 2 / 3, 1.5, 2 / 3, 1, 1.5, 2 / 3, 1, 1.5, 2 / 3, 1, 1.5];
 let observer: ResizeObserver | undefined;
 let active = false;
+let measureFrame = 0;
 let measured = "";
 
 // The original justified empty shelf geometry. Populated shelves enter with M4.
@@ -90,12 +91,16 @@ async function measure() {
 }
 function pause() {
   active = false;
+  cancelAnimationFrame(measureFrame);
   observer?.disconnect();
   observer = undefined;
 }
 onActivated(() => {
   active = true;
-  observer = new ResizeObserver(() => void measure());
+  observer = new ResizeObserver(() => {
+    cancelAnimationFrame(measureFrame);
+    measureFrame = requestAnimationFrame(() => void measure());
+  });
   if (props.viewport) observer.observe(props.viewport);
   if (home.value) observer.observe(home.value);
   void measure();

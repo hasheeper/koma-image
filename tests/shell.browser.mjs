@@ -61,6 +61,12 @@ async function open(path = "/") {
     if (message.type() === "error") errors.push(message.text());
   });
   await context.route("**/*", (route) => {
+    if (
+      ["tagsuggest.zeabur.app", "danbooru.donmai.us"].includes(
+        new URL(route.request().url()).host,
+      )
+    )
+      return route.fulfill({ json: { results: [] } });
     if (new URL(route.request().url()).origin !== origin) {
       external.push(route.request().url());
       return route.abort();
@@ -154,15 +160,19 @@ test("single document, cached drafts and nodes, back/forward, and global overlay
   );
   assert.equal(
     new URL(page.url()).search,
-    "?image=synthetic-ticket&repeat=a&repeat=b",
+    "?image=synthetic-ticket&repeat=a&repeat=b&q=blue+hair",
   );
   assert.deepEqual(
     await page.evaluate(async () => ({
       local: Object.keys(localStorage),
       session: Object.keys(sessionStorage),
-      dbs: (await indexedDB.databases()).map(db => db.name).sort(),
+      dbs: (await indexedDB.databases()).map((db) => db.name).sort(),
     })),
-    { local: [], session: [], dbs: ["koma-chat", "koma-handoff", "koma-image-favorites"] },
+    {
+      local: ["koma.tag.categories.v1"],
+      session: [],
+      dbs: ["koma-chat", "koma-handoff", "koma-image-favorites"],
+    },
   );
   await clean(result);
 });
@@ -301,6 +311,8 @@ test("repeat activation and dialog cycles retain one listener set and release in
   for (const id of ["chat", "tags", "image"]) await switchTo(page, id);
   const initialWindow = await listeners("window");
   const initialViewport = await listeners("visualViewport");
+  const initialDocument = await listeners("document");
+  const initialPrompt = await listeners("document.querySelector('#prompt')");
   for (let i = 0; i < 12; i++) {
     for (const id of ["chat", "tags", "image"]) {
       await page.evaluate((id) => {
@@ -323,9 +335,14 @@ test("repeat activation and dialog cycles retain one listener set and release in
   }
   assert.deepEqual(await listeners("window"), initialWindow);
   assert.deepEqual(await listeners("visualViewport"), initialViewport);
+  assert.deepEqual(await listeners("document"), initialDocument);
+  assert.deepEqual(
+    await listeners("document.querySelector('#prompt')"),
+    initialPrompt,
+  );
   assert.equal(await page.locator("#gallery").count(), 1);
   assert.equal(await page.locator("[data-workspace-root]").count(), 1);
-  assert.equal(await page.locator("dialog").count(), 2);
+  assert.equal(await page.locator("dialog").count(), 6);
   await cdp.detach();
   await clean(result);
 });

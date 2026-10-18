@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed, shallowRef } from "vue";
+import { computed, shallowRef, ref, onBeforeUnmount } from "vue";
 import { useShell } from "../../app/shell";
 import { useWorkspaceLifecycle } from "../../app/workspace-lifecycle";
 import AppIcon from "../../shared/AppIcon.vue";
@@ -8,6 +8,32 @@ import WalletDisplay from "../../shared/WalletDisplay.vue";
 import ImageLibrary from "./ImageLibrary.vue";
 import PromptDraft from "./PromptDraft.vue";
 import EmptyStage from "./EmptyStage.vue";
+import { useServices } from "../../app/services";
+import { useUi, message } from "../../app/ui";
+import { names } from "../../storage/names.ts";
+import { object } from "../../domain/value.ts";
+const { preferences } = useServices(),
+  ui = useUi();
+const tagSuggest = ref(
+  object(preferences.get(names.preferences, {})).tagSuggest !== false,
+);
+const stopPrefs = preferences.subscribe((key) => {
+  if (!key || key === names.preferences)
+    tagSuggest.value =
+      object(preferences.get(names.preferences, {})).tagSuggest !== false;
+});
+onBeforeUnmount(stopPrefs);
+async function setSuggest(event: Event) {
+  try {
+    await preferences.set(names.preferences, {
+      ...object(preferences.get(names.preferences, {})),
+      tagSuggest: (event.target as HTMLInputElement).checked,
+    });
+  } catch (error) {
+    ui.toast(message(error), "err");
+    (event.target as HTMLInputElement).checked = tagSuggest.value;
+  }
+}
 
 const { image, narrow, router } = useShell();
 const main = shallowRef<HTMLElement | null>(null);
@@ -84,7 +110,7 @@ function security() {
   <main ref="main" class="shell" data-workspace-root="image">
     <form class="composer generation-form" id="form" @submit.prevent>
       <div ref="composerScroll" class="composer-scroll">
-        <PromptDraft />
+        <PromptDraft :suggest="tagSuggest" />
         <!-- M4 fills this composer with model, size and parameter controls from the baseline. -->
         <div class="fld">
           <div class="fld-top">
@@ -96,6 +122,24 @@ function security() {
             <option>未配置连接</option>
           </select>
         </div>
+        <details class="drawer">
+          <summary>
+            <AppIcon class="section-ico" name="i-settings" /><span>设置</span
+            ><i class="caret" aria-hidden="true"></i>
+          </summary>
+          <div class="drawer-body settings-list">
+            <label
+              class="check"
+              title="输入时查词典并弹出候选；关闭后不再发送查询"
+              ><input
+                id="tagSuggest"
+                type="checkbox"
+                :checked="tagSuggest"
+                @change="setSuggest"
+              /><span></span>Tag 自动补全</label
+            >
+          </div>
+        </details>
       </div>
       <div class="composer-foot">
         <div class="go-row">

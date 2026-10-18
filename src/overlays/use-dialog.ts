@@ -12,6 +12,9 @@ export function useDialog(
   const { router } = useShell();
   let revision = 0;
   let returnFocus: HTMLElement | null = null;
+  const removeGuard = router.guard(
+    (previous) => previous.overlay !== id || canClose(),
+  );
   watch(
     () => router.route.value.overlay,
     async (overlay) => {
@@ -53,6 +56,7 @@ export function useDialog(
       requestClose();
   }
   onBeforeUnmount(() => {
+    removeGuard();
     revision++;
     dialog.value?.close();
   });
