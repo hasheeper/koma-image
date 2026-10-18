@@ -1,0 +1,20 @@
+/** All persistent names belong to this application. No fallback namespaces. */
+export const names = Object.freeze({
+  databases: { favorites: "koma-image-favorites", chat: "koma-chat", handoff: "koma-handoff" },
+  preferences: "koma.prefs.v1",
+  routing: "koma.routing.v1",
+  chatSettings: "koma.chat.settings.v1",
+  chatCurrent: "koma.chat.current.v1",
+  chatRail: "koma.chat.rail.v1",
+  tagCart: "koma.tag.cart.v1",
+  tagCategories: "koma.tag.categories.v1",
+  tagHandoff: "koma.tag.handoff.v1",
+  vault: "koma.vault.v2",
+  sessionKeys: "koma.session.keys",
+  sessionDerivedKey: "koma.session.dk",
+  sync: "koma-sync",
+  dataLock: "koma-image-data-v1",
+  taskGate: "koma-image-generation-v1",
+  taskSlot: (slot: number) => `koma-image-generation-slot-v1:${slot}`,
+  dragType: "application/x-koma-version",
+});

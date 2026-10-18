@@ -20,3 +20,4 @@ jobs:
       - run: npm run check
       - run: npx playwright install --with-deps chromium
       - run: node --test tests/shell.browser.mjs
+      - run: npm run test:services

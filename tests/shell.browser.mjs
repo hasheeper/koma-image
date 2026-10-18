@@ -160,9 +160,9 @@ test("single document, cached drafts and nodes, back/forward, and global overlay
     await page.evaluate(async () => ({
       local: Object.keys(localStorage),
       session: Object.keys(sessionStorage),
-      dbs: await indexedDB.databases(),
+      dbs: (await indexedDB.databases()).map(db => db.name).sort(),
     })),
-    { local: [], session: [], dbs: [] },
+    { local: [], session: [], dbs: ["koma-chat", "koma-handoff", "koma-image-favorites"] },
   );
   await clean(result);
 });

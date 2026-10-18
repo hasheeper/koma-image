@@ -1,0 +1,56 @@
+import { object } from "../domain/value.ts";
+import { profileFor } from "../gateway/profile.ts";
+
+export interface Connection {
+  id: string;
+  name: string;
+  baseUrl: string;
+  profileId: string;
+  credentialRef: string;
+  revision: string;
+}
+export interface ModelLink { id: string; manual: boolean; on: boolean }
+export interface Routing {
+  version: 1;
+  connections: Record<string, Connection>;
+  links: Record<string, Record<string, ModelLink>>;
+}
+export const emptyRouting = (): Routing => ({ version: 1, connections: {}, links: {} });
+
+export function validId(value: unknown): value is string {
+  return typeof value === "string" && /^[a-zA-Z0-9][a-zA-Z0-9._:-]{0,127}$/.test(value)
+    && !["constructor", "prototype", "__proto__"].includes(value);
+}
+export function normalizeBaseUrl(value: unknown): string {
+  if (typeof value !== "string" || !value.trim()) throw new Error("请配置连接 URL");
+  let url: URL;
+  try { url = new URL(value.trim()); } catch { throw new Error("连接 URL 无效"); }
+  if (!(url.protocol === "https:" || url.protocol === "http:" && ["localhost", "127.0.0.1", "[::1]"].includes(url.hostname))
+    || url.username || url.password || url.search || url.hash) throw new Error("请使用不含凭据、查询参数和片段的 HTTPS 地址或本机 HTTP 地址");
+  return url.href.replace(/\/+$/, "");
+}
+/** Only non-secret configuration is accepted; unknown fields never persist. */
+export function validateRouting(value: unknown): Routing {
+  const input = object(value);
+  if (input.version !== 1 || !input.connections || typeof input.connections !== "object" || Array.isArray(input.connections)) throw new Error("连接配置格式无效");
+  const out = emptyRouting();
+  for (const [id, raw] of Object.entries(object(input.connections))) {
+    const c = object(raw);
+    if (!validId(id) || c.id !== id || !validId(c.credentialRef) || !validId(c.revision)
+      || typeof c.name !== "string" || !c.name.trim() || c.name.length > 128 || typeof c.profileId !== "string") throw new Error("连接配置格式无效");
+    profileFor(c.profileId);
+    out.connections[id] = { id, name: c.name.trim(), baseUrl: normalizeBaseUrl(c.baseUrl),
+      credentialRef: c.credentialRef, profileId: c.profileId, revision: c.revision };
+  }
+  for (const [id, raw] of Object.entries(object(input.links))) {
+    if (!Object.hasOwn(out.connections, id)) continue;
+    const links: Record<string, ModelLink> = {};
+    for (const [model, value] of Object.entries(object(raw))) {
+      const link = object(value);
+      if (!validId(model) || typeof link.id !== "string" || !link.id.trim() || link.id.length > 512) throw new Error("模型来源配置无效");
+      links[model] = { id: link.id, manual: link.manual === true, on: link.on !== false };
+    }
+    out.links[id] = links;
+  }
+  return out;
+}
