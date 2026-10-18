@@ -128,7 +128,7 @@ test("single document, cached drafts and nodes, back/forward, and global overlay
     .getByRole("button", { name: /^设置/ })
     .click();
   await page.waitForSelector("#settingsPanel[open]");
-  await page.getByRole("button", { name: "备份与迁移", exact: true }).click();
+  await page.getByRole("button", { name: "备份与恢复", exact: true }).click();
   assert.match(page.url(), /#\/tags\/settings\/backup$/);
   assert.equal(await page.locator("#settingsPanel").count(), 1);
   assert.equal(await page.locator("#imageEditor").count(), 1);

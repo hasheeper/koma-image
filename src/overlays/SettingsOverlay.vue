@@ -15,7 +15,7 @@ const sections: { id: SettingsSection; label: string; icon: string }[] = [
   { id: "connections", label: "连接", icon: "swap" },
   { id: "models", label: "模型", icon: "model" },
   { id: "security", label: "安全", icon: "lock" },
-  { id: "backup", label: "备份与迁移", icon: "import" },
+  { id: "backup", label: "备份与恢复", icon: "import" },
 ];
 const avatar = `${import.meta.env.BASE_URL}assets/default-avatar.svg`;
 </script>
@@ -100,10 +100,10 @@ const avatar = `${import.meta.env.BASE_URL}assets/default-avatar.svg`;
           <section
             v-show="router.route.value.section === 'backup'"
             class="sp-sec"
-            aria-label="备份与迁移"
+            aria-label="备份与恢复"
           >
             <div class="sp-sec-head">
-              <h3>备份与迁移</h3>
+              <h3>备份与恢复</h3>
               <p>收藏、对话与偏好</p>
             </div>
             <div class="transfer-row">

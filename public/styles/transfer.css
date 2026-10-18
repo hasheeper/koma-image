@@ -24,10 +24,6 @@
 .transfer-status[data-tone="error"] { color: var(--err); }
 .transfer-status[data-tone="success"] { color: var(--ok); }
 .transfer-return { margin-top: 12px; }
-.transfer-notice { padding: 18px 20px; margin-bottom: 30px; border-left: 2px solid var(--a); background: color-mix(in srgb, var(--a) 5%, transparent); }
-.transfer-notice strong { font-size: var(--fz-sm); font-weight: 500; }
-.transfer-notice p { color: var(--fg-3); font-size: var(--fz-xs); line-height: 1.8; margin: 8px 0 12px; }
-.transfer-notice a { color: var(--a); font-size: var(--fz-xs); text-underline-offset: 3px; }
 @media (max-width: 600px) {
   .transfer-local { display: none; }
   .transfer-main { padding: 30px 20px 48px; }
