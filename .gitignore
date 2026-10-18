@@ -1,0 +1,16 @@
+node_modules/
+dist/
+coverage/
+test-results/
+playwright-report/
+.env
+.env.*
+!.env.example
+.wrangler/
+.local/
+*.log
+*.pem
+*.key
+/key.txt
+/config/api-key.txt
+.DS_Store
