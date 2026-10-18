@@ -22,3 +22,4 @@ jobs:
       - run: node --test tests/shell.browser.mjs
       - run: npm run test:services
       - run: npm run test:shared
+      - run: npm run test:drawing

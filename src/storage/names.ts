@@ -16,5 +16,6 @@ export const names = Object.freeze({
   dataLock: "koma-image-data-v1",
   taskGate: "koma-image-generation-v1",
   taskSlot: (slot: number) => `koma-image-generation-slot-v1:${slot}`,
+  historyDragType: "application/x-koma-history",
   dragType: "application/x-koma-version",
 });

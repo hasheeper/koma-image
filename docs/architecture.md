@@ -1,6 +1,6 @@
 # 架构规范
 
-状态：2026-10-19；M1 单页外壳、M2 共享服务与 M3 公共界面已实现，其余模块按实施阶段推进。此文同时描述后续目标，具体已验证范围见 [外壳实现](app-shell.md) 、[网关、数据和调度](gateway-data-scheduler.md) 与 [设置、备份和词典](shared-settings-tags.md)。
+状态：2026-10-19；M1 单页外壳、M2 共享服务、M3 公共界面与 M4 绘图工作区已实现，其余模块按实施阶段推进。此文同时描述后续目标，具体已验证范围见 [外壳实现](app-shell.md) 、[网关、数据和调度](gateway-data-scheduler.md) 、[设置、备份和词典](shared-settings-tags.md) 与 [绘图工作区](drawing-workspace.md)。
 
 ## 复刻原则
 
@@ -71,6 +71,7 @@ src/
   gateway/      Profile、能力校验和请求转换
   services/     调度、资源和连接服务
   storage/      Koma 持久化接口
+  native/       原生绘制驱动、图片解析和本地合成
   config/       非秘密配置 schema
 public/         经审查的本地静态资源
 docs/           中性工程说明和业务契约

@@ -53,6 +53,18 @@ onBeforeUnmount(() => {
               >×{{ notice.count }}</span
             ></span
           ><button
+            v-if="notice.action"
+            class="toast-action"
+            type="button"
+            @click="
+              async () => {
+                if ((await notice.action!.run()) !== false)
+                  dismissNotice(notice.id);
+              }
+            "
+          >
+            {{ notice.action.label }}</button
+          ><button
             v-if="['warn', 'err'].includes(notice.tone)"
             class="toast-x"
             type="button"

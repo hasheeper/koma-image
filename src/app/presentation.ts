@@ -23,7 +23,12 @@ export function usePresentation(shell: AppShell, ui: Ui) {
       body.dataset.gate = ui.credential.value ? "open" : "closed";
       body.dataset.picker = ui.pickerOpen.value ? "open" : "closed";
       const attrs: Record<string, string | undefined> = {
-        state: workspace === "image" ? "empty" : undefined,
+        state: workspace === "image" ? shell.image.state : undefined,
+        zoom: workspace === "image" && shell.image.zoom ? "on" : undefined,
+        import:
+          workspace === "image" && shell.image.importing ? "open" : undefined,
+        drop: workspace === "image" && shell.image.drop ? "on" : undefined,
+        swap: workspace === "image" && shell.image.swap ? "instant" : undefined,
         hist:
           workspace === "image"
             ? shell.image.historyOpen
@@ -63,6 +68,10 @@ export function usePresentation(shell: AppShell, ui: Ui) {
     for (const key of [
       "workspace",
       "state",
+      "zoom",
+      "import",
+      "drop",
+      "swap",
       "hist",
       "topbarMenu",
       "sidebar",

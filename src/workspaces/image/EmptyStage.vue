@@ -1,6 +1,8 @@
 <script setup lang="ts">
 import {
   nextTick,
+  watch,
+  computed,
   onActivated,
   onBeforeUnmount,
   onDeactivated,
@@ -10,13 +12,22 @@ import { useShell } from "../../app/shell";
 import AppIcon from "../../shared/AppIcon.vue";
 
 const props = defineProps<{ viewport: HTMLElement | null }>();
-const { narrow } = useShell();
+const { narrow, image } = useShell();
+import { useDrawing } from "../../app/drawing";
+import type { ImageRecord } from "../../domain/drawing";
+import { imageFileName } from "../../domain/drawing";
+const { drawing, view } = useDrawing();
+type Cell = { ar: number; width: number; item?: ImageRecord };
+const shown = computed(
+  () => layout.value.rows.flat().filter((r) => r.item).length,
+);
+
 const home = shallowRef<HTMLElement | null>(null);
 const layout = shallowRef({
   width: 0,
   gap: 12,
   compact: false,
-  rows: [] as { ar: number; width: number }[][],
+  rows: [] as Cell[][],
 });
 const shapes = [1, 2 / 3, 1.5, 2 / 3, 1, 1.5, 2 / 3, 1, 1.5, 2 / 3, 1, 1.5];
 let observer: ResizeObserver | undefined;
@@ -24,34 +35,43 @@ let active = false;
 let measureFrame = 0;
 let measured = "";
 
-// The original justified empty shelf geometry. Populated shelves enter with M4.
+// Original justified shelf geometry, with persisted favorites before the ghosts.
 function rowsFor(width: number, target: number, gap: number) {
-  const rows: { ar: number; width: number }[][] = [];
+  const rows: Cell[][] = [];
+  const entries = [
+    ...view.value.favorites
+      .slice(0, 12)
+      .map((item) => ({ ar: item.size.width / item.size.height, item })),
+    ...shapes.map((ar) => ({ ar, item: undefined })),
+  ];
   let index = 0;
-  for (let r = 0; r < 2 && index < shapes.length; r++) {
-    const row: number[] = [];
+  for (let r = 0; r < 2 && index < entries.length; r++) {
+    const row: typeof entries = [];
     let sum = 0;
     while (
-      index < shapes.length &&
+      index < entries.length &&
       (!row.length ||
-        (sum + shapes[index]!) * target + row.length * gap <= width)
+        (sum + entries[index]!.ar) * target + row.length * gap <= width)
     ) {
-      const ar = shapes[index++]!;
-      row.push(ar);
-      sum += ar;
+      const cell = entries[index++]!;
+      row.push(cell);
+      sum += cell.ar;
     }
     const full =
-      index < shapes.length ||
+      index < entries.length ||
       sum * target + (row.length - 1) * gap > width * 0.8;
     if (!full && rows.length) break;
     const height = full ? (width - (row.length - 1) * gap) / sum : target;
-    rows.push(row.map((ar) => ({ ar, width: Math.floor(ar * height) })));
+    rows.push(
+      row.map((cell) => ({ ...cell, width: Math.floor(cell.ar * height) })),
+    );
   }
   return rows;
 }
 async function measure() {
   const viewport = props.viewport;
-  if (!active || !viewport || !home.value) return;
+  if (!active || !viewport || !home.value || view.value.state !== "empty")
+    return;
   const css = getComputedStyle(viewport);
   const padding = parseFloat(css.paddingTop) + parseFloat(css.paddingBottom);
   const fitWidth = Math.floor(
@@ -65,7 +85,7 @@ async function measure() {
       : viewport.clientHeight) - padding,
   );
   if (fitWidth <= 0 || fitHeight <= 0) return;
-  const key = `${fitWidth}:${fitHeight}:${narrow.value}`;
+  const key = `${fitWidth}:${fitHeight}:${narrow.value}:${view.value.favorites.map((r) => r.id).join(",")}`;
   if (key !== measured) {
     measured = key;
     const inset = Math.round(Math.max(0, Math.min(72, (fitWidth - 480) / 4)));
@@ -89,6 +109,14 @@ async function measure() {
     );
   else viewport.style.removeProperty("--vp-h");
 }
+watch(
+  [() => view.value.favorites, () => view.value.state, narrow],
+  () => {
+    measured = "";
+    void measure();
+  },
+  { flush: "post" },
+);
 function pause() {
   active = false;
   cancelAnimationFrame(measureFrame);
@@ -194,10 +222,25 @@ onBeforeUnmount(pause);
     <section class="home-favs" aria-labelledby="homeFavsTitle">
       <div class="home-head">
         <h2 id="homeFavsTitle"><AppIcon name="i-star" />最近收藏</h2>
+        <span class="home-n" :hidden="!shown || shown < view.favorites.length"
+          >{{ view.favorites.length }} 张</span
+        ><button
+          class="home-all"
+          type="button"
+          :hidden="!shown || shown >= view.favorites.length"
+          @click="
+            image.library = 'favorites';
+            image.historyOpen = true;
+            if (narrow) image.menuOpen = true;
+          "
+        >
+          全部 {{ view.favorites.length }} 张<AppIcon name="i-chevron" />
+        </button>
       </div>
       <div class="home-shelf">
         <div
-          class="home-grid is-empty"
+          class="home-grid"
+          :class="{ 'is-empty': !shown && !view.favoritesLoading }"
           :style="{ '--home-gap': `${layout.gap}px` }"
         >
           <div
@@ -205,24 +248,42 @@ onBeforeUnmount(pause);
             :key="index"
             class="home-row"
           >
-            <i
+            <template
               v-for="(shape, column) in row"
-              :key="column"
-              class="home-ghost"
-              aria-hidden="true"
-              :style="{
-                '--w': `${shape.width}px`,
-                '--ar': shape.ar.toFixed(4),
-              }"
-            ></i>
+              :key="shape.item?.id || column"
+              ><button
+                v-if="shape.item"
+                class="home-fav"
+                type="button"
+                :aria-label="`查看收藏 ${imageFileName(shape.item)}`"
+                :style="{
+                  '--w': `${shape.width}px`,
+                  '--ar': shape.ar.toFixed(4),
+                  '--thumb': `url('${drawing.url(shape.item, true)}')`,
+                }"
+                @click="drawing.show(shape.item, true)"
+              ></button
+              ><i
+                v-else
+                class="home-ghost"
+                aria-hidden="true"
+                :style="{
+                  '--w': `${shape.width}px`,
+                  '--ar': shape.ar.toFixed(4),
+                  '--g': column,
+                }"
+              ></i
+            ></template>
           </div>
         </div>
-        <p class="home-empty">
+        <p class="home-empty" :hidden="!!shown || view.favoritesLoading">
           <AppIcon name="i-star" /><b>收藏的图会排在这里</b
           ><span>{{
-            layout.compact
-              ? "刷新后也不会丢"
-              : "生成记录刷新后清空，点图片下方的星标收藏，就会一直留在这里"
+            view.favoritesError
+              ? "打开右侧的收藏可以重试"
+              : layout.compact
+                ? "刷新后也不会丢"
+                : "生成记录刷新后清空，点图片下方的星标收藏，就会一直留在这里"
           }}</span>
         </p>
       </div>

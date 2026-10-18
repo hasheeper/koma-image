@@ -169,7 +169,7 @@ test("single document, cached drafts and nodes, back/forward, and global overlay
       dbs: (await indexedDB.databases()).map((db) => db.name).sort(),
     })),
     {
-      local: ["koma.tag.categories.v1"],
+      local: ["koma.tag.categories.v1", "koma.prefs.v1"],
       session: [],
       dbs: ["koma-chat", "koma-handoff", "koma-image-favorites"],
     },

@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { provide } from "vue";
+import { provide, onScopeDispose } from "vue";
 import { createRouter } from "./router";
 import { createShell, shellKey } from "./shell";
 import { usePresentation } from "./presentation";
@@ -14,11 +14,17 @@ import ToastList from "../shared/ToastList.vue";
 import ModelLogos from "../shared/ModelLogos.vue";
 import { createUi, uiKey } from "./ui";
 
+import { useServices } from "./services";
+import { createDrawing } from "../services/drawing";
+import { drawingKey } from "./drawing";
 const router = createRouter();
 const shell = createShell(router);
 provide(shellKey, shell);
 const ui = createUi();
 provide(uiKey, ui);
+const drawing = createDrawing(useServices(), ui);
+provide(drawingKey, drawing);
+onScopeDispose(() => drawing.dispose());
 usePresentation(shell, ui);
 // Stable workspace keys, regardless of overlay or query ticket. Components stay non-reactive.
 const workspaces = {

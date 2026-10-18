@@ -22,6 +22,7 @@ export function createUi() {
       count: number;
       duration: number;
       out: boolean;
+      action?: { label: string; run: () => Promise<boolean | void> };
     }[]
   >([]);
   const tagDelivery = shallowRef(0);
@@ -60,12 +61,17 @@ export function createUi() {
       queue = next.then(() => {});
       return next;
     },
-    toast(text: string, tone = "info") {
+    toast(
+      text: string,
+      tone = "info",
+      action?: { label: string; run: () => Promise<boolean | void> },
+    ) {
       const same = notices.value.find(
         (n) => n.text === text && n.tone === tone && !n.out,
       );
-      const duration =
-        { ok: 3000, info: 4000, warn: 6000, err: 8000 }[tone] ?? 8000;
+      const duration = action
+        ? 8000
+        : ({ ok: 3000, info: 4000, warn: 6000, err: 8000 }[tone] ?? 8000);
       notices.value = [
         {
           id: ++sequence,
@@ -74,6 +80,7 @@ export function createUi() {
           count: (same?.count ?? 0) + 1,
           duration,
           out: false,
+          action,
         },
         ...notices.value.filter((n) => n !== same).slice(0, 2),
       ];

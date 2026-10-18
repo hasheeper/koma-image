@@ -8,6 +8,11 @@ export function createShell(router: AppRouter) {
   // Only presentation values. Jobs and image resources belong in services.
   const image = reactive({
     historyOpen: true,
+    state: "empty",
+    zoom: false,
+    importing: false,
+    drop: false,
+    swap: false,
     menuOpen: false,
     library: "history" as "history" | "favorites",
   });

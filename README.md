@@ -8,7 +8,9 @@ M2 网关、Koma 数据与备份 schema、默认 N=1 的全局调度器也已完
 
 M3 已接入连接／模型／安全设置、Key 加密与跨标签解锁、新版 ZIP 备份、词典／组合与提示词高亮／补全。UI 继续复用原正式样式。
 
-这仍是分阶段开发版本。绘图生成、结果与收藏操作、对话执行和编辑 Canvas 尚未接入，相关按钮禁用。下一步为 M4 绘图面板与图片结果；本地环境变量代理仍待发布前接入。
+M4 已接入绘图参数／预设、报价与串行执行、结果、普通历史、持久收藏和图片参数导入。继续复用原正式样式，高频波浪与分栏保持原生驱动。
+
+这仍是分阶段开发版本。下一步为 M5 对话执行，之后 M6 编辑 Canvas／放大与结果交接；这些入口暂时禁用。本地环境变量代理仍待 M7 发布前接入。
 
 ## 本地开发
 
@@ -35,9 +37,10 @@ npx playwright install chromium
 npm run test:shell
 npm run test:services
 npm run test:shared
+npm run test:drawing
 ```
 
-工作区地址为 `#/image`、`#/chat`、`#/tags`；`chat.html`、`tags.html`、`transfer.html` 仅重定向到同一应用并保留查询参数。测试截图输出到忽略提交的 `.local/m1/` 和 `.local/m3/`。
+工作区地址为 `#/image`、`#/chat`、`#/tags`；`chat.html`、`tags.html`、`transfer.html` 仅重定向到同一应用并保留查询参数。测试截图输出到忽略提交的 `.local/m1/`、`.local/m3/` 和 `.local/m4/`。
 
 ## 工程边界
 
@@ -55,6 +58,7 @@ npm run test:shared
 - [M1 外壳实现与验证](docs/app-shell.md)
 - [M2 网关、数据与调度实现](docs/gateway-data-scheduler.md)
 - [M3 设置、备份与词典实现](docs/shared-settings-tags.md)
+- [M4 绘图工作区实现](docs/drawing-workspace.md)
 - [第三方资源](docs/third-party-assets.md)
 - [协作约定](AGENTS.md)
 

@@ -241,7 +241,7 @@ test("dictionary and prompt: weighted handoff once, picker toggle, highlight, au
     await page.locator("#prompt").fill("<img src=x onerror=alert(1)>, {blue}");
     assert.equal(await page.locator(".hl-mirror img").count(), 0);
     assert.ok((await page.locator(".hl-mirror span").count()) > 0);
-    await page.locator("details.drawer summary").click();
+    await page.locator("#settingsPrefs summary").click();
     await page
       .locator("label.check")
       .filter({ hasText: "Tag 自动补全" })

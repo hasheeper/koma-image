@@ -18,9 +18,26 @@ import AppIcon from "../../shared/AppIcon.vue";
 const { preferences } = useServices(),
   ui = useUi(),
   { router } = useShell();
+import { useDrawing } from "../../app/drawing";
+import { convertToNaiPrompt } from "../../native/prompt-converter.js";
+const { drawing, view } = useDrawing();
+const emit = defineEmits<{ import: [] }>();
 const props = defineProps<{ suggest: boolean }>();
 const positiveInput =
   useTemplateRef<InstanceType<typeof HighlightInput>>("positiveInput");
+const prompt = computed({
+  get: () => view.value.form.prompt,
+  set: (prompt: string) => {
+    void drawing.patch({ prompt });
+  },
+});
+const negative = computed({
+  get: () => view.value.form.negative,
+  set: (negative: string) => {
+    void drawing.patch({ negative });
+  },
+});
+const tab = ref("prompt");
 const current = computed({
   get: () => (tab.value === "prompt" ? prompt.value : negative.value),
   set: (value) => {
@@ -64,9 +81,22 @@ const stopDelivery = watch(
   { immediate: true, flush: "post" },
 );
 onBeforeUnmount(stopDelivery);
-const prompt = ref("");
-const negative = ref("");
-const tab = ref("prompt");
+const cleaned = ref(false);
+watch(current, () => {
+  cleaned.value = false;
+});
+async function cleanPrompt() {
+  const before = current.value;
+  if (!before.trim()) {
+    ui.toast("没有需要清洗的内容");
+    return;
+  }
+  const converted = convertToNaiPrompt(before);
+  current.value = converted;
+  await nextTick();
+  cleaned.value = true;
+  ui.toast(converted === before ? "格式已经是 NAI 写法" : "格式已清洗", "ok");
+}
 function select(event: KeyboardEvent) {
   if (!["ArrowLeft", "ArrowRight", "Home", "End"].includes(event.key)) return;
   event.preventDefault();
@@ -95,7 +125,12 @@ function select(event: KeyboardEvent) {
           :tabindex="tab === 'prompt' ? 0 : -1"
           @click="tab = 'prompt'"
         >
-          <span>Prompt</span><span class="tab-count">{{ prompt.length }}</span>
+          <span>Prompt</span
+          ><span
+            class="tab-count"
+            :data-filled="prompt.length ? '1' : undefined"
+            >{{ prompt.length }}</span
+          >
         </button>
         <button
           id="tab-negative"
@@ -108,7 +143,11 @@ function select(event: KeyboardEvent) {
           @click="tab = 'negative'"
         >
           <span>Negative</span
-          ><span class="tab-count">{{ negative.length }}</span>
+          ><span
+            class="tab-count"
+            :data-filled="negative.length ? '1' : undefined"
+            >{{ negative.length }}</span
+          >
         </button>
       </div>
       <div class="fld-actions">
@@ -116,7 +155,7 @@ function select(event: KeyboardEvent) {
           class="ibtn ibtn-xs"
           type="button"
           aria-label="从图片导入参数"
-          disabled
+          @click="emit('import')"
         >
           <AppIcon name="i-import" />
         </button>
@@ -124,7 +163,8 @@ function select(event: KeyboardEvent) {
           class="ibtn ibtn-xs"
           type="button"
           aria-label="清洗当前输入的格式"
-          disabled
+          @click="cleanPrompt"
+          :data-state="cleaned ? 'done' : undefined"
         >
           <AppIcon name="i-convert" />
         </button>
