@@ -1,0 +1,1018 @@
+@import url("./ui.css");
+
+
+/* Anchored to the field, outside the scrolling text content. */
+.fld-foot {
+  position: absolute;
+  right: 0;
+  bottom: 0;
+  z-index: 2;
+  margin: 0 10px 8px 0;
+  padding: 1px 5px;
+  font: var(--fw-regular) var(--fz-2xs) var(--mono);
+  color: var(--fg-4);
+  background: color-mix(in srgb, var(--sunken) 88%, transparent);
+  border-radius: 4px;
+  pointer-events: none;
+  opacity: 0;
+  transition: opacity var(--t2) var(--e);
+}
+.fld-hero:focus-within .fld-foot { opacity: 1; }
+
+/* number with unit suffix */
+.fld-inline { position: relative; }
+.fld-inline input { padding-right: 26px; }
+.fld-inline span {
+  position: absolute; right: 10px; top: 50%;
+  transform: translateY(-50%);
+  font: var(--fw-medium) var(--fz-2xs) var(--mono);
+  color: var(--fg-4);
+  pointer-events: none;
+}
+
+
+/* ── Danbooru Tag autocomplete ─────────────────────────────── */
+.tag-suggest {
+  position: fixed;
+  z-index: var(--z-pop);
+  max-height: min(360px, calc(100dvh - 16px));
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  scrollbar-gutter: stable;
+  touch-action: pan-y;
+  padding: 3px;
+  background: color-mix(in srgb, var(--raised) 97%, transparent);
+  border: 1px solid var(--line-2);
+  border-radius: var(--r3);
+  box-shadow: var(--sh-3), var(--sh-lip);
+  backdrop-filter: blur(16px);
+  animation: tagSuggestIn var(--t1) var(--e-out);
+}
+.tag-suggest[hidden] { display: none; }
+.tag-suggest-list { display: grid; gap: 1px; }
+.tag-suggest-option {
+  width: 100%;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 9px;
+  min-height: 48px;
+  padding: 6px 8px;
+  color: var(--fg-2);
+  text-align: left;
+  border-radius: var(--r2);
+  transition: color var(--t1) var(--e), background var(--t1) var(--e);
+}
+.tag-suggest-option:hover,
+.tag-suggest-option[aria-selected="true"] { color: var(--fg); background: var(--hover); }
+.tag-suggest-names { display: grid; gap: 0; overflow: hidden; }
+.tag-suggest-names strong,
+.tag-suggest-names span { overflow: hidden; white-space: nowrap; text-overflow: ellipsis; }
+.tag-suggest-names strong { font: var(--fw-medium) var(--fz-2xs)/1.3 var(--mono); color: inherit; }
+.tag-suggest-names span { font-size: var(--fz-2xs); line-height: 1.3; color: var(--fg-3); }
+.tag-suggest-meta {
+  flex: none;
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  font: var(--fw-regular) var(--fz-2xs)/1.3 var(--mono);
+  color: var(--fg-4);
+  white-space: nowrap;
+}
+.tag-category-dot { width: 6px; height: 6px; border-radius: 50%; background: var(--fg-4); }
+.tag-category-dot.artist { background: #e88787; }
+.tag-category-dot.copyright { background: #b3a1ff; }
+.tag-category-dot.character { background: #74cf9b; }
+.tag-category-dot.meta { background: #e0ab68; }
+.tag-suggest-note {
+  display: flex; align-items: center; justify-content: center; gap: var(--sp-2);
+  padding: 12px; font-size: var(--fz-xs); color: var(--fg-3); text-align: center;
+}
+.tag-suggest-note.err { color: var(--err); }
+/* Inline spinner so the debounce + request window is not silent. */
+.tag-suggest-note.load::before {
+  content: "";
+  flex: none; width: 11px; height: 11px;
+  border: 1.5px solid var(--line-2);
+  border-top-color: var(--a);
+  border-radius: 50%;
+  animation: tagSpin 620ms linear infinite;
+}
+@keyframes tagSpin { to { transform: rotate(1turn); } }
+@keyframes tagSuggestIn {
+  from { opacity: 0; transform: translateY(3px) scale(.99); }
+}
+
+/* ── Shell ───────────────────────────────────────────────────── */
+.shell {
+  display: grid;
+  grid-template-columns: var(--rail) 0 minmax(0, 1fr) var(--hist);
+  height: calc(100vh - var(--bar-h));
+  transition: grid-template-columns var(--t3) var(--e);
+}
+/* Folded, the rail keeps a strip: the two views stacked over their counts,
+   the pictures as a scrubber between them, and the toggle at its foot.
+   Phones have no fold; the rail lives in the menu. */
+@media (min-width: 861px) {
+  body[data-hist="off"] { --hist: 52px; }
+  body[data-hist="off"] .gallery :is(.tray-empty, .library-clear) { display: none; }
+  body[data-hist="off"] .library-head { padding-top: 12px; }
+  body[data-hist="off"] .library-tabs { grid-template-columns: 1fr; }
+  body[data-hist="off"] .gallery .library-tabs .library-tab { flex-direction: column; gap: 3px; height: 48px; }
+  body[data-hist="off"] .library-tab b { font-size: 10px; }
+  body[data-hist="off"] .library-foot { justify-content: center; }
+  /* Nothing in the strip can spill, and its tips need the room beside it. */
+  body[data-hist="off"] .shell > .gallery { overflow: visible; }
+  body[data-hist="off"] .library-foot .library-fold[data-tip]::after { left: auto; right: 0; }
+
+  /* The scrubber. The same tiles, each drawn as one bar in the interface's
+     own tones rather than the picture's: grey that fades with age, dim accent
+     for a favourite, solid accent for the one on stage. Thumbnails 36px wide
+     were unreadable, and the pictures' own colours turned the strip into a
+     mosaic. A bar's length gives its shape (landscape longest, portrait
+     shortest); the picture itself shows beside the strip on hover. Each tile
+     spans the full pitch, gaps included, so sliding down the strip steps
+     through every picture. Past about fifty the pitch tightens to 7px, then
+     the strip scrolls. */
+  body[data-hist="off"] .gallery .tray { flex: 1 1 auto; gap: 0; padding: 4px var(--sp-2) 0; scrollbar-width: none; }
+  body[data-hist="off"] .gallery .tray::-webkit-scrollbar { display: none; }
+  body[data-hist="off"] .gallery .tile {
+    flex: 0 1 11px; min-height: 7px; height: auto; aspect-ratio: auto;
+    overflow: visible; background: none; box-shadow: none; transform: none;
+    content-visibility: visible; outline: none; border-radius: 0;
+  }
+  body[data-hist="off"] .gallery .tile > * { display: none; }
+  body[data-hist="off"] .gallery .tile::before {
+    /* 4px at the full 11px pitch, thinning with it so a tightened strip
+       does not turn into a ladder. */
+    content: ""; position: absolute; inset: 0 0 0 auto; margin-block: auto;
+    width: var(--bar, 100%); height: clamp(2px, 36%, 4px);
+    border-radius: 2px;
+    background: color-mix(in srgb, var(--fg-3) calc(var(--age, 0.9) * 100%), transparent);
+    filter: none;
+    transition: background-color var(--t1) var(--e), transform var(--t1) var(--e), box-shadow var(--t1) var(--e);
+  }
+  body[data-hist="off"] .gallery .tile[data-shape="square"] { --bar: 80%; }
+  body[data-hist="off"] .gallery .tile[data-shape="tall"] { --bar: 61%; }
+  body[data-hist="off"] .gallery .tile[data-fav]::before { background: var(--a-line); }
+  body[data-hist="off"] .gallery .tile[aria-current="true"]::before { background: var(--a); box-shadow: 0 0 0 3px var(--a-dim); }
+  body[data-hist="off"] .gallery .tile:is(:hover, :focus-visible)::before { transform: translateX(-4px); }
+  body[data-hist="off"] .gallery .tile:not(.tile-pending):is(:hover, :focus-visible)::before { background: var(--fg); }
+  body[data-hist="off"] .gallery .tile[aria-current="true"]:is(:hover, :focus-visible)::before { background: var(--a-hover); }
+  /* The job still running: a bar of light sweeping across, as on the stage's
+     progress bar, already the length of the shape being made. Its label moves
+     into the preview. */
+  body[data-hist="off"] .gallery .tile-pending::before {
+    background: linear-gradient(90deg, var(--a-dim) 20%, var(--a) 50%, var(--a-dim) 80%) 0 0 / 200% 100%;
+    box-shadow: 0 0 0 3px var(--a-glow);
+    animation: stripSheen 1.6s linear infinite;
+  }
+  body[data-hist="off"] .tray [data-tip]::after { display: none; }
+  /* Unused pitch continues as empty slots and fades out: as long as the
+     shortest bar and on the same right edge and centre line, but half its
+     weight and far dimmer, so the clickable part still ends where the bars
+     do. Tiny 10px marks looked off to one side; full-width ones too long. */
+  body[data-hist="off"] .gallery .tray::after {
+    content: ""; flex: 1 0 0;
+    background: linear-gradient(transparent 4.5px, var(--line-2) 4.5px 6.5px, transparent 6.5px) right top / 61% 11px repeat-y;
+    mask-image: linear-gradient(#000, transparent 85%);
+  }
+}
+@keyframes stripSheen { from { background-position: 150% 0; } to { background-position: -50% 0; } }
+@media (min-width: 861px) and (prefers-reduced-motion: reduce) {
+  body[data-hist="off"] .gallery .tile-pending::before { animation: none; background: var(--a); }
+}
+/* Folded: the picture under the pointer, beside the strip. */
+.library-peek {
+  position: absolute; top: 0; right: calc(100% + 8px);
+  display: grid; gap: 6px;
+  width: 144px; padding: 4px 4px 7px;
+  background: var(--raised);
+  border-radius: var(--r2);
+  box-shadow: var(--sh-3), 0 0 0 1px var(--line-2);
+  pointer-events: none;
+}
+.library-peek[hidden], .library-peek [hidden] { display: none; }
+.library-peek img { display: block; width: 100%; height: auto; border-radius: 5px; background: var(--canvas); }
+.library-peek p { display: flex; justify-content: space-between; gap: 6px; padding: 0 3px; font-size: var(--fz-2xs); line-height: 1.3; color: var(--fg-3); }
+.library-peek .mono { font-size: 10px; white-space: nowrap; }
+.library-peek p i { font-style: normal; color: var(--a); }
+
+/* The image rail owns the full right edge; the main header stops beside it. */
+body > .topbar { margin-right: var(--hist); transition: margin-right var(--t3) var(--e); }
+.shell > .gallery {
+  position: fixed; inset: 0 0 0 auto;
+  width: var(--hist); height: 100dvh;
+  z-index: calc(var(--z-sticky) + 1);
+  transition: width var(--t3) var(--e);
+}
+
+/* Image library uses the site's recessed buttons and segmented selection. */
+.library-head { padding: 16px var(--sp-2) 12px; flex: none; min-width: 0; }
+.library-foot { display: flex; justify-content: space-between; padding: var(--sp-2); flex: none; margin-top: auto; }
+.gallery .library-clear,
+.gallery .library-fold { width: 28px; height: 28px; padding: 0; justify-content: center; }
+/* The sidebar glyph, mirrored: this panel sits on the right. */
+.library-fold .ico { transform: scaleX(-1); }
+.library-tabs {
+  display: grid; grid-template-columns: repeat(2, minmax(0, 1fr));
+  width: 100%; min-width: 0; gap: 3px; padding: 3px;
+  background: var(--well); border: 1px solid var(--line); border-radius: var(--r2);
+}
+.gallery .library-tabs .library-tab {
+  display: flex; justify-content: center; align-items: center; gap: 3px;
+  width: auto; min-width: 0; height: 34px; padding: 0 2px; --ico: 18px;
+  color: var(--fg-3); background: transparent; box-shadow: none; border-radius: var(--r1);
+}
+.gallery .library-tabs .library-tab:hover { color: var(--fg); background: var(--hover); }
+.gallery .library-tabs .library-tab[aria-selected="true"] { color: var(--fg); background: var(--raised); }
+.library-tab[aria-selected="true"] .ico { color: var(--a); }
+.library-tab b { font-size: 12px; font-weight: var(--fw-medium); }
+.library-head [data-tip]::after { left: auto; right: 0; transform: translate(0, -3px); }
+.library-head [data-tip]:hover::after { transform: translate(0, 0); }
+.library-foot [data-tip]::after { top: auto; bottom: calc(100% + 6px); left: auto; right: 0; transform: translate(0, 3px); }
+.library-foot [data-tip]:hover::after { transform: translate(0, 0); }
+.library-foot .library-fold[data-tip]::after { right: auto; left: 0; }
+.result-actions #favoriteBtn[aria-pressed="true"] { color: var(--a); background: var(--a-dim); border-color: var(--a-line); }
+#favoriteBtn[aria-pressed="true"] .ico { fill: currentColor; }
+.tile-favorite {
+  position: absolute; right: 5px; bottom: 5px;
+  display: grid; place-items: center; width: 20px; height: 20px;
+  color: var(--a); background: color-mix(in srgb, var(--chrome) 72%, transparent);
+  border-radius: var(--r1); backdrop-filter: blur(3px); pointer-events: none;
+}
+.tile-favorite .ico { width: 12px; height: 12px; fill: currentColor; }
+#trayEmptyIcon { justify-self: center; color: var(--fg-4); }
+#trayEmptyIcon[hidden], .tray-ghosts[hidden] { display: none; }
+#trayEmptyTitle { color: var(--fg-3); }
+
+
+
+/* 设置: one line per setting; what each one does is in its tooltip. */
+.settings-list { gap: var(--sp-2); }
+.setting-line { display: flex; align-items: center; justify-content: space-between; gap: var(--sp-3); min-height: 36px; }
+.setting-count { width: 84px; flex: none; }
+.setting-count input { height: 32px; }
+
+/* A heading row with the pixel count on its right, 8 above tiers, direction
+   cards, ratios and editable pixels, which sit 6 apart (sections sit 20). */
+.resolution-control { min-width: 0; container-type: inline-size; }
+.composer-scroll > .fld.resolution-control { gap: 6px; }
+.size-head { display: flex; align-items: center; justify-content: space-between; gap: var(--sp-3); min-height: 18px; margin-bottom: 2px; }
+.size-head .composer-heading { flex: none; white-space: nowrap; }
+.resolution-control > .tiers { grid-template-columns: repeat(3, minmax(0, 1fr)); grid-auto-flow: column; padding: 2px; gap: 2px; }
+.resolution-control > .tiers span { padding: 3px 4px; line-height: 18px; }
+.resolution-control > .tiers input:checked + span { font-weight: var(--fw-medium); box-shadow: inset 0 0 0 1px var(--line-2); }
+.size-orientations { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 8px; }
+.size-direction { position: relative; min-width: 0; cursor: pointer; }
+.size-direction input { position: absolute; opacity: 0; width: 0; height: 0; }
+.size-direction-card {
+  display: grid; place-content: center; justify-items: center; gap: 6px; height: 60px;
+  background: var(--raised); border: 1px solid transparent; border-radius: var(--r2); color: var(--fg-2);
+  transition: color var(--t1) var(--e), background var(--t1) var(--e), border-color var(--t1) var(--e);
+}
+.size-direction:hover .size-direction-card { color: var(--fg); border-color: var(--line-2); }
+.size-direction input:checked + .size-direction-card { color: var(--a); border-color: var(--a-line); background: var(--a-dim); }
+.size-direction input:focus-visible + .size-direction-card { outline: 2px solid var(--a); outline-offset: 2px; }
+.size-direction-label { font-size: var(--fz-xs); font-weight: var(--fw-regular); line-height: 18px; white-space: nowrap; }
+.size-direction-glyph { display: grid; place-items: center; width: 28px; height: 24px; color: var(--fg-3); }
+.size-direction-glyph i { display: block; border: 1.5px solid currentColor; border-radius: 2px; }
+.size-direction input:checked + .size-direction-card .size-direction-glyph, .size-direction:hover .size-direction-glyph { color: inherit; }
+.size-direction input[value="portrait"] + .size-direction-card i { width: 14px; height: 24px; }
+.size-direction input[value="square"] + .size-direction-card i { width: 20px; height: 20px; }
+.size-direction input[value="landscape"] + .size-direction-card i { width: 24px; height: 16px; }
+.resolution-control[data-custom="true"] .size-direction input:checked + .size-direction-card { background: transparent; border-style: dashed; border-color: var(--line-2); color: var(--fg-2); }
+.size-panel { padding: 0 10px 8px; background: var(--well); border: 1px solid transparent; border-radius: var(--r2); }
+.resolution-control[data-custom="true"] .size-panel { border-color: var(--a-line); }
+.size-ratios { display: grid; grid-template-columns: repeat(5, minmax(0, 1fr)); padding: 6px 0 0; gap: 4px; }
+.size-ratio-chip {
+  position: relative; height: 30px; min-width: 0; padding: 0 2px;
+  color: var(--fg-3); font: var(--fw-medium) var(--fz-xs)/1 var(--mono); background: transparent;
+  transition: color var(--t1) var(--e);
+}
+.size-ratio-chip:hover { color: var(--fg); }
+.size-ratio-chip[aria-checked="true"] { color: var(--a); font-weight: var(--fw-semibold); }
+.size-ratio-chip[aria-checked="true"]::after { content: ""; position: absolute; bottom: 0; left: 50%; width: 18px; height: 2px; transform: translateX(-50%); border-radius: 1px; background: var(--a); }
+.size-ratio-chip:focus-visible { outline: 2px solid var(--a); outline-offset: 2px; }
+.size-ratios[data-muted="true"] .size-ratio-chip { color: var(--fg-4); }
+.size-ratios[data-muted="true"] .size-ratio-chip:hover { color: var(--fg); }
+.size-meta { display: flex; align-items: baseline; justify-content: flex-end; gap: 6px; font-size: var(--fz-2xs); color: var(--fg-3); white-space: nowrap; }
+.size-custom-label { color: var(--a); }
+.size-fields { display: grid; grid-template-columns: 20px minmax(0, 1fr) 24px minmax(0, 1fr); align-items: center; gap: 6px; padding: 10px 0 0; }
+.size-fields .fld-inline input { height: 34px; padding: 0 22px 0 8px; border-radius: var(--r1); background: var(--chrome); border-color: var(--line-2); }
+.size-fields .fld-inline input:focus { border-color: var(--a-line); background: var(--well-focus); box-shadow: 0 0 0 2px var(--a-dim); }
+.size-fields .fld-inline > span { right: 8px; font: 10px var(--mono); }
+.size-fields .ibtn { width: 24px; height: 28px; --ico: 16px; }
+.size-preview { display: grid; place-items: center; height: 28px; color: var(--a); }
+.size-preview i { display: block; border: 1.5px solid currentColor; border-radius: 2px; }
+.size-preview[data-custom="true"] i { border-style: dashed; }
+@container (max-width: 260px) {
+  .size-orientations { gap: 6px; }
+  .size-fields { grid-template-columns: 16px minmax(0, 1fr) 20px minmax(0, 1fr); gap: 4px; }
+  .size-fields .ibtn { width: 20px; }
+  .size-meta { gap: 4px; font-size: 10px; }
+}
+@media (max-width: 620px) {
+  .resolution-control > .tiers span { padding-top: 7px; padding-bottom: 7px; }
+  .size-direction-card { height: 66px; }
+  .size-direction-label { font-size: var(--fz-sm); }
+  .size-ratio-chip { height: 36px; }
+  .size-fields .fld-inline input, .size-fields .ibtn { height: 40px; }
+}
+
+
+
+/* Generation state remains available to screen readers while visible status
+   stays in the busy/error layers instead of consuming a permanent toolbar. */
+/* Present to assistive tech, absent from layout and paint. */
+.stage-status,
+.sr-only {
+  position: absolute;
+  width: 1px; height: 1px;
+  padding: 0; margin: -1px;
+  overflow: hidden;
+  clip-path: inset(50%);
+  white-space: nowrap;
+}
+
+/* Layers cross-fade. `visibility` (not display) so it can transition
+   and still leave the a11y tree + hit-testing. */
+.layer {
+  grid-area: 1 / 1;
+  width: 100%; height: 100%;
+  min-height: 0;
+  opacity: 0; visibility: hidden;
+  transition: opacity var(--t2) var(--e), visibility var(--t2);
+}
+.layer.center { display: grid; place-items: center; }
+
+/* Inactive layers are taken out of layout entirely. Leaving them in the
+   grid let the hidden skeleton influence max-content sizing, which fed the
+   scrollbar/resize feedback loop in 1:1 mode. */
+.layer { content-visibility: hidden; }
+body[data-state="empty"] .layer[data-layer="empty"],
+body[data-state="busy"] .layer[data-layer="busy"],
+body[data-state="error"] .layer[data-layer="error"],
+body[data-state="done"] .layer[data-layer="image"] { content-visibility: visible; }
+
+body[data-state="empty"] .layer[data-layer="empty"],
+body[data-state="busy"] .layer[data-layer="busy"],
+body[data-state="error"] .layer[data-layer="error"],
+body[data-state="done"] .layer[data-layer="image"] {
+  opacity: 1; visibility: visible;
+}
+/* A result that arrives through the tile wave has already been shown inside
+   the skeleton, so the hand-over to the print is a cut, not a second fade. */
+body[data-swap="instant"] .layer { transition: none; }
+
+
+
+/* ── Import sheet ────────────────────────────────────────────── */
+/* Same backdrop as .gate but on its own attribute hook, because the gate's
+   transitions are bound to body[data-gate] and that flag is spent by the
+   time the app is usable. */
+.sheet {
+  position: fixed; inset: 0; z-index: var(--z-modal);
+  display: grid; place-items: center; padding: var(--sp-5);
+  background: rgba(8, 8, 10, 0.9);
+  backdrop-filter: blur(10px) saturate(120%);
+  opacity: 0;
+  transition: opacity var(--t3) var(--e);
+}
+.sheet[hidden] { display: none; }
+/* Scoped by id: an unscoped .sheet rule here also revealed the tag picker. */
+body[data-import="open"] #importSheet { opacity: 1; }
+body[data-import="open"] #importSheet > .import-card { transform: none; }
+
+/* A review window: fixed head and foot, the picture on the left, and the
+   words and settings it carries on the right, scrolling on their own. */
+.import-card {
+  /* Controls recess one notch below --raised, as in drawers and cards. */
+  --well: var(--chrome);
+  width: min(940px, 100%);
+  max-height: min(800px, calc(100dvh - 40px));
+  display: grid; grid-template-rows: auto minmax(0, 1fr) auto;
+  overflow: hidden;
+  background: var(--raised);
+  border: 1px solid var(--line);
+  border-radius: var(--r4);
+  box-shadow: var(--sh-lip), var(--sh-4);
+  transform: translateY(10px) scale(0.985);
+  transition: transform var(--t3) var(--e-out);
+}
+.import-head {
+  display: flex; align-items: center; gap: var(--sp-2);
+  min-width: 0; height: 52px; padding: 0 var(--sp-2) 0 var(--sp-4);
+  border-bottom: 1px solid var(--line);
+}
+.import-head > .ico { --ico: 18px; color: var(--a); }
+.import-head h1 { font-size: var(--fz-md); font-weight: var(--fw-semibold); letter-spacing: -0.01em; white-space: nowrap; }
+.import-source {
+  min-width: 0; margin-left: var(--sp-1); padding: 3px 9px;
+  font-size: var(--fz-2xs); color: var(--fg-3); white-space: nowrap;
+  overflow: hidden; text-overflow: ellipsis;
+  background: var(--chrome); border: 1px solid var(--line); border-radius: 999px;
+}
+.import-source:empty { display: none; }
+.import-x { margin-left: auto; }
+.import-x[data-tip]::after { left: auto; right: 0; transform: translate(0, -3px); }
+.import-x[data-tip]:hover::after { transform: translate(0, 0); }
+
+.import-body {
+  display: grid; grid-template-columns: 280px minmax(0, 1fr);
+  /* Room for a portrait print even when the image carries little text. */
+  min-height: min(460px, calc(100dvh - 180px));
+}
+.import-card[data-figure="off"] .import-body { grid-template-columns: minmax(0, 1fr); min-height: 0; }
+/* `contain: size` keeps a tall image from stretching the window: the figure
+   takes the height the text column sets and the picture fits inside it. */
+.import-figure {
+  contain: size;
+  display: grid; grid-template-rows: minmax(0, 1fr) auto; gap: var(--sp-2);
+  margin: 0; padding: var(--sp-4);
+  background: var(--sunken);
+  border-right: 1px solid var(--line);
+}
+.import-figure[hidden] { display: none; }
+.import-figure img { width: 100%; height: 100%; min-height: 0; object-fit: contain; }
+.import-figure figcaption {
+  font-size: var(--fz-2xs); color: var(--fg-4);
+  white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+}
+.import-main {
+  display: grid; align-content: start; gap: var(--sp-4);
+  min-width: 0; padding: var(--sp-4) var(--sp-5) var(--sp-5);
+  overflow-y: auto; overscroll-behavior: contain;
+}
+
+/* Square ticks, shared by the text toggles and the parameter tiles. */
+.import-check {
+  position: relative; flex: none;
+  width: 16px; height: 16px;
+  background: var(--well);
+  border: 1px solid var(--line-2);
+  border-radius: 5px;
+  transition: background var(--t1) var(--e), border-color var(--t1) var(--e);
+}
+.import-check::after,
+.import-chip::after {
+  content: ""; position: absolute; inset: 0;
+  background: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24'%3E%3Cpath d='m5 12 4.5 4.5L19 7' fill='none' stroke='%2317132a' stroke-width='2.1' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E") center/11px no-repeat;
+  opacity: 0; transform: scale(0.6);
+  transition: opacity var(--t1) var(--e), transform var(--t2) var(--e-out);
+}
+
+/* Prompt and Negative, each readable in full with its weight colours. */
+.import-texts { display: grid; gap: var(--sp-4); }
+.import-text { display: grid; gap: 7px; }
+.import-text-head { display: flex; align-items: center; gap: var(--sp-2); min-height: 28px; }
+.import-toggle { display: inline-flex; align-items: center; gap: 8px; cursor: pointer; }
+.import-toggle input,
+.import-chip input { position: absolute; opacity: 0; width: 0; height: 0; }
+.import-toggle b { font-size: var(--fz-sm); font-weight: var(--fw-semibold); color: var(--fg); }
+.import-toggle .mono { font-size: var(--fz-2xs); color: var(--fg-4); }
+.import-toggle input:checked + .import-check { background: var(--a); border-color: var(--a); }
+.import-toggle input:checked + .import-check::after { opacity: 1; transform: none; }
+.import-toggle input:focus-visible + .import-check { outline: 2px solid var(--a); outline-offset: 2px; }
+.import-note { font-size: var(--fz-2xs); color: var(--fg-4); }
+.import-copy { margin-left: auto; color: var(--fg-3); }
+.import-copy[data-tip]::after { left: auto; right: 0; transform: translate(0, -3px); }
+.import-copy[data-tip]:hover::after { transform: translate(0, 0); }
+.import-prose {
+  max-height: 232px; overflow-y: auto; overscroll-behavior: contain;
+  padding: 10px 12px;
+  font-size: var(--fz-sm); line-height: 1.62;
+  white-space: pre-wrap; overflow-wrap: anywhere;
+  color: var(--fg);
+  background: var(--well);
+  border: 1px solid var(--line);
+  border-radius: var(--r3);
+  transition: opacity var(--t1) var(--e);
+}
+.import-text[data-key="negative_prompt"] .import-prose { max-height: 136px; }
+.import-prose[data-empty] { color: var(--fg-4); }
+/* Left out of the import: still readable, visibly set aside. */
+.import-text:has(input:not(:checked)) .import-prose { opacity: 0.55; }
+
+/* Settings as tiles: the value large, what it replaces underneath. */
+.import-label { margin-bottom: var(--sp-2); font-size: var(--fz-xs); font-weight: var(--fw-medium); color: var(--fg-3); }
+.import-section[hidden] { display: none; }
+.import-params { display: grid; grid-template-columns: repeat(auto-fill, minmax(156px, 1fr)); gap: 6px; }
+.import-chip {
+  position: relative;
+  display: grid; gap: 1px; align-content: start;
+  min-width: 0; padding: 7px 30px 8px 10px;
+  background: var(--chrome);
+  border: 1px solid var(--line);
+  border-radius: var(--r2);
+  cursor: pointer;
+  transition: background var(--t1) var(--e), border-color var(--t1) var(--e);
+}
+.import-chip:hover { border-color: var(--line-2); }
+/* The tick sits in the tile's corner, drawn as the same square. */
+.import-chip::before {
+  content: ""; position: absolute; top: 8px; right: 8px;
+  width: 14px; height: 14px;
+  border: 1px solid var(--line-2); border-radius: 4px;
+  transition: background var(--t1) var(--e), border-color var(--t1) var(--e);
+}
+.import-chip::after { inset: 8px 8px auto auto; width: 14px; height: 14px; background-size: 10px; }
+.import-chip:has(input:checked) { background: var(--a-dim); border-color: var(--a-line); }
+.import-chip:has(input:checked)::before { background: var(--a); border-color: var(--a); }
+.import-chip:has(input:checked)::after { opacity: 1; transform: none; }
+.import-chip:has(input:focus-visible) { outline: 2px solid var(--a); outline-offset: 2px; }
+.import-chip-k { font-size: var(--fz-2xs); color: var(--fg-4); }
+.import-chip-v,
+.import-chip-note { overflow: hidden; white-space: nowrap; text-overflow: ellipsis; }
+.import-chip-v { font-size: var(--fz-sm); font-weight: var(--fw-medium); font-variant-numeric: tabular-nums; color: var(--fg); }
+.import-chip-note { font-size: var(--fz-2xs); color: var(--fg-4); }
+.import-chip[data-state="change"]:has(input:checked) .import-chip-note { color: var(--fg-3); }
+.import-chip[data-state="same"]:not(:has(input:checked)) .import-chip-v { color: var(--fg-3); }
+.import-chip[data-state="off"] { cursor: not-allowed; background: none; border-style: dashed; }
+.import-chip[data-state="off"] .import-chip-v { color: var(--fg-3); text-decoration: line-through; text-decoration-color: var(--fg-4); }
+.import-chip[data-state="off"] .import-chip-note { color: var(--warn); }
+.import-chip[data-state="off"]::before { opacity: 0.4; }
+
+/* Everything else the image recorded, for reading only. */
+.import-extra { padding-top: var(--sp-3); border-top: 1px solid var(--line); }
+.import-extra summary {
+  display: flex; align-items: center; gap: var(--sp-2);
+  font-size: var(--fz-xs); font-weight: var(--fw-medium); color: var(--fg-3);
+  cursor: pointer; list-style: none;
+}
+.import-extra summary::-webkit-details-marker { display: none; }
+.import-extra summary i { font-style: normal; font-weight: var(--fw-regular); font-size: var(--fz-2xs); color: var(--fg-4); }
+.import-extra summary:hover { color: var(--fg-2); }
+.import-extra[open] .caret { transform: rotate(225deg) translate(-1px, -1px); }
+.import-extra dl {
+  display: grid; grid-template-columns: max-content minmax(0, 1fr); gap: 7px var(--sp-4);
+  margin: var(--sp-3) 0 0;
+  font-size: var(--fz-xs); line-height: 1.55;
+}
+.import-extra dt { color: var(--fg-4); white-space: nowrap; }
+.import-extra dd { margin: 0; color: var(--fg-2); white-space: pre-wrap; overflow-wrap: anywhere; }
+
+.import-foot {
+  display: flex; align-items: center; gap: var(--sp-2);
+  padding: var(--sp-3) var(--sp-4);
+  border-top: 1px solid var(--line);
+}
+.import-tally { min-width: 0; margin-right: auto; font-size: var(--fz-xs); color: var(--fg-4); }
+.import-foot .btn { min-width: 104px; }
+
+/* ── Tag picker ──────────────────────────────────────────────── */
+body[data-picker="open"] #pickerSheet { opacity: 1; }
+body[data-picker="open"] .picker-card { transform: none; }
+.picker-card {
+  display: grid;
+  grid-template-rows: auto auto auto auto minmax(0, 1fr) auto;
+  gap: var(--sp-3);
+  width: min(520px, 100%);
+  height: min(640px, calc(100dvh - 2 * var(--sp-5)));
+  padding: var(--sp-4);
+  background: var(--raised);
+  border: 1px solid var(--line);
+  border-radius: var(--r4);
+  box-shadow: var(--sh-lip), var(--sh-4);
+  transform: translateY(10px) scale(0.985);
+  transition: transform var(--t3) var(--e-out);
+}
+.picker-head { display: flex; align-items: center; gap: var(--sp-3); }
+.picker-title { display: flex; align-items: center; gap: var(--sp-2); margin-right: auto; }
+.picker-title .ico { color: var(--a); }
+.picker-title strong { font-size: var(--fz-xl); font-weight: var(--fw-bold); letter-spacing: -0.02em; }
+
+.picker-search {
+  display: flex; align-items: center;
+  background: var(--well);
+  border: 1px solid var(--line-2);
+  border-radius: var(--r2);
+  transition: border-color var(--t1) var(--e), box-shadow var(--t1) var(--e);
+}
+.picker-search:focus-within { border-color: var(--a-line); box-shadow: var(--ring); }
+.picker-search > .ico { margin-left: 10px; color: var(--fg-4); }
+.picker-search input {
+  flex: 1; width: auto;
+  min-height: 38px;
+  background: transparent; border: 0; box-shadow: none;
+  font-size: var(--fz-md);
+}
+.picker-search input:hover:not(:focus),
+.picker-search input:focus { background: transparent; box-shadow: none; }
+
+/* What this session put in, so it can be taken back out without hunting
+   through the prompt text. */
+.picker-chosen { display: grid; gap: var(--sp-2); }
+.picker-chosen[hidden] { display: none; }
+.picker-chosen > span { font-size: var(--fz-2xs); color: var(--fg-4); }
+.picker-chosen > div { display: flex; flex-wrap: wrap; gap: var(--sp-1); }
+.picker-chip {
+  display: inline-flex; align-items: center; gap: 5px;
+  padding: 3px 8px;
+  font: var(--fw-regular) var(--fz-2xs)/1.5 var(--mono);
+  color: var(--a);
+  background: var(--a-dim);
+  border: 1px solid var(--a-line);
+  border-radius: 20px;
+  transition: color var(--t1) var(--e), background var(--t1) var(--e);
+}
+.picker-chip i {
+  width: 7px; height: 7px; flex: none;
+  background: currentColor;
+  clip-path: polygon(14% 0, 50% 36%, 86% 0, 100% 14%, 64% 50%, 100% 86%, 86% 100%, 50% 64%, 14% 100%, 0 86%, 36% 50%, 0 14%);
+}
+.picker-chip:hover { color: var(--err); background: var(--err-dim); border-color: transparent; }
+
+.picker-status { min-height: 15px; font-size: var(--fz-xs); color: var(--fg-3); }
+.picker-status[hidden] { display: none; }
+.picker-status.err { color: var(--err); }
+.picker-status.load { display: flex; align-items: center; gap: var(--sp-2); }
+.picker-status.load::before {
+  content: "";
+  flex: none; width: 11px; height: 11px;
+  border: 1.5px solid var(--line-2);
+  border-top-color: var(--a);
+  border-radius: 50%;
+  animation: tagSpin 620ms linear infinite;
+}
+
+.picker-results {
+  min-height: 0;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  scrollbar-gutter: stable;
+  display: grid; gap: 1px;
+  align-content: start;
+}
+.picker-row {
+  display: flex; align-items: center; justify-content: space-between;
+  gap: var(--sp-3);
+  width: 100%;
+  min-height: 44px;
+  padding: 6px 9px;
+  color: var(--fg-2);
+  text-align: left;
+  border: 1px solid transparent;
+  border-radius: var(--r2);
+  transition: color var(--t1) var(--e), background var(--t1) var(--e),
+    border-color var(--t1) var(--e);
+}
+.picker-row:hover, .picker-row.on { color: var(--fg); background: var(--hover); }
+/* Already in the prompt: clicking again removes it. */
+.picker-row[aria-pressed="true"] {
+  color: var(--fg);
+  background: var(--a-dim);
+  border-color: var(--a-line);
+}
+.picker-row[aria-pressed="true"] .picker-names strong::after {
+  content: "";
+  display: inline-block;
+  width: 9px; height: 9px;
+  margin-left: 6px;
+  background: var(--a);
+  clip-path: polygon(19% 52%, 36% 68%, 82% 22%, 92% 33%, 37% 87%, 8% 60%);
+}
+.picker-names { display: grid; gap: 1px; overflow: hidden; }
+.picker-names strong,
+.picker-names span { overflow: hidden; white-space: nowrap; text-overflow: ellipsis; }
+.picker-names strong { font: var(--fw-medium) var(--fz-sm)/1.35 var(--mono); }
+.picker-names span { font-size: var(--fz-xs); color: var(--fg-3); }
+.picker-meta {
+  flex: none;
+  display: inline-flex; align-items: center; gap: 5px;
+  font: var(--fw-regular) var(--fz-2xs)/1.3 var(--mono);
+  color: var(--fg-4);
+  white-space: nowrap;
+}
+.picker-foot {
+  padding-top: var(--sp-2);
+  border-top: 1px solid var(--line);
+  font-size: var(--fz-2xs); color: var(--fg-4);
+}
+
+/* ── Dropzone ────────────────────────────────────────────────── */
+.dropzone {
+  position: fixed; inset: 0; z-index: var(--z-scrim);
+  display: grid; place-items: center;
+  padding: var(--sp-5);
+  background: rgba(8, 8, 10, 0.82);
+  backdrop-filter: blur(6px);
+  opacity: 0;
+  pointer-events: none;
+  transition: opacity var(--t2) var(--e);
+}
+body[data-drop="on"] .dropzone { opacity: 1; }
+.dropzone-card {
+  display: grid; justify-items: center; gap: 9px;
+  padding: var(--sp-6) var(--sp-7);
+  color: var(--fg-2);
+  text-align: center;
+  background: color-mix(in srgb, var(--raised) 92%, transparent);
+  border: 1.5px dashed var(--a-line);
+  border-radius: var(--r4);
+  transform: scale(0.98);
+  transition: transform var(--t2) var(--e-out);
+}
+body[data-drop="on"] .dropzone-card { transform: none; }
+.dropzone-card .ico { color: var(--a); }
+.dropzone-card strong { font-size: var(--fz-md); font-weight: var(--fw-semibold); color: var(--fg); }
+.dropzone-card span { font-size: var(--fz-xs); color: var(--fg-4); }
+
+/* ── Responsive ──────────────────────────────────────────────── */
+/* ── Tablet / narrow desktop ──────────────────────────────────── */
+@media (max-width: 1080px) {
+  :root { --rail: 280px; --hist: 112px; }
+  .gallery .library-tabs .library-tab { --ico: 16px; }
+  .library-tab b { font-size: 10px; }
+}
+
+/* ── Mobile: single column, stage first, controls in a sheet ───── */
+@media (max-width: 860px) {
+  :root { --bar-h: 54px; --ico: 16px; }
+
+  /* Infrequent tools move into an off-canvas rail, leaving the image width
+     untouched while the point balance remains comfortably readable. */
+  body > .topbar { margin-right: 0; transition: none; }
+  .topbar { gap: var(--sp-2); padding: 0 var(--sp-3); }
+  .brand { gap: 7px; }
+  .brand-mark { --m: 28px; }
+  .brand-title { font-size: 18px; }
+  .brand-subtitle { font-size: 9px; letter-spacing: 0.1em; }
+  /* The balances stay on the bar, right-aligned beside the menu button; the
+     separator and the lock go with the tools into the rail. */
+  body > .topbar .topbar-account { margin-left: auto; }
+  body > .topbar .topbar-menu { order: 1; margin-left: 0; }
+  body > .topbar .topbar-sep { display: none; }
+
+  .topbar-menu-toggle {
+    display: inline-grid;
+    width: 38px; height: 38px;
+    --ico: 20px;
+    color: var(--fg-2);
+  }
+  .topbar-menu-toggle .menu-close { display: none; }
+  body[data-topbar-menu="open"] .topbar-menu-toggle .menu-open { display: none; }
+  body[data-topbar-menu="open"] .topbar-menu-toggle .menu-close { display: block; }
+  .topbar-menu-backdrop {
+    display: block;
+    position: fixed;
+    inset: var(--bar-h) 0 0;
+    z-index: 1;
+    border: 0; border-radius: 0;
+    background: rgba(8, 8, 10, 0.56);
+    backdrop-filter: blur(3px);
+    opacity: 0; visibility: hidden;
+    pointer-events: none;
+    transition: opacity var(--t2) var(--e), visibility 0s var(--t2);
+  }
+  .topbar-menu .topbar-end {
+    position: fixed;
+    top: var(--bar-h); right: 0; bottom: 0;
+    z-index: 2;
+    width: min(224px, 72vw);
+    padding: var(--sp-3);
+    display: flex;
+    flex-direction: column;
+    align-items: stretch;
+    gap: var(--sp-1);
+    overflow-x: hidden;
+    overflow-y: auto;
+    overscroll-behavior: contain;
+    background: color-mix(in srgb, var(--raised) 97%, transparent);
+    border-left: 1px solid var(--line-2);
+    box-shadow: var(--sh-4);
+    transform: translateX(100%);
+    visibility: hidden;
+    transition: transform var(--t3) var(--e-out), visibility 0s var(--t3);
+  }
+  .topbar-menu .topbar-end .ibtn {
+    width: 100%; height: 42px;
+    display: flex;
+    justify-content: flex-start;
+    gap: var(--sp-3);
+    padding: 0 var(--sp-3);
+    --ico: 17px;
+    color: var(--fg-2);
+    background: transparent;
+    box-shadow: none;
+  }
+  .topbar-menu .topbar-end .ibtn:hover { background: var(--hover); box-shadow: none; }
+  .topbar-menu .topbar-end .ibtn[hidden] { display: none; }
+  .topbar-action-label { display: inline; font-size: var(--fz-sm); font-weight: var(--fw-medium); }
+  body[data-topbar-menu="open"] { overflow: hidden; }
+  body[data-topbar-menu="open"] .topbar-menu-backdrop {
+    opacity: 1; visibility: visible; pointer-events: auto; transition-delay: 0s;
+  }
+  body[data-topbar-menu="open"] .topbar-menu .topbar-end {
+    transform: none; visibility: visible; transition-delay: 0s;
+  }
+
+  .topbar-history-slot {
+    display: flex;
+    flex: 1 1 auto;
+    min-width: 0;
+    min-height: 0;
+    margin-top: var(--sp-2);
+    padding-top: var(--sp-2);
+    border-top: 1px solid var(--line);
+    overflow: hidden;
+  }
+
+  /* dvh avoids the iOS/Android URL-bar height jump */
+  .shell {
+    grid-template-columns: 1fr;
+    grid-template-rows: auto auto;
+    height: auto;
+    min-height: calc(100dvh - var(--bar-h));
+    padding-bottom: var(--mobile-foot-h);
+  }
+  .splitter { display: none; }     /* no pointer to drag with */
+
+  /* image first — it is the reason the page exists */
+  .shell .stage { order: 1; }
+  /* Height follows the content (app.js syncStageHeight); the clamp is only the
+     ceiling, and the box the picture is fitted into. */
+  .shell .viewport {
+    --vp-max: clamp(440px, calc(100svh - var(--bar-h)), 720px);
+    max-height: var(--vp-max);
+    height: var(--vp-h, var(--vp-max));
+    padding: var(--sp-3);
+    transition: height var(--t3) var(--e-out);
+  }
+  /* The tags become one swipeable line, fading at the edge, with the
+     actions on the line below across the full width. */
+  .shell .result-panel { padding: 10px var(--sp-3) var(--sp-3); }
+  .result-bottom { flex-flow: column nowrap; align-items: stretch; }
+  .result-params {
+    flex-wrap: nowrap; overflow-x: auto; overscroll-behavior-x: contain; scrollbar-width: none;
+    mask-image: linear-gradient(90deg, #000 calc(100% - 32px), transparent);
+  }
+  .result-params::-webkit-scrollbar { display: none; }
+  .result-actions { margin-left: 0; }
+  /* One row on any phone: buttons give up width (never height) before wrapping. */
+  .result-group { min-width: 0; }
+
+  /* History lives below the tools inside the manually opened side rail. */
+  .topbar-history-slot .gallery {
+    flex: 1 1 auto;
+    width: 100%;
+    min-width: 0;
+    min-height: 0;
+    border: 0;
+    background: transparent;
+    overflow: hidden;
+  }
+  .topbar-history-slot .library-head { padding: var(--sp-2) 2px var(--sp-3); }
+  .topbar-history-slot .library-foot { padding: var(--sp-2) 2px 0; }
+  .topbar-history-slot .library-fold { display: none; }
+  .topbar-history-slot .library-foot:has(.library-clear[hidden]) { display: none; }
+  .topbar-history-slot .tray {
+    flex: 1 1 auto;
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    align-content: start;
+    padding: var(--sp-2) 2px;
+    gap: var(--sp-2);
+    overflow-x: hidden;
+    overflow-y: auto;
+    overscroll-behavior: contain;
+  }
+  .topbar-history-slot .tray:empty { display: none; }
+  .topbar-history-slot .tile {
+    width: 100%;
+    height: auto;
+    aspect-ratio: 1;
+  }
+  .topbar-history-slot .tray-empty {
+    flex: none;
+    padding: var(--sp-2) 2px;
+    text-align: center;
+  }
+  .topbar-history-slot .tray-ghosts { grid-template-columns: repeat(2, minmax(0, 1fr)); gap: var(--sp-2); }
+  .topbar-history-slot .tray-ghosts i:nth-child(4) { display: block; }
+
+  /* Workspace only (.shell): the image editor lays out its own phone view.
+     composer scrolls with the document; no nested scrollport on touch */
+  .shell .composer {
+    order: 3;
+    border-right: 0; border-top: 1px solid var(--line);
+    display: block;
+  }
+  .shell .composer-scroll { overflow: visible; mask-image: none; padding: var(--sp-4) var(--sp-3); }
+  .shell .fld-hero { min-height: 0; }
+  .shell .fld-hero .hl-wrap { height: auto; min-height: 128px; max-height: 42dvh; }
+
+  /* The primary action belongs to the viewport, not the scroll position. */
+  .shell .composer-foot {
+    position: fixed;
+    left: 0; right: 0; bottom: 0;
+    z-index: var(--z-action);
+    padding: var(--sp-2) var(--sp-3) calc(var(--sp-2) + env(safe-area-inset-bottom));
+    background: color-mix(in srgb, var(--chrome) 94%, transparent);
+    backdrop-filter: blur(12px);
+    border-top: 1px solid var(--line);
+    box-shadow: 0 -10px 28px -20px rgba(0, 0, 0, .9);
+  }
+  .btn-go, .btn-stop { height: 44px; }   /* 44px = comfortable tap target */
+  .go-keys { display: none; }
+
+  .ibtn { width: 34px; height: 34px; }
+  .ibtn-xs { width: 28px; height: 28px; }
+  .check { min-height: 32px; }
+  input[type="range"] { height: 28px; }
+  .scrub-sm { height: 40px; }
+  .scrub-sm input[type="range"]::-webkit-slider-thumb { height: 40px; }
+  .ratio { padding: 10px 4px 8px; }
+
+  .tag-suggest { padding: 4px; border-radius: 11px; }
+  .tag-suggest-option { min-height: 44px; padding: 6px 8px; }
+  .tag-suggest-names strong { font-size: var(--fz-sm); }
+  .tag-suggest-names span { font-size: var(--fz-xs); }
+
+  .lightbox { --lb-pad: var(--sp-3); }
+  .lightbox-x { top: calc(var(--sp-3) + env(safe-area-inset-top)); right: var(--sp-3); }
+
+  .sheet { padding: 0; align-items: end; }
+  /* Import becomes a full page: the picture on top, then the words. One
+     scroller for the whole body, with the head and the apply button fixed. */
+  #importSheet { align-items: stretch; }
+  .import-card {
+    width: 100%; height: 100dvh; max-height: none;
+    border: 0; border-radius: 0;
+    transform: translateY(12px);
+  }
+  .import-head { padding-left: var(--sp-3); }
+  .import-body { display: block; min-height: 0; overflow-y: auto; overscroll-behavior: contain; }
+  .import-figure {
+    contain: none;
+    grid-template-rows: auto auto;
+    padding: var(--sp-3);
+    border-right: 0; border-bottom: 1px solid var(--line);
+  }
+  .import-figure img { height: auto; max-height: 34dvh; }
+  .import-figure figcaption { text-align: center; }
+  .import-main { overflow: visible; padding: var(--sp-4) var(--sp-3) var(--sp-5); }
+  .import-params { grid-template-columns: 1fr 1fr; }
+  .import-extra summary { min-height: 40px; }
+  .import-foot { padding: var(--sp-2) var(--sp-3) calc(var(--sp-2) + env(safe-area-inset-bottom)); }
+  .import-tally { display: none; }
+  .import-foot .btn { flex: 1; min-height: 44px; }
+  .dropzone-card { padding: var(--sp-5) var(--sp-5); }
+
+  /* Tall sheet: the list is the point, and the on-screen keyboard will take
+     the lower half once the field is focused. */
+  .picker-card {
+    width: 100%;
+    height: 88dvh;
+    border: 0;
+    border-radius: var(--r4) var(--r4) 0 0;
+    padding: var(--sp-4) var(--sp-3) calc(var(--sp-3) + env(safe-area-inset-bottom));
+    transform: translateY(12px);
+  }
+  .picker-row { min-height: 48px; }
+}
+
+@media (max-width: 480px) {
+  /* Compact but complete now that utility actions live in the side rail. */
+  .brand { gap: 6px; }
+  .brand-wordmark { gap: 6px; }
+  .topbar { padding-inline: 10px; gap: 6px; }
+  .topbar-menu-toggle { width: 36px; height: 36px; --ico: 19px; }
+
+  .ratios { grid-template-columns: repeat(4, 1fr); gap: 5px; }
+  .pair { grid-template-columns: 1fr 1fr; }
+  .seg { grid-auto-flow: row; }
+
+  /* Groups spread across the width; the space between them is the divider. */
+  .result-actions { justify-content: space-between; }
+  .result-group + .result-group::before { display: none; }
+}
+
+@media (max-width: 340px) {
+  .topbar { padding-inline: 6px; }
+}
+
+/* Tooltips are hover-only affordances; on touch they fire on tap and linger,
+   so suppress them and rely on aria-label instead. */
+@media (hover: none) {
+  [data-tip]::after { content: none; }
+  .tile-x { opacity: 1; }          /* no hover to reveal the delete button */
+
+  /* WCAG 2.5.5: 44px minimum. The desktop sizes (32/26px) are fine for a
+     mouse but not a fingertip. Grown via padding and a negative margin so
+     the tap area expands without shifting any surrounding layout. */
+  .ibtn, .ibtn-xs {
+    width: 44px; height: 44px;
+  }
+  .topbar-end, .topbar-menu .topbar-end { gap: 0; }
+  .result-actions { gap: 0; }
+  .result-actions .ibtn { width: 44px; height: 44px; }
+}
+
+/* The existing phone drawer contains the same complete library panel. */
+@media (max-width: 860px) {
+  .topbar-history-slot .gallery .library-clear { width: 44px; height: 44px; }
+  .topbar-history-slot .gallery .library-tabs .library-tab { height: 44px; --ico: 18px; }
+  .topbar-history-slot .library-tab b { font-size: 12px; }
+  .result-actions .ibtn { flex: 0 1 auto; width: 44px; min-width: 32px; height: 44px; }
+}

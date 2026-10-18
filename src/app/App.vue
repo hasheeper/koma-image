@@ -1,7 +1,32 @@
+<script setup lang="ts">
+import { provide } from "vue";
+import { createRouter } from "./router";
+import { createShell, shellKey } from "./shell";
+import { usePresentation } from "./presentation";
+import ImageWorkspace from "../workspaces/image/ImageWorkspace.vue";
+import ChatWorkspace from "../workspaces/chat/ChatWorkspace.vue";
+import TagsWorkspace from "../workspaces/tags/TagsWorkspace.vue";
+import SettingsOverlay from "../overlays/SettingsOverlay.vue";
+import EditorOverlay from "../overlays/EditorOverlay.vue";
+
+const router = createRouter();
+const shell = createShell(router);
+provide(shellKey, shell);
+usePresentation(shell);
+// Stable workspace keys, regardless of overlay or query ticket. Components stay non-reactive.
+const workspaces = {
+  image: ImageWorkspace,
+  chat: ChatWorkspace,
+  tags: TagsWorkspace,
+};
+</script>
 <template>
-  <!-- Development bootstrap only; the product workspaces will reproduce the approved UI. -->
-  <main aria-label="Koma Image" data-bootstrap>
-    <h1>Koma Image</h1>
-    <p>工程基础已就绪，工作区尚未接入。</p>
-  </main>
+  <KeepAlive :max="3">
+    <component
+      :is="workspaces[router.route.value.workspace]"
+      :key="router.route.value.workspace"
+    />
+  </KeepAlive>
+  <SettingsOverlay />
+  <EditorOverlay />
 </template>

@@ -1,0 +1,315 @@
+/* ══════════════════════════════════════════════════════════════
+   Image editor — one full-screen workspace. It is the NAI workspace
+   rearranged: the same topbar, composer, splitter, stage and history
+   rail from ui.css. The composer runs img2img; inpaint and upscale are
+   tools on the canvas toolbar. This file only lays them out and adds
+   what a canvas needs (zoom, mask, tools, the upscale menu).
+   ══════════════════════════════════════════════════════════════ */
+.editor {
+  /* Opens at the workspace's own column widths until resized here. */
+  --editor-panel: var(--rail);
+  --editor-rail: var(--hist);
+  position: fixed; inset: 0;
+  width: 100%; height: 100dvh; max-width: none; max-height: none;
+  margin: 0; padding: 0; border: 0;
+  color: var(--fg); background: var(--chrome);
+  overflow: hidden;
+}
+.editor[open] { display: grid; grid-template-rows: auto minmax(0, 1fr); }
+.editor::backdrop { background: var(--canvas); }
+.editor [hidden] { display: none !important; }
+.editor[data-rail="off"] { --editor-rail: 0px; }
+
+/* ── Top bar: a way back, the EDIT mark, the tools and the balances ── */
+.editor-bar { gap: var(--sp-3); }
+.editor-back { width: 34px; height: 34px; margin-right: -4px; --ico: 20px; color: var(--fg-2); }
+.editor-back[data-tip]::after { left: 0; transform: translate(0, -3px); }
+.editor-back[data-tip]:hover::after { transform: translate(0, 0); }
+.editor-title { margin: 0; font: inherit; }
+.editor-bar-end { margin-left: auto; }
+.editor-bar-end .ibtn:disabled { opacity: 0.45; pointer-events: none; }
+
+/* ── Columns ────────────────────────────────────────────────── */
+.editor-shell {
+  display: grid;
+  grid-template-columns: var(--editor-panel) 0 minmax(0, 1fr) var(--editor-rail);
+  min-height: 0;
+  transition: grid-template-columns var(--t3) var(--e);
+}
+/* Follow the pointer exactly while resizing. */
+.editor[data-drag="on"] .editor-shell { transition: none; }
+.editor[data-rail="off"] .editor-rail { border-left-color: transparent; }
+
+/* ── Composer ───────────────────────────────────────────────── */
+.editor .fld-hero { min-height: 168px; }
+/* Once dragged, the block is exactly the well's height and the rest follows. */
+.editor .fld-hero[data-resized="1"] { min-height: 0; }
+.editor .fld-hero .hl-wrap { min-height: 96px; }
+.editor .quota-warning > span { flex: 1; min-width: 0; overflow-wrap: anywhere; }
+.editor .quota-warning .ibtn { margin: -6px -6px -6px 0; color: inherit; }
+.editor-err { color: var(--err); background: var(--err-dim); border-color: rgba(232, 135, 135, 0.28); }
+
+/* ── Stage ──────────────────────────────────────────────────── */
+.editor-mat { padding: 0; place-items: stretch; }
+/* A scrolling grid with an auto-margin child: centred while it fits, and
+   every edge still reachable once zoom makes it overflow (flex centring
+   would cut off the top-left). The bottom padding keeps the toolbar clear. */
+.editor-viewport {
+  position: absolute; inset: 0;
+  display: grid;
+  padding: 60px var(--sp-5) 72px;
+  overflow: auto; overscroll-behavior: contain;
+  touch-action: pan-x pan-y;
+}
+/* The print, as on the workspace stage. */
+.editor-print {
+  position: relative; margin: auto;
+  border-radius: var(--r2);
+  overflow: hidden;
+  background: var(--sunken);
+  box-shadow:
+    0 0 0 1px rgba(255, 255, 255, 0.06),
+    0 1px 2px rgba(0, 0, 0, 0.24),
+    0 14px 36px -12px rgba(0, 0, 0, 0.6);
+}
+.editor-print img {
+  display: block; width: 100%; height: 100%;
+  object-fit: contain;
+  user-select: none; -webkit-user-drag: none;
+}
+.editor-print canvas {
+  position: absolute; inset: 0;
+  width: 100%; height: 100%;
+  opacity: 0.55;
+  touch-action: none; cursor: crosshair;
+}
+.editor[data-hand="on"] .editor-print canvas { pointer-events: none; }
+.editor[data-hand="on"] .editor-viewport { cursor: grab; }
+.editor[data-panning="on"] .editor-viewport { cursor: grabbing; }
+.editor-cursor {
+  position: absolute; top: 0; left: 0; z-index: 2;
+  border: 1.5px solid rgba(255, 255, 255, 0.9);
+  border-radius: 50%;
+  box-shadow: 0 0 0 1px rgba(0, 0, 0, 0.55), inset 0 0 0 1px rgba(0, 0, 0, 0.35);
+  pointer-events: none;
+}
+.editor-empty { position: absolute; inset: 0; margin: auto; height: max-content; }
+/* What is on screen and what to do with it, laid over the top of the mat and
+   fading into it, so it reads as part of the picture rather than a panel. */
+.editor-info {
+  position: absolute; top: 0; left: 0; right: 0; z-index: 3;
+  display: flex; align-items: center; justify-content: space-between; gap: var(--sp-3);
+  height: 52px; padding: 0 var(--sp-3) 0 var(--sp-4);
+  background: linear-gradient(to bottom, color-mix(in srgb, var(--canvas) 92%, transparent), transparent);
+  pointer-events: none;
+}
+.editor-info > * { pointer-events: auto; }
+.editor-info-meta {
+  display: flex; align-items: baseline; gap: var(--sp-2);
+  min-width: 0; margin: 0;
+  white-space: nowrap; overflow: hidden;
+}
+.editor-info-meta b { font-size: var(--fz-xs); font-weight: var(--fw-semibold); color: var(--fg); }
+.editor-info-meta .mono { color: var(--fg-3); overflow: hidden; text-overflow: ellipsis; }
+.editor-info[data-compare="on"] .editor-info-meta b { color: var(--a); }
+.editor-info-actions { display: flex; align-items: center; gap: 2px; flex: none; }
+.editor-info-actions .ibtn { width: 32px; height: 32px; --ico: 17px; color: var(--fg-2); }
+.editor-info-actions .ibtn:hover { color: var(--fg); background: var(--hover); }
+.editor-info-actions .ibtn:disabled { opacity: 0.45; pointer-events: none; }
+.editor-info-actions [data-tip]::after { left: auto; right: 0; transform: translate(0, -3px); }
+.editor-info-actions [data-tip]:hover::after { transform: translate(0, 0); }
+.editor .stage[data-drop]::after {
+  content: attr(data-drop);
+  position: absolute; inset: var(--sp-3); z-index: 6;
+  display: grid; place-items: center;
+  font-size: var(--fz-sm); font-weight: var(--fw-medium); color: var(--a);
+  background: rgba(179, 161, 255, 0.06);
+  border: 1.5px dashed var(--a-line); border-radius: var(--r4);
+  pointer-events: none;
+}
+
+/* Canvas tools float over the mat, raised like the workspace's popovers. */
+.editor-toolbar {
+  position: absolute; left: 50%; bottom: var(--sp-4); z-index: 3;
+  transform: translateX(-50%);
+  display: flex; align-items: center; justify-content: center; flex-wrap: wrap; gap: 2px;
+  /* An absolutely placed box at left:50% would otherwise shrink to half the canvas. */
+  width: max-content; max-width: calc(100% - 24px);
+  padding: 4px;
+  background: color-mix(in srgb, var(--raised) 94%, transparent);
+  border: 1px solid var(--line-2);
+  border-radius: var(--r3);
+  box-shadow: var(--sh-lip), var(--sh-2);
+  backdrop-filter: blur(10px);
+}
+.editor-mask-tools { display: flex; align-items: center; gap: 2px; flex: none; }
+/* Inpaint and upscale are tools on the picture, labelled because they are
+   the two things to do with it; the icon buttons after them only move the view. */
+.editor-tool {
+  display: inline-flex; align-items: center; gap: 6px; flex: none;
+  height: 32px; padding: 0 10px 0 8px;
+  --ico: 17px;
+  font-size: var(--fz-xs); font-weight: var(--fw-medium); white-space: nowrap;
+  color: var(--fg-2); border-radius: var(--r2);
+  transition: color var(--t1) var(--e), background var(--t1) var(--e);
+}
+.editor-tool:hover { color: var(--fg); background: var(--hover); }
+.editor-tool:active { transform: scale(.97); }
+.editor-tool[aria-pressed="true"],
+.editor-tool[aria-expanded="true"] { color: var(--a); background: var(--a-dim); }
+.editor-tool:disabled { opacity: 0.4; pointer-events: none; }
+.editor-tool .caret { width: 5px; height: 5px; margin: -3px 0 0 1px; border-color: currentColor; opacity: 0.7; }
+.editor-tool[aria-expanded="true"] .caret { margin-top: 3px; transform: rotate(225deg) translate(-1px, -1px); }
+.editor-toolbar .ibtn { width: 32px; height: 32px; --ico: 17px; color: var(--fg-2); }
+.editor-toolbar .ibtn:hover { color: var(--fg); background: var(--hover); }
+.editor-toolbar .ibtn[aria-pressed="false"] { color: var(--fg-3); }
+.editor-toolbar .ibtn[aria-pressed="true"] { color: var(--a); background: var(--a-dim); }
+.editor-toolbar .ibtn:disabled { opacity: 0.35; pointer-events: none; }
+.editor-sep { width: 1px; height: 18px; margin: 0 5px; background: var(--line-2); }
+.editor-size { position: relative; display: flex; align-items: center; gap: var(--sp-2); width: 136px; padding: 0 var(--sp-2); }
+.editor-size output { min-width: 24px; text-align: right; color: var(--fg-3); }
+.editor-zoom {
+  position: relative;
+  min-width: 50px; height: 32px; padding: 0 6px;
+  color: var(--fg-2); border-radius: var(--r2);
+  transition: color var(--t1) var(--e), background var(--t1) var(--e);
+}
+.editor-zoom:hover { color: var(--fg); background: var(--hover); }
+/* The toolbar sits at the bottom edge, so its tips open upward. */
+.editor-toolbar [data-tip]::after { top: auto; bottom: calc(100% + 9px); transform: translate(-50%, 3px); }
+.editor-toolbar [data-tip]:hover::after { transform: translate(-50%, 0); }
+
+/* ── Upscale menu ───────────────────────────────────────────── */
+/* A popover in the top layer, so neither the mat nor the scrolling page
+   clips it; placed by script over (or under) the toolbar button. It is a
+   menu, so it stays at menu density: short rows, one line per option. */
+.editor-pop {
+  /* Controls recess one notch below --raised, as in drawers and cards. */
+  --well: var(--chrome);
+  --well-focus: var(--sunken);
+  inset: auto; margin: 0; padding: 4px;
+  overflow-y: auto; overscroll-behavior: contain;
+  color: var(--fg);
+  background: color-mix(in srgb, var(--raised) 97%, transparent);
+  border: 1px solid var(--line-2); border-radius: var(--r3);
+  box-shadow: var(--sh-3), var(--sh-lip);
+  backdrop-filter: blur(16px);
+}
+.editor-pop:popover-open { display: grid; gap: 6px; animation: editorPopIn var(--t1) var(--e-out); }
+.editor-pop[data-placement="top"] { translate: 0 -100%; }
+@keyframes editorPopIn { from { opacity: 0; transform: translateY(3px) scale(.99); } }
+.editor-pop-list { display: grid; gap: 3px; font-size: var(--fz-xs); color: var(--fg-3); }
+.editor-pop-group { display: grid; }
+.editor-pop-group + .editor-pop-group { padding-top: 3px; border-top: 1px solid var(--line); }
+.editor-pop-group p { margin: 0; padding: 4px 8px 2px; font-size: var(--fz-2xs); line-height: 1.4; color: var(--fg-4); }
+.editor-pop-item {
+  position: relative;
+  display: flex; align-items: center;
+  min-height: 28px; padding: 0 26px 0 8px;
+  font-size: var(--fz-xs); color: var(--fg-2);
+  border-radius: var(--r1);
+  cursor: pointer;
+  transition: color var(--t1) var(--e), background var(--t1) var(--e);
+}
+.editor-pop-item:hover { color: var(--fg); background: var(--hover); }
+.editor-pop-item input { position: absolute; opacity: 0; width: 0; height: 0; }
+.editor-pop-item span { overflow: hidden; white-space: nowrap; text-overflow: ellipsis; }
+.editor-pop-item:has(input:checked) { color: var(--fg); }
+.editor-pop-item:has(input:checked)::after {
+  content: "";
+  position: absolute; right: 11px; top: 50%;
+  width: 4px; height: 8px; margin-top: -5px;
+  border: solid var(--a); border-width: 0 1.6px 1.6px 0;
+  transform: rotate(45deg);
+}
+.editor-pop-item:has(input:focus-visible) { outline: 2px solid var(--a); outline-offset: -2px; }
+.editor-pop-item:has(input:disabled) { opacity: 0.5; cursor: default; }
+/* What the chosen model takes: its options, the detail text, then the price. */
+.editor-pop-options, .editor-pop-detail, .editor-pop .quota-warning { margin: 0 4px; }
+.editor-pop-options { display: grid; gap: 4px; padding-top: 6px; border-top: 1px solid var(--line); }
+.editor-pop-option { display: flex; align-items: center; justify-content: space-between; gap: var(--sp-2); }
+.editor-pop-option label { font-size: var(--fz-xs); color: var(--fg-3); }
+.editor-pop-option select { width: auto; min-width: 96px; height: 28px; padding: 0 26px 0 9px; font-size: var(--fz-xs); background-position: right 8px center; }
+.editor-pop-detail {
+  width: auto; justify-self: stretch;
+  min-height: 76px; max-height: 40vh;
+  padding: 7px 9px;
+  font-size: var(--fz-sm); line-height: 1.5;
+}
+.editor-pop .btn-go { height: 34px; margin-top: 2px; padding-inline: 12px; font-size: var(--fz-sm); border-radius: var(--r2); }
+
+/* ── Versions: the history rail ─────────────────────────────── */
+.editor-rail .tile { cursor: pointer; }
+/* The base is pinned above what came out of it. */
+.editor-rail .tile[data-base="true"] { margin-bottom: var(--sp-2); }
+.tile-pin {
+  position: absolute; top: 3px; left: 3px;
+  width: 17px; height: 17px;
+  display: grid; place-items: center;
+  --ico: 11px;
+  color: var(--a-ink); background: var(--a);
+  border-radius: 5px;
+}
+.tile-pin .ico { stroke-width: 2.2; }
+
+/* ── Phones and small tablets: one scrolling column ─────────── */
+@media (max-width: 860px) {
+  .editor { overflow-y: auto; overscroll-behavior: contain; }
+  .editor[open] { display: block; }
+  .editor-bar { position: sticky; top: 0; }
+  .editor-shell { display: flex; flex-direction: column; padding-bottom: var(--editor-foot, 64px); }
+  .editor .splitter { display: none; }
+
+  /* Picture first, then its versions, then the controls — as on the workspace. */
+  .editor .stage { order: 1; }
+  .editor-mat { display: flex; flex-direction: column; height: clamp(320px, 58svh, 640px); }
+  .editor-viewport { position: relative; inset: auto; flex: 1; min-height: 0; padding: 52px var(--sp-3) var(--sp-3); }
+  .editor-info { height: 46px; padding: 0 var(--sp-1) 0 var(--sp-3); }
+  .editor-info-actions .ibtn { width: 40px; height: 40px; }
+  .editor-info-actions [data-tip]::after { display: none; }
+  /* The toolbar docks under the picture instead of covering it. */
+  .editor-toolbar {
+    position: static; transform: none;
+    justify-content: safe center; flex-wrap: nowrap;
+    width: auto; max-width: none; padding: 4px var(--sp-2);
+    overflow-x: auto; scrollbar-width: none;
+    background: var(--chrome);
+    border-width: 1px 0 0; border-radius: 0; box-shadow: none; backdrop-filter: none;
+  }
+  .editor-toolbar .ibtn, .editor-zoom { flex: none; width: 40px; height: 40px; }
+  .editor-tool { height: 40px; }
+  .editor-pop-item { min-height: 40px; font-size: var(--fz-sm); }
+  .editor-pop-option select { height: 36px; }
+  .editor-zoom { width: auto; }
+  .editor-zoom-step { display: none; }
+  .editor-size { flex: none; width: 120px; }
+  .editor-toolbar [data-tip]::after { display: none; }
+
+  .editor-rail { order: 2; border-left: 0; border-top: 1px solid var(--line); }
+  .editor[data-rail="off"] .editor-rail { display: none; }
+  .editor-rail .gallery-head { display: none; }
+  .editor-rail .tray { flex-direction: row; gap: var(--sp-2); padding: var(--sp-2) var(--sp-3); overflow-x: auto; overflow-y: hidden; }
+  .editor-rail .tile { width: 64px; }
+  .editor-rail .tile[data-base="true"] { margin: 0 var(--sp-2) 0 0; }
+
+  .editor .composer { order: 3; display: block; border-right: 0; border-top: 1px solid var(--line); }
+  .editor .composer-scroll { overflow: visible; padding: var(--sp-4) var(--sp-3); }
+  .editor .fld-hero { min-height: 0; }
+  .editor .fld-hero .hl-wrap { height: auto; min-height: 128px; max-height: 42dvh; }
+  /* The primary action belongs to the viewport, not the scroll position. */
+  .editor .composer-foot {
+    position: fixed; left: 0; right: 0; bottom: 0; z-index: 6;
+    padding: var(--sp-2) var(--sp-3) calc(var(--sp-2) + env(safe-area-inset-bottom));
+    background: color-mix(in srgb, var(--chrome) 94%, transparent);
+    backdrop-filter: blur(12px);
+    box-shadow: 0 -10px 28px -20px rgba(0, 0, 0, 0.9);
+  }
+  .editor .btn-go, .editor .btn-stop { height: 44px; }
+  .editor .go-keys { display: none; }
+}
+@media (max-width: 600px) {
+  .editor-bar { gap: var(--sp-2); padding-inline: var(--sp-2); }
+  /* Two fingers pan and pinch on touch screens, so the hand tool can go. */
+  #editorHand, .editor-size output { display: none; }
+  .editor-size { width: 104px; }
+}

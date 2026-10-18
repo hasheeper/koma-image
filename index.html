@@ -6,9 +6,22 @@
     <meta name="color-scheme" content="dark">
     <meta name="robots" content="noindex">
     <title>Koma Image</title>
+    <link rel="icon" id="workspaceIcon" type="image/svg+xml" href="/assets/favicon-image.svg">
+    <link rel="preload" href="/fonts/manrope/files/manrope-latin-wght-normal.woff2" as="font" type="font/woff2" crossorigin>
+    <link rel="preload" href="/fonts/jetbrains-mono/files/jetbrains-mono-latin-wght-normal.woff2" as="font" type="font/woff2" crossorigin>
+    <link rel="stylesheet" href="/fonts/manrope/index.css">
+    <link rel="stylesheet" href="/fonts/noto-sans-sc/index.css">
+    <link rel="stylesheet" href="/fonts/jetbrains-mono/index.css">
+    <link rel="stylesheet" href="/styles/ui.css">
+    <link rel="stylesheet" id="style-image" href="/styles/styles.css" media="not all">
+    <link rel="stylesheet" id="style-chat" href="/styles/chat.css" media="not all">
+    <link rel="stylesheet" id="style-tags" href="/styles/tags.css" media="not all">
+    <link rel="stylesheet" href="/styles/editor.css">
+    <link rel="stylesheet" href="/styles/settings.css">
+    <link rel="stylesheet" href="/styles/transfer.css">
   </head>
   <body>
-    <div id="app"></div>
+    <!-- Vue owns body children; no wrapper may break the original layout selectors. -->
     <script type="module" src="/src/main.ts"></script>
   </body>
 </html>

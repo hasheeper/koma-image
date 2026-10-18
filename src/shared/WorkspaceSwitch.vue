@@ -1,0 +1,84 @@
+<script setup lang="ts">
+import { computed, onDeactivated, shallowRef } from "vue";
+import { useShell } from "../app/shell";
+import { workspaceInfo, workspaces } from "../app/routes";
+import type { WorkspaceId } from "../app/routes";
+import BrandMark from "./BrandMark.vue";
+import AppIcon from "./AppIcon.vue";
+
+const props = defineProps<{ workspace: WorkspaceId }>();
+const { router } = useShell();
+const button = shallowRef<HTMLButtonElement | null>(null);
+const menu = shallowRef<HTMLElement | null>(null);
+const expanded = shallowRef(false);
+const info = computed(() => workspaceInfo[props.workspace]);
+const menuId = `workspace-menu-${props.workspace}`;
+function beforeToggle(event: Event) {
+  expanded.value = (event as ToggleEvent).newState === "open";
+  if (expanded.value && button.value && menu.value) {
+    const rect = button.value.getBoundingClientRect();
+    menu.value.style.left = `${Math.max(4, rect.left)}px`;
+    menu.value.style.top = `${rect.bottom + 4}px`;
+  }
+}
+function close() {
+  if (menu.value?.matches(":popover-open")) menu.value.hidePopover();
+}
+function switchTo(workspace: WorkspaceId) {
+  close();
+  router.switchWorkspace(workspace);
+}
+function openSettings() {
+  close();
+  router.openOverlay("settings");
+}
+onDeactivated(close);
+</script>
+<template>
+  <button
+    ref="button"
+    class="brand switcher"
+    type="button"
+    :popovertarget="menuId"
+    :aria-expanded="expanded"
+    :aria-label="`Koma ${info.name}，切换工作区`"
+  >
+    <BrandMark :surface="workspace" :subtitle="info.subtitle" />
+    <AppIcon class="sw-caret" name="i-chevron" />
+  </button>
+  <nav
+    ref="menu"
+    :id="menuId"
+    class="switch-menu"
+    popover
+    aria-label="切换工作区"
+    @beforetoggle="beforeToggle"
+  >
+    <template v-for="(target, index) in workspaces" :key="target">
+      <button v-if="index === 2" class="switch-item" type="button" disabled>
+        <AppIcon class="sw-glyph" name="mk-edit" /><span class="sw-text"
+          ><b>编辑</b><small>解锁 Key 后可用</small></span
+        >
+      </button>
+      <a
+        class="switch-item"
+        :href="`#/${target}`"
+        :aria-current="target === workspace ? 'page' : undefined"
+        @click.prevent="switchTo(target)"
+      >
+        <AppIcon class="sw-glyph" :name="`mk-${target}`" />
+        <span class="sw-text"
+          ><b>{{ workspaceInfo[target].name }}</b
+          ><small>{{ workspaceInfo[target].description }}</small></span
+        >
+        <AppIcon v-if="target === workspace" class="sw-end" name="i-check" />
+      </a>
+    </template>
+    <hr />
+    <button class="switch-item" type="button" @click="openSettings">
+      <AppIcon class="sw-glyph" name="mk-settings" /><span class="sw-text"
+        ><b>设置</b><small>连接、模型、Key 与备份</small></span
+      >
+    </button>
+  </nav>
+</template>
