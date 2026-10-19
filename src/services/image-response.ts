@@ -98,15 +98,15 @@ export async function makeThumb(blob: Blob): Promise<Blob | null> {
   try {
     const bitmap = await createImageBitmap(blob);
     try {
-      const scale = Math.min(1, 240 / Math.max(bitmap.width, bitmap.height)),
+      const scale = Math.min(1, 768 / Math.max(bitmap.width, bitmap.height)),
         canvas = new OffscreenCanvas(
           Math.max(1, Math.round(bitmap.width * scale)),
           Math.max(1, Math.round(bitmap.height * scale)),
         );
-      canvas
-        .getContext("2d")!
-        .drawImage(bitmap, 0, 0, canvas.width, canvas.height);
-      return await canvas.convertToBlob({ type: "image/jpeg", quality: 0.72 });
+      const context = canvas.getContext("2d")!;
+      context.imageSmoothingQuality = "high";
+      context.drawImage(bitmap, 0, 0, canvas.width, canvas.height);
+      return await canvas.convertToBlob({ type: "image/jpeg", quality: 0.9 });
     } finally {
       bitmap.close();
     }

@@ -79,15 +79,15 @@ async function measure() {
     const inset = Math.round(Math.max(0, Math.min(72, (fitWidth - 480) / 4)));
     const width = Math.min(800, fitWidth - inset * 2),
       gap = fitWidth <= 600 ? 8 : 16;
-    // Up to 200px on desktop and about four portraits a row on a phone; a
-    // short desktop window shrinks it so both rows still fit.
+    // Large previews: up to 240px on desktop, about three 3:4 portraits per
+    // row on a phone. Short desktop windows shrink them to fit both rows.
     const height = Math.floor(
       Math.max(
         56,
         Math.min(
-          200,
-          (width - gap * 3) / 3,
-          narrow.value ? 150 : (fitHeight - 250) / 2,
+          240,
+          (width - gap * 2) / (3 * 0.75),
+          narrow.value ? 240 : (fitHeight - 250) / 2,
         ),
       ),
     );
@@ -235,7 +235,7 @@ onBeforeUnmount(pause);
             :aria-label="`查看收藏 ${imageFileName(cell.item)}`"
             :style="{
               '--w': `${cell.width}px`,
-              '--thumb': `url('${drawing.url(cell.item, true)}')`,
+              '--thumb': `url('${drawing.url(cell.item)}')`,
             }"
             @click="drawing.show(cell.item, true)"
           ></button>

@@ -494,6 +494,118 @@ test("M4 history import review, copy/reuse, high-frequency splitter has no Vue r
   }
 });
 
+test("M4 large home previews use saved originals, including favorites with small thumbnails", async () => {
+  const t = await open(),
+    p = t.page;
+  try {
+    const sizes = await p.evaluate(async (bytes) => {
+      const { makeThumb } = await import("/src/services/image-response.ts");
+      const { transactionDone } = await import("/src/storage/databases.ts");
+      const { names } = await import("/src/storage/names.ts");
+      const blob = new Blob([new Uint8Array(bytes)], { type: "image/png" });
+      const oldCanvas = new OffscreenCanvas(164, 240),
+        original = await createImageBitmap(blob);
+      oldCanvas.getContext("2d").drawImage(original, 0, 0, 164, 240);
+      original.close();
+      const thumbBlob = await oldCanvas.convertToBlob({
+        type: "image/jpeg",
+        quality: 0.72,
+      });
+      const smallCanvas = new OffscreenCanvas(80, 120);
+      smallCanvas.getContext("2d").fillRect(0, 0, 80, 120);
+      const small = await smallCanvas.convertToBlob();
+      const sizes = [];
+      for (const source of [blob, small]) {
+        const bitmap = await createImageBitmap(await makeThumb(source));
+        sizes.push([bitmap.width, bitmap.height]);
+        bitmap.close();
+      }
+      await services.data.write(async () => {
+        const tx = services.databases.transaction(
+          names.databases.favorites, "favorites", "readwrite",
+        );
+        for (let i = 0; i < 2; i++)
+          tx.objectStore("favorites").put({
+            id: `preview-${i}`, createdAt: 1000 + i, favoritedAt: 1000 + i,
+            blob, thumbBlob, size: { width: 832, height: 1216 },
+            params: { ...drawing.snapshot().form, seed: i },
+          });
+        await transactionDone(tx);
+      });
+      return sizes;
+    }, [...t.png]);
+    assert.deepEqual(sizes, [[525, 768], [80, 120]]);
+    await p.reload();
+    await p.waitForSelector(".home-fav");
+    await p.evaluate(() => document.fonts.ready);
+    await p.waitForFunction(
+      () => document.querySelector(".home-fav").offsetHeight === 240,
+    );
+    const previewBytes = await p.locator(".home-fav").first().evaluate(async (el) => {
+      const url = getComputedStyle(el).backgroundImage.slice(5, -2);
+      return [...new Uint8Array(await (await fetch(url)).arrayBuffer())];
+    });
+    assert.deepEqual(Buffer.from(previewBytes), t.png);
+    await p.screenshot({ path: ".local/m4/home-large-two.png" });
+
+    // Fill the shelf to check two centred rows and the overflow link.
+    await p.evaluate(async () => {
+      const provides = document.body.__vue_app__._instance.provides;
+      const drawing = provides[Object.getOwnPropertySymbols(provides).find(
+        (k) => k.description === "drawing",
+      )];
+      const app = document.body.__vue_app__._context.provides;
+      const services = app[Object.getOwnPropertySymbols(app).find(
+        (k) => k.description === "application-services",
+      )];
+      const { transactionDone } = await import("/src/storage/databases.ts");
+      const { names } = await import("/src/storage/names.ts");
+      const favorite = drawing.snapshot().favorites[0];
+      await services.data.write(async () => {
+        const tx = services.databases.transaction(
+          names.databases.favorites, "favorites", "readwrite",
+        );
+        for (let i = 2; i < 16; i++)
+          tx.objectStore("favorites").put({ ...favorite, id: `preview-${i}` });
+        await transactionDone(tx);
+      });
+      await drawing.reloadFavorites();
+    });
+    await p.waitForSelector(".home-all");
+    for (const width of [320, 390, 768, 1440]) {
+      await p.setViewportSize({ width, height: 900 });
+      await p.waitForTimeout(150);
+      const layout = await p.evaluate(() => {
+        const home = document.querySelector(".home").getBoundingClientRect(),
+          viewport = document.querySelector("#viewport").getBoundingClientRect(),
+          rows = [...document.querySelectorAll(".home-row")];
+        return {
+          fits: home.top >= viewport.top - 1 && home.bottom <= viewport.bottom + 1,
+          overflow: document.documentElement.scrollWidth > innerWidth + 1,
+          centred: rows.every((row) => {
+            const r = row.getBoundingClientRect();
+            return Math.abs((r.left + r.right - home.left - home.right) / 2) < 1;
+          }),
+          counts: rows.map((row) => row.children.length),
+          height: document.querySelector(".home-fav").offsetHeight,
+        };
+      });
+      assert.ok(layout.fits && layout.centred && !layout.overflow, JSON.stringify({ width, ...layout }));
+      assert.equal(layout.counts.length, 2);
+      if (width <= 390) assert.deepEqual(layout.counts, [3, 3]);
+      if (width === 1440) assert.equal(layout.height, 240);
+      assert.match(await p.locator(".home-all").textContent(), /全部 16 张/);
+      await p.screenshot({ path: `.local/m4/home-large-${width}.png` });
+    }
+    await p.locator(".home-fav").first().click();
+    await p.waitForFunction(() => document.querySelector("#image")?.naturalWidth === 832);
+    assert.equal(await p.locator("#image").evaluate((img) => img.naturalHeight), 1216);
+    assert.equal(t.state.generations, 0);
+  } finally {
+    await t.close();
+  }
+});
+
 test("M4 commit-first favorites, cross-tab refresh, backup reload and lossless download", async () => {
   const t = await open(),
     p = t.page;
