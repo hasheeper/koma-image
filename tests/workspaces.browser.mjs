@@ -516,7 +516,11 @@ test("M5 drawing handoff is one-use, retained chat receives it, oversized image 
       );
     }, t.png.toString("base64"));
     await p.locator("#chatBtn").click();
-    await p.waitForSelector(".attachment");
+    // The loading placeholder also has .attachment; wait for the completed claim.
+    await p.waitForSelector(".attachment:not(.attachment-loading)");
+    await p.waitForFunction(
+      () => !new URL(location.href).searchParams.has("image"),
+    );
     assert.equal(await p.locator("#chatPrompt").inputValue(), "");
     assert.equal(
       await p.evaluate(() => chat.snapshot().conversations.length),
