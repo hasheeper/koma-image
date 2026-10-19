@@ -358,8 +358,8 @@
   .chat-page .topbar { padding: 0 12px; gap: 8px; }
   .chat-page .brand { gap: 7px; }
   .chat-page .brand-mark { --m: 28px; }
-  .chat-page .brand-title { font-size: 18px; }
-  .chat-page .brand-subtitle { font-size: 9px; }
+  .chat-page .brand-title { font-size: 19px; }
+  .chat-page .brand-subtitle { font-size: 8.5px; letter-spacing: 0.12em; }
   .chat-page .brand-wordmark { gap: 6px; }
   /* Balances right-aligned beside the menu button, as on the NAI page. */
   .chat-app > .topbar .topbar-account { margin-left: auto; }

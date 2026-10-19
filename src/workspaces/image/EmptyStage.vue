@@ -17,54 +17,42 @@ import { useDrawing } from "../../app/drawing";
 import type { ImageRecord } from "../../domain/drawing";
 import { imageFileName } from "../../domain/drawing";
 const { drawing, view } = useDrawing();
-type Cell = { ar: number; width: number; item?: ImageRecord };
-const shown = computed(
-  () => layout.value.rows.flat().filter((r) => r.item).length,
-);
+type Cell = { width: number; item: ImageRecord };
+const shown = computed(() => layout.value.rows.flat().length);
 
 const home = shallowRef<HTMLElement | null>(null);
 const layout = shallowRef({
   width: 0,
-  gap: 12,
-  compact: false,
+  height: 0,
+  gap: 16,
   rows: [] as Cell[][],
 });
-const shapes = [1, 2 / 3, 1.5, 2 / 3, 1, 1.5, 2 / 3, 1, 1.5, 2 / 3, 1, 1.5];
 let observer: ResizeObserver | undefined;
 let active = false;
 let measureFrame = 0;
 let measured = "";
 
-// Original justified shelf geometry, with persisted favorites before the ghosts.
-function rowsFor(width: number, target: number, gap: number) {
+// Favourites keep their own proportions at one shared height, in up to two
+// centred rows. A row ends before it would overflow; it is never stretched.
+function rowsFor(width: number, height: number, gap: number) {
   const rows: Cell[][] = [];
-  const entries = [
-    ...view.value.favorites
-      .slice(0, 12)
-      .map((item) => ({ ar: item.size.width / item.size.height, item })),
-    ...shapes.map((ar) => ({ ar, item: undefined })),
-  ];
+  const items = view.value.favorites.slice(0, 12);
   let index = 0;
-  for (let r = 0; r < 2 && index < entries.length; r++) {
-    const row: typeof entries = [];
-    let sum = 0;
-    while (
-      index < entries.length &&
-      (!row.length ||
-        (sum + entries[index]!.ar) * target + row.length * gap <= width)
-    ) {
-      const cell = entries[index++]!;
-      row.push(cell);
-      sum += cell.ar;
+  for (let r = 0; r < 2 && index < items.length; r++) {
+    const row: Cell[] = [];
+    let used = 0;
+    while (index < items.length) {
+      const item = items[index]!;
+      const cell = Math.min(
+        width,
+        Math.floor((item.size.width / item.size.height) * height),
+      );
+      if (row.length && used + gap + cell > width) break;
+      used += (row.length ? gap : 0) + cell;
+      row.push({ width: cell, item });
+      index++;
     }
-    const full =
-      index < entries.length ||
-      sum * target + (row.length - 1) * gap > width * 0.8;
-    if (!full && rows.length) break;
-    const height = full ? (width - (row.length - 1) * gap) / sum : target;
-    rows.push(
-      row.map((cell) => ({ ...cell, width: Math.floor(cell.ar * height) })),
-    );
+    rows.push(row);
   }
   return rows;
 }
@@ -90,13 +78,20 @@ async function measure() {
     measured = key;
     const inset = Math.round(Math.max(0, Math.min(72, (fitWidth - 480) / 4)));
     const width = Math.min(800, fitWidth - inset * 2),
-      compact = fitWidth <= 600,
-      gap = compact ? 6 : 12;
-    const target = Math.max(
-      56,
-      Math.min(150, width / 6, narrow.value ? Infinity : (fitHeight - 190) / 2),
+      gap = fitWidth <= 600 ? 8 : 16;
+    // Up to 200px on desktop and about four portraits a row on a phone; a
+    // short desktop window shrinks it so both rows still fit.
+    const height = Math.floor(
+      Math.max(
+        56,
+        Math.min(
+          200,
+          (width - gap * 3) / 3,
+          narrow.value ? 150 : (fitHeight - 250) / 2,
+        ),
+      ),
     );
-    layout.value = { width, compact, gap, rows: rowsFor(width, target, gap) };
+    layout.value = { width, height, gap, rows: rowsFor(width, height, gap) };
   }
   await nextTick();
   if (!active || !home.value) return;
@@ -116,6 +111,15 @@ watch(
     void measure();
   },
   { flush: "post" },
+);
+// The parent's viewport ref arrives after the first activation; observe it
+// then, or resizes that leave this block's own size alone are never measured.
+watch(
+  () => props.viewport,
+  (viewport, previous) => {
+    if (previous) observer?.unobserve(previous);
+    if (viewport) observer?.observe(viewport);
+  },
 );
 function pause() {
   active = false;
@@ -142,151 +146,113 @@ onBeforeUnmount(pause);
     class="home"
     :style="layout.width ? { '--home-w': `${layout.width}px` } : undefined"
   >
-    <div class="home-top">
-      <span class="home-lock"
-        ><svg class="home-mark" viewBox="0 0 24 24" aria-hidden="true">
-          <rect
-            x="3"
-            y="3"
-            width="3"
-            height="3"
-            rx="1.1"
-            opacity="0.24"
-            style="--d: 0"
-          />
-          <rect
-            x="9.8"
-            y="2.3"
-            width="4.4"
-            height="4.4"
-            rx="1.1"
-            opacity="0.5"
-            style="--d: 1"
-          />
-          <rect x="16.5" y="1.5" width="6" height="6" rx="1.7" style="--d: 2" />
-          <rect
-            x="2.3"
-            y="9.8"
-            width="4.4"
-            height="4.4"
-            rx="1.1"
-            opacity="0.5"
-            style="--d: 1"
-          />
-          <rect x="9" y="9" width="6" height="6" rx="1.7" style="--d: 2" />
-          <rect
-            x="17.3"
-            y="9.8"
-            width="4.4"
-            height="4.4"
-            rx="1.1"
-            opacity="0.5"
-            style="--d: 3"
-          />
-          <rect x="1.5" y="16.5" width="6" height="6" rx="1.7" style="--d: 2" />
-          <rect
-            x="9.8"
-            y="17.3"
-            width="4.4"
-            height="4.4"
-            rx="1.1"
-            opacity="0.5"
-            style="--d: 3"
-          />
-          <rect
-            x="18"
-            y="18"
-            width="3"
-            height="3"
-            rx="1.1"
-            opacity="0.24"
-            style="--d: 4"
-          /></svg
-        ><span class="home-word"
-          ><span class="brand-title">Koma</span
-          ><span class="brand-subtitle">IMAGE</span></span
-        ></span
+    <span class="home-lock"
+      ><svg class="home-mark" viewBox="0 0 24 24" aria-hidden="true">
+        <rect
+          x="3"
+          y="3"
+          width="3"
+          height="3"
+          rx="1.1"
+          opacity="0.24"
+          style="--d: 0"
+        />
+        <rect
+          x="9.8"
+          y="2.3"
+          width="4.4"
+          height="4.4"
+          rx="1.1"
+          opacity="0.5"
+          style="--d: 1"
+        />
+        <rect x="16.5" y="1.5" width="6" height="6" rx="1.7" style="--d: 2" />
+        <rect
+          x="2.3"
+          y="9.8"
+          width="4.4"
+          height="4.4"
+          rx="1.1"
+          opacity="0.5"
+          style="--d: 1"
+        />
+        <rect x="9" y="9" width="6" height="6" rx="1.7" style="--d: 2" />
+        <rect
+          x="17.3"
+          y="9.8"
+          width="4.4"
+          height="4.4"
+          rx="1.1"
+          opacity="0.5"
+          style="--d: 3"
+        />
+        <rect x="1.5" y="16.5" width="6" height="6" rx="1.7" style="--d: 2" />
+        <rect
+          x="9.8"
+          y="17.3"
+          width="4.4"
+          height="4.4"
+          rx="1.1"
+          opacity="0.5"
+          style="--d: 3"
+        />
+        <rect
+          x="18"
+          y="18"
+          width="3"
+          height="3"
+          rx="1.1"
+          opacity="0.24"
+          style="--d: 4"
+        /></svg
+      ><span class="home-word"
+        ><span class="brand-title">Koma</span
+        ><span class="brand-subtitle">IMAGE</span></span
+      ></span
+    >
+    <p class="home-hint blank-keyed">
+      写下描述，按 <span class="sr-only">Command + Enter</span
+      ><span class="blank-keys" aria-hidden="true"
+        ><kbd><AppIcon name="i-cmd" /></kbd
+        ><kbd><AppIcon name="i-enter" /></kbd
+      ></span>
+      生成
+    </p>
+    <section v-if="shown" class="home-favs" aria-label="最近收藏">
+      <div
+        class="home-grid"
+        :style="{
+          '--home-gap': `${layout.gap}px`,
+          '--home-h': `${layout.height}px`,
+        }"
       >
-      <p class="home-hint">
-        <span class="blank-keyed"
-          >写下描述，按 <span class="sr-only">Command + Enter</span
-          ><span class="blank-keys" aria-hidden="true"
-            ><kbd><AppIcon name="i-cmd" /></kbd
-            ><kbd><AppIcon name="i-enter" /></kbd
-          ></span>
-          生成</span
-        ><span class="blank-touch">写下描述后点「生成」</span
-        ><small class="blank-keyed">拖入图片可读取它的生成参数</small>
-      </p>
-    </div>
-    <section class="home-favs" aria-labelledby="homeFavsTitle">
-      <div class="home-head">
-        <h2 id="homeFavsTitle"><AppIcon name="i-star" />最近收藏</h2>
-        <span class="home-n" :hidden="!shown || shown < view.favorites.length"
-          >{{ view.favorites.length }} 张</span
-        ><button
-          class="home-all"
-          type="button"
-          :hidden="!shown || shown >= view.favorites.length"
-          @click="
-            image.library = 'favorites';
-            image.historyOpen = true;
-            if (narrow) image.menuOpen = true;
-          "
-        >
-          全部 {{ view.favorites.length }} 张<AppIcon name="i-chevron" />
-        </button>
-      </div>
-      <div class="home-shelf">
-        <div
-          class="home-grid"
-          :class="{ 'is-empty': !shown && !view.favoritesLoading }"
-          :style="{ '--home-gap': `${layout.gap}px` }"
-        >
-          <div
-            v-for="(row, index) in layout.rows"
-            :key="index"
-            class="home-row"
-          >
-            <template
-              v-for="(shape, column) in row"
-              :key="shape.item?.id || column"
-              ><button
-                v-if="shape.item"
-                class="home-fav"
-                type="button"
-                :aria-label="`查看收藏 ${imageFileName(shape.item)}`"
-                :style="{
-                  '--w': `${shape.width}px`,
-                  '--ar': shape.ar.toFixed(4),
-                  '--thumb': `url('${drawing.url(shape.item, true)}')`,
-                }"
-                @click="drawing.show(shape.item, true)"
-              ></button
-              ><i
-                v-else
-                class="home-ghost"
-                aria-hidden="true"
-                :style="{
-                  '--w': `${shape.width}px`,
-                  '--ar': shape.ar.toFixed(4),
-                  '--g': column,
-                }"
-              ></i
-            ></template>
-          </div>
+        <div v-for="(row, index) in layout.rows" :key="index" class="home-row">
+          <button
+            v-for="cell in row"
+            :key="cell.item.id"
+            class="home-fav"
+            type="button"
+            :aria-label="`查看收藏 ${imageFileName(cell.item)}`"
+            :style="{
+              '--w': `${cell.width}px`,
+              '--thumb': `url('${drawing.url(cell.item, true)}')`,
+            }"
+            @click="drawing.show(cell.item, true)"
+          ></button>
         </div>
-        <p class="home-empty" :hidden="!!shown || view.favoritesLoading">
-          <AppIcon name="i-star" /><b>收藏的图会排在这里</b
-          ><span>{{
-            view.favoritesError
-              ? "打开右侧的收藏可以重试"
-              : layout.compact
-                ? "刷新后也不会丢"
-                : "生成记录刷新后清空，点图片下方的星标收藏，就会一直留在这里"
-          }}</span>
-        </p>
       </div>
+      <button
+        v-if="shown < view.favorites.length"
+        class="home-all"
+        type="button"
+        @click="
+          image.library = 'favorites';
+          image.historyOpen = true;
+          if (narrow) image.menuOpen = true;
+        "
+      >
+        全部 {{ view.favorites.length }} 张<AppIcon name="i-chevron" />
+      </button>
     </section>
   </div>
 </template>

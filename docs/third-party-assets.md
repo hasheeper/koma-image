@@ -4,4 +4,4 @@
 
 这些图标只表示合法模型供应商，不表示部署站点或聚合网关身份。连接与账户使用本地通用头像。
 
-原有字体资源各自保留随包附带的许可文件，发布包位于 `dist/fonts/<字体名>/LICENSE`。本工程的 `UNLICENSED` 不替代这些第三方许可。
+原有字体资源各自保留随包附带的许可文件，发布包位于 `dist/fonts/<字体名>/LICENSE`。品牌字「Koma」使用 Fredoka（@fontsource-variable/fredoka 5.3.0，OFL-1.1），只带拉丁子集、只用于品牌字，许可同样位于 `dist/fonts/fredoka/LICENSE`。本工程的 `UNLICENSED` 不替代这些第三方许可。

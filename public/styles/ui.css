@@ -148,6 +148,9 @@
      arbitrary Chinese input with the same complete variable-weight range. */
   --sans: "Manrope Variable", "Noto Sans SC Variable", sans-serif;
   --mono: "JetBrains Mono Variable", "Noto Sans SC Variable", monospace;
+  /* Fredoka draws only the Koma wordmark: it has no Chinese and is too
+     round for running text. */
+  --brand: "Fredoka Variable", "Manrope Variable", sans-serif;
 
   /* The header is taller than the inner column heads: it carries the brand and
      the gauges, they carry a label. These were all one hardcoded 48px, so any
@@ -823,7 +826,7 @@ body[data-gate="open"] .gate-card { transform: none; }
   border-radius: 11px;
   filter: drop-shadow(0 4px 10px rgba(115, 54, 135, 0.28));
 }
-.app-gate-brand .brand-title { font-size: 25px; }
+.app-gate-brand .brand-title { font-size: 26px; font-weight: 650; letter-spacing: 0; }
 .gate-transfer { margin-top: 20px; font-size: var(--fz-xs); color: var(--fg-3); }
 
 .lede { margin-top: calc(var(--sp-4) * -1 + 2px); color: var(--fg-2); font-size: var(--fz-sm); line-height: 1.6; }
@@ -948,7 +951,7 @@ body[data-gate="open"] .gate-card { transform: none; }
 .brand-wordmark {
   display: inline-flex;
   align-items: baseline;
-  gap: 8px;
+  gap: 7px;
   line-height: 1;
 }
 .brand-title {
@@ -957,18 +960,16 @@ body[data-gate="open"] .gate-card { transform: none; }
   background-clip: text;
   -webkit-background-clip: text;
   -webkit-text-fill-color: transparent;
-  font-family: var(--sans);
-  font-size: 22px;
-  font-weight: var(--fw-bold);
-  letter-spacing: -0.055em;
+  font-family: var(--brand);
+  font-size: 23px;
+  font-weight: 650;
   line-height: 1;
   text-shadow: 0 0 18px rgba(189, 147, 247, 0.09);
 }
 .brand-subtitle {
-  color: rgba(255, 255, 255, 0.88);
-  font: var(--fw-bold) 11px/1 var(--sans);
-  letter-spacing: 0.11em;
-  transform: translateY(-0.5px);
+  color: rgba(255, 255, 255, 0.8);
+  font: var(--fw-medium) 9.5px/1 var(--brand);
+  letter-spacing: 0.14em;
 }
 
 /* The brand is the workspace switcher. Its menu is a popover, so light
@@ -1691,8 +1692,7 @@ body[data-state="done"] .result-panel { display: grid; }
 .blank { display: grid; justify-items: center; gap: var(--sp-3); text-align: center; max-width: 280px; color: var(--fg-4); }
 .blank-s { font-size: var(--fz-sm); line-height: 1.6; color: var(--fg-3); }
 /* Same drawn keycaps as the generate button, cut for the dark stage, and
-   following the platform's modifier. No keyboard, no keys: touch gets its
-   own sentence. */
+   following the platform's modifier. No keyboard, no keys. */
 .blank-keys { display: inline-flex; gap: 3px; margin-left: 2px; vertical-align: -1px; }
 .blank-keys kbd {
   display: inline-grid; place-items: center;
@@ -1704,99 +1704,50 @@ body[data-state="done"] .result-panel { display: grid; }
   box-shadow: inset 0 0 0 1px var(--line-2), inset 0 -1px 0 rgba(0, 0, 0, 0.35);
 }
 .blank-keys .ico { width: 11px; height: 11px; stroke-width: 2.2; }
-.blank-touch { display: none; }
 .blank-drop { margin-top: -2px; font-size: var(--fz-xs); color: var(--fg-4); }
-@media (hover: none) {
-  .blank-keyed { display: none; }
-  .blank-touch { display: block; }
-}
+@media (hover: none) { .blank-keyed { display: none; } }
 .blank .btn { margin-top: var(--sp-1); }
 
-/* ── Empty stage: brand head and the favourites shelf ─────────── */
-/* The shelf keeps one shape whatever the count: two justified rows that
-   favourites take in order, the rest left as ghosts (docs/lab/empty-stage.html,
-   K). Ghosts are outlines lit from the top that dissolve downward, nearly
-   unfilled, each fainter than the one before, so the shelf trails off instead
-   of ending in a row of solid boxes. */
-.home { display: grid; width: var(--home-w, min(800px, 100%)); }
-.home-top {
-  display: flex; align-items: center; justify-content: space-between; gap: var(--sp-5);
-  padding-bottom: 20px; border-bottom: 1px solid var(--line);
-}
-.home-lock { display: inline-flex; align-items: center; gap: 14px; min-width: 0; }
-.home-mark { width: 40px; height: 40px; flex: none; overflow: visible; fill: var(--a); }
+/* ── Empty stage: the brand, one hint, the favourites ─────────── */
+/* Centred. Favourites keep their proportions at one shared height in up to
+   two centred rows (EmptyStage.vue); with none saved the stage is only the
+   brand and the hint, and phones drop the hint for the button below. */
+.home { display: grid; justify-items: center; width: var(--home-w, min(800px, 100%)); text-align: center; }
+.home-lock { display: inline-flex; align-items: center; gap: 16px; min-width: 0; }
+.home-mark { width: 48px; height: 48px; flex: none; overflow: visible; fill: var(--a); }
 .home-mark rect { transform-box: fill-box; transform-origin: center; animation: homeBreath 3.6s var(--e) infinite; animation-delay: calc(var(--d) * 160ms); }
 @keyframes homeBreath { 0%, 100% { transform: scale(1); } 40% { transform: scale(0.8); } }
 .home-word { display: inline-flex; align-items: baseline; gap: 10px; line-height: 1; }
-.home-word .brand-title { font-size: 26px; letter-spacing: -0.01em; }
-.home-word .brand-subtitle { font-size: 13px; }
-.home-hint { display: grid; justify-items: end; gap: 2px; text-align: right; font-size: var(--fz-sm); line-height: 1.6; color: var(--fg-3); }
-.home-hint small { font-size: var(--fz-xs); color: var(--fg-4); }
+.home-word .brand-title { font-size: 34px; }
+.home-word .brand-subtitle { font-size: 13.5px; }
+.home-hint { margin-top: 20px; font-size: 14px; line-height: 1.6; color: var(--fg-3); }
 
-.home-head { display: flex; align-items: center; justify-content: space-between; gap: var(--sp-4); margin: 20px 0 12px; }
-.home-head h2 { display: inline-flex; align-items: center; gap: 6px; margin: 0; font-size: var(--fz-xs); font-weight: var(--fw-regular); color: var(--fg-3); }
-.home-head h2 .ico { --ico: 14px; color: var(--fg-4); }
-.home-n { font-size: var(--fz-xs); color: var(--fg-4); }
-.home-all { display: inline-flex; align-items: center; gap: 2px; font-size: var(--fz-xs); color: var(--fg-4); }
-.home-all .ico { --ico: 13px; }
-.home-all:hover { color: var(--fg-2); }
-.home-n[hidden], .home-all[hidden], .home-empty[hidden] { display: none; }
-
-.home-shelf { position: relative; }
-.home-grid { display: grid; gap: var(--home-gap, 12px); }
-.home-row { display: flex; gap: var(--home-gap, 12px); }
-.home-fav, .home-ghost { flex: none; width: var(--w); aspect-ratio: var(--ar); border-radius: var(--r2); }
+.home-favs { display: grid; justify-items: center; margin-top: 56px; }
+.home-grid { display: grid; gap: var(--home-gap, 16px); }
+.home-row { display: flex; justify-content: center; gap: var(--home-gap, 16px); }
 .home-fav {
+  flex: none; width: var(--w); height: var(--home-h);
+  border-radius: var(--r2);
   background: var(--thumb) center / cover no-repeat;
   opacity: 0.9;
   box-shadow: 0 0 0 1px rgba(255, 255, 255, 0.05), 0 10px 24px -14px rgba(0, 0, 0, 0.9);
   transition: opacity var(--t1) var(--e), transform var(--t1) var(--e);
 }
 .home-fav:hover { opacity: 1; transform: translateY(-2px); }
-.home-ghost {
-  position: relative;
-  opacity: max(0.14, calc(1 - var(--g) * 0.13));
-  background: linear-gradient(to bottom, rgba(255, 255, 255, 0.028), rgba(255, 255, 255, 0) 70%);
-}
-.home-ghost::before {
-  content: ""; position: absolute; inset: 0; padding: 1px; border-radius: inherit;
-  background: linear-gradient(to bottom, rgba(255, 255, 255, 0.12), rgba(255, 255, 255, 0.025) 55%, rgba(255, 255, 255, 0));
-  -webkit-mask: linear-gradient(#000 0 0) content-box, linear-gradient(#000 0 0); -webkit-mask-composite: xor;
-  mask: linear-gradient(#000 0 0) content-box, linear-gradient(#000 0 0); mask-composite: exclude;
-}
-/* With nothing saved the whole shelf is ghosts: fade it out to every edge
-   from the message, and clear it behind the words. */
-.home-grid.is-empty {
-  --edge: radial-gradient(closest-side, #000 35%, transparent);
-  --hole: radial-gradient(ellipse 52% 30% at 50% 50%, transparent 55%, #000 100%);
-  -webkit-mask-image: var(--edge), var(--hole); -webkit-mask-composite: source-in;
-  mask-image: var(--edge), var(--hole); mask-composite: intersect;
-}
-.home-grid.is-empty .home-ghost { opacity: 1; }
-.home-empty {
-  position: absolute; inset: 0;
-  display: grid; place-content: center; justify-items: center; gap: 4px;
-  text-align: center; pointer-events: none;
-}
-.home-empty .ico { --ico: 22px; margin-bottom: 8px; color: var(--a); }
-.home-empty b { font-size: var(--fz-sm); font-weight: var(--fw-medium); color: var(--fg-2); }
-.home-empty span { font-size: var(--fz-xs); color: var(--fg-4); }
+.home-all { display: inline-flex; align-items: center; gap: 2px; margin-top: 18px; font-size: var(--fz-sm); color: var(--fg-3); }
+.home-all .ico { --ico: 13px; }
+.home-all:hover { color: var(--fg); }
 
 /* A narrow stage (a phone, or a desktop squeezed by both side panels). */
 @container image-stage (max-width: 600px) {
-  .home-top { gap: var(--sp-3); padding-bottom: 12px; }
-  .home-lock { gap: 10px; }
-  .home-mark { width: 26px; height: 26px; }
+  .home-lock { gap: 11px; }
+  .home-mark { width: 34px; height: 34px; }
   .home-word { gap: 7px; }
-  .home-word .brand-title { font-size: 19px; }
+  .home-word .brand-title { font-size: 24px; }
   .home-word .brand-subtitle { font-size: 9.5px; }
-  .home-hint { font-size: var(--fz-xs); color: var(--fg-4); }
-  .home-hint small { display: none; }
-  .home-head { margin: 12px 0 8px; }
-  .home-empty { gap: 2px; }
-  .home-empty .ico { --ico: 16px; margin-bottom: 2px; }
-  .home-empty b { font-size: var(--fz-xs); }
-  .home-empty span { font-size: var(--fz-2xs); }
+  .home-hint { display: none; }
+  .home-favs { margin-top: 20px; }
+  .home-all { margin-top: 12px; }
 }
 @media (prefers-reduced-motion: reduce) { .home-mark rect { animation: none; } }
 

@@ -736,8 +736,8 @@ body[data-drop="on"] .dropzone-card { transform: none; }
   .topbar { gap: var(--sp-2); padding: 0 var(--sp-3); }
   .brand { gap: 7px; }
   .brand-mark { --m: 28px; }
-  .brand-title { font-size: 18px; }
-  .brand-subtitle { font-size: 9px; letter-spacing: 0.1em; }
+  .brand-title { font-size: 19px; }
+  .brand-subtitle { font-size: 8.5px; letter-spacing: 0.12em; }
   /* The balances stay on the bar, right-aligned beside the menu button; the
      separator and the lock go with the tools into the rail. */
   body > .topbar .topbar-account { margin-left: auto; }
