@@ -1,6 +1,6 @@
 # 架构规范
 
-状态：2026-10-19；M1–M6 已实现，M7 本地代理、只读设置与发布前验收待实施。已验证范围见 [外壳实现](app-shell.md)、[网关、数据和调度](gateway-data-scheduler.md)、[设置、备份和词典](shared-settings-tags.md)、[绘图工作区](drawing-workspace.md) 与 [对话和编辑工作区](chat-editor-workspaces.md)。
+状态：2026-10-19；M1–M7 已实现并完成本地验收与发布包，用户确认暂不部署。已验证范围见 [外壳实现](app-shell.md)、[网关、数据和调度](gateway-data-scheduler.md)、[设置、备份和词典](shared-settings-tags.md)、[绘图工作区](drawing-workspace.md)、[对话和编辑工作区](chat-editor-workspaces.md) 与 [M7 本地验收](release-acceptance.md)。
 
 ## 复刻原则
 
@@ -41,6 +41,8 @@ Profile 明确声明以下能力，默认策略复刻现有业务，不按渠道
 | auth／transport       | 显式连接上下文、认证、规范结果、错误及取消                                  |
 
 初始连接为空。用户配置 URL 和 Key 后才能请求上游；本地服务可使用 KOMA_GATEWAY_URL／KOMA_GATEWAY_KEY，环境变量不进入客户端产物。测试、示例、图标和默认头像不包含私有渠道指纹。用户自配直连地址可在其浏览器查看；如需隐藏实际上游，使用同源服务端网关。
+
+本地 `server.mjs` 只监听回环地址，复用标准 Profile 的固定路径。两项环境变量齐全时才注入本地模式标记和临时请求令牌；地址与 Key 保留在服务端。客户端据文档路径解析同源 `/api/`，不自动探测或回退。连接与安全设置只读，模型来源存入独立的 `koma.local.models.v1`，以可选逻辑字段 `localModels` 纳入新版备份。运行时连接、令牌和服务端凭据不持久化；本地模式不恢复或共享浏览器 vault。
 
 ## 任务与数据
 

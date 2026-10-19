@@ -4,8 +4,10 @@ import "./app/shell.css";
 import { createApplicationServices } from "./services/application.ts";
 import { servicesKey } from "./app/services.ts";
 import { names } from "./storage/names.ts";
+import { readRuntime } from "./config/runtime.ts";
 
 const services = createApplicationServices({
+  local: readRuntime(document),
   storage: localStorage,
   indexedDB,
   locks: navigator.locks,

@@ -7,6 +7,7 @@ export const names = Object.freeze({
   },
   preferences: "koma.prefs.v1",
   routing: "koma.routing.v1",
+  localModels: "koma.local.models.v1",
   chatSettings: "koma.chat.settings.v1",
   chatCurrent: "koma.chat.current.v1",
   chatRail: "koma.chat.rail.v1",

@@ -11,6 +11,7 @@
   },
   "scripts": {
     "dev": "vite",
+    "start": "node --env-file-if-exists=.env server.mjs",
     "typecheck": "vue-tsc --noEmit",
     "build": "vite build",
     "preview": "vite preview --host 127.0.0.1 --port 3217 --strictPort",
@@ -20,7 +21,10 @@
     "test:services": "node --test tests/services.browser.mjs",
     "test:shared": "node --test tests/shared.browser.mjs",
     "test:drawing": "node --test tests/drawing.browser.mjs",
-    "test:workspaces": "node --test tests/workspaces.browser.mjs"
+    "test:workspaces": "node --test tests/workspaces.browser.mjs",
+    "test:local": "node --test tests/local.browser.mjs",
+    "test:release": "node --test tests/release.package.mjs",
+    "package": "npm run build && node scripts/package-release.mjs"
   },
   "dependencies": {
     "vue": "3.5.44"

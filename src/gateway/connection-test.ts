@@ -18,7 +18,9 @@ export async function testConnection(
     const response = await fetcher(url, {
       headers: {
         Accept: "application/json",
-        Authorization: `Bearer ${context.key()}`,
+        ...(context.localToken
+          ? { "X-Koma-Local-Token": context.localToken }
+          : { Authorization: `Bearer ${context.key()}` }),
       },
       cache: "no-store",
       credentials: "omit",
@@ -48,6 +50,8 @@ export async function testConnection(
     context.assertCurrent();
     if (error instanceof DOMException && error.name === "TimeoutError")
       return { s: "warn", text: "连接超时" };
+    if (context.localToken)
+      return { s: "err", text: "本地代理连接失败，请检查服务端配置" };
     try {
       await fetcher(url, {
         mode: "no-cors",

@@ -55,6 +55,7 @@ function close() {
   wipe();
 }
 const unsub = vault.subscribe((type) => {
+  if (connections.local) return;
   version.value++;
   if (type === "unlock") {
     ui.credential.value = null;
@@ -74,6 +75,11 @@ const unsub = vault.subscribe((type) => {
   }
 });
 watch(ui.credential, async (value) => {
+  if (connections.local && value) {
+    ui.credential.value = null;
+    router.openOverlay("settings", "security");
+    return;
+  }
   note.value = "";
   wipe();
   await nextTick();
@@ -86,6 +92,7 @@ watch(ui.credential, async (value) => {
   } else dialog.value?.close();
 });
 onMounted(() => {
+  if (connections.local) return;
   if (
     mode.value === "encrypted" &&
     !unlocked.value &&

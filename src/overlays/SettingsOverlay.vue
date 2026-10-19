@@ -20,7 +20,12 @@ import ModelListDialog from "./settings/ModelListDialog.vue";
 import BackupSection from "./settings/BackupSection.vue";
 import type { SettingsSection } from "../app/routes";
 import type { Routing } from "../config/connections.ts";
-import { normalizeBaseUrl, validateRouting } from "../config/connections.ts";
+import {
+  normalizeBaseUrl,
+  validateRouting,
+  validateModelLinks,
+  LOCAL_CONNECTION_ID,
+} from "../config/connections.ts";
 import { STANDARD_PROFILE_ID } from "../gateway/profile.ts";
 import { testConnection } from "../gateway/connection-test.ts";
 import { object } from "../domain/value.ts";
@@ -31,6 +36,7 @@ const { router } = useShell(),
   services = useServices(),
   ui = useUi();
 const { connections, vault } = services;
+const local = connections.local;
 const dialog = useTemplateRef<HTMLDialogElement>("dialog"),
   form = useTemplateRef<HTMLDialogElement>("connectionForm");
 const modelsSection =
@@ -127,7 +133,7 @@ async function load(force = false) {
     token = ++sequence;
   await Promise.all(
     Object.values(routing.value.connections).map(async (c) => {
-      if (!vault.key(c.credentialRef)) {
+      if (!connections.hasCredential(c.credentialRef)) {
         statuses.value[c.id] = {
           s: "wait",
           text: mode.value === "empty" ? "未配置 Key" : "请先解锁 Key",
@@ -205,6 +211,7 @@ async function commit(value: Routing) {
   }
 }
 function add() {
+  if (local) return;
   addingName.value = `连接 ${Object.keys(routing.value.connections).length + 1}`;
   addingUrl.value = "";
   formError.value = "";
@@ -288,7 +295,14 @@ function exportConfig() {
     new Blob(
       [
         JSON.stringify(
-          { app: "koma-image", kind: "routing", ...routing.value },
+          local
+            ? {
+                app: "koma-image",
+                kind: "local-models",
+                version: 1,
+                links: routing.value.links[LOCAL_CONNECTION_ID] || {},
+              }
+            : { app: "koma-image", kind: "routing", ...routing.value },
           null,
           2,
         ),
@@ -304,7 +318,20 @@ async function importConfig(event: Event) {
   if (!file) return;
   try {
     if (file.size > 2 * 1024 * 1024) throw new Error("配置文件过大");
-    const value = validateRouting(JSON.parse(await file.text()));
+    const parsed = JSON.parse(await file.text());
+    if (
+      local &&
+      (parsed.app !== "koma-image" ||
+        parsed.kind !== "local-models" ||
+        parsed.version !== 1)
+    )
+      throw new Error("本地模式仅导入模型来源设置，连接由服务端管理");
+    const value = local
+      ? {
+          ...routing.value,
+          links: { [LOCAL_CONNECTION_ID]: validateModelLinks(parsed.links) },
+        }
+      : validateRouting(parsed);
     await connections.save(value);
     ui.toast("配置已导入", "ok");
   } catch (error) {
@@ -385,7 +412,13 @@ async function reveal(id: string) {
           >
             <div class="sp-sec-head">
               <h3>连接</h3>
-              <p>每个连接包含地址、Key 和它的模型列表。</p>
+              <p>
+                {{
+                  local
+                    ? "连接由本地服务管理，模型来源可在此调整。"
+                    : "每个连接包含地址、Key 和它的模型列表。"
+                }}
+              </p>
             </div>
             <div
               v-if="!Object.keys(routing.connections).length"
@@ -458,8 +491,11 @@ async function reveal(id: string) {
                     spellcheck="false"
                     @keydown.enter.prevent="finishAddress(c.id)"
                     @keydown.esc.stop.prevent="editing = null"
-                  /><span v-else class="v">{{ c.baseUrl }}</span
-                  ><span class="addr-warn"
+                  /><span v-else class="v">{{
+                    local ? "本机同源代理" : c.baseUrl
+                  }}</span
+                  ><span v-if="local" class="v sans dim">由服务端配置</span
+                  ><span v-else class="addr-warn"
                     >Key 会发送到
                     <b>{{
                       host(editing === c.id ? address : c.baseUrl) || "地址无效"
@@ -467,6 +503,7 @@ async function reveal(id: string) {
                   >
                 </div>
                 <button
+                  v-if="!local"
                   class="md-act"
                   type="button"
                   :aria-label="editing === c.id ? '完成' : '修改地址'"
@@ -482,14 +519,15 @@ async function reveal(id: string) {
               <div class="conn-row">
                 <span class="k">Key</span
                 ><span class="v"
-                  >{{ mask(c.credentialRef)
+                  >{{ local ? "由本地服务提供" : mask(c.credentialRef)
                   }}<span
-                    v-if="mode === 'session' && unlocked"
+                    v-if="!local && mode === 'session' && unlocked"
                     class="v sans dim"
                   >
                     · 不保存</span
                   ></span
                 ><button
+                  v-if="!local"
                   class="md-act"
                   type="button"
                   :aria-label="unlocked ? '更换 Key' : '配置或解锁 Key'"
@@ -550,7 +588,7 @@ async function reveal(id: string) {
               </div>
             </div>
             <button
-              v-if="Object.keys(routing.connections).length"
+              v-if="!local && Object.keys(routing.connections).length"
               class="btn btn-quiet btn-sm"
               type="button"
               @click="add"
@@ -573,7 +611,19 @@ async function reveal(id: string) {
             aria-label="安全"
           >
             <div class="sp-sec-head"><h3>安全</h3></div>
-            <div class="sp-group">
+            <div v-if="local" class="sp-group">
+              <div class="s-row">
+                <div>
+                  <b>本地服务管理</b>
+                  <p>
+                    Key
+                    保存在服务端环境变量中，网页不保存或显示。修改配置后重启本地服务即可生效。
+                  </p>
+                </div>
+                <span class="v sans dim">只读</span>
+              </div>
+            </div>
+            <div v-else class="sp-group">
               <div class="s-row">
                 <div>
                   <b>{{
@@ -646,12 +696,20 @@ async function reveal(id: string) {
               @busy="busy = $event"
             />
             <section class="sp-sec">
-              <div class="sp-sec-head"><h3>连接与模型配置</h3></div>
+              <div class="sp-sec-head">
+                <h3>{{ local ? "模型配置" : "连接与模型配置" }}</h3>
+              </div>
               <div class="sp-group">
                 <div class="s-row">
                   <div>
                     <b>导出配置</b>
-                    <p>连接和模型来源，不含 Key。</p>
+                    <p>
+                      {{
+                        local
+                          ? "仅包含模型来源。"
+                          : "连接和模型来源，不含 Key。"
+                      }}
+                    </p>
                   </div>
                   <button
                     class="btn btn-quiet btn-xs"
@@ -665,7 +723,13 @@ async function reveal(id: string) {
                 <div class="s-row">
                   <div>
                     <b>导入配置</b>
-                    <p>不覆盖已保存的 Key。</p>
+                    <p>
+                      {{
+                        local
+                          ? "仅更新模型来源，连接由服务端管理。"
+                          : "不覆盖已保存的 Key。"
+                      }}
+                    </p>
                   </div>
                   <button
                     class="btn btn-quiet btn-xs"

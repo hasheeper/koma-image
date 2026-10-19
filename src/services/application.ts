@@ -11,6 +11,7 @@ import { createPreferences } from "./preferences.ts";
 import { createBackupService } from "./backup.ts";
 import { createTagSearch } from "./tag-search.ts";
 import { normalizeCategories } from "../domain/tags.ts";
+import type { LocalGateway } from "../config/runtime.ts";
 
 export function createApplicationServices(deps: {
   storage: Pick<Storage, "getItem" | "setItem" | "removeItem">;
@@ -20,17 +21,18 @@ export function createApplicationServices(deps: {
   fetch?: typeof fetch;
   events?: Pick<Window, "addEventListener" | "removeEventListener">;
   channel?: BroadcastChannel;
+  local?: LocalGateway;
 }) {
   const scheduler = createScheduler(deps.locks);
   scheduler.pause();
   const data = createDataLease(deps.locks, scheduler);
-  const connections = createConnections(deps.storage, data.write);
+  const connections = createConnections(deps.storage, data.write, deps.local);
   const vault = createVault({
     local: deps.storage,
     session: deps.session ?? sessionStorage,
     write: data.write,
     locks: deps.locks,
-    channel: deps.channel,
+    channel: deps.local ? undefined : deps.channel,
   });
   const preferences = createPreferences(deps.storage, data);
   const tags = createTagSearch(
@@ -50,6 +52,7 @@ export function createApplicationServices(deps: {
   let initialization: Promise<void> | undefined;
   let disposed = false;
   function syncKeys() {
+    if (connections.local) return;
     for (const c of Object.values(connections.configuration.connections)) {
       const value = vault.key(c.credentialRef);
       if (value) connections.supplyKey(c.credentialRef, value);
@@ -81,7 +84,8 @@ export function createApplicationServices(deps: {
   function onStorage(event: Event) {
     if (data.phase !== "ready") return;
     const key = (event as StorageEvent).key;
-    if (key === names.routing || key === null) connections.reload();
+    if (key === names.routing || key === names.localModels || key === null)
+      connections.reload();
     preferences.changed(key ?? undefined);
   }
   // A data-change notification carries no keys, images or private connection values.
@@ -111,7 +115,7 @@ export function createApplicationServices(deps: {
           databases = await openDatabases(deps.indexedDB);
           if (disposed) throw new DOMException("应用已关闭", "AbortError");
           connections.reload();
-          await vault.resume();
+          if (!connections.local) await vault.resume();
           syncKeys();
           if (!disposed) scheduler.resume();
         } catch (error) {
