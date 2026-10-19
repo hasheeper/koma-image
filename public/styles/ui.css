@@ -144,13 +144,13 @@
   --e-out: cubic-bezier(0.16, 1, 0.3, 1);
   --t1: 120ms; --t2: 220ms; --t3: 380ms;
 
-  /* Manrope gives the UI its compact geometric voice; Noto Sans SC covers
-     arbitrary Chinese input with the same complete variable-weight range. */
-  --sans: "Manrope Variable", "Noto Sans SC Variable", sans-serif;
-  --mono: "JetBrains Mono Variable", "Noto Sans SC Variable", monospace;
+  /* Koma Rounded (Resource Han Rounded, sliced) sets Chinese and Latin in one
+     rounded voice. It is static 400/500/700; semibold uses Bold. */
+  --sans: "Koma Rounded", sans-serif;
+  --mono: "JetBrains Mono Variable", "Koma Rounded", monospace;
   /* Fredoka draws only the Koma wordmark: it has no Chinese and is too
      round for running text. */
-  --brand: "Fredoka Variable", "Manrope Variable", sans-serif;
+  --brand: "Fredoka Variable", "Koma Rounded", sans-serif;
 
   /* The header is taller than the inner column heads: it carries the brand and
      the gauges, they carry a label. These were all one hardcoded 48px, so any
