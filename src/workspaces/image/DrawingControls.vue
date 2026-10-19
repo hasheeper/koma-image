@@ -504,46 +504,4 @@ const batchHint = computed(() =>
       </button>
     </div>
   </details>
-  <details class="drawer" id="settingsPrefs">
-    <summary>
-      <AppIcon class="section-ico" name="i-settings" /><span>设置</span
-      ><i class="caret" aria-hidden="true"></i>
-    </summary>
-    <div class="drawer-body settings-list">
-      <label class="check" title="输入时查词典并弹出候选；关闭后不再发送查询"
-        ><input
-          id="tagSuggest"
-          type="checkbox"
-          :checked="f.tagSuggest"
-          @change="change('tagSuggest', $event)"
-        /><span></span>Tag 自动补全</label
-      >
-      <div class="setting-line">
-        <label
-          class="check"
-          title="历史只存在本页，刷新后清空；关闭时只留最新 1 张"
-          ><input
-            id="localCache"
-            type="checkbox"
-            :checked="f.localCache"
-            @change="change('localCache', $event)"
-          /><span></span>保留历史</label
-        >
-        <div class="fld-inline setting-count" title="填 0 不限数量">
-          <input
-            id="historyLimit"
-            type="number"
-            min="0"
-            step="1"
-            :value="f.localCache ? f.historyLimit : 1"
-            :disabled="!f.localCache"
-            inputmode="numeric"
-            aria-label="历史保留张数，0 为不限"
-            @input="change('historyLimit', $event)"
-            @keydown.enter.prevent
-          /><span>张</span>
-        </div>
-      </div>
-    </div>
-  </details>
 </template>

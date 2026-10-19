@@ -18,6 +18,7 @@ import ModelIcon from "../shared/ModelIcon.vue";
 import ModelsSection from "./settings/ModelsSection.vue";
 import ModelListDialog from "./settings/ModelListDialog.vue";
 import BackupSection from "./settings/BackupSection.vue";
+import GeneralSection from "./settings/GeneralSection.vue";
 import type { SettingsSection } from "../app/routes";
 import type { Routing } from "../config/connections.ts";
 import {
@@ -63,9 +64,15 @@ const { requestClose, cancel, closed } = useDialog(
 const sections: { id: SettingsSection; label: string; icon: string }[] = [
   { id: "connections", label: "连接", icon: "swap" },
   { id: "models", label: "模型", icon: "model" },
-  { id: "security", label: "安全", icon: "lock" },
-  { id: "backup", label: "备份与恢复", icon: "import" },
+  { id: "general", label: "通用", icon: "settings" },
+  { id: "security", label: "安全与备份", icon: "lock" },
 ];
+// Keep existing backup links usable within the combined settings page.
+const activeSection = computed(() =>
+  router.route.value.section === "backup"
+    ? "security"
+    : router.route.value.section,
+);
 const avatar = `${import.meta.env.BASE_URL}assets/default-avatar.svg`;
 const mode = computed(() => {
   version.value;
@@ -124,8 +131,7 @@ function queueLoad() {
 async function load(force = false) {
   if (
     !dialog.value?.open ||
-    router.route.value.section === "backup" ||
-    router.route.value.section === "security"
+    !["connections", "models"].includes(activeSection.value)
   )
     return;
   controller?.abort();
@@ -388,9 +394,7 @@ async function reveal(id: string) {
           :key="section.id"
           type="button"
           :disabled="busy"
-          :aria-current="
-            router.route.value.section === section.id ? 'true' : undefined
-          "
+          :aria-current="activeSection === section.id ? 'true' : undefined"
           @click="router.selectSection(section.id)"
         >
           <AppIcon :name="`i-${section.icon}`" /><span>{{ section.label }}</span
@@ -605,93 +609,94 @@ async function reveal(id: string) {
             @change="commit"
             @reload="load(true)"
           />
-          <section
-            v-show="router.route.value.section === 'security'"
-            class="sp-sec"
-            aria-label="安全"
-          >
-            <div class="sp-sec-head"><h3>安全</h3></div>
-            <div v-if="local" class="sp-group">
-              <div class="s-row">
-                <div>
-                  <b>本地服务管理</b>
-                  <p>
-                    Key
-                    保存在服务端环境变量中，网页不保存或显示。修改配置后重启本地服务即可生效。
-                  </p>
+          <GeneralSection v-show="activeSection === 'general'" />
+          <div v-show="activeSection === 'security'" class="backup-sections">
+            <section class="sp-sec" aria-label="安全">
+              <div class="sp-sec-head"><h3>安全</h3></div>
+              <div v-if="local" class="sp-group">
+                <div class="s-row">
+                  <div>
+                    <b>本地服务管理</b>
+                    <p>
+                      Key
+                      保存在服务端环境变量中，网页不保存或显示。修改配置后重启本地服务即可生效。
+                    </p>
+                  </div>
+                  <span class="v sans dim">只读</span>
                 </div>
-                <span class="v sans dim">只读</span>
               </div>
-            </div>
-            <div v-else class="sp-group">
-              <div class="s-row">
-                <div>
-                  <b>{{
-                    mode === "empty"
-                      ? "未配置 Key"
-                      : mode === "session"
-                        ? "不保存"
-                        : "口令加密"
-                  }}</b>
-                  <p>
+              <div v-else class="sp-group">
+                <div class="s-row">
+                  <div>
+                    <b>{{
+                      mode === "empty"
+                        ? "未配置 Key"
+                        : mode === "session"
+                          ? "不保存"
+                          : "口令加密"
+                    }}</b>
+                    <p>
+                      {{
+                        mode === "session"
+                          ? "Key 保存在当前会话，关闭所有页面后失效。"
+                          : "所有连接的 Key 用同一个口令加密保存在本机。"
+                      }}
+                    </p>
+                  </div>
+                  <button
+                    v-if="unlocked"
+                    class="btn btn-quiet btn-xs"
+                    type="button"
+                    @click="
+                      ui.credential.value = { id: '', action: 'passphrase' }
+                    "
+                  >
                     {{
-                      mode === "session"
-                        ? "Key 保存在当前会话，关闭所有页面后失效。"
-                        : "所有连接的 Key 用同一个口令加密保存在本机。"
-                    }}
-                  </p>
+                      mode === "session" ? "改为口令加密" : "修改口令"
+                    }}</button
+                  ><button
+                    v-else
+                    class="btn btn-quiet btn-xs"
+                    type="button"
+                    @click="key"
+                  >
+                    {{ mode === "empty" ? "配置 Key" : "解锁" }}
+                  </button>
                 </div>
-                <button
-                  v-if="unlocked"
-                  class="btn btn-quiet btn-xs"
-                  type="button"
-                  @click="
-                    ui.credential.value = { id: '', action: 'passphrase' }
-                  "
-                >
-                  {{ mode === "session" ? "改为口令加密" : "修改口令" }}</button
-                ><button
-                  v-else
-                  class="btn btn-quiet btn-xs"
-                  type="button"
-                  @click="key"
-                >
-                  {{ mode === "empty" ? "配置 Key" : "解锁" }}
-                </button>
-              </div>
-              <div v-if="unlocked && mode === 'encrypted'" class="s-row">
-                <div>
-                  <b>锁定</b>
-                  <p>所有打开的页面一起锁定，进行中的生成会先完成。</p>
+                <div v-if="unlocked && mode === 'encrypted'" class="s-row">
+                  <div>
+                    <b>锁定</b>
+                    <p>所有打开的页面一起锁定，进行中的生成会先完成。</p>
+                  </div>
+                  <button
+                    class="btn btn-quiet btn-xs"
+                    type="button"
+                    @click="lock"
+                  >
+                    立即锁定
+                  </button>
                 </div>
-                <button
-                  class="btn btn-quiet btn-xs"
-                  type="button"
-                  @click="lock"
-                >
-                  立即锁定
-                </button>
-              </div>
-              <div v-if="mode !== 'empty'" class="s-row">
-                <div>
-                  <b>清除全部 Key</b>
-                  <p>删除本机保存的所有 Key，不可恢复。连接和模型来源保留。</p>
+                <div v-if="mode !== 'empty'" class="s-row">
+                  <div>
+                    <b>清除全部 Key</b>
+                    <p>
+                      删除本机保存的所有 Key，不可恢复。连接和模型来源保留。
+                    </p>
+                  </div>
+                  <button
+                    class="btn btn-danger btn-xs"
+                    type="button"
+                    @click="forget"
+                  >
+                    清除
+                  </button>
                 </div>
-                <button
-                  class="btn btn-danger btn-xs"
-                  type="button"
-                  @click="forget"
-                >
-                  清除
-                </button>
               </div>
-            </div>
-          </section>
-          <div v-show="router.route.value.section === 'backup'">
+            </section>
             <BackupSection
               :active="
                 router.route.value.overlay === 'settings' &&
-                router.route.value.section === 'backup'
+                activeSection === 'security'
               "
               @busy="busy = $event"
             />

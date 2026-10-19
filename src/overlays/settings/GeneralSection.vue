@@ -1,0 +1,70 @@
+<script setup lang="ts">
+import { computed } from "vue";
+import { useDrawing } from "../../app/drawing";
+const { drawing, view } = useDrawing();
+const form = computed(() => view.value.form);
+function change(
+  key: "tagSuggest" | "localCache" | "historyLimit",
+  event: Event,
+) {
+  const input = event.target as HTMLInputElement;
+  void drawing.patch({
+    [key]: input.type === "checkbox" ? input.checked : Number(input.value),
+  });
+}
+</script>
+<template>
+  <section class="sp-sec" aria-label="通用">
+    <div class="sp-sec-head"><h3>通用</h3></div>
+    <div class="sp-group">
+      <div class="s-row">
+        <div>
+          <b><label for="tagSuggest">Tag 自动补全</label></b>
+        </div>
+        <label class="check settings-toggle" title="Tag 自动补全">
+          <input
+            id="tagSuggest"
+            type="checkbox"
+            aria-label="Tag 自动补全"
+            :checked="form.tagSuggest"
+            @change="change('tagSuggest', $event)"
+          />
+          <span aria-hidden="true"></span>
+        </label>
+      </div>
+      <div class="s-row">
+        <div>
+          <b><label for="localCache">保留历史</label></b>
+          <p>刷新后清空</p>
+        </div>
+        <div class="row-acts preference-actions">
+          <div class="fld-inline history-limit" title="填 0 不限数量">
+            <input
+              id="historyLimit"
+              type="number"
+              min="0"
+              step="1"
+              inputmode="numeric"
+              :value="form.localCache ? form.historyLimit : 1"
+              :disabled="!form.localCache"
+              aria-label="历史保留张数，0 为不限"
+              @input="change('historyLimit', $event)"
+              @keydown.enter.prevent
+            />
+            <span>张</span>
+          </div>
+          <label class="check settings-toggle" title="保留历史">
+            <input
+              id="localCache"
+              type="checkbox"
+              aria-label="保留历史"
+              :checked="form.localCache"
+              @change="change('localCache', $event)"
+            />
+            <span aria-hidden="true"></span>
+          </label>
+        </div>
+      </div>
+    </div>
+  </section>
+</template>

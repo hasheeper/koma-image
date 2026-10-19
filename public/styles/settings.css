@@ -178,6 +178,10 @@
 .set-ui .s-row b { font-size: var(--fz-sm); font-weight: var(--fw-medium); }
 .set-ui .s-row p { margin-top: 2px; font-size: var(--fz-xs); line-height: 1.55; color: var(--fg-3); }
 .set-ui .s-row .btn { margin-left: auto; flex: none; }
+.set-ui .settings-toggle { justify-content: center; width: 32px; height: 32px; flex: none; }
+.set-ui .s-row > .preference-actions { flex: none; margin-left: auto; }
+.set-ui .history-limit { width: 84px; }
+.set-ui .history-limit input { height: 32px; text-align: right; }
 .set-ui .sp-empty { display: flex; align-items: center; gap: 12px; padding: 14px; font-size: var(--fz-xs); color: var(--fg-3); }
 .set-ui .sp-empty .btn { margin-left: auto; flex: none; }
 

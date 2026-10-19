@@ -109,42 +109,30 @@ function importFile() {
   <section class="sp-sec" aria-label="备份与恢复">
     <div class="sp-sec-head">
       <h3>备份与恢复</h3>
-      <p>带走收藏原图、完整对话和使用偏好。</p>
     </div>
-    <section class="transfer-section">
-      <div class="transfer-section-head">
-        <h2>导出备份</h2>
-        <span class="transfer-count">{{ stored }}</span>
-      </div>
-      <div class="transfer-row">
+    <div class="sp-group">
+      <div class="s-row">
         <div>
-          <h3>保存本机数据</h3>
-          <p>
-            ZIP
-            内含图片原文件、对话、连接与偏好。普通绘图历史未收藏的图片不会包含在内。
-          </p>
+          <b>导出备份</b>
+          <p>{{ stored }}</p>
         </div>
         <button
-          class="btn btn-quiet"
+          class="btn btn-quiet btn-xs"
           type="button"
+          aria-label="导出备份"
           :disabled="busy"
           @click="exportFile"
         >
-          导出备份
+          导出
         </button>
       </div>
-    </section>
-    <section class="transfer-section">
-      <div class="transfer-section-head"><h2>导入备份</h2></div>
-      <div class="transfer-row">
+      <div class="s-row">
         <div>
-          <h3>恢复到当前站点</h3>
-          <p>
-            收藏和对话合并保留，偏好采用备份中的设置。导入前，请关闭当前站点的其他应用标签页。
-          </p>
+          <b>导入备份</b>
+          <p>合并收藏与对话，恢复偏好</p>
         </div>
         <button
-          class="btn btn-quiet"
+          class="btn btn-quiet btn-xs"
           type="button"
           :disabled="busy"
           @click="fileInput?.click()"
@@ -158,13 +146,13 @@ function importFile() {
           @change="choose"
         />
       </div>
-      <div v-if="selectedName" class="transfer-preview">
+      <div v-if="selectedName" class="s-row transfer-preview">
         <div>
-          <strong>{{ selectedName }}</strong>
+          <b>{{ selectedName }}</b>
           <p>{{ selectedCounts }}</p>
         </div>
         <button
-          class="btn btn-primary"
+          class="btn btn-primary btn-xs"
           type="button"
           :disabled="busy"
           @click="importFile"
@@ -172,10 +160,7 @@ function importFile() {
           导入到此站点
         </button>
       </div>
-    </section>
-    <p class="transfer-key-note">
-      备份不含 API Key、解锁密钥、普通历史或编辑会话。
-    </p>
+    </div>
     <p
       class="transfer-status"
       :data-tone="tone"

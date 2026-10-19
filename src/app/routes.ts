@@ -3,6 +3,7 @@ export type WorkspaceId = (typeof workspaces)[number];
 export const settingsSections = [
   "connections",
   "models",
+  "general",
   "security",
   "backup",
 ] as const;

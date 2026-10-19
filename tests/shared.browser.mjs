@@ -151,8 +151,16 @@ test("settings: empty network default, connection/key input, model source contro
     await page
       .getByRole("button", { name: "添加 测试连接 来源", exact: true })
       .click();
-    await page.getByRole("button", { name: "安全", exact: true }).click();
+    await page.getByRole("button", { name: "安全与备份", exact: true }).click();
     await page.getByRole("button", { name: "立即锁定", exact: true }).click();
+    await page.waitForFunction(() => !document.querySelector("#gate").open);
+    assert.equal(
+      await page
+        .getByRole("button", { name: "导出备份", exact: true })
+        .isVisible(),
+      true,
+    );
+    await page.getByRole("button", { name: "解锁", exact: true }).click();
     await page.waitForSelector("#gate[open]");
     await page.locator("#unlockPass").fill("wrong");
     await page
@@ -241,11 +249,10 @@ test("dictionary and prompt: weighted handoff once, picker toggle, highlight, au
     await page.locator("#prompt").fill("<img src=x onerror=alert(1)>, {blue}");
     assert.equal(await page.locator(".hl-mirror img").count(), 0);
     assert.ok((await page.locator(".hl-mirror span").count()) > 0);
-    await page.locator("#settingsPrefs summary").click();
-    await page
-      .locator("label.check")
-      .filter({ hasText: "Tag 自动补全" })
-      .click();
+    assert.equal(await page.locator("#settingsPrefs").count(), 0);
+    await settings(page, "general");
+    await page.locator('label[for="tagSuggest"]').click();
+    await route(page, "#/image");
     const n = t.requests.length;
     await page.locator("#prompt").fill("unique disabled");
     await page.waitForTimeout(350);
@@ -254,10 +261,9 @@ test("dictionary and prompt: weighted handoff once, picker toggle, highlight, au
       await page.locator("#prompt").getAttribute("aria-autocomplete"),
       null,
     );
-    await page
-      .locator("label.check")
-      .filter({ hasText: "Tag 自动补全" })
-      .click();
+    await settings(page, "general");
+    await page.locator('label[for="tagSuggest"]').click();
+    await route(page, "#/image");
     await page.locator("#prompt").focus();
     await page.locator("#prompt").evaluate((el) => {
       el.dispatchEvent(new CompositionEvent("compositionstart"));
@@ -277,6 +283,25 @@ test("dictionary and prompt: weighted handoff once, picker toggle, highlight, au
         ),
       );
     await page.waitForSelector(".tag-suggest:not([hidden])");
+    // Shared preferences remain available outside the drawing workspace.
+    await route(page, "#/chat/settings/general");
+    await page.waitForSelector('section[aria-label="通用"]', {
+      state: "visible",
+    });
+    await page.locator('label[for="localCache"]').click();
+    assert.equal(await page.locator("#historyLimit").isDisabled(), true);
+    assert.equal(await page.locator("#historyLimit").inputValue(), "1");
+    await page.locator('label[for="localCache"]').click();
+    assert.equal(await page.locator("#historyLimit").inputValue(), "25");
+    await page.locator("#historyLimit").fill("0");
+    await page.waitForFunction(
+      () =>
+        JSON.parse(localStorage.getItem("koma.prefs.v1")).historyLimit === 0,
+    );
+    await page.reload();
+    await page.waitForSelector("#historyLimit");
+    assert.equal(await page.locator("#historyLimit").inputValue(), "0");
+    assert.equal(await page.locator("#localCache").isChecked(), true);
     await clean(t);
   } catch (e) {
     await t.page.screenshot({ path: `${output}/failure-tags.png` });
@@ -381,7 +406,7 @@ test("four viewport inspection of settings, dictionary/cart and picker", async (
       await settings(page);
       await page.screenshot({ path: `${output}/connections-${width}.png` });
       await page
-        .getByRole("button", { name: "备份与恢复", exact: true })
+        .getByRole("button", { name: "安全与备份", exact: true })
         .click();
       assert.ok(
         await page
@@ -389,6 +414,13 @@ test("four viewport inspection of settings, dictionary/cart and picker", async (
           .evaluate((el) => el.scrollWidth <= innerWidth + 1),
       );
       await page.screenshot({ path: `${output}/backup-${width}.png` });
+      await page.getByRole("button", { name: "通用", exact: true }).click();
+      assert.ok(
+        await page
+          .locator("#settingsPanel")
+          .evaluate((el) => el.scrollWidth <= innerWidth + 1),
+      );
+      await page.screenshot({ path: `${output}/general-${width}.png` });
       await route(page, "#/tags");
       await page.locator("#tagSearch").fill("blue");
       await page.waitForSelector(".tag-card");

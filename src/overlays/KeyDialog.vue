@@ -68,7 +68,7 @@ const unsub = vault.subscribe((type) => {
       id &&
       !(
         router.route.value.overlay === "settings" &&
-        router.route.value.section === "backup"
+        ["security", "backup"].includes(router.route.value.section)
       )
     )
       ui.requestKey(id);
@@ -98,7 +98,7 @@ onMounted(() => {
     !unlocked.value &&
     !(
       router.route.value.overlay === "settings" &&
-      router.route.value.section === "backup"
+      ["security", "backup"].includes(router.route.value.section)
     )
   ) {
     ui.requestKey(
