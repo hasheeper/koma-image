@@ -1,11 +1,11 @@
 import { finite, object } from "./value.ts";
-import { standardProfile } from "../gateway/profile.ts";
 import type { GatewayProfile } from "../gateway/profile.ts";
 
-export function normalizeQuota(media: unknown, stats: unknown, temporaryChecked: boolean, quotaGroup?: string) {
+/** A status keeps the profile of the connection it came from, so thresholds never mix protocols. */
+export function normalizeQuota(profile: GatewayProfile, media: unknown, stats: unknown, temporaryChecked: boolean, quotaGroup?: string) {
   const raw = object(media), pool = object(object(raw.images)[quotaGroup ?? ""]);
   const temp = object(object(stats).temp_limits);
-  return { media: raw, quotaGroup, temporaryChecked,
+  return { profile, media: raw, quotaGroup, temporaryChecked,
     image: Object.keys(pool).length ? { date: raw.date, period: raw.period,
       used: finite(pool.used), remaining: finite(pool.remaining), limit: finite(pool.limit) } : null,
     temporary: Object.keys(temp).length ? { isTemp: temp.is_temp === true, limited: temp.limited === true,
@@ -15,15 +15,16 @@ export function normalizeQuota(media: unknown, stats: unknown, temporaryChecked:
   };
 }
 export type QuotaStatus = ReturnType<typeof normalizeQuota>;
-export function quotaPolicy(status: QuotaStatus | null, usesDailyQuota = true, profile: GatewayProfile = standardProfile) {
+export function quotaPolicy(status: QuotaStatus | null, usesDailyQuota = true) {
   const imageUsed = finite(status?.image?.used), tempRemaining = finite(status?.temporary?.remaining);
   const limited = status?.temporary?.isTemp === true && status.temporary.limited !== false;
-  const below = usesDailyQuota && limited && tempRemaining !== null && tempRemaining < profile.quotaPolicy.temporaryRemainingThreshold;
+  const thresholds = status?.profile.quotaPolicy;
+  const below = usesDailyQuota && limited && tempRemaining !== null && thresholds !== undefined && tempRemaining < thresholds.temporaryRemainingThreshold;
   const unavailable = usesDailyQuota && (status?.temporaryChecked !== true || limited && tempRemaining === null);
   return { imageUsed, imageRemaining: finite(status?.image?.remaining), imageLimit: finite(status?.image?.limit),
     tempRemaining, unitsRemaining: finite(status?.temporary?.unitsRemaining), unitsLimit: finite(status?.temporary?.unitsLimit),
     resetSeconds: finite(status?.temporary?.resetSeconds), serialUnavailable: unavailable, serialDisabled: unavailable || below,
-    warning: below && imageUsed !== null && imageUsed > profile.quotaPolicy.imageUsedWarningThreshold };
+    warning: below && imageUsed !== null && thresholds !== undefined && imageUsed > thresholds.imageUsedWarningThreshold };
 }
 export function meterNumber(value: unknown): string {
   const n = finite(value);
@@ -32,11 +33,11 @@ export function meterNumber(value: unknown): string {
   const k = n / 1000;
   return `${(k < 100 ? k.toFixed(1) : String(Math.round(k))).replace(/\.0$/, "")}k`;
 }
-export function quotaGauge(left: unknown, total: unknown, profile: GatewayProfile = standardProfile) {
-  const l = finite(left), t = finite(total);
+export function quotaGauge(left: unknown, total: unknown, profile?: GatewayProfile) {
+  const l = finite(left), t = finite(total), levels = profile?.quotaPresentation;
   const ratio = l !== null && t !== null && t > 0 ? Math.max(0, Math.min(1, l / t)) : null;
-  return { remaining: l, limit: t, ratio, level: ratio === null ? "unknown" : ratio <= profile.quotaPresentation.criticalRatio ? "crit"
-    : ratio <= profile.quotaPresentation.lowRatio ? "low" : "ok" };
+  return { remaining: l, limit: t, ratio, level: ratio === null || !levels ? "unknown" : ratio <= levels.criticalRatio ? "crit"
+    : ratio <= levels.lowRatio ? "low" : "ok" };
 }
 export function creditBalance(value: unknown) {
   const remaining = finite(value);

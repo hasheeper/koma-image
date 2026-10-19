@@ -318,14 +318,14 @@ export function createEditor(
       try {
         const p = await payload(key);
         if (rev !== j.revision) return;
-        const q = await services
-          .gateway(p.model.connection)
-          .estimate(p.payload, controller.signal);
+        const gateway = services.gateway(p.model.connection);
+        const q = await gateway.estimate(p.payload, controller.signal);
         if (rev !== j.revision || busy || !open) return;
         j.quote = q;
         if (q.quota)
           quota = {
             ...normalizeQuota(
+              gateway.profile,
               q.quota,
               {},
               quota?.temporaryChecked ?? false,
@@ -494,7 +494,7 @@ export function createEditor(
               parentId: p.parent.id,
               mode: p.mode,
               model: p.model,
-              quote: output.quote,
+              quote: output.quote ?? undefined,
               params,
               name: `${stem(p.parent.name)}-${modeNames[p.mode]}-${++p.owner.resultCount}.${block.blob.type === "image/jpeg" ? "jpg" : block.blob.type.split("/")[1]}`,
             });

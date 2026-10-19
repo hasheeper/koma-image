@@ -11,7 +11,11 @@ const props = defineProps<{
   model?: CatalogModel;
 }>();
 const gauge = computed(() =>
-    quotaGauge(props.quota?.image?.remaining, props.quota?.image?.limit),
+    quotaGauge(
+      props.quota?.image?.remaining,
+      props.quota?.image?.limit,
+      props.quota?.profile,
+    ),
   ),
   credit = computed(() =>
     creditBalance(object(props.quota?.media?.credits).remaining),

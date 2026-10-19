@@ -1,6 +1,6 @@
 import { object } from "../domain/value.ts";
 import type { ConnectionContext } from "../services/connections.ts";
-import { profileFor } from "./profile.ts";
+import { profileFor, profilePath } from "./profile.ts";
 import { endpoint } from "./transport.ts";
 export async function testConnection(
   context: ConnectionContext,
@@ -10,7 +10,7 @@ export async function testConnection(
   const profile = profileFor(context.connection.profileId),
     url = endpoint(
       context.connection.baseUrl,
-      profile.transport.paths.catalog,
+      profilePath(profile, "catalog"),
       profile,
     );
   context.assertCurrent();
@@ -41,7 +41,7 @@ export async function testConnection(
       features = object(object(data).studio_features);
     if (
       !count ||
-      features.max_cost !== true ||
+      (profile.catalog.requireCostCeiling && features.max_cost !== true) ||
       !(Number(features.version) >= profile.catalog.minimumVersion)
     )
       return { s: "err", text: "该地址不支持所需的网关报价保护协议" };

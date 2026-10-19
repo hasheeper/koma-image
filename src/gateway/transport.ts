@@ -54,14 +54,16 @@ export function createTransport(
       if (context.localToken)
         headers["X-Koma-Local-Token"] = context.localToken;
       if (options.stats) {
-        if (path !== profile.transport.paths.stats)
+        const queryKey = profile.auth.statsQueryKey;
+        if (path !== profile.transport.paths.stats || !queryKey)
           throw new Error("查询认证只适用于额度统计");
         url.searchParams.set("days", "1");
-        if (key) url.searchParams.set(profile.auth.statsQueryKey, key);
+        if (key) url.searchParams.set(queryKey, key);
       } else if (key) headers.Authorization = `Bearer ${key}`;
       if (options.body !== undefined)
         headers["Content-Type"] = "application/json";
-      if (options.native) headers["X-Media-Provider"] = "novelai";
+      if (options.native)
+        Object.assign(headers, profile.transport.nativeHeaders);
       // Credential-bearing redirects are never followed to a different endpoint.
       try {
         return await fetcher(url, {

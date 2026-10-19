@@ -1,11 +1,12 @@
+import { profilePath } from "./profile.ts";
 import type { GatewayProfile } from "./profile.ts";
 import type { Quote } from "../domain/quote.ts";
 export type ImagePayload = { model: string; tool?: string; cache?: boolean; [key: string]: unknown };
 export const usesNative = (payload: ImagePayload, quote: Quote | null) => !payload.tool && payload.model.startsWith("nai-") && quote?.cost === 0 && payload.cache !== true;
-export function executionRoute(payload: ImagePayload, quote: Quote, profile: GatewayProfile) {
+export function executionRoute(payload: ImagePayload, quote: Quote | null, profile: GatewayProfile) {
   const route = payload.tool ? "tools" : profile.executionRoutes.nativeFree && usesNative(payload, quote) ? "native" : "studio";
   if (route === "tools" && !profile.executionRoutes.tools || route === "studio" && !profile.executionRoutes.studio) throw new Error("连接不支持本次操作");
-  return { kind: route, path: profile.transport.paths[route === "tools" ? "toolRun" : route === "native" ? "native" : "generate"], usesDailyQuota: route !== "native" } as const;
+  return { kind: route, path: profilePath(profile, route === "tools" ? "toolRun" : route === "native" ? "native" : "generate"), usesDailyQuota: route !== "native" } as const;
 }
 export const naiPrompt = (prompt: unknown) => typeof prompt === "string" && prompt.trim() ? prompt : "best quality";
 export function toNativePayload(payload: ImagePayload, random = Math.random) {

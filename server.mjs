@@ -156,7 +156,8 @@ export function createLocalServer({
               gateway.key,
             );
           } else headers.Authorization = `Bearer ${gateway.key}`;
-          if (route.kind === "native") headers["X-Media-Provider"] = "novelai";
+          if (route.kind === "native")
+            Object.assign(headers, standardProfile.transport.nativeHeaders);
           const bytes = route.method === "POST" ? await body(req) : undefined;
           if (bytes) headers["Content-Type"] = "application/json";
           const response = await fetcher(target, {

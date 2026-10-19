@@ -32,7 +32,7 @@ export function sourceState(routing: Routing, connection: string, model: ModelId
 }
 export function validateCatalog(raw: unknown, profile: GatewayProfile) {
   const value = object(raw), features = object(value.studio_features);
-  if (!(Number(features.version) >= profile.catalog.minimumVersion) || features.max_cost !== true) throw new Error("上游尚未支持报价保护，请更新后重试");
+  if (!(Number(features.version) >= profile.catalog.minimumVersion) || profile.catalog.requireCostCeiling && features.max_cost !== true) throw new Error("上游尚未支持报价保护，请更新后重试");
   if (!Object.keys(object(value.models)).length) throw new Error("连接没有可用模型");
   return value;
 }

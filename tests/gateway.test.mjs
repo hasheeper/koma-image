@@ -2,12 +2,12 @@ import test from "node:test";
 import assert from "node:assert/strict";
 import { createConnections } from "../src/services/connections.ts";
 import { createGateway, QuoteUnsupported } from "../src/gateway/client.ts";
-import { standardProfile } from "../src/gateway/profile.ts";
+import { standardProfile, profileFor, profilePath } from "../src/gateway/profile.ts";
 import { apiBase } from "../src/gateway/transport.ts";
 import { validateRouting, normalizeBaseUrl } from "../src/config/connections.ts";
 import { createCostNotice } from "../src/domain/quote.ts";
 import { normalizeQuota, quotaPolicy, quotaGauge, creditBalance } from "../src/domain/quota.ts";
-import { normalizeCatalog, sourceState } from "../src/domain/catalog.ts";
+import { normalizeCatalog, sourceState, validateCatalog } from "../src/domain/catalog.ts";
 import { MODELS } from "../src/domain/models.ts";
 import { createQuotePreview } from "../src/services/quote-preview.ts";
 import { toNativePayload } from "../src/gateway/routes.ts";
@@ -18,14 +18,14 @@ const config = (id = "primary") => ({ version: 1, connections: { [id]: connectio
 const raw = { studio_features: { version: 2, max_cost: true, max_context_images: 15 },
   models: { "nai-diffusion-5-full@local": { provider: "novelai", operations: ["generate", "edit"], tools: ["upscale"] } } };
 const json = (data, status = 200) => new Response(JSON.stringify(data), { status, headers: { "Content-Type": "application/json" } });
-async function setup(fetcher, routing = config()) {
+async function setup(fetcher, routing = config(), profile = undefined) {
   const saved = new Map();
   const storage = { getItem: k => saved.get(k) ?? null, setItem: (k, v) => saved.set(k, v) };
   const connections = createConnections(storage, async work => work());
   connections.reload();
   await connections.save(routing);
   connections.supplyKey("key-primary", "synthetic-test-key");
-  return { connections, saved, gateway: createGateway(connections.context("primary"), fetcher) };
+  return { connections, saved, gateway: createGateway(connections.context("primary"), fetcher, profile) };
 }
 
 test("empty connections cannot communicate; configuration and cache identity never contain keys", async () => {
@@ -141,7 +141,7 @@ test("reservation hook distinguishes pre-submit cancellation and uncertain billi
 });
 
 test("quota thresholds, unknowns, native-free exception and wallet semantics", async () => {
-  const status = (remaining, used = 401, checked = true) => normalizeQuota({ images: { pool: { used, remaining: 0, limit: 100 } } },
+  const status = (remaining, used = 401, checked = true) => normalizeQuota(standardProfile, { images: { pool: { used, remaining: 0, limit: 100 } } },
     { temp_limits: { is_temp: true, limited: true, rpd_remaining: remaining } }, checked, "pool");
   assert.equal(quotaPolicy(status(300)).serialDisabled, false);
   assert.equal(quotaPolicy(status(299)).serialDisabled, true);
@@ -150,9 +150,9 @@ test("quota thresholds, unknowns, native-free exception and wallet semantics", a
   assert.equal(quotaPolicy(status(null)).serialUnavailable, true);
   assert.equal(quotaPolicy(status(null), false).serialDisabled, false);
   assert.equal(quotaPolicy(null).serialUnavailable, true);
-  assert.equal(quotaGauge(null, 100).level, "unknown");
-  assert.equal(quotaGauge(0, 100).level, "crit");
-  assert.equal(quotaGauge(25, 100).level, "low");
+  assert.equal(quotaGauge(null, 100, standardProfile).level, "unknown");
+  assert.equal(quotaGauge(0, 100, standardProfile).level, "crit");
+  assert.equal(quotaGauge(25, 100, standardProfile).level, "low");
   assert.equal(creditBalance(0).text, "0");
   assert.equal(creditBalance(null).text, "—");
   const { gateway } = await setup(async (url, init) => {
@@ -166,6 +166,59 @@ test("quota thresholds, unknowns, native-free exception and wallet semantics", a
   const partial = await gateway.quota("pool");
   assert.equal(partial.image.remaining, 0);
   assert.equal(quotaPolicy(partial).serialUnavailable, true);
+});
+
+test("profiles come from a registry; unknown and prototype names are rejected; undeclared paths are refused", () => {
+  assert.equal(profileFor("koma-standard-v1"), standardProfile);
+  for (const id of ["unknown", "__proto__", "constructor", "toString", ""]) assert.throws(() => profileFor(id), /协议/);
+  assert.equal(Object.isFrozen(standardProfile.transport.paths), true);
+  const narrow = { ...standardProfile, transport: { ...standardProfile.transport, paths: { native: "/ai/generate-image" } } };
+  assert.throws(() => profilePath(narrow, "estimate"), /不支持/);
+  assert.equal(profilePath(narrow, "native"), "/ai/generate-image");
+  const uncapped = { studio_features: { version: 2 }, models: { model: {} } };
+  assert.throws(() => validateCatalog(uncapped, standardProfile), /报价保护/);
+  assert.equal(validateCatalog(uncapped, { ...standardProfile, catalog: { minimumVersion: 2, requireCostCeiling: false } }), uncapped);
+});
+
+test("a profile without quotes or a cost ceiling executes unquoted; a quoted profile without a ceiling sends no max_cost", async () => {
+  const calls = [], quotes = [], reserved = [];
+  const fetcher = async (url, init) => {
+    calls.push({ path: url.pathname, body: init.body && JSON.parse(init.body), headers: init.headers });
+    return url.pathname.endsWith("estimate") ? json({ cost: 0 }) : json({ ok: true });
+  };
+  const unquoted = { ...standardProfile, id: "test-unquoted", quote: { ...standardProfile.quote, supported: false }, costCeiling: undefined };
+  const { gateway } = await setup(fetcher, config(), unquoted);
+  const reservation = { taskId: "test", pool: "credits", port: { async reserve(request) { reserved.push(request); return { async finish() {} }; } } };
+  const result = await gateway.execute({ model: "nai-diffusion-5-full", seed: 0, cache: false }, r => r.json(), { onQuote: q => quotes.push(q), reservation });
+  assert.deepEqual(calls.map(c => c.path), ["/v1/studio/image/generate"]);
+  assert.equal("max_cost" in calls[0].body, false);
+  assert.equal(result.quote, null);
+  assert.equal(result.native, false);
+  assert.deepEqual([quotes, reserved], [[], []]);
+  await gateway.execute({ model: "model", tool: "upscale" }, r => r.json());
+  assert.deepEqual(calls.map(c => c.path), ["/v1/studio/image/generate", "/v1/image/tools/run"]);
+  calls.length = 0;
+  const quotedOnly = { ...standardProfile, id: "test-quoted", costCeiling: undefined, transport: { ...standardProfile.transport, nativeHeaders: {} } };
+  const quoted = (await setup(fetcher, config(), quotedOnly)).gateway;
+  const free = await quoted.execute({ model: "nai-diffusion-5-full", seed: 0, cache: false }, r => r.json());
+  assert.deepEqual(calls.map(c => c.path), ["/v1/studio/image/estimate", "/ai/generate-image"]);
+  assert.equal(free.native, true);
+  assert.equal("max_cost" in calls[1].body, false);
+  assert.equal(calls[1].headers["X-Media-Provider"], undefined);
+  assert.equal(free.quote.cost, 0);
+});
+
+test("quota policy and wallet levels use the profile of the connection the status came from", () => {
+  const relaxed = { ...standardProfile, id: "test-relaxed",
+    quotaPolicy: { temporaryRemainingThreshold: 10, imageUsedWarningThreshold: 1000 }, quotaPresentation: { lowRatio: 0.1, criticalRatio: 0.05 } };
+  const status = profile => normalizeQuota(profile, { images: { pool: { used: 500, remaining: 20, limit: 100 } } },
+    { temp_limits: { is_temp: true, limited: true, rpd_remaining: 50 } }, true, "pool");
+  assert.equal(status(standardProfile).profile, standardProfile);
+  assert.deepEqual([quotaPolicy(status(standardProfile)).serialDisabled, quotaPolicy(status(standardProfile)).warning], [true, true]);
+  assert.deepEqual([quotaPolicy(status(relaxed)).serialDisabled, quotaPolicy(status(relaxed)).warning], [false, false]);
+  assert.equal(quotaGauge(20, 100, standardProfile).level, "low");
+  assert.equal(quotaGauge(20, 100, relaxed).level, "ok");
+  assert.equal(quotaGauge(20, 100).level, "unknown");
 });
 
 test("catalog auto/manual/disabled mappings and per-model limits preserve the source rules", () => {

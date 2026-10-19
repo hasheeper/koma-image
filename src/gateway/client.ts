@@ -5,7 +5,7 @@ import { createCostNotice, validateQuote } from "../domain/quote.ts";
 import type { Quote } from "../domain/quote.ts";
 import type { ConnectionContext } from "../services/connections.ts";
 import type { ReservationPort } from "../services/scheduler.ts";
-import { profileFor } from "./profile.ts";
+import { profileFor, profilePath } from "./profile.ts";
 import type { GatewayProfile } from "./profile.ts";
 import { createTransport, readJson, errorMessage } from "./transport.ts";
 import { executionRoute, toNativePayload } from "./routes.ts";
@@ -36,7 +36,7 @@ export function createGateway(
     if (rawCache && !force) return rawCache;
     const raw = validateCatalog(
       await readJson(
-        await transport.request(profile.transport.paths.catalog, {
+        await transport.request(profilePath(profile, "catalog"), {
           signal: timedSignal(15_000, signal),
         }),
       ),
@@ -73,9 +73,7 @@ export function createGateway(
     const quote = validateQuote(
       await readJson(
         await transport.request(
-          payload.tool
-            ? profile.transport.paths.toolEstimate
-            : profile.transport.paths.estimate,
+          profilePath(profile, payload.tool ? "toolEstimate" : "estimate"),
           { body: payload, signal: timedSignal(30_000, signal) },
         ),
       ),
@@ -93,12 +91,12 @@ export function createGateway(
     async quota(quotaGroup?: string, signal?: AbortSignal) {
       const results = await Promise.allSettled([
         transport
-          .request(profile.transport.paths.quota, {
+          .request(profilePath(profile, "quota"), {
             signal: timedSignal(10_000, signal),
           })
           .then(readJson),
         transport
-          .request(profile.transport.paths.stats, {
+          .request(profilePath(profile, "stats"), {
             signal: timedSignal(8_000, signal),
             stats: true,
           })
@@ -110,7 +108,7 @@ export function createGateway(
       const checked = results[1].status === "fulfilled",
         stats = results[1].status === "fulfilled" ? results[1].value : null;
       if (!media && !stats) throw new Error("额度暂不可用");
-      return normalizeQuota(media, stats, checked, quotaGroup);
+      return normalizeQuota(profile, media, stats, checked, quotaGroup);
     },
     /** The caller consumes/validates the response inside the task and timeout scope. */
     async execute<T>(
@@ -152,12 +150,18 @@ export function createGateway(
         acknowledged = false;
       try {
         const payload = wire(input);
-        const quote = await estimateWire(payload, signal);
-        options.onQuote?.(quote);
-        const notice = (
-          options.notice ?? createCostNotice(options.shownCost ?? null)
-        )(quote);
-        if (notice) options.onNotice?.(notice);
+        // A declared ceiling needs a fresh quote; estimateWire rejects when quotes are unsupported.
+        const quote =
+          profile.quote.supported || profile.costCeiling
+            ? await estimateWire(payload, signal)
+            : null;
+        if (quote) {
+          options.onQuote?.(quote);
+          const notice = (
+            options.notice ?? createCostNotice(options.shownCost ?? null)
+          )(quote);
+          if (notice) options.onNotice?.(notice);
+        }
         signal.throwIfAborted();
         context.assertCurrent();
         const route = executionRoute(payload, quote, profile),
@@ -169,7 +173,8 @@ export function createGateway(
             throw new Error("浏览器不支持原生图片包解压，请更新浏览器后生成");
           }
         }
-        if (options.reservation)
+        // Without a quote there is no ceiling to reserve.
+        if (options.reservation && quote)
           reservation = await options.reservation.port.reserve({
             taskId: options.reservation.taskId,
             requestId: crypto.randomUUID(),
@@ -181,7 +186,10 @@ export function createGateway(
           });
         signal.throwIfAborted();
         context.assertCurrent();
-        const body = { ...payload, [profile.costCeiling.field]: quote.cost };
+        const body =
+          quote && profile.costCeiling
+            ? { ...payload, [profile.costCeiling.field]: quote.cost }
+            : payload;
         const requestBody = native ? toNativePayload(body) : body;
         submitted = true;
         const response = await transport.request(route.path, {

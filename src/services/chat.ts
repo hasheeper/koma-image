@@ -266,14 +266,14 @@ export function createChat(services: ApplicationServices, ui: Ui) {
       try {
         const p = await prepare(c);
         controller.signal.throwIfAborted();
-        const q = await services
-          .gateway(p.model.connection)
-          .estimate(p.payload, controller.signal);
+        const gateway = services.gateway(p.model.connection);
+        const q = await gateway.estimate(p.payload, controller.signal);
         if (rev !== quoteRevision || current !== c || disposed) return;
         quote = q;
         if (q.quota)
           quota = {
             ...normalizeQuota(
+              gateway.profile,
               q.quota,
               {},
               quota?.temporaryChecked ?? false,
