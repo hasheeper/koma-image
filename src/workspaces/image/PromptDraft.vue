@@ -2,7 +2,9 @@
 import {
   computed,
   nextTick,
+  onActivated,
   onBeforeUnmount,
+  onDeactivated,
   ref,
   useTemplateRef,
   watch,
@@ -23,6 +25,50 @@ import { convertToNaiPrompt } from "../../native/prompt-converter.js";
 const { drawing, view } = useDrawing();
 const emit = defineEmits<{ import: [] }>();
 const props = defineProps<{ suggest: boolean }>();
+const promptBox = useTemplateRef<HTMLElement>("promptBox");
+let promptResize: ResizeObserver | undefined;
+onActivated(() => {
+  const hero = promptBox.value;
+  if (!hero) return;
+  const wraps = [...hero.querySelectorAll<HTMLElement>(".hl-wrap")];
+  const saved = object(preferences.get(names.preferences, {})).promptH;
+  if (typeof saved === "number" && Number.isFinite(saved) && saved > 0) {
+    for (const wrap of wraps) wrap.style.height = `${saved}px`;
+    hero.dataset.resized = "1";
+  }
+  const seen = new WeakMap<Element, number>();
+  promptResize?.disconnect();
+  promptResize = new ResizeObserver((entries) => {
+    for (const { target } of entries) {
+      const wrap = target as HTMLElement,
+        height = Math.round(wrap.getBoundingClientRect().height),
+        previous = seen.get(wrap);
+      // The native handle sets an inline height; hidden panes report zero.
+      // Release the flexible row so its parent and following fields grow with it.
+      if (
+        height > 0 &&
+        previous !== undefined &&
+        Math.abs(height - previous) > 1 &&
+        wrap.style.height
+      ) {
+        hero.dataset.resized = "1";
+        for (const other of wraps)
+          if (other !== wrap) other.style.height = `${height}px`;
+        void preferences
+          .set(names.preferences, {
+            ...object(preferences.get(names.preferences, {})),
+            promptH: height,
+          })
+          .catch(() => {});
+      }
+      if (height > 0) seen.set(wrap, height);
+    }
+  });
+  for (const wrap of wraps) promptResize.observe(wrap);
+});
+const pauseResize = () => promptResize?.disconnect();
+onDeactivated(pauseResize);
+onBeforeUnmount(pauseResize);
 const positiveInput =
   useTemplateRef<InstanceType<typeof HighlightInput>>("positiveInput");
 const prompt = computed({
@@ -112,7 +158,7 @@ function select(event: KeyboardEvent) {
 }
 </script>
 <template>
-  <div class="fld fld-hero promptbox" :data-tab="tab">
+  <div ref="promptBox" class="fld fld-hero promptbox" :data-tab="tab">
     <div class="promptbox-head">
       <div class="tabs" role="tablist" aria-label="Prompt" @keydown="select">
         <button
