@@ -81,6 +81,30 @@ test("vault: session mode avoids local secrets and disposal cannot revive an in-
   a.service.dispose();
   b.service.dispose();
 });
+test("vault: removing one Key keeps the others, the save mode and the passphrase", async () => {
+  const a = vault();
+  await a.service.saveEncrypted("key-a", "synthetic-a", "pass-one");
+  await a.service.setKey("key-b", "synthetic-b");
+  await a.service.removeKey("key-a");
+  await a.service.removeKey("key-missing");
+  assert.equal(a.service.key("key-a"), null);
+  assert.equal(a.service.mode(), "encrypted");
+  assert.equal(a.local.getItem(names.vault).includes("synthetic"), false);
+  await a.service.lock();
+  await assert.rejects(a.service.removeKey("key-b"), /解锁/);
+  await a.service.unlock("pass-one");
+  assert.deepEqual(a.service.ids(), ["key-b"]);
+  const b = vault();
+  await b.service.saveSession("key-a", "synthetic-a");
+  await b.service.setKey("key-b", "synthetic-b");
+  await b.service.removeKey("key-b");
+  assert.deepEqual(JSON.parse(b.session.getItem(names.sessionKeys)), {
+    "key-a": "synthetic-a",
+  });
+  assert.equal(b.local.values.size, 0);
+  a.service.dispose();
+  b.service.dispose();
+});
 test("vault: lock waits for task gate; late peer share cannot reopen the locked session", async () => {
   let release, entered;
   const ready = new Promise((r) => (entered = r)),
@@ -276,35 +300,127 @@ test("tags: explicit search only, cache, Chinese no fallback, English fallback a
   assert.equal((await empty.suggest("blue"))[0].name, "blue_hair");
   assert.equal(fallback.length, 3);
 });
-test("connection diagnostic distinguishes auth/protocol/network and never sends a Key in no-cors probe", async () => {
-  const context = {
+const diagnosticContext = (extra = {}) => ({
+  connection: {
+    baseUrl: "https://gateway.example.test",
+    profileId: "koma-standard-v1",
+  },
+  key: () => "synthetic-key",
+  assertCurrent() {},
+  ...extra,
+});
+const reply = (status, body) =>
+  new Response(typeof body === "string" ? body : JSON.stringify(body), {
+    status,
+    headers: { "Content-Type": "application/json" },
+  });
+const timedOut = () => new DOMException("timed out", "TimeoutError");
+// Answers the CORS request, and the no-cors probe when there is one.
+function diagnosticFetch(answer, probe = () => new Response("")) {
+  const calls = [];
+  const fetch = async (url, init) => {
+    calls.push({ url: String(url), init });
+    const value = init.mode === "no-cors" ? probe() : answer();
+    if (value instanceof Error) throw value;
+    return value;
+  };
+  return { fetch, calls };
+}
+const supported = {
+  studio_features: { version: 2, max_cost: true },
+  models: { "gpt-image-2": {}, "custom-image": {} },
+};
+test("connection diagnostic: a supported gateway is usable and the Key goes only in the CORS request", async () => {
+  const f = diagnosticFetch(() => reply(200, supported));
+  const result = await testConnection(diagnosticContext(), f.fetch);
+  assert.deepEqual(result, { s: "ok", text: "可用，共 2 个模型" });
+  assert.equal(f.calls.length, 1);
+  assert.equal(f.calls[0].url, "https://gateway.example.test/v1/image/models");
+  assert.equal(f.calls[0].init.headers.Authorization, "Bearer synthetic-key");
+  assert.equal(f.calls[0].init.credentials, "omit");
+  assert.equal(f.calls[0].init.redirect, "error");
+});
+test("connection diagnostic: each failure says what to fix", async () => {
+  const cases = [
+    [() => reply(401, { error: "bad key" }), "err", "Key 无效"],
+    [() => reply(403, { error: "forbidden" }), "err", "Key 无效"],
+    [() => reply(404, "Not Found"), "err", "地址错误"],
+    [() => reply(200, "<html>a page</html>"), "err", "地址错误"],
+    [() => reply(429, { error: "slow down" }), "err", "请求失败（429）"],
+    [() => reply(502, "Bad Gateway"), "warn", "供应商暂时不可用（502）"],
+    [() => reply(200, {}), "err", "该地址不支持所需的网关报价保护协议"],
+    [
+      () => reply(200, { models: supported.models }),
+      "err",
+      "该地址不支持所需的网关报价保护协议",
+    ],
+    [
+      () =>
+        reply(200, {
+          ...supported,
+          studio_features: { version: 1, max_cost: true },
+        }),
+      "err",
+      "该地址不支持所需的网关报价保护协议",
+    ],
+    [() => timedOut(), "warn", "连接超时"],
+  ];
+  for (const [answer, s, text] of cases) {
+    const result = await testConnection(
+      diagnosticContext(),
+      diagnosticFetch(answer).fetch,
+    );
+    assert.deepEqual([result.s, result.text], [s, text]);
+  }
+});
+test("connection diagnostic: a refused request is told apart from an unreachable host, and the probe carries no Key", async () => {
+  const refused = diagnosticFetch(() => new TypeError("Failed to fetch"));
+  assert.equal(
+    (await testConnection(diagnosticContext(), refused.fetch)).text,
+    "该地址不允许网页直接调用，可改用本地代理",
+  );
+  assert.equal(refused.calls.length, 2);
+  assert.equal(refused.calls[1].init.mode, "no-cors");
+  assert.equal(refused.calls[1].init.headers, undefined);
+  const down = diagnosticFetch(
+    () => new TypeError("Failed to fetch"),
+    () => new TypeError("Failed to fetch"),
+  );
+  const result = await testConnection(diagnosticContext(), down.fetch);
+  assert.deepEqual([result.s, result.text], ["err", "网络不可达或域名错误"]);
+});
+test("connection diagnostic: the local proxy uses its token, never a Key, and is not probed", async () => {
+  const context = diagnosticContext({
     connection: {
-      baseUrl: "https://gateway.example.test",
+      baseUrl: "http://127.0.0.1:3217/api",
       profileId: "koma-standard-v1",
     },
-    key: () => "synthetic-key",
-    assertCurrent() {},
-  };
-  assert.match(
-    (
-      await testConnection(
-        context,
-        async () => new Response("", { status: 401 }),
-      )
-    ).text,
-    /Key 无效/,
-  );
-  assert.match(
-    (await testConnection(context, async () => new Response("{}"))).text,
-    /报价保护/,
-  );
-  let calls = 0;
-  const result = await testConnection(context, async (_url, options) => {
-    calls++;
-    if (calls === 1) throw new TypeError("network");
-    assert.equal(options.headers, undefined);
-    return new Response("");
+    localToken: "synthetic-token",
+    key: () => assert.fail("the local proxy must not read a Key"),
   });
-  assert.match(result.text, /不允许网页/);
-  assert.equal(calls, 2);
+  const ok = diagnosticFetch(() => reply(200, supported));
+  assert.equal((await testConnection(context, ok.fetch)).s, "ok");
+  assert.equal(
+    ok.calls[0].init.headers["X-Koma-Local-Token"],
+    "synthetic-token",
+  );
+  assert.equal(ok.calls[0].init.headers.Authorization, undefined);
+  const down = diagnosticFetch(() => new TypeError("Failed to fetch"));
+  assert.equal(
+    (await testConnection(context, down.fetch)).text,
+    "本地代理连接失败，请检查服务端配置",
+  );
+  assert.equal(down.calls.length, 1);
+});
+test("connection diagnostic: a connection changed during the request reports the change, not a result", async () => {
+  let checks = 0;
+  const context = diagnosticContext({
+    assertCurrent() {
+      if (++checks > 1) throw new Error("连接或 Key 已改变，请重新操作");
+    },
+  });
+  await assert.rejects(
+    testConnection(context, diagnosticFetch(() => reply(401, {})).fetch),
+    /改变/,
+  );
 });

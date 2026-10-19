@@ -187,6 +187,163 @@ test("settings: empty network default, connection/key input, model source contro
   }
 });
 
+// Reads the sealed Key table with this session's derived key, as the vault does.
+const vaultIds = (page) =>
+  page.evaluate(async () => {
+    const bytes = (text) => Uint8Array.from(atob(text), (c) => c.charCodeAt(0));
+    const record = JSON.parse(localStorage.getItem("koma.vault.v2"));
+    const key = await crypto.subtle.importKey(
+      "raw",
+      bytes(sessionStorage.getItem("koma.session.dk")),
+      "AES-GCM",
+      false,
+      ["decrypt"],
+    );
+    const plain = await crypto.subtle.decrypt(
+      { name: "AES-GCM", iv: bytes(record.iv) },
+      key,
+      bytes(record.ct),
+    );
+    return Object.keys(JSON.parse(new TextDecoder().decode(plain))).sort();
+  });
+const savedConnections = (page) =>
+  page.evaluate(() =>
+    Object.values(
+      JSON.parse(localStorage.getItem("koma.routing.v1")).connections,
+    ),
+  );
+
+test("settings: generating without a connection offers settings; connections rename and delete with their Key", async () => {
+  const t = await open();
+  try {
+    const { page } = t;
+    await page.keyboard.press("Control+Enter");
+    await page
+      .locator(".toast")
+      .filter({ hasText: "请先配置连接并解锁 Key" })
+      .getByRole("button", { name: "设置", exact: true })
+      .click();
+    await page.waitForSelector("#settingsPanel[open]");
+    assert.match(
+      await page.evaluate(() => location.hash),
+      /settings\/connections/,
+    );
+    await addConnection(page, true);
+    await page.getByRole("button", { name: "添加连接", exact: true }).click();
+    await page.locator("#connectionName").fill("备用连接");
+    await page.locator("#connectionUrl").fill("https://gateway.example.test");
+    await page.getByRole("button", { name: "添加", exact: true }).click();
+    await page.waitForSelector("#gate[open]");
+    await page.locator("#setupKey").fill("synthetic-key-456");
+    await page
+      .locator("#gate")
+      .getByRole("button", { name: "保存", exact: true })
+      .click();
+    await page.waitForSelector("#gate[open]", { state: "hidden" });
+    const [first, second] = await savedConnections(page);
+    assert.deepEqual(
+      await vaultIds(page),
+      [first.credentialRef, second.credentialRef].sort(),
+    );
+    const groups = page.locator("#settingsPanel .sp-group:has(.conn-head)");
+    assert.equal(await groups.count(), 2);
+
+    await groups
+      .first()
+      .getByRole("button", { name: "改名", exact: true })
+      .click();
+    await groups
+      .first()
+      .getByRole("textbox", { name: "连接名称" })
+      .fill("主连接");
+    await page.keyboard.press("Enter");
+    await page.waitForFunction(
+      () =>
+        Object.values(
+          JSON.parse(localStorage.getItem("koma.routing.v1")).connections,
+        )[0].name === "主连接",
+    );
+    await groups
+      .first()
+      .getByRole("button", { name: "改名", exact: true })
+      .click();
+    await groups
+      .first()
+      .getByRole("textbox", { name: "连接名称" })
+      .fill("不保存的名称");
+    await page.keyboard.press("Escape");
+    assert.equal(
+      await groups.first().locator(".conn-name b").textContent(),
+      "主连接",
+    );
+    assert.equal(await page.locator("#settingsPanel[open]").count(), 1);
+
+    await groups
+      .nth(1)
+      .getByRole("button", { name: "删除连接", exact: true })
+      .click();
+    await page.waitForSelector("#confirmSheet[open]");
+    await page
+      .locator("#confirmSheet")
+      .getByRole("button", { name: "删除", exact: true })
+      .click();
+    await page.waitForFunction(
+      () =>
+        Object.keys(
+          JSON.parse(localStorage.getItem("koma.routing.v1")).connections,
+        ).length === 1,
+    );
+    assert.deepEqual(
+      (await savedConnections(page)).map((c) => c.id),
+      [first.id],
+    );
+    for (let i = 0; i < 20 && (await vaultIds(page)).length > 1; i++)
+      await page.waitForTimeout(50);
+    assert.deepEqual(await vaultIds(page), [first.credentialRef]);
+
+    await page.getByRole("button", { name: "安全与备份", exact: true }).click();
+    await page.getByRole("button", { name: "立即锁定", exact: true }).click();
+    await page.waitForFunction(() => !document.querySelector("#gate").open);
+    await page.locator(".set-nav button").filter({ hasText: "连接" }).click();
+    await groups
+      .first()
+      .getByRole("button", { name: "删除连接", exact: true })
+      .click();
+    assert.equal(await page.locator("#confirmSheet[open]").count(), 0);
+    await page
+      .locator(".toast")
+      .filter({ hasText: "请先解锁 Key，再删除连接" })
+      .getByRole("button", { name: "解锁", exact: true })
+      .click();
+    await page.waitForSelector("#gate[open]");
+    // The dismissed notice fades out inside the gate before it leaves.
+    await page.locator(".toast-action").waitFor({ state: "detached" });
+    await page.locator("#unlockPass").fill("test-passphrase");
+    await page
+      .locator("#gate")
+      .getByRole("button", { name: "解锁", exact: true })
+      .click();
+    await page.waitForSelector("#gate[open]", { state: "hidden" });
+    await groups
+      .first()
+      .getByRole("button", { name: "删除连接", exact: true })
+      .click();
+    await page
+      .locator("#confirmSheet")
+      .getByRole("button", { name: "删除", exact: true })
+      .click();
+    await page.waitForSelector("#settingsPanel .sp-empty");
+    for (let i = 0; i < 20 && (await vaultIds(page)).length; i++)
+      await page.waitForTimeout(50);
+    assert.deepEqual(await vaultIds(page), []);
+    await clean(t);
+  } catch (e) {
+    await t.page.screenshot({ path: `${output}/failure-connections.png` });
+    await t.context.close();
+    throw e;
+  }
+});
+
 test("dictionary and prompt: weighted handoff once, picker toggle, highlight, autocomplete, IME and unload on disable", async () => {
   const t = await open();
   try {

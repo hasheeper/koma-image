@@ -27,7 +27,7 @@ provide(shellKey, shell);
 const ui = createUi();
 provide(uiKey, ui);
 const services = useServices();
-const drawing = createDrawing(services, ui);
+const drawing = createDrawing(services, ui, router);
 const chat = createChat(services, ui);
 provide(chatKey, chat);
 const editor = createEditor(services, ui, router, drawing, chat);

@@ -196,6 +196,18 @@ export function createVault({
     session.removeItem(names.sessionKeys);
     session.removeItem(names.sessionDerivedKey);
   }
+  /** Keeps the current save mode and shares the new table with other pages. */
+  async function replace(table: Table) {
+    if (dk && sealed) {
+      sealed = await seal(table, dk, sealed.salt);
+      keys = table;
+      post({ type: "vault/changed", record: sealed });
+    } else {
+      adoptSession(table);
+      announce();
+    }
+    emit("change");
+  }
   async function afterTask(fn: () => Promise<void>) {
     if (locks?.request)
       await locks.request(
@@ -405,16 +417,16 @@ export function createVault({
       return mutate(async () => {
         if (!keys) throw new Error("请先解锁");
         if (!value.trim()) return;
-        const table = { ...keys, [id]: value.trim() };
-        if (dk && sealed) {
-          sealed = await seal(table, dk, sealed.salt);
-          keys = table;
-          post({ type: "vault/changed", record: sealed });
-        } else {
-          adoptSession(table);
-          announce();
-        }
-        emit("change");
+        await replace({ ...keys, [id]: value.trim() });
+      });
+    },
+    removeKey(id: string) {
+      return mutate(async () => {
+        if (!keys) throw new Error("请先解锁");
+        if (!Object.hasOwn(keys, id)) return;
+        const table = { ...keys };
+        delete table[id];
+        await replace(table);
       });
     },
     changePassphrase(passphrase: string) {

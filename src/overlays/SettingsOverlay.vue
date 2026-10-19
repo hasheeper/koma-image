@@ -53,6 +53,8 @@ const statuses = ref<Record<string, { s: string; text: string }>>({}),
   listConnection = ref<string | null>(null);
 const editing = ref<string | null>(null),
   address = ref(""),
+  renaming = ref<string | null>(null),
+  nameDraft = ref(""),
   addingName = ref(""),
   addingUrl = ref(""),
   formError = ref("");
@@ -193,6 +195,7 @@ watch(
       controller?.abort();
       sequence++;
       editing.value = null;
+      renaming.value = null;
       listConnection.value = null;
       form.value?.close();
       return;
@@ -251,6 +254,64 @@ async function finishAddress(id: string) {
     next.connections[id].baseUrl = normalizeBaseUrl(address.value);
     await connections.save(next);
     editing.value = null;
+  } catch (error) {
+    ui.toast(message(error), "err");
+  }
+}
+async function startRename(id: string) {
+  renaming.value = id;
+  nameDraft.value = routing.value.connections[id]?.name ?? "";
+  await nextTick();
+  dialog.value?.querySelector<HTMLInputElement>(".conn-name input")?.select();
+}
+async function finishRename(id: string) {
+  const name = nameDraft.value.trim();
+  if (!name) {
+    ui.toast("请填写连接名称", "warn");
+    return;
+  }
+  try {
+    const next = structuredClone(routing.value);
+    if (
+      Object.hasOwn(next.connections, id) &&
+      next.connections[id].name !== name
+    ) {
+      next.connections[id].name = name;
+      await connections.save(next);
+    }
+    renaming.value = null;
+  } catch (error) {
+    ui.toast(message(error), "err");
+  }
+}
+async function remove(id: string) {
+  const c = routing.value.connections[id];
+  if (!c) return;
+  // A locked vault cannot drop this connection's Key, so unlock first.
+  if (mode.value === "encrypted" && !unlocked.value) {
+    ui.toast("请先解锁 Key，再删除连接", "warn", {
+      label: "解锁",
+      run: async () => ui.requestKey(c.credentialRef),
+    });
+    return;
+  }
+  if (
+    !(await ui.confirm({
+      title: `删除「${c.name}」？`,
+      message: "同时删除这个连接的 Key 和模型来源，不可恢复。",
+      confirmLabel: "删除",
+      tone: "danger",
+    }))
+  )
+    return;
+  try {
+    const next = structuredClone(routing.value);
+    delete next.connections[id];
+    delete next.links[id];
+    await connections.save(next);
+    if (editing.value === id) editing.value = null;
+    if (renaming.value === id) renaming.value = null;
+    if (vault.key(c.credentialRef)) await vault.removeKey(c.credentialRef);
   } catch (error) {
     ui.toast(message(error), "err");
   }
@@ -455,8 +516,41 @@ async function reveal(id: string) {
                   ><img :src="avatar" alt="默认头像"
                 /></span>
                 <div class="conn-name">
-                  <b>{{ c.name }}</b>
+                  <input
+                    v-if="renaming === c.id"
+                    v-model="nameDraft"
+                    type="text"
+                    aria-label="连接名称"
+                    maxlength="128"
+                    autocomplete="off"
+                    spellcheck="false"
+                    @keydown.enter.prevent="finishRename(c.id)"
+                    @keydown.esc.stop.prevent="renaming = null"
+                  /><b v-else>{{ c.name }}</b>
                 </div>
+                <template v-if="!local">
+                  <button
+                    class="md-act"
+                    type="button"
+                    :aria-label="renaming === c.id ? '完成' : '改名'"
+                    :data-tip="renaming === c.id ? '完成' : '改名'"
+                    @click="
+                      renaming === c.id ? finishRename(c.id) : startRename(c.id)
+                    "
+                  >
+                    <AppIcon
+                      :name="renaming === c.id ? 'i-check' : 'i-rename'"
+                    /></button
+                  ><button
+                    class="md-act"
+                    type="button"
+                    aria-label="删除连接"
+                    data-tip="删除连接"
+                    @click="remove(c.id)"
+                  >
+                    <AppIcon name="i-trash" />
+                  </button>
+                </template>
               </div>
               <div class="conn-row">
                 <span class="k">状态</span

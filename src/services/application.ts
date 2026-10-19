@@ -88,13 +88,7 @@ export function createApplicationServices(deps: {
       connections.reload();
     preferences.changed(key ?? undefined);
   }
-  // A data-change notification carries no keys, images or private connection values.
-  function onMessage(event: MessageEvent) {
-    if (event.data?.type === "routing-changed" && data.phase === "ready")
-      connections.reload();
-  }
   deps.events?.addEventListener("storage", onStorage);
-  deps.channel?.addEventListener("message", onMessage);
   return {
     scheduler,
     data,
@@ -199,7 +193,6 @@ export function createApplicationServices(deps: {
       disposed = true;
       scheduler.dispose();
       deps.events?.removeEventListener("storage", onStorage);
-      deps.channel?.removeEventListener("message", onMessage);
       deps.channel?.close();
       unsubscribe();
       unvault();

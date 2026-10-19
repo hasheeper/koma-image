@@ -153,8 +153,11 @@
 .set-ui .pl-as { flex: none; font-size: var(--fz-2xs); color: var(--fg-4); white-space: nowrap; }
 
 /* ── Connection cards ────────────────────────────────────────── */
-.set-ui .conn-head { padding-left: 10px; }
-.set-ui .conn-name { display: grid; gap: 3px; margin-right: auto; }
+/* Header actions line up with the row actions below; a long name truncates instead of pushing them out. */
+.set-ui .conn-head { padding-left: 10px; padding-right: 9px; }
+.set-ui .conn-name { display: grid; grid-template-columns: minmax(0, 1fr); gap: 3px; flex: 1; min-width: 0; }
+.set-ui .conn-name b { overflow: hidden; text-overflow: ellipsis; }
+.set-ui .conn-name input { width: 220px; max-width: 100%; height: 28px; font-family: var(--sans); }
 .set-ui .conn-row { display: grid; grid-template-columns: 52px minmax(0, 1fr) auto; align-items: center; gap: 12px; min-height: 52px; padding: 6px 8px 6px 14px; }
 .set-ui .conn-row > .k { font-size: var(--fz-xs); color: var(--fg-3); }
 .set-ui .conn-row .v { font: var(--fz-xs)/1.5 var(--mono); color: var(--fg-2); overflow-wrap: anywhere; }

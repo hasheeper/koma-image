@@ -24,9 +24,14 @@ import { names } from "../storage/names.ts";
 import { idbRequest, transactionDone } from "../storage/databases.ts";
 import type { FavoriteRecord, Fields } from "../storage/records.ts";
 import type { Ui } from "../app/ui.ts";
+import type { AppRouter } from "../app/router.ts";
 import { message } from "../app/ui.ts";
 
-export function createDrawing(services: ApplicationServices, ui: Ui) {
+export function createDrawing(
+  services: ApplicationServices,
+  ui: Ui,
+  router: Pick<AppRouter, "openOverlay">,
+) {
   const listeners = new Set<() => void>(),
     urls = new Map<string, { blob: Blob; url: string }>();
   let form: DrawingForm = {
@@ -83,8 +88,12 @@ export function createDrawing(services: ApplicationServices, ui: Ui) {
   const emit = () => {
     if (!disposed) for (const fn of listeners) fn();
   };
-  const notify = (text: string, tone = "info") => {
-    if (!disposed) ui.toast(text, tone);
+  const notify = (
+    text: string,
+    tone = "info",
+    action?: Parameters<Ui["toast"]>[2],
+  ) => {
+    if (!disposed) ui.toast(text, tone, action);
   };
   const policy = () =>
     quotaPolicy(
@@ -504,7 +513,12 @@ export function createDrawing(services: ApplicationServices, ui: Ui) {
       return;
     }
     if (!model) {
-      notify(catalogError || "请先配置连接并解锁 Key", "warn");
+      notify(catalogError || "请先配置连接并解锁 Key", "warn", {
+        label: "设置",
+        run: async () => {
+          router.openOverlay("settings", "connections");
+        },
+      });
       return;
     }
     if (
