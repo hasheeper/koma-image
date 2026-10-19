@@ -1,12 +1,12 @@
 # Koma Image
 
-基于 Vue 3、TypeScript 和 Vite 的图片创作工作区。M1–M7 已完成本地实现和验收，保留原界面及业务语义；支持静态托管和本地代理两种运行方式。
+基于 Vue 3、TypeScript 和 Vite 的图片创作工作区。M1–M7 已完成实现、验收和发布，保留原界面及业务语义；支持静态托管和本地代理两种运行方式。P3（NovelAI 官方连接）已完成连接管理和 Profile 泛化，官方接入等待 Key 实测。
 
 站点：[Koma Image](https://koma-image.pages.dev/)。源码仓库：[hasheeper/koma-image](https://github.com/hasheeper/koma-image)。
 
 绘图／对话／词典在单页外壳中切换并保活，编辑为全屏覆盖层，设置包含备份与恢复。支持报价与串行生成、独立收藏、图片参数导入、对话上下文／附件、编辑／重绘／放大及新版 ZIP 备份。高频画布、蒙版和波浪由原生驱动管理。
 
-Tag 自动补全与历史保留位于「设置 → 通用」，安全和备份操作集中在「安全与备份」。
+连接可在「设置 → 连接」中添加、改名和删除，删除时一并清除 Key 和模型来源。Tag 自动补全与历史保留位于「设置 → 通用」，安全和备份操作集中在「安全与备份」。
 
 可在浏览器中显式填写 URL／Key，也可使用本地 Node 代理，由环境变量提供连接。初始无默认上游地址；本地模式的地址和 Key 为只读，模型来源仍可编辑。
 
@@ -72,13 +72,24 @@ npm run test:local
 npm run test:release
 ```
 
-工作区地址为 `#/image`、`#/chat`、`#/tags`；`chat.html`、`tags.html`、`transfer.html` 仅重定向到同一应用并保留查询参数。测试截图输出到忽略提交的 `.local/`。本次 77 项自动化测试通过，覆盖四个基础视口及高频原生驱动的渲染／资源清理；具体范围见 [M7 验收记录](docs/release-acceptance.md)。所有网关测试使用合成数据，不执行真实收费请求。
+工作区地址为 `#/image`、`#/chat`、`#/tags`；`chat.html`、`tags.html`、`transfer.html` 仅重定向到同一应用并保留查询参数。测试截图输出到忽略提交的 `.local/`。当前 86 项自动化测试通过（50 项单元、36 项浏览器与发布包），覆盖四个基础视口及高频原生驱动的渲染／资源清理；基线范围见 [M7 验收记录](docs/release-acceptance.md)，此后新增项见 P3.0／P3.1 记录。所有网关测试使用合成数据，不执行真实收费请求。
+
+## 目录
+
+```text
+src/          应用源码，分层见架构规范「目录结构」
+public/       静态资源、样式与旧地址重定向页
+server.mjs    可选本地服务与固定协议代理
+scripts/      发布包脚本
+tests/        单元、浏览器与发布包测试
+docs/         规范、实施记录与发布说明
+```
 
 ## 工程边界
 
 - 复刻既有业务和 UI，按已批准范围调整工作区导航、默认头像、连接配置及数据命名。
 - Vue 管理低频界面状态；高频绘制与图片资源交给原生驱动。
-- 业务通过中性的 Koma Gateway Profile 接口访问服务，初始 URL／Key 为空。
+- 业务通过 Koma Gateway Profile 访问服务，只按 Profile 声明的能力分支，初始 URL／Key 为空。私有渠道与中转只走中性的标准 Profile；公开官方 API（如 NovelAI 官方）可以有自己的 Profile，仍由用户添加连接和 Key。
 - 前端构建不包含私有地址或凭据；本地环境变量不进入 `VITE_*`，运行时连接和令牌不写入浏览器存储或备份。
 - 正式包仅使用 Koma 命名空间。旧数据迁移整条线已取消，不检测、读取或清理旧库；连接与 Key 重新配置。设置中的「备份与恢复」仅支持新版格式，不内置旧备份转换器。
 
@@ -93,6 +104,8 @@ npm run test:release
 - [M4 绘图工作区实现](docs/drawing-workspace.md)
 - [M5／M6 对话与编辑工作区实现](docs/chat-editor-workspaces.md)
 - [M7 本地代理与发布验收](docs/release-acceptance.md)
+- [P3 NovelAI 官方连接](docs/novelai-official.md)：[P3.0 连接管理](docs/shared-settings-tags.md#p30-连接管理)、[P3.1 Profile 泛化](docs/gateway-data-scheduler.md#p31-profile-泛化)
+- [发布包使用、更新与回退](docs/release-guide.md)
 - [第三方资源](docs/third-party-assets.md)
 - [协作约定](AGENTS.md)
 
