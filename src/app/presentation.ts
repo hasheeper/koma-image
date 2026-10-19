@@ -47,6 +47,8 @@ export function usePresentation(shell: AppShell, ui: Ui) {
           workspace === "chat" && shell.chat.railCollapsed
             ? "collapsed"
             : undefined,
+        context:
+          workspace === "chat" && shell.chat.contextOpen ? "open" : undefined,
         tagCart:
           workspace === "tags"
             ? shell.tags.cartOpen
@@ -77,6 +79,7 @@ export function usePresentation(shell: AppShell, ui: Ui) {
       "sidebar",
       "rail",
       "tagCart",
+      "context",
       "gate",
       "picker",
     ])

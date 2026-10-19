@@ -25,6 +25,7 @@ export function createUi() {
       action?: { label: string; run: () => Promise<boolean | void> };
     }[]
   >([]);
+  const imageDelivery = shallowRef(0);
   const tagDelivery = shallowRef(0);
   const pickerOpen = shallowRef(false);
   let resolve: ((value: boolean) => void) | undefined,
@@ -48,6 +49,7 @@ export function createUi() {
     notices,
     answer,
     tagDelivery,
+    imageDelivery,
     pickerOpen,
     confirm(options: Confirmation): Promise<boolean> {
       const next = queue.then(() =>

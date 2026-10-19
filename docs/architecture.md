@@ -1,6 +1,6 @@
 # 架构规范
 
-状态：2026-10-19；M1 单页外壳、M2 共享服务、M3 公共界面与 M4 绘图工作区已实现，其余模块按实施阶段推进。此文同时描述后续目标，具体已验证范围见 [外壳实现](app-shell.md) 、[网关、数据和调度](gateway-data-scheduler.md) 、[设置、备份和词典](shared-settings-tags.md) 与 [绘图工作区](drawing-workspace.md)。
+状态：2026-10-19；M1–M6 已实现，M7 本地代理、只读设置与发布前验收待实施。已验证范围见 [外壳实现](app-shell.md)、[网关、数据和调度](gateway-data-scheduler.md)、[设置、备份和词典](shared-settings-tags.md)、[绘图工作区](drawing-workspace.md) 与 [对话和编辑工作区](chat-editor-workspaces.md)。
 
 ## 复刻原则
 

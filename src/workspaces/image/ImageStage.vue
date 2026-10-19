@@ -8,6 +8,9 @@ import {
   shallowRef,
   watch,
 } from "vue";
+import { useEditor } from "../../app/editor";
+import { useServices } from "../../app/services";
+import { createHandoff } from "../../services/handoff";
 import { useDrawing } from "../../app/drawing";
 import { useShell } from "../../app/shell";
 import { useUi, message } from "../../app/ui";
@@ -18,6 +21,32 @@ import WaveHost from "./WaveHost.vue";
 const { drawing, view } = useDrawing(),
   { narrow, image: shell } = useShell(),
   ui = useUi();
+const { editor } = useEditor();
+const services = useServices();
+const { router } = useShell();
+async function resultAction(id: string) {
+  const item = current.value;
+  if (!item) return;
+  try {
+    if (id === "chatBtn") {
+      const ticket = await createHandoff(services).queue(
+        item.blob,
+        imageFileName(item),
+      );
+      const url = new URL(location.href);
+      url.searchParams.set("image", ticket);
+      history.replaceState(history.state, "", url);
+      router.switchWorkspace("chat");
+      ui.imageDelivery.value++;
+    } else
+      await editor.open("image", item.blob, imageFileName(item), {
+        mode: id === "upscaleBtn" ? "upscale" : "img2img",
+        settings: item.params,
+      });
+  } catch (e) {
+    ui.toast(message(e), "err");
+  }
+}
 const viewport = shallowRef<HTMLElement | null>(null),
   wave = shallowRef<InstanceType<typeof WaveHost> | null>(null),
   timer = shallowRef<HTMLElement | null>(null),
@@ -291,7 +320,8 @@ const seed = computed(() =>
               type="button"
               :aria-label="action.label"
               :data-tip="action.label"
-              disabled
+              :disabled="!current"
+              @click="resultAction(action.id)"
             >
               <AppIcon :name="action.icon" />
             </button>

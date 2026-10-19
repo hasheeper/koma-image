@@ -10,7 +10,9 @@ M3 已接入连接／模型／安全设置、Key 加密与跨标签解锁、新�
 
 M4 已接入绘图参数／预设、报价与串行执行、结果、普通历史、持久收藏和图片参数导入。继续复用原正式样式，高频波浪与分栏保持原生驱动。
 
-这仍是分阶段开发版本。下一步为 M5 对话执行，之后 M6 编辑 Canvas／放大与结果交接；这些入口暂时禁用。本地环境变量代理仍待 M7 发布前接入。
+M5、M6 已接入对话管理、上下文／附件／草稿、版本与执行，以及编辑／重绘／放大、原生蒙版画布和按来源保留的编辑会话。绘图与对话的图片交接和编辑结果返回均已启用。
+
+这仍是分阶段开发版本。本地环境变量代理与只读设置、发布前集中验收和部署留在 M7；当前完成的是浏览器显式配置 URL／Key 的直连模式。
 
 ## 本地开发
 
@@ -38,9 +40,10 @@ npm run test:shell
 npm run test:services
 npm run test:shared
 npm run test:drawing
+npm run test:workspaces
 ```
 
-工作区地址为 `#/image`、`#/chat`、`#/tags`；`chat.html`、`tags.html`、`transfer.html` 仅重定向到同一应用并保留查询参数。测试截图输出到忽略提交的 `.local/m1/`、`.local/m3/` 和 `.local/m4/`。
+工作区地址为 `#/image`、`#/chat`、`#/tags`；`chat.html`、`tags.html`、`transfer.html` 仅重定向到同一应用并保留查询参数。测试截图输出到忽略提交的 `.local/m1/`、`.local/m3/`、`.local/m4/` 和 `.local/m56/`。
 
 ## 工程边界
 
@@ -59,6 +62,7 @@ npm run test:drawing
 - [M2 网关、数据与调度实现](docs/gateway-data-scheduler.md)
 - [M3 设置、备份与词典实现](docs/shared-settings-tags.md)
 - [M4 绘图工作区实现](docs/drawing-workspace.md)
+- [M5／M6 对话与编辑工作区实现](docs/chat-editor-workspaces.md)
 - [第三方资源](docs/third-party-assets.md)
 - [协作约定](AGENTS.md)
 

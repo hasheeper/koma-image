@@ -29,6 +29,8 @@ const props = defineProps<{
     label: string;
     placeholder?: string;
     suggest?: boolean;
+    disabled?: boolean;
+    maxLength?: number;
   }>(),
   value = defineModel<string>({ required: true });
 const { tags } = useServices(),
@@ -262,6 +264,8 @@ defineExpose({
     <div class="hl-mirror" aria-hidden="true" v-html="html"></div>
     <textarea
       :id="id"
+      :disabled="disabled"
+      :maxlength="maxLength"
       ref="textarea"
       v-model="value"
       :aria-label="label"

@@ -19,7 +19,8 @@
     "test:shell": "npm run build && node --test tests/shell.browser.mjs",
     "test:services": "node --test tests/services.browser.mjs",
     "test:shared": "node --test tests/shared.browser.mjs",
-    "test:drawing": "node --test tests/drawing.browser.mjs"
+    "test:drawing": "node --test tests/drawing.browser.mjs",
+    "test:workspaces": "node --test tests/workspaces.browser.mjs"
   },
   "dependencies": {
     "vue": "3.5.44"

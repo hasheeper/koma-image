@@ -16,7 +16,11 @@ export function createShell(router: AppRouter) {
     menuOpen: false,
     library: "history" as "history" | "favorites",
   });
-  const chat = reactive({ sidebarOpen: false, railCollapsed: false });
+  const chat = reactive({
+    sidebarOpen: false,
+    railCollapsed: false,
+    contextOpen: false,
+  });
   const tags = reactive({ cartOpen: false });
   function resize() {
     narrow.value = media.matches;

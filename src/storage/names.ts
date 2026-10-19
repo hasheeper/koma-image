@@ -1,6 +1,10 @@
 /** All persistent names belong to this application. No fallback namespaces. */
 export const names = Object.freeze({
-  databases: { favorites: "koma-image-favorites", chat: "koma-chat", handoff: "koma-handoff" },
+  databases: {
+    favorites: "koma-image-favorites",
+    chat: "koma-chat",
+    handoff: "koma-handoff",
+  },
   preferences: "koma.prefs.v1",
   routing: "koma.routing.v1",
   chatSettings: "koma.chat.settings.v1",
@@ -17,5 +21,6 @@ export const names = Object.freeze({
   taskGate: "koma-image-generation-v1",
   taskSlot: (slot: number) => `koma-image-generation-slot-v1:${slot}`,
   historyDragType: "application/x-koma-history",
+  contextDragType: "application/x-koma-context",
   dragType: "application/x-koma-version",
 });

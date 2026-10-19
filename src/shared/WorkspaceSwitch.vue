@@ -1,5 +1,7 @@
 <script setup lang="ts">
 import { computed, onDeactivated, shallowRef } from "vue";
+import { useEditor } from "../app/editor";
+import { useChat } from "../app/chat";
 import { useShell } from "../app/shell";
 import { workspaceInfo, workspaces } from "../app/routes";
 import type { WorkspaceId } from "../app/routes";
@@ -8,6 +10,20 @@ import AppIcon from "./AppIcon.vue";
 
 const props = defineProps<{ workspace: WorkspaceId }>();
 const { router } = useShell();
+const { editor } = useEditor();
+const { chat } = useChat();
+function openEditor() {
+  close();
+  void editor.open(
+    props.workspace === "chat" ? "chat" : "image",
+    undefined,
+    undefined,
+    {
+      conversationId:
+        props.workspace === "chat" ? chat.snapshot().current.id : undefined,
+    },
+  );
+}
 const button = shallowRef<HTMLButtonElement | null>(null);
 const menu = shallowRef<HTMLElement | null>(null);
 const expanded = shallowRef(false);
@@ -55,9 +71,14 @@ onDeactivated(close);
     @beforetoggle="beforeToggle"
   >
     <template v-for="(target, index) in workspaces" :key="target">
-      <button v-if="index === 2" class="switch-item" type="button" disabled>
+      <button
+        v-if="index === 2"
+        class="switch-item"
+        type="button"
+        @click="openEditor"
+      >
         <AppIcon class="sw-glyph" name="mk-edit" /><span class="sw-text"
-          ><b>编辑</b><small>解锁 Key 后可用</small></span
+          ><b>编辑</b><small>图生图、重绘与放大</small></span
         >
       </button>
       <a

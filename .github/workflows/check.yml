@@ -23,3 +23,4 @@ jobs:
       - run: npm run test:services
       - run: npm run test:shared
       - run: npm run test:drawing
+      - run: npm run test:workspaces

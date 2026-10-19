@@ -1,6 +1,6 @@
 # Koma Image 工程约定
 
-这是独立复刻工程。M1 单页外壳、M2 网关／数据／调度服务、M3 设置／备份／词典公共界面与 M4 绘图工作区已实现；工作区业务按 docs 中的阶段和契约继续接入，不把外壳当作成品。继续前阅读 docs/gateway-data-scheduler.md 和 docs/shared-settings-tags.md 的服务接入与未完成边界；继续绘图时阅读 docs/drawing-workspace.md；下一阶段 M5。
+这是独立复刻工程。M1–M6 已实现单页外壳、共享服务、公共界面、绘图、对话与编辑工作区；下一阶段 M7 是本地环境变量代理、只读设置和发布前验收。继续前阅读 docs/gateway-data-scheduler.md、docs/shared-settings-tags.md、docs/drawing-workspace.md 与 docs/chat-editor-workspaces.md 的接入约定和边界。
 
 - 先读 `docs/architecture.md`、`docs/business-contracts.md` 和 `docs/implementation-plan.md`。实际界面与业务基线位于内部参考工程，不能凭空设计或声称已验证。
 - 复刻原有业务与 UI，只执行已批准的导航、默认头像、渠道脱敏、存储命名和旧数据迁移功能裁撤。不得顺便修改报价、分流、额度阈值、取消和失败行为。

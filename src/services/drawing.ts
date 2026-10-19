@@ -731,9 +731,9 @@ export function createDrawing(services: ApplicationServices, ui: Ui) {
     async flush() {},
     async reload() {
       await reloadFavorites();
-      setTimeout(() => {
-        if (!disposed) void refreshCatalog();
-      }, 0);
+    },
+    ready() {
+      if (!disposed) void refreshCatalog();
     },
   });
   const changed = (e: MessageEvent) => {
@@ -774,6 +774,18 @@ export function createDrawing(services: ApplicationServices, ui: Ui) {
     subscribe(fn: () => void) {
       listeners.add(fn);
       return () => listeners.delete(fn);
+    },
+    async addExternal(
+      blob: Blob,
+      size: ImageRecord["size"],
+      params: Fields,
+      quote: Fields | null,
+      ms = 0,
+    ) {
+      const record = await addImage(blob, size, params, ms, quote);
+      if (disposed) throw new DOMException("工作区已关闭", "AbortError");
+      show(record);
+      return record;
     },
     patch,
     apply,
