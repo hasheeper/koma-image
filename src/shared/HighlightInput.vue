@@ -5,6 +5,7 @@ import {
   onActivated,
   onBeforeUnmount,
   onDeactivated,
+  onMounted,
   ref,
   shallowRef,
   useId,
@@ -36,6 +37,7 @@ const props = defineProps<{
 const { tags } = useServices(),
   textarea = useTemplateRef<HTMLTextAreaElement>("textarea"),
   wrap = useTemplateRef<HTMLElement>("wrap"),
+  mirror = useTemplateRef<HTMLElement>("mirror"),
   popover = useTemplateRef<HTMLElement>("popover"),
   measurement = useTemplateRef<HTMLElement>("measurement");
 const html = computed(() => render(value.value)),
@@ -53,7 +55,8 @@ let timer: ReturnType<typeof setTimeout> | undefined,
   cleanup = () => {},
   resize: ResizeObserver | undefined,
   growthFrame = 0,
-  observedWidth = -1;
+  observedWidth = -1,
+  observedMirrorHeight = -1;
 function dismiss() {
   clearTimeout(timer);
   request?.abort();
@@ -220,13 +223,27 @@ watch(
   },
   { flush: "sync" },
 );
-onActivated(() => {
+function resume() {
   enabled.value = true;
   resize?.disconnect();
+  cancelAnimationFrame(growthFrame);
+  observedWidth = observedMirrorHeight = -1;
   resize = new ResizeObserver((entries) => {
-    const width = entries[0]?.contentRect.width;
-    if (width !== observedWidth) {
-      observedWidth = width;
+    let changed = false;
+    for (const { target, contentRect } of entries) {
+      if (target === wrap.value && contentRect.width !== observedWidth) {
+        observedWidth = contentRect.width;
+        changed = true;
+      } else if (
+        target === mirror.value &&
+        contentRect.height !== observedMirrorHeight
+      ) {
+        // Font loading can change wrapping without changing the wrapper width.
+        observedMirrorHeight = contentRect.height;
+        changed = true;
+      }
+    }
+    if (changed) {
       cancelAnimationFrame(growthFrame);
       growthFrame = requestAnimationFrame(() => {
         grow();
@@ -235,15 +252,19 @@ onActivated(() => {
     }
   });
   if (wrap.value) resize.observe(wrap.value);
+  if (mirror.value) resize.observe(mirror.value);
   void nextTick(grow);
-});
+}
+// Dialog inputs mount outside KeepAlive; they need the same layout setup.
+onMounted(resume);
+onActivated(resume);
 function pause() {
   enabled.value = false;
   cleanup();
   dismiss();
   resize?.disconnect();
   cancelAnimationFrame(growthFrame);
-  observedWidth = -1;
+  observedWidth = observedMirrorHeight = -1;
   measurement.value?.replaceChildren();
 }
 onDeactivated(pause);
@@ -261,7 +282,7 @@ defineExpose({
 </script>
 <template>
   <div ref="wrap" class="hl-wrap">
-    <div class="hl-mirror" aria-hidden="true" v-html="html"></div>
+    <div ref="mirror" class="hl-mirror" aria-hidden="true" v-html="html"></div>
     <textarea
       :id="id"
       :disabled="disabled"

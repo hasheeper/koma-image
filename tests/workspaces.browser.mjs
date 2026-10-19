@@ -570,6 +570,80 @@ test("M5 drawing handoff is one-use, retained chat receives it, oversized image 
     await t.close();
   }
 });
+test("M6 transferred long prompts keep text and highlight together on tab reveal, reopen and resize", async () => {
+  const t = await open("#/image"),
+    p = t.page;
+  const prompt =
+      "2::best quality, amazing quality, masterpiece::, " +
+      "1.15::silver hair, 星空下的少女, detailed eyes::, ".repeat(34),
+    negative = "lowres, -2::blurry, bad anatomy, extra fingers::, ".repeat(22);
+  async function checkInput(id, expected) {
+    await p.locator(`#${id}`).waitFor({ state: "visible" });
+    await p.evaluate(() => document.fonts.ready);
+    await p.waitForFunction((id) => {
+      const el = document.getElementById(id);
+      return el && el.clientHeight >= el.scrollHeight - 1;
+    }, id);
+    assert.equal(await p.locator(`#${id}`).inputValue(), expected);
+    const metrics = await p.locator(`#${id}`).evaluate((el) => {
+      const wrap = el.closest(".hl-wrap"),
+        mirror = wrap.querySelector(".hl-mirror");
+      wrap.scrollTop = wrap.scrollHeight;
+      return {
+        height: el.clientHeight,
+        content: el.scrollHeight,
+        textTop: el.getBoundingClientRect().top,
+        mirrorTop: mirror.getBoundingClientRect().top,
+        textScroll: el.scrollTop,
+      };
+    });
+    assert.ok(metrics.height >= metrics.content - 1, JSON.stringify(metrics));
+    assert.ok(Math.abs(metrics.textTop - metrics.mirrorTop) <= 1);
+    assert.equal(metrics.textScroll, 0, "only the wrapper scrolls");
+  }
+  try {
+    await p.evaluate(
+      async ({ png, prompt, negative }) => {
+        const blob = new Blob(
+          [Uint8Array.from(atob(png), (c) => c.charCodeAt(0))],
+          { type: "image/png" },
+        );
+        await drawing.addExternal(
+          blob,
+          { width: 512, height: 512 },
+          { model: "nai-diffusion-5-full", prompt, negative_prompt: negative },
+          null,
+        );
+      },
+      { png: t.png.toString("base64"), prompt, negative },
+    );
+    await p.locator("#editBtn").click();
+    await p.waitForFunction(() => editor.snapshot().edit.quote !== null);
+    await checkInput("editorPrompt", prompt);
+    await p.locator("#editorPrompt").evaluate((el) => {
+      el.closest(".hl-wrap").scrollTop = 0;
+    });
+    await p.locator("#imageEditor .promptbox").screenshot({
+      path: ".local/m56/editor-long-prompt.png",
+    });
+    await p
+      .locator("#imageEditor")
+      .getByRole("tab", { name: /Negative/ })
+      .click();
+    await checkInput("editorNegative", negative);
+    await p.locator("#imageEditor").getByRole("tab", { name: /Prompt/ }).click();
+    await closeEditor(p);
+    await p.locator("#editBtn").click();
+    await checkInput("editorPrompt", prompt);
+    for (const width of [768, 390, 320]) {
+      await p.setViewportSize({ width, height: 900 });
+      await checkInput("editorPrompt", prompt);
+    }
+    assert.equal(t.state.generations, 0);
+  } finally {
+    await t.close();
+  }
+});
 test("M6 editor modes, quote protection, source-pixel mask, undo/redo, persistent sessions, and result history", async () => {
   const t = await open("#/image"),
     p = t.page;
