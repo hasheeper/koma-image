@@ -843,11 +843,7 @@ body[data-drop="on"] .dropzone-card { transform: none; }
      actions on the line below across the full width. */
   .shell .result-panel { padding: 10px var(--sp-3) var(--sp-3); }
   .result-bottom { flex-flow: column nowrap; align-items: stretch; }
-  .result-params {
-    flex-wrap: nowrap; overflow-x: auto; overscroll-behavior-x: contain; scrollbar-width: none;
-    mask-image: linear-gradient(90deg, #000 calc(100% - 32px), transparent);
-  }
-  .result-params::-webkit-scrollbar { display: none; }
+  .result-params { flex: none; }
   .result-actions { margin-left: 0; }
   /* One row on any phone: buttons give up width (never height) before wrapping. */
   .result-group { min-width: 0; }

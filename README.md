@@ -1,6 +1,8 @@
 # Koma Image
 
-基于 Vue 3、TypeScript 和 Vite 的图片创作工作区。M1–M7 已完成本地实现和验收，保留原界面及业务语义；此次交付本地发布包，暂不部署。
+基于 Vue 3、TypeScript 和 Vite 的图片创作工作区。M1–M7 已完成本地实现和验收，保留原界面及业务语义；支持静态托管和本地代理两种运行方式。
+
+站点：[Koma Image](https://koma-image.pages.dev/)。源码仓库：[hasheeper/koma-image](https://github.com/hasheeper/koma-image)。
 
 绘图／对话／词典在单页外壳中切换并保活，编辑为全屏覆盖层，设置包含备份与恢复。支持报价与串行生成、独立收藏、图片参数导入、对话上下文／附件、编辑／重绘／放大及新版 ZIP 备份。高频画布、蒙版和波浪由原生驱动管理。
 
@@ -41,6 +43,19 @@ npm run package
 ```
 
 发布包及校验文件位于 `.local/releases/`，解压后用 Node 26 执行 `npm start` 即可，无需安装依赖。`dist/` 也可独立放到 HTTPS 静态站点根路径或子路径。详见 [使用、更新与回退说明](docs/release-guide.md)。打包不会推送或部署，发布包不含 `.env`。
+
+## Cloudflare Pages
+
+现有 `koma-image` 项目使用 Direct Upload，生产分支为 `main`。GitHub 推送不会自动发布站点；`wrangler.jsonc` 将上传范围限定为 `dist/`。
+
+```sh
+npm run check
+# 首次使用或授权过期时登录
+npx --yes wrangler@4.151.1 login
+npm run deploy:pages
+```
+
+发布命令先构建再上传静态文件，不上传本地服务器、环境变量或用户数据。静态版需在设置中填写连接 URL 和 Key。
 
 ## 验证
 

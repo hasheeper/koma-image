@@ -1,9 +1,9 @@
 # Koma Image 工程约定
 
-这是独立复刻工程。M1–M7 已完成单页外壳、共享服务、公共界面、绘图／对话／编辑、本地代理、只读设置、本地验收与发布包；用户确认暂不推送或部署。继续前阅读 docs/gateway-data-scheduler.md、docs/shared-settings-tags.md、docs/drawing-workspace.md、docs/chat-editor-workspaces.md 与 docs/release-acceptance.md 的接入约定和边界。
+这是独立复刻工程。M1–M7 已完成单页外壳、共享服务、公共界面、绘图／对话／编辑、本地代理、只读设置、本地验收与发布包；用户已授权本次脱敏复查通过后推送 hasheeper/koma-image，并发布至现有 koma-image Cloudflare Pages 项目。继续前阅读 docs/gateway-data-scheduler.md、docs/shared-settings-tags.md、docs/drawing-workspace.md、docs/chat-editor-workspaces.md 与 docs/release-acceptance.md 的接入约定和边界。
 
 - 先读 `docs/architecture.md`、`docs/business-contracts.md` 和 `docs/implementation-plan.md`。实际界面与业务基线位于内部参考工程，不能凭空设计或声称已验证。
-- 复刻原有业务与 UI，已批准的调整包括导航、默认头像、渠道脱敏、存储命名、旧数据迁移功能裁撤，以及设置分组与样式统一。不得顺便修改报价、分流、额度阈值、取消和失败行为。
+- 复刻原有业务与 UI，已批准的调整包括导航、默认头像、渠道脱敏、存储命名、旧数据迁移功能裁撤，以及设置分组、样式统一和结果参数单行滚动。不得顺便修改报价、分流、额度阈值、取消和失败行为。
 - 唯一 App Shell；绘图／对话／词典用 KeepAlive，编辑为覆盖层，设置为弹窗，备份为设置子页。
 - 设置分为连接、模型、通用、安全与备份。Tag 自动补全和历史保留在通用中，沿用绘图服务的同一份偏好；安全、备份和配置导入导出合页，旧 backup 路由仍可访问。界面只保留基本信息与操作反馈，避免重复标题和大段说明。
 - Vue 管低频状态和 DOM；原生驱动管 Canvas、指针与逐帧更新。大图片、DOM、数据库和密钥不进入深层 reactive。
@@ -15,5 +15,5 @@
 - 默认全应用并发为 1；不自动重试生成，不新增付费确认。自定义并发与额度预占只预留边界，不提前启用。
 - 工作区通过应用级 runTask 执行任务；等待解码和结果处理完成后才退出回调。保存通过 data.write，延迟保存／缓存注册 flush 与 reload；不能绕过数据租约直接写数据库。
 - 用模拟服务验证业务，不执行真实收费生成。UI 检查使用 320／390／768／1440px；高频只验证无组件重渲染和无资源泄漏，不另建性能跑分体系。
-- 在 `codex/` 分支工作。发布按实施阶段进行，不随构建命令触发；不自动读取或清理旧应用数据。
+- 在 `codex/` 分支工作。构建不会自动发布；获授权的生产分支为 main，Pages Direct Upload 仅上传 dist/；不自动读取或清理旧应用数据。
 - 当前检查命令为 `npm run check`；有新业务再添加对应的必要测试。依赖精确锁定并维护 package-lock.json。

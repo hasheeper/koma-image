@@ -24,7 +24,8 @@
     "test:workspaces": "node --test tests/workspaces.browser.mjs",
     "test:local": "node --test tests/local.browser.mjs",
     "test:release": "node --test tests/release.package.mjs",
-    "package": "npm run build && node scripts/package-release.mjs"
+    "package": "npm run build && node scripts/package-release.mjs",
+    "deploy:pages": "npm run build && npx --yes wrangler@4.151.1 pages deploy --branch main"
   },
   "dependencies": {
     "vue": "3.5.44"

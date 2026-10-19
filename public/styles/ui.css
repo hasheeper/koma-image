@@ -1199,18 +1199,25 @@ body[data-state="done"] .result-panel { display: grid; }
 }
 .result-title { font: var(--fw-semibold) var(--fz-sm)/1.35 var(--sans); color: var(--fg); }
 .result-file { font-size: var(--fz-2xs); line-height: 1.4; color: var(--fg-4); }
-/* When the tags and the actions do not fit side by side, the actions drop
-   to their own line, still on the right; nothing is clipped. */
-.result-bottom { display: flex; flex-wrap: wrap; align-items: center; gap: 10px var(--sp-3); min-width: 0; }
+/* Keep the actions in place; excess parameters scroll within one row. */
+.result-bottom { display: flex; flex-wrap: nowrap; align-items: center; gap: 10px var(--sp-3); min-width: 0; }
 .result-params {
   display: flex;
-  flex: 1 0 auto;
-  flex-wrap: wrap;
+  flex: 1 1 0;
+  flex-wrap: nowrap;
   align-items: center;
   gap: 6px;
   max-width: 100%;
   min-width: 0;
+  overflow-x: auto;
+  overscroll-behavior-x: contain;
+  scrollbar-width: none;
+  /* Trailing room lets the final tag scroll fully clear of the fade. */
+  padding-inline-end: 16px;
+  mask-image: linear-gradient(90deg, #000 calc(100% - 16px), transparent);
 }
+.result-params::-webkit-scrollbar { display: none; }
+.result-params:focus-visible, .result-seed:focus-visible { outline-offset: -2px; }
 /* Tags, not buttons. They used to wear the buttons' raised fill and outline,
    twelve look-alike boxes in a row with nothing to say which could be
    pressed. Now a soft fill and no outline; the label in quiet sans, the
@@ -1235,8 +1242,6 @@ body[data-state="done"] .result-panel { display: grid; }
 .result-seed { position: relative; cursor: pointer; transition: color var(--t1) var(--e), background var(--t1) var(--e); }
 .result-seed:not(:disabled):hover { color: var(--fg); background: var(--hover); }
 .result-seed:disabled { cursor: default; }
-.result-seed[data-tip]::after { font-family: var(--sans); top: auto; bottom: calc(100% + 6px); transform: translate(-50%, 3px); }
-.result-seed[data-tip]:hover::after { transform: translate(-50%, 0); }
 
 /* Grouped by what they lead to — a new picture, the composer, keeping it —
    with a hairline between groups. Plain icons; only download wears a fill. */
@@ -1661,9 +1666,9 @@ body[data-state="done"] .result-panel { display: grid; }
   min-height: 0;
   background: var(--chrome);
 }
-@container image-stage (max-width: 600px) {
-  .result-panel { grid-template-columns: minmax(0, 1fr); grid-template-areas: "title" "params" "actions"; }
-  .result-actions { margin-top: 6px; }
+@container image-stage (max-width: 480px) {
+  .result-bottom { flex-flow: column nowrap; align-items: stretch; }
+  .result-params { flex: none; }
 }
 
 /* The mat. Slight vignette gives depth without drawing attention. */

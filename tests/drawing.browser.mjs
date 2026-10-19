@@ -453,6 +453,8 @@ test("M4 history import review, copy/reuse, high-frequency splitter has no Vue r
     await p.locator("#importApply").click();
     assert.equal(await p.locator("#prompt").inputValue(), "blue hair");
     assert.equal(await p.locator("#steps").inputValue(), "25");
+    // Finish the import's debounced quote before measuring pointer-only updates.
+    await p.waitForFunction(() => drawing.snapshot().quote.status === "ready");
     await p.evaluate(() => {
       const c = document.querySelector(
         "[data-workspace-root=image]",

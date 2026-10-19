@@ -1,6 +1,6 @@
 # 架构规范
 
-状态：2026-10-19；M1–M7 已实现并完成本地验收与发布包，用户确认暂不部署。已验证范围见 [外壳实现](app-shell.md)、[网关、数据和调度](gateway-data-scheduler.md)、[设置、备份和词典](shared-settings-tags.md)、[绘图工作区](drawing-workspace.md)、[对话和编辑工作区](chat-editor-workspaces.md) 与 [M7 本地验收](release-acceptance.md)。
+状态：2026-10-19；M1–M7 已实现并完成本地验收与发布包，后续用户已授权脱敏复查后推送独立仓库并发布 Cloudflare Pages，发布方式见 [发布说明](release-guide.md)。已验证范围见 [外壳实现](app-shell.md)、[网关、数据和调度](gateway-data-scheduler.md)、[设置、备份和词典](shared-settings-tags.md)、[绘图工作区](drawing-workspace.md)、[对话和编辑工作区](chat-editor-workspaces.md) 与 [M7 本地验收](release-acceptance.md)。
 
 ## 复刻原则
 

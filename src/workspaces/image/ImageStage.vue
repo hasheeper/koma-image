@@ -196,6 +196,22 @@ async function copy(value: unknown, label: string) {
     ui.toast(message(e), "err");
   }
 }
+function scrollParams(event: WheelEvent) {
+  if (event.ctrlKey || event.shiftKey || event.deltaX || !event.deltaY) return;
+  const strip = event.currentTarget as HTMLElement,
+    unit =
+      event.deltaMode === 1 ? 16 : event.deltaMode === 2 ? strip.clientWidth : 1,
+    next = Math.max(
+      0,
+      Math.min(
+        strip.scrollWidth - strip.clientWidth,
+        strip.scrollLeft + event.deltaY * unit,
+      ),
+    );
+  if (next === strip.scrollLeft) return;
+  event.preventDefault();
+  strip.scrollLeft = next;
+}
 function save() {
   if (!current.value) return;
   const a = document.createElement("a");
@@ -272,12 +288,18 @@ const seed = computed(() =>
         }}</span>
       </div>
       <div class="result-bottom">
-        <div class="result-params" role="group" aria-label="生成参数">
+        <div
+          class="result-params"
+          role="group"
+          aria-label="生成参数"
+          tabindex="0"
+          @wheel="scrollParams"
+        >
           <button
             class="result-param result-seed"
             id="resultSeed"
             type="button"
-            data-tip="复制 Seed"
+            title="复制 Seed"
             :disabled="seed == null"
             @click="copy(seed, 'Seed')"
           >
