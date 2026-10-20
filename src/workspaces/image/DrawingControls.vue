@@ -181,6 +181,7 @@ const batchHint = computed(() =>
     </div>
     <select
       id="model"
+      class="model-select"
       :title="
         view.model
           ? [

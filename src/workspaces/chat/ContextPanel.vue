@@ -21,29 +21,64 @@ const dialog = shallowRef<HTMLDialogElement | null>(null),
   choice = shallowRef({ id: "", kind: "" });
 const c = computed(() => view.value.current),
   full = computed(() => contextSnapshot(c.value)),
-  known = computed(() => conversationImages(c.value)),
   turns = computed(() => branchTurns(c.value));
-const extra = computed(() =>
-  known.value.filter(
-    (v) =>
-      !full.value.imageIds.includes(v.assetId) &&
-      chat.assets.assets.has(v.assetId),
-  ),
-);
 const cap = computed(() => view.value.model?.maxImages ?? Infinity);
 const url = (id: string) => chat.assets.assets.get(id)?.url;
-function origin(id: string) {
-  const info = known.value.find((v) => v.assetId === id),
-    a = chat.assets.assets.get(id);
-  if (info?.result && info.turnId) {
-    const n = c.value.turns.findIndex((t) => t.id === info.turnId) + 1;
-    return { text: `第 ${n} 轮结果`, badge: `#${n}`, icon: "" };
-  }
-  return a?.origin === "result"
-    ? { text: "编辑结果", badge: "", icon: "i-edit" }
-    : a?.origin === "image"
-      ? { text: "来自绘图", badge: "", icon: "i-image" }
-      : { text: "上传", badge: "", icon: "i-upload" };
+/* Each picture sits on the floor where it first appeared — the turn that sent
+   or made it — so a turn's text and pictures read together. A picture with no
+   floor on this branch (an upload not yet sent, one from the drawing page or
+   another branch) waits on this turn's floor. */
+const floors = computed(() => {
+  const shown = new Set(turns.value.map((t) => t.id)),
+    held = new Set(full.value.imageIds),
+    images = conversationImages(c.value)
+      .reverse()
+      .filter((v) => held.has(v.assetId) || chat.assets.assets.has(v.assetId));
+  const on = (floor: string | null) =>
+    images
+      .filter(
+        (v) => (v.turnId && shown.has(v.turnId) ? v.turnId : null) === floor,
+      )
+      .map((v) => v.assetId);
+  return [
+    ...turns.value.map((turn) => ({
+      key: turn.id,
+      turn,
+      n: c.value.turns.indexOf(turn) + 1,
+      images: on(turn.id),
+    })),
+    { key: "now", turn: null, n: 0, images: on(null) },
+  ];
+});
+/* What the next turn does with a picture: edits it, sends it as reference n,
+   drops it past the model's cap, or leaves it out (and offers it back). */
+function state(id: string) {
+  const at = view.value.context.imageIds.indexOf(id);
+  if (at === 0) return "base";
+  if (at > 0) return "ref";
+  return view.value.context.dropped.includes(id) ? "dropped" : "pool";
+}
+function include(turnId: string, on: boolean) {
+  chat.mutate((c) => {
+    c.skipTurnIds = on
+      ? c.skipTurnIds.filter((id) => id !== turnId)
+      : [...c.skipTurnIds, turnId];
+  });
+}
+function badge(id: string) {
+  const s = state(id);
+  return s === "base"
+    ? "底图"
+    : s === "ref"
+      ? String(view.value.context.imageIds.indexOf(id))
+      : "超出";
+}
+function label(id: string) {
+  const s = state(id);
+  if (s === "base") return "底图";
+  if (s === "ref") return `参考 ${view.value.context.imageIds.indexOf(id)}`;
+  if (s === "dropped") return "超出上限，不会发送";
+  return cap.value === 1 ? "换为底图" : "加入参考图";
 }
 function close() {
   menu.value?.hidePopover();
@@ -59,7 +94,10 @@ function toggle() {
   else dialog.value?.show();
   shell.chat.contextOpen = true;
 }
-function tile(id: string, kind: string, e: MouseEvent) {
+function tile(id: string, e: MouseEvent) {
+  const kind = { base: "base", ref: "ref", dropped: "ref", pool: "add" }[
+    state(id)
+  ];
   if (kind === "add") {
     if (cap.value === 1) chat.setBase(id);
     else chat.mutate((c) => retainImage(c, id), true);
@@ -91,6 +129,9 @@ function drag(id: string, e: DragEvent) {
   e.dataTransfer?.setData(names.contextDragType, id);
   if (e.dataTransfer) e.dataTransfer.effectAllowed = "move";
 }
+function accept(e: DragEvent) {
+  if (e.dataTransfer?.types.includes(names.contextDragType)) e.preventDefault();
+}
 function drop(e: DragEvent, to: number | "base") {
   const id = e.dataTransfer?.getData(names.contextDragType);
   if (!id || !chat.assets.assets.has(id)) return;
@@ -104,7 +145,7 @@ async function reset() {
     !(await ui.confirm({
       title: "清空上下文？",
       message:
-        "底图、参考图和历史文字都不再带入下一轮；对话记录保留，图片仍可从「可加入」找回。",
+        "底图、参考图和历史文字都不再带入下一轮；对话记录保留，图片仍可在这里点 ＋ 加回。",
       confirmLabel: "清空",
       tone: "danger",
     }))
@@ -145,72 +186,130 @@ defineExpose({ toggle, close });
     "
   >
     <header class="context-head">
-      <h2 id="contextTitle">上下文</h2>
-      <button
-        class="ibtn"
-        type="button"
-        aria-label="清空上下文"
-        :disabled="!full.imageIds.length && !turns.length"
-        @click="reset"
-      >
-        <AppIcon name="i-eraser" /></button
-      ><button
-        class="ibtn"
-        type="button"
-        aria-label="关闭上下文"
-        autofocus
-        @click="close"
-      >
-        <AppIcon name="i-close" />
-      </button>
-    </header>
-    <div class="context-body" id="contextContent">
-      <section class="context-section" aria-label="图片">
-        <div class="context-section-head">
-          <h3>图片</h3>
-          <span v-if="view.context.dropped.length" class="context-over"
-            >{{ view.context.dropped.length }} 张超出上限</span
-          ><span
-            class="context-count mono"
-            :data-state="view.context.dropped.length ? 'over' : undefined"
+      <div class="context-title">
+        <h2 id="contextTitle">上下文</h2>
+        <button
+          class="ibtn"
+          type="button"
+          aria-label="清空上下文"
+          :disabled="!full.imageIds.length && !turns.length"
+          @click="reset"
+        >
+          <AppIcon name="i-eraser" /></button
+        ><button
+          class="ibtn"
+          type="button"
+          aria-label="关闭上下文"
+          autofocus
+          @click="close"
+        >
+          <AppIcon name="i-close" />
+        </button>
+      </div>
+      <!-- The composer's context button in words: same icons, same order, the same −n past the cap. -->
+      <p class="context-stats">
+        <span v-if="turns.length" class="context-stat"
+          ><AppIcon name="i-layers" /><span>文字</span
+          ><span class="mono"
+            >{{ view.context.turnIds.length }}/{{ turns.length }}</span
+          ></span
+        ><span
+          class="context-stat"
+          :data-over="view.context.dropped.length || undefined"
+          ><AppIcon name="i-image" /><span>图片</span
+          ><span class="mono"
             >{{ view.context.imageIds.length }}/{{
               Number.isFinite(cap) ? cap : "∞"
             }}</span
-          >
-        </div>
-        <div
-          class="context-base"
-          data-drop="base"
-          @dragover.prevent
-          @drop="drop($event, 'base')"
+          ><span
+            v-if="view.context.dropped.length"
+            class="context-minus"
+            :aria-label="`${view.context.dropped.length} 张超出上限`"
+            >−{{ view.context.dropped.length }}</span
+          ></span
         >
-          <button
-            v-if="full.base"
-            class="context-tile"
-            data-kind="base"
-            type="button"
-            :aria-label="`底图：${origin(full.base).text}`"
-            @click="tile(full.base, 'base', $event)"
+      </p>
+    </header>
+    <div
+      class="context-body"
+      id="contextContent"
+      @dragover="accept"
+      @drop="drop($event, full.refs.length)"
+    >
+      <ol class="context-floors">
+        <li
+          v-for="f in floors"
+          :key="f.key"
+          class="context-floor"
+          :class="{ 'context-now': !f.turn }"
+          :data-off="c.skipTurnIds.includes(f.key) || undefined"
+        >
+          <label v-if="f.turn" class="check context-text" :title="f.turn.prompt"
+            ><input
+              type="checkbox"
+              :checked="!c.skipTurnIds.includes(f.key)"
+              @change="
+                include(f.key, ($event.target as HTMLInputElement).checked)
+              "
+            /><span></span
+            ><span class="context-prompt">{{ f.turn.prompt }}</span></label
           >
-            <img :src="url(full.base)" alt="" width="96" height="96" /><span
-              class="context-tile-origin"
-              >{{ origin(full.base).badge
-              }}<AppIcon
-                v-if="origin(full.base).icon"
-                :name="origin(full.base).icon"
-            /></span>
-          </button>
-          <div v-else class="context-tile context-tile-empty">
-            <AppIcon name="i-image" />
+          <div v-else class="context-text">
+            <span class="context-dot"></span
+            ><span class="context-prompt"
+              ><b>本轮</b
+              ><span :data-empty="!c.prompt.trim() || undefined">{{
+                c.prompt.trim() || "输入框为空"
+              }}</span></span
+            >
           </div>
-          <div class="context-base-meta">
-            <p class="context-base-label">
-              <b>{{ full.base ? "底图" : "无底图" }}</b
-              ><span>{{
-                full.base ? origin(full.base).text : "按文字生成"
-              }}</span>
-            </p>
+          <div
+            v-if="f.images.length"
+            class="context-tiles"
+            role="list"
+            :aria-label="f.turn ? `第 ${f.n} 轮的图片` : '本轮的图片'"
+          >
+            <div v-for="id in f.images" :key="id" role="listitem">
+              <button
+                type="button"
+                class="context-tile"
+                :data-state="state(id)"
+                :data-dropped="state(id) === 'dropped' || undefined"
+                :aria-label="label(id)"
+                :draggable="state(id) !== 'base'"
+                @dragstart="drag(id, $event)"
+                @dragover="accept"
+                @drop.stop="
+                  drop(
+                    $event,
+                    state(id) === 'base'
+                      ? 'base'
+                      : Math.max(0, full.refs.indexOf(id)),
+                  )
+                "
+                @click="tile(id, $event)"
+              >
+                <img
+                  :src="url(id)"
+                  alt=""
+                  width="96"
+                  height="96"
+                  draggable="false"
+                /><span class="context-badge"
+                  ><AppIcon v-if="state(id) === 'pool'" name="i-plus" /><template
+                    v-else
+                    >{{ badge(id) }}</template
+                  ></span
+                >
+              </button>
+            </div>
+          </div>
+          <div
+            v-if="!f.turn && (full.base || turns.length)"
+            class="context-now-foot"
+          >
             <label v-if="full.base" class="context-follow"
+              ><span>底图跟随最新结果</span
               ><input
                 type="checkbox"
                 role="switch"
@@ -223,129 +322,16 @@ defineExpose({ toggle, close });
                   })
                 "
               /><span class="switch" aria-hidden="true"></span
-              ><span>跟随最新结果</span></label
-            >
+            ></label>
+            <details v-if="turns.length" class="context-raw">
+              <summary>
+                <span>实际发送的文字</span><AppIcon name="i-chevron" />
+              </summary>
+              <pre>{{ view.context.text || "（空）" }}</pre>
+            </details>
           </div>
-        </div>
-        <div v-if="full.refs.length" class="context-group">
-          <p class="context-sub">
-            {{ cap === 1 ? "参考图 · 本模型只带底图" : "参考图" }}
-          </p>
-          <div
-            class="context-grid"
-            role="list"
-            aria-label="参考图"
-            @dragover.prevent
-            @drop.self="drop($event, full.refs.length)"
-          >
-            <div v-for="(id, i) in full.refs" :key="id" role="listitem">
-              <button
-                type="button"
-                class="context-tile"
-                data-kind="ref"
-                :data-dropped="!view.context.imageIds.includes(id) || undefined"
-                :aria-label="`参考 ${i + 1}：${origin(id).text}`"
-                draggable="true"
-                @dragstart="drag(id, $event)"
-                @dragover.prevent
-                @drop.stop="drop($event, i)"
-                @click="tile(id, 'ref', $event)"
-              >
-                <img
-                  :src="url(id)"
-                  alt=""
-                  width="96"
-                  height="96"
-                  draggable="false"
-                /><span class="context-tile-origin"
-                  >{{ origin(id).badge
-                  }}<AppIcon
-                    v-if="origin(id).icon"
-                    :name="origin(id).icon" /></span
-                ><span class="context-tile-no mono">{{
-                  view.context.imageIds.includes(id) ? i + 1 : "—"
-                }}</span>
-              </button>
-            </div>
-          </div>
-        </div>
-        <div v-if="extra.length" class="context-group">
-          <p class="context-sub">{{ cap === 1 ? "可换为底图" : "可加入" }}</p>
-          <div
-            class="context-grid context-pool"
-            role="list"
-            aria-label="可加入的图片"
-          >
-            <div v-for="a in extra" :key="a.assetId" role="listitem">
-              <button
-                class="context-tile"
-                data-kind="add"
-                type="button"
-                :aria-label="`加入参考图：${origin(a.assetId).text}`"
-                draggable="true"
-                @dragstart="drag(a.assetId, $event)"
-                @click="tile(a.assetId, 'add', $event)"
-              >
-                <img
-                  :src="url(a.assetId)"
-                  alt=""
-                  width="96"
-                  height="96"
-                  draggable="false"
-                /><span class="context-tile-origin">{{
-                  origin(a.assetId)
-                }}</span
-                ><span class="context-tile-add"><AppIcon name="i-plus" /></span>
-              </button>
-            </div>
-          </div>
-        </div>
-      </section>
-      <section class="context-section" aria-label="文字">
-        <div class="context-section-head">
-          <h3>文字</h3>
-          <span v-if="turns.length" class="context-count mono"
-            >{{ view.context.turnIds.length }}/{{ turns.length }}</span
-          >
-        </div>
-        <div class="context-turns">
-          <label
-            v-for="turn in turns"
-            :key="turn.id"
-            class="check context-turn"
-            :title="turn.prompt"
-            ><input
-              type="checkbox"
-              :checked="!c.skipTurnIds.includes(turn.id)"
-              @change="
-                chat.mutate((c) => {
-                  c.skipTurnIds = ($event.target as HTMLInputElement).checked
-                    ? c.skipTurnIds.filter((id) => id !== turn.id)
-                    : [...c.skipTurnIds, turn.id];
-                })
-              "
-            /><span></span
-            ><span class="context-turn-no mono"
-              >#{{ c.turns.indexOf(turn) + 1 }}</span
-            ><span class="context-turn-text">{{ turn.prompt }}</span></label
-          >
-          <div class="context-turn context-now">
-            <span class="context-now-mark"></span
-            ><span class="context-turn-no">本轮</span
-            ><span
-              class="context-turn-text"
-              :data-empty="!c.prompt.trim() || undefined"
-              >{{ c.prompt.trim() || "输入框为空" }}</span
-            >
-          </div>
-        </div>
-        <details v-if="turns.length" class="context-raw">
-          <summary>
-            <AppIcon name="i-chevron" /><span>实际发送的文字</span>
-          </summary>
-          <pre>{{ view.context.text || "（空）" }}</pre>
-        </details>
-      </section>
+        </li>
+      </ol>
     </div>
     <div
       ref="menu"

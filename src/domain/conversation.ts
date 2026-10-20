@@ -53,6 +53,28 @@ export function sortConversations(conversations: ConversationRecord[]): Conversa
     (a, b) => Number(b.pinned) - Number(a.pinned) || b.updatedAt - a.updatedAt,
   );
 }
+/* Which list section a time falls in, counted in local calendar days: "this
+   week" means the five days before yesterday, not the last 168 hours. */
+export type ConversationPeriod = "today" | "yesterday" | "week" | "earlier";
+export function conversationPeriod(at: number, now = Date.now()): ConversationPeriod {
+  const day = new Date(now);
+  day.setHours(0, 0, 0, 0);
+  if (at >= day.getTime()) return "today";
+  day.setDate(day.getDate() - 1);
+  if (at >= day.getTime()) return "yesterday";
+  day.setDate(day.getDate() - 5);
+  return at >= day.getTime() ? "week" : "earlier";
+}
+/* The title is only the first prompt, so later prompts are searched too. */
+export function matchesQuery(conversation: ConversationRecord, query: string): boolean {
+  const q = query.trim().toLowerCase();
+  return (
+    !q ||
+    [conversation.title, ...conversation.turns.map((t) => t.prompt)].some((s) =>
+      s.toLowerCase().includes(q),
+    )
+  );
+}
 /* Turn and version ids are fresh because the page caches rendered turns by id
    across every conversation; shared ids would let the copy drive the
    original's DOM. Asset ids stay shared — images are content-addressed and
@@ -150,6 +172,20 @@ export function conversationImages(conversation: ConversationRecord): Conversati
     ...conversation.attachments,
   ].forEach((assetId) => note(assetId, null, false));
   return [...seen.values()].reverse();
+}
+/* The picture a conversation is known by in the list: the newest result on
+   the branch on screen, else the newest picture it holds at all. A retry
+   that is pending or failed keeps the turn's earlier result in place. */
+export function coverImage(conversation: ConversationRecord): string | null {
+  for (const turn of ancestry(conversation).reverse())
+    for (const version of [
+      turn.versions[turn.selectedVersion],
+      ...[...turn.versions].reverse(),
+    ]) {
+      const block = version?.blocks.find((b) => b.type === "image");
+      if (block?.type === "image") return block.assetId;
+    }
+  return conversationImages(conversation)[0]?.assetId ?? null;
 }
 /* Every image a conversation still needs: what it will send next, and what
    each turn sent and returned. Nothing else needs to be kept. */

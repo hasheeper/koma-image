@@ -1,13 +1,56 @@
 <script setup lang="ts">
-import { nextTick, ref, shallowRef, onDeactivated, onBeforeUnmount } from "vue";
+import {
+  computed,
+  nextTick,
+  ref,
+  shallowRef,
+  onDeactivated,
+  onBeforeUnmount,
+} from "vue";
 import { useChat } from "../../app/chat";
 import { useShell } from "../../app/shell";
 import { useWorkspaceLifecycle } from "../../app/workspace-lifecycle";
 import type { ConversationRecord } from "../../storage/records";
+import {
+  conversationPeriod,
+  coverImage,
+  isBlank,
+  matchesQuery,
+} from "../../domain/conversation";
+import type { ConversationPeriod } from "../../domain/conversation";
 import { placeMenu, menuKeys } from "../../shared/popover";
 import AppIcon from "../../shared/AppIcon.vue";
+const props = defineProps<{ query: string }>();
 const { chat, view } = useChat(),
   shell = useShell();
+const periods: Record<ConversationPeriod, string> = {
+  today: "今天",
+  yesterday: "昨天",
+  week: "7 天内",
+  earlier: "更早",
+};
+/* The conversation on screen that has sent nothing is the "新对话" row above
+   the list, not an entry in it; an untouched one elsewhere is reused by the
+   next "新对话", so it is not listed either. */
+const rows = computed(() => {
+  const { conversations, current } = view.value,
+    now = Date.now();
+  return conversations
+    .filter(
+      (c) =>
+        !isBlank(c) &&
+        !(c.id === current.id && !c.turns.length) &&
+        matchesQuery(c, props.query),
+    )
+    .map((c) => {
+      const cover = coverImage(c);
+      return {
+        c,
+        group: c.pinned ? "置顶" : periods[conversationPeriod(c.updatedAt, now)],
+        cover: cover ? chat.assets.assets.get(cover)?.url : undefined,
+      };
+    });
+});
 const menu = shallowRef<HTMLElement | null>(null),
   target = shallowRef<ConversationRecord | null>(null),
   renaming = ref(""),
@@ -125,14 +168,10 @@ onBeforeUnmount(cancelHold);
     aria-label="会话列表"
     @scroll="close()"
   >
-    <template v-for="(c, i) in view.conversations" :key="c.id">
-      <h2 v-if="c.pinned && i === 0" class="conversation-group">置顶</h2>
-      <h2
-        v-if="!c.pinned && i > 0 && view.conversations[i - 1]?.pinned"
-        class="conversation-group"
-      >
-        最近
-      </h2>
+    <template v-for="({ c, group, cover }, i) in rows" :key="c.id">
+      <h2 v-if="group !== rows[i - 1]?.group" class="conversation-group">{{
+        group
+      }}</h2>
       <div
         class="conversation-item"
         :data-id="c.id"
@@ -146,6 +185,16 @@ onBeforeUnmount(cancelHold);
         @pointercancel="cancelHold"
         @pointerleave="cancelHold"
       >
+        <span class="conversation-thumb" aria-hidden="true"
+          ><img
+            v-if="cover"
+            :src="cover"
+            alt=""
+            width="26"
+            height="26"
+            loading="lazy"
+            decoding="async" /><AppIcon v-else name="i-image"
+        /></span>
         <input
           v-if="renaming === c.id"
           v-model="name"
@@ -176,8 +225,8 @@ onBeforeUnmount(cancelHold);
           :aria-current="c.id === view.current.id ? 'page' : undefined"
           @click="pick(c)"
         >
-          {{ c.title
-          }}<span v-if="view.busy?.cId === c.id" class="sr-only">，生成中</span>
+          <span class="conversation-title">{{ c.title }}</span
+          ><span v-if="view.busy?.cId === c.id" class="sr-only">，生成中</span>
         </button>
         <span
           v-if="view.busy?.cId === c.id"
@@ -194,6 +243,9 @@ onBeforeUnmount(cancelHold);
           <AppIcon name="i-more" />
         </button></div
     ></template>
+    <p v-if="query.trim() && !rows.length" class="conversation-empty">
+      没有匹配的对话
+    </p>
   </nav>
   <Teleport to="body"
     ><div

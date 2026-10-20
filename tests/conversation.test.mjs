@@ -143,6 +143,31 @@ test("chat: stable pin order, missing branch references and result completion ke
   turn.parentId = turn.id;
   assert.throws(() => c.ancestry(con), /会话分支无效/);
 });
+test("chat: list sections follow local days, search covers every prompt, cover follows the branch on screen", () => {
+  const now = new Date(2026, 9, 20, 9, 30).getTime(),
+    period = (...d) => c.conversationPeriod(new Date(...d).getTime(), now);
+  assert.equal(period(2026, 9, 20, 0, 0), "today");
+  assert.equal(period(2026, 9, 19, 23, 59), "yesterday");
+  assert.equal(period(2026, 9, 19, 0, 0), "yesterday");
+  assert.equal(period(2026, 9, 14, 0, 0), "week");
+  assert.equal(period(2026, 9, 13, 23, 59), "earlier");
+
+  const con = c.newConversation();
+  assert.equal(c.coverImage(con), null);
+  c.attachUpload(con, "staged");
+  assert.equal(c.coverImage(con), "staged");
+  const first = done(con, "蓝色森林", "a");
+  const second = done(con, "加一只 Cat", "b");
+  assert.equal(c.matchesQuery(con, "  "), true);
+  assert.equal(c.matchesQuery(con, "森林"), true);
+  assert.equal(c.matchesQuery(con, "cat"), true);
+  assert.equal(c.matchesQuery(con, "狗"), false);
+  assert.equal(c.coverImage(con), "b");
+  c.beginVersion(second);
+  assert.equal(c.coverImage(con), "b");
+  con.headId = first.id;
+  assert.equal(c.coverImage(con), "a");
+});
 test("media: generation/edit fields, Gemini output_size and strict count/text limits", () => {
   assert.equal(buildChatPayload(model, "word", {}, []).tool, undefined);
   const p = buildChatPayload(model, "exact text", { image_size: "2K" }, [

@@ -285,7 +285,7 @@ test("four viewports: layout, gallery identity across Teleport, and workspace CS
             includeHidden: true,
           })
           .evaluate((node) => node.parentElement.className);
-        assert.equal(parent, width <= 860 ? "topbar-end" : "topbar-account");
+        assert.equal(parent, width <= 860 ? "sidebar-foot" : "topbar-account");
       }
       if (
         (width === 1440 && workspace === "image") ||

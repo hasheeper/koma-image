@@ -36,6 +36,7 @@ select {
   background-position: right 10px center;
 }
 select option { background: var(--raised); }
+.model-select { font-weight: var(--fw-semibold); }
 
 /* field */
 .fld { display: grid; gap: 6px; }
@@ -296,22 +297,32 @@ select option { background: var(--raised); }
     0 10px 24px -12px rgba(179, 161, 255, 0);
 }
 .btn-go:disabled::before { opacity: 0; }
-/* The shortcut travels with the label as two small keycaps, so icon, label,
-   cost and keys read as one centred group. Glyphs are drawn, not typed: the
-   text fonts render ↵ small and low, and ⌘ falls back to whatever the system
-   has. Pressed into the fill (dark tint, darker bottom edge) rather than
-   stacked on it, so they stay quieter than the label. */
-.go-keys { display: inline-flex; gap: 3px; margin-left: 4px; }
+/* In the composer the button reads like a checkout bar: the action on the
+   left, what it costs and how to fire it on the right. Whichever of the two
+   comes first takes the free space, so either can be absent. */
+.go-row > .btn-go { justify-content: flex-start; padding-inline: 18px 12px; }
+.go-row > .btn-go > .ico:first-child { margin-right: -2px; }
+.go-row .cost-tag, .go-row .go-keys { height: 24px; margin-left: auto; }
+.go-row .cost-tag:not([hidden]) + .go-keys { margin-left: 0; }
+/* The shortcut is one pill beside the price, pressed into the fill (dark
+   tint) rather than lifted out of it, so it stays quieter than the price.
+   Glyphs are drawn, not typed: the text fonts render ↵ small and low, and ⌘
+   falls back to whatever the system has. */
+.go-keys {
+  display: inline-flex; align-items: center; gap: 2px;
+  height: 22px; padding: 0 7px;
+  color: rgba(23, 19, 42, 0.45);
+  background: rgba(23, 19, 42, 0.06);
+  border-radius: 999px;
+  box-shadow: inset 0 0 0 1px rgba(23, 19, 42, 0.1);
+}
 .go-keys kbd {
   display: inline-grid; place-items: center;
-  min-width: 18px; height: 18px; padding: 0 4px;
+  padding: 0;
   font: var(--fw-semibold) 10px/1 var(--sans); letter-spacing: 0.02em;
-  color: rgba(23, 19, 42, 0.5);
-  background: rgba(23, 19, 42, 0.05);
-  border: 0; border-radius: 5px;
-  box-shadow: inset 0 0 0 1px rgba(23, 19, 42, 0.1), inset 0 -1px 0 rgba(23, 19, 42, 0.14);
+  color: inherit; background: none; border: 0;
 }
-.go-keys .ico { width: 10px; height: 10px; stroke-width: 2.3; }
+.go-keys .ico { width: 11px; height: 11px; stroke-width: 2.3; }
 /* Not on a Mac: the same keys, labelled for a PC keyboard. */
 [data-mod="ctrl"] .key-mod .ico { display: none; }
 [data-mod="ctrl"] .key-mod::before { content: "Ctrl"; }
@@ -369,22 +380,24 @@ select option { background: var(--raised); }
 }
 
 /* Price rides inside the action that spends it: the same four-point glyph
-   as the header gauge names the currency, mono tabular digits keep the
-   figure planted while the count changes. On the accent it is a pale chip
-   lifted out of the fill, not a grey hole punched into it. */
+   as the header gauge names the currency. The label mixes Chinese and
+   digits, so it stays in the interface face (a mono figure beside 免费／积分
+   was two fonts and a wide space); its tabular digits keep the figure
+   planted while the count changes. On the accent it is a pale chip lifted
+   out of the fill, not a grey hole punched into it. */
 .cost-tag {
-  display: inline-flex; align-items: center; gap: 3px;
-  font: var(--fw-semibold) var(--fz-2xs)/1 var(--mono);
+  display: inline-flex; align-items: center; gap: 4px;
+  height: 22px; padding: 0 10px 0 8px;
+  font: var(--fw-semibold) var(--fz-xs)/1 var(--sans);
   font-variant-numeric: tabular-nums;
   letter-spacing: 0;
-  padding: 4px 8px 4px 6px;
   border-radius: 999px;
   background: rgba(255, 255, 255, 0.3);
   box-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0.2);
   color: rgba(23, 19, 42, 0.82);
 }
 .cost-tag .ico {
-  width: 11px; height: 11px;
+  width: 12px; height: 12px;
   fill: currentColor; stroke: none;
 }
 .cost-tag { transition: opacity var(--t2) var(--e); }

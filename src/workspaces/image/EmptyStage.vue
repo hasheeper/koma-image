@@ -10,6 +10,7 @@ import {
 } from "vue";
 import { useShell } from "../../app/shell";
 import AppIcon from "../../shared/AppIcon.vue";
+import WaveMark from "../../shared/WaveMark.vue";
 
 const props = defineProps<{ viewport: HTMLElement | null }>();
 const { narrow, image } = useShell();
@@ -147,65 +148,7 @@ onBeforeUnmount(pause);
     :style="layout.width ? { '--home-w': `${layout.width}px` } : undefined"
   >
     <span class="home-lock"
-      ><svg class="home-mark" viewBox="0 0 24 24" aria-hidden="true">
-        <rect
-          x="3"
-          y="3"
-          width="3"
-          height="3"
-          rx="1.1"
-          opacity="0.24"
-          style="--d: 0"
-        />
-        <rect
-          x="9.8"
-          y="2.3"
-          width="4.4"
-          height="4.4"
-          rx="1.1"
-          opacity="0.5"
-          style="--d: 1"
-        />
-        <rect x="16.5" y="1.5" width="6" height="6" rx="1.7" style="--d: 2" />
-        <rect
-          x="2.3"
-          y="9.8"
-          width="4.4"
-          height="4.4"
-          rx="1.1"
-          opacity="0.5"
-          style="--d: 1"
-        />
-        <rect x="9" y="9" width="6" height="6" rx="1.7" style="--d: 2" />
-        <rect
-          x="17.3"
-          y="9.8"
-          width="4.4"
-          height="4.4"
-          rx="1.1"
-          opacity="0.5"
-          style="--d: 3"
-        />
-        <rect x="1.5" y="16.5" width="6" height="6" rx="1.7" style="--d: 2" />
-        <rect
-          x="9.8"
-          y="17.3"
-          width="4.4"
-          height="4.4"
-          rx="1.1"
-          opacity="0.5"
-          style="--d: 3"
-        />
-        <rect
-          x="18"
-          y="18"
-          width="3"
-          height="3"
-          rx="1.1"
-          opacity="0.24"
-          style="--d: 4"
-        /></svg
-      ><span class="home-word"
+      ><WaveMark class="home-mark" surface="image" /><span class="home-word"
         ><span class="brand-title">Koma</span
         ><span class="brand-subtitle">IMAGE</span></span
       ></span
@@ -264,9 +207,7 @@ onBeforeUnmount(pause);
    brand and the hint, and phones drop the hint for the button below. */
 .home { display: grid; justify-items: center; width: var(--home-w, min(800px, 100%)); text-align: center; }
 .home-lock { display: inline-flex; align-items: center; gap: 16px; min-width: 0; }
-.home-mark { width: 48px; height: 48px; flex: none; overflow: visible; fill: var(--a); }
-.home-mark rect { transform-box: fill-box; transform-origin: center; animation: homeBreath 3.6s var(--e) infinite; animation-delay: calc(var(--d) * 160ms); }
-@keyframes homeBreath { 0%, 100% { transform: scale(1); } 40% { transform: scale(0.8); } }
+.home-mark { width: 48px; height: 48px; }
 .home-word { display: inline-flex; align-items: baseline; gap: 10px; line-height: 1; }
 .home-word :deep(.brand-title) { font-size: 34px; }
 .home-word :deep(.brand-subtitle) { font-size: 13.5px; }
@@ -299,6 +240,5 @@ onBeforeUnmount(pause);
   .home-favs { margin-top: 20px; }
   .home-all { margin-top: 12px; }
 }
-@media (prefers-reduced-motion: reduce) { .home-mark rect { animation: none; } }
 
 </style>

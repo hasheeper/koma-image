@@ -256,6 +256,13 @@ async function send(t, text = "画一片蓝色森林") {
       chat.snapshot().current.turns.at(-1)?.versions.at(-1)?.status === "done",
   );
 }
+async function showResultTools(turn) {
+  await turn.locator(".chat-print").first().hover();
+  const menu = turn.getByRole("button", { name: "图片操作", exact: true });
+  const compact = await menu.isVisible();
+  if (compact) await menu.click();
+  return compact;
+}
 async function editorSource(t, origin = "image", mode = "img2img") {
   await t.page.evaluate(
     async ({ png, origin, mode }) => {
@@ -304,13 +311,10 @@ test("M5 chat UI: ordered response, exact context, consumption, version/branch s
     await p.getByRole("button", { name: "上下文", exact: true }).click();
     await p.waitForSelector("#contextPanel[open]");
     assert.equal(
-      await p.locator(".context-base-label b").textContent(),
+      await p.locator(".context-tile[data-state=base] .context-badge").textContent(),
       "底图",
     );
-    assert.equal(
-      await p.locator(".context-grid[aria-label=参考图] .context-tile").count(),
-      1,
-    );
+    assert.equal(await p.locator(".context-tile[data-state=ref]").count(), 1);
     await p.locator(".context-follow").click();
     const before = await p.evaluate(() => chat.snapshot().current.mainId);
     await p.getByRole("button", { name: "关闭上下文", exact: true }).click();
@@ -322,6 +326,7 @@ test("M5 chat UI: ordered response, exact context, consumption, version/branch s
     payload = posts(t)[1].payload;
     assert.match(payload.prompt, /此前的绘图要求/);
     assert.equal(payload.additional_images.length, 1);
+    await showResultTools(p.locator(".chat-turn").first());
     await p
       .locator(".chat-turn")
       .first()
@@ -343,7 +348,7 @@ test("M5 chat UI: ordered response, exact context, consumption, version/branch s
     await p
       .locator(".chat-turn")
       .first()
-      .getByRole("button", { name: "上一个版本" })
+      .getByRole("button", { name: "第 1 个版本 · 已完成", exact: true })
       .click();
     assert.equal(
       await p
@@ -382,6 +387,78 @@ test("M5 chat UI: ordered response, exact context, consumption, version/branch s
     await t.close();
   }
 });
+test("H1 chat rail: compact history, exact version states, responsive tools and retained selection", async () => {
+  const t = await open(), p = t.page;
+  try {
+    await send(t, "第一轮");
+    await send(t, "第二轮");
+    const first = p.locator(".chat-turn").first(), last = p.locator(".chat-turn").last();
+    assert.deepEqual(await p.locator(".turn-number").allTextContents(), ["1", "2"]);
+    assert.equal(await first.getAttribute("data-older"), "");
+    assert.equal(await last.getAttribute("data-base"), "");
+    const source = await p.evaluate(() => ({ mainId: chat.snapshot().current.mainId, headId: chat.snapshot().current.headId }));
+    t.state.fail = true;
+    await showResultTools(first);
+    await first.getByRole("button", { name: "重新生成此版本", exact: true }).click();
+    await p.waitForFunction(() => !chat.snapshot().busy && chat.snapshot().current.turns[0].versions.length === 2);
+    assert.equal(await first.locator(".chat-version[data-status=error]").count(), 1);
+    await first.getByRole("button", { name: "第 1 个版本 · 已完成", exact: true }).click();
+    assert.deepEqual(await p.evaluate(() => ({ mainId: chat.snapshot().current.mainId, headId: chat.snapshot().current.headId })), source);
+    t.state.fail = false;
+    t.state.hold = true;
+    await showResultTools(first);
+    await first.getByRole("button", { name: "重新生成此版本", exact: true }).click();
+    await p.waitForSelector(".chat-turn[data-pending] .chat-pending .tile-wave");
+    assert.equal(await first.getAttribute("data-older"), null, "an earlier turn being regenerated stays full-size");
+    assert.equal(await first.locator(".chat-version[data-status=pending]").count(), 1);
+    await first.getByRole("button", { name: "第 1 个版本 · 已完成", exact: true }).click();
+    await p.evaluate(() => chat.cancel());
+    t.state.release?.();
+    t.state.hold = false;
+    await p.waitForFunction(() => !chat.snapshot().busy);
+    await first.getByRole("button", { name: "第 3 个版本 · 已取消", exact: true }).click();
+    assert.equal(await first.locator(".turn-output").getAttribute("data-status"), "cancelled");
+    await first.getByRole("button", { name: "第 2 个版本 · 失败", exact: true }).click();
+    assert.equal(await first.locator(".turn-output").getAttribute("data-status"), "error");
+    await first.getByRole("button", { name: "第 1 个版本 · 已完成", exact: true }).click();
+    assert.equal(await first.locator(".chat-version").count(), 3);
+    for (const width of [320, 390, 768, 1440]) {
+      await p.setViewportSize({ width, height: 900 });
+      await first.scrollIntoViewIfNeeded();
+      const layout = await p.evaluate(() => {
+        const turns = [...document.querySelectorAll(".chat-turn")], rect = n => n.getBoundingClientRect();
+        return {
+          overflow: document.documentElement.scrollWidth > innerWidth || document.querySelector("#chatScroll").scrollWidth > document.querySelector("#chatScroll").clientWidth,
+          old: rect(turns[0].querySelector(".chat-print")).width,
+          latest: rect(turns[1].querySelector(".chat-print")).width,
+          aligned: Math.abs(rect(turns[0].querySelector(".turn-number")).top - rect(turns[0].querySelector(".chat-print")).top) < 1,
+        };
+      });
+      assert.equal(layout.overflow, false, `${width}px overflow`);
+      assert.equal(layout.aligned, true, `${width}px node/image alignment`);
+      assert.ok(Math.abs(layout.old / layout.latest - .75) < .01, `${width}px history stays proportional to the full-size result`);
+      const compact = await showResultTools(first);
+      const tools = first.locator(compact ? ".result-actions-menu:popover-open" : ".result-actions-overlay");
+      assert.equal(await tools.locator(".ibtn").count(), 5);
+      const bounds = await tools.boundingBox();
+      assert.ok(bounds.x >= 0 && bounds.x + bounds.width <= width, `${width}px tools fit`);
+      if (compact) {
+        await p.keyboard.press("Escape");
+        assert.equal(await first.locator(".result-actions-menu:popover-open").count(), 0);
+      }
+    }
+    // A compact menu is closed when its kept-alive workspace is deactivated.
+    await p.setViewportSize({ width: 320, height: 900 });
+    await showResultTools(first);
+    await p.evaluate(() => location.hash = "#/tags");
+    await p.waitForSelector("[data-workspace-root=tags]");
+    await p.evaluate(() => location.hash = "#/chat");
+    await p.waitForSelector("#chatPrompt");
+    assert.equal(await p.locator(".result-actions-menu:popover-open").count(), 0);
+    assert.equal(await first.locator(".chat-version[aria-pressed=true]").getAttribute("data-status"), "done");
+  } finally { await t.close(); }
+});
+
 test("M5 shared task slot, failure/cancellation, IME and attachments keep original request semantics", async () => {
   const t = await open(),
     p = t.page;
@@ -491,6 +568,59 @@ test("M5 conversation management, atomic save retries, backup reload and interru
     assert.match(
       await p.locator(".turn-error").last().textContent(),
       /页面关闭时仍在生成/,
+    );
+  } finally {
+    await t.close();
+  }
+});
+test("chat sidebar and starters: unsent conversation is the new row, starters only fill the composer, rows show the cover, search covers later prompts", async () => {
+  const t = await open(),
+    p = t.page,
+    fresh = p.getByRole("button", { name: "新对话", exact: true });
+  try {
+    assert.equal(await fresh.getAttribute("aria-current"), "page");
+    assert.equal(await p.locator(".conversation-item").count(), 0);
+    await p.getByRole("button", { name: "窗边打盹的橘猫" }).click();
+    assert.match(await p.locator("#chatPrompt").inputValue(), /橘猫/);
+    assert.equal(
+      await p.locator(".chat-starters").getAttribute("data-quiet"),
+      "true",
+    );
+    assert.equal(posts(t).length, 0);
+    t.state.multiple = true;
+    await send(t, "蓝色森林");
+    await send(t, "加一只猫");
+    assert.equal(await p.locator(".chat-starters").count(), 0);
+    assert.equal(await fresh.getAttribute("aria-current"), null);
+    await fresh.click();
+    assert.equal(await fresh.getAttribute("aria-current"), "page");
+    await send(t, "雨夜街头");
+    assert.equal(await p.locator(".conversation-group").textContent(), "今天");
+    const forest = p.locator(".conversation-item", { hasText: "蓝色森林" });
+    assert.equal(
+      await forest.locator(".conversation-thumb img").getAttribute("src"),
+      await p.evaluate(
+        () =>
+          chat.assets.assets.get(
+            chat.snapshot().conversations.find((c) => c.title === "蓝色森林")
+              .turns[1].versions[0].blocks.find((b) => b.type === "image")
+              .assetId,
+          ).url,
+      ),
+    );
+    await p.getByRole("button", { name: "搜索对话" }).click();
+    await p.keyboard.type("猫");
+    assert.deepEqual(
+      await p.locator(".conversation-title").allTextContents(),
+      ["蓝色森林"],
+    );
+    await p.keyboard.type("狗");
+    assert.equal(await p.locator(".conversation-item").count(), 0);
+    await p.keyboard.press("Escape");
+    assert.equal(await p.locator(".conversation-item").count(), 2);
+    assert.equal(
+      await p.evaluate(() => document.activeElement?.textContent?.trim()),
+      "搜索对话",
     );
   } finally {
     await t.close();
@@ -890,6 +1020,7 @@ test("M5 embedded multi-image order, asset limits, exact bytes and immediate pag
       ["text", "image", "text", "image"],
     );
     assert.equal(await p.locator(".chat-result").count(), 2);
+    assert.deepEqual(await p.locator(".msg-body > .msg-text, .msg-body > .chat-result").evaluateAll(nodes => nodes.map(n => n.classList.contains("chat-result") ? "image" : "text")), ["text", "image", "text", "image"]);
     const limits = await p.evaluate(async () => {
       const { AssetStore } = await import("/src/services/assets.ts"),
         assets = new AssetStore();

@@ -33,16 +33,13 @@ const gauge = computed(() =>
       :data-level="gauge.level"
       :data-brand="model?.provider"
       :data-tip="`${model?.name || '当前模型'} · 免费图片额度：${meterNumber(gauge.remaining)}；重置 ${quota?.media.resets_at || '未知'}。临时 Key 日请求剩余 ${meterNumber(quota?.temporary?.remaining)}`"
+      :style="{ '--gauge': gauge.ratio ?? 0 }"
     >
-      <AppIcon class="w-ico" name="i-points" /><span
-        class="w-gauge"
-        :style="{ '--gauge': gauge.ratio ?? 0 }"
-        ><span class="w-v"
-          ><b>{{ meterNumber(gauge.remaining) }}</b
-          ><i>{{
-            gauge.limit === null ? "" : `/${meterNumber(gauge.limit)}`
-          }}</i></span
-        ></span
+      <AppIcon class="w-ico" name="i-points" /><span class="w-v"
+        ><b>{{ meterNumber(gauge.remaining) }}</b
+        ><i>{{
+          gauge.limit === null ? "" : `/${meterNumber(gauge.limit)}`
+        }}</i></span
       ><span class="w-k sr-only">免费图片</span>
     </div>
     <span class="w-sep" aria-hidden="true"></span>

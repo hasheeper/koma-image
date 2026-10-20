@@ -4,6 +4,7 @@
            i-edit        edit this image (img2img / inpaint / continue editing)
            i-pin         pin an image as the base or a fixed reference; pin a conversation to the top
            i-image-plus  add an image as a reference
+           i-image-base  the image currently used as the editing base
            i-upscale     upscale
            i-mask        inpaint: paint the region to redraw (i-brush is the brush itself)
            i-reuse       reuse generation parameters (NAI) or a sent prompt (chat): back into the composer
@@ -112,6 +113,10 @@
         <symbol id="i-close" viewBox="0 0 24 24"><path d="M6.5 6.5l11 11m0-11-11 11" /></symbol>
         <symbol id="i-image" viewBox="0 0 24 24">
           <rect x="3" y="4.5" width="18" height="15" rx="3" /><path d="m4 16 4.5-4.5 3 3 2.5-3 6 6" /><circle cx="9" cy="9" r="1.5" />
+        </symbol>
+        <symbol id="i-image-base" viewBox="0 0 24 24">
+          <path d="M11.5 4.5H6a3 3 0 0 0-3 3v10a3 3 0 0 0 3 3h12a3 3 0 0 0 3-3v-4M4 17l4.5-4.5 3 3 2.5-2.5 6 6" /><circle cx="8" cy="8.5" r="1.2" />
+          <path d="M16 2.5h5l-1 4 2 2.5h-7l2-2.5-1-4ZM18.5 9v4" />
         </symbol>
         <symbol id="i-edit" viewBox="0 0 24 24">
           <path d="M11.5 4.5H6a3 3 0 0 0-3 3v9a3 3 0 0 0 3 3h12a3 3 0 0 0 3-3v-4" /><path d="m4 16 4.5-4.5 3 3" /><path d="M18.65 3.45a1.35 1.35 0 0 1 1.9 1.9l-6 6-2.5.6.6-2.5 6-6Z" />

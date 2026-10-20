@@ -644,6 +644,7 @@ const number = (e: Event) => Number((e.target as HTMLInputElement).value);
             </div>
             <select
               id="editorModel"
+              class="model-select"
               :value="s.chosen[s.mode]"
               :disabled="locked"
               @change="

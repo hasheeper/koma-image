@@ -50,7 +50,7 @@ const tail = computed(() =>
       { width: 1024, height: 1024 },
       items.value.length + index - focus.value,
     );
-    return { "--bar": `${bar.length * 0.65}%` };
+    return { "--bar": `${bar.length * 0.8}%` };
   }),
 );
 const peek = shallowRef<ImageRecord | null>(null),

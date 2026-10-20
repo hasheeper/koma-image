@@ -87,5 +87,6 @@ onBeforeUnmount(pause);
       style="position: absolute; inset: 0; pointer-events: none"
       ><!-- Only this empty host belongs to the wave driver. --></span
     >
+    <slot />
   </figure>
 </template>

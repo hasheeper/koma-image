@@ -2,19 +2,42 @@
 .chat-page { overflow: hidden; }
 .chat-page [hidden] { display: none !important; } /* stylelint-disable-line declaration-no-important -- Hidden state must override component display rules. */
 .chat-page .solid { fill: currentColor; stroke: none; }
-.chat-app { height: min(100dvh, var(--visible-height, 100dvh)); transform: translateY(var(--visible-top, 0px)); display: flex; flex-direction: column; }
+.chat-app { --side-w: 248px; height: min(100dvh, var(--visible-height, 100dvh)); transform: translateY(var(--visible-top, 0px)); display: flex; flex-direction: column; }
 .chat-page .topbar { position: relative; }
+/* Beside the brand, centred over the rows' ⋯ column (sidebar border 1 +
+   padding 8 + margin 4 + half the 28px button = 27px in from its edge), so
+   the sidebar keeps no heading row of its own. */
+.chat-page .topbar > .rail-toggle { position: absolute; top: 50%; left: calc(var(--side-w) - 27px - 16px); translate: 0 -50%; }
 .chat-menu { display: none; margin-left: auto; }
-.chat-tools-slot { display: none; }
-.chat-layout { flex: 1; display: grid; grid-template-columns: 248px minmax(0, 1fr); min-height: 0; transition: grid-template-columns var(--t2) var(--e); }
-/* A plain list of titles, like every chat app: the newest picture is already
-   on screen, and a thumbnail per row only made the column noisy. */
+.chat-layout { flex: 1; display: grid; grid-template-columns: var(--side-w) minmax(0, 1fr); min-height: 0; transition: grid-template-columns var(--t2) var(--e); }
+/* The usual chat sidebar — labelled "new" and "search" rows, then one line
+   per conversation by day — except each line leads with its newest picture:
+   in an image app that, more than the first prompt, tells them apart. The
+   pictures sit in the icons' column and the titles in the labels'. */
 .chat-sidebar { background: var(--chrome); border-right: 1px solid var(--line); padding: var(--sp-3) var(--sp-2); display: flex; flex-direction: column; gap: var(--sp-3); min-height: 0; overflow: hidden; }
-.sidebar-heading { display: flex; align-items: center; justify-content: space-between; gap: 4px; }
-.sidebar-close { display: none; }
+.sidebar-actions { display: grid; gap: 1px; }
+.sidebar-row {
+  display: flex; align-items: center; gap: 15px; height: 36px; padding: 0 10px 0 13px;
+  font-size: var(--fz-sm); color: var(--fg-2); text-align: left;
+  border-radius: var(--r2);
+  transition: color var(--t1) var(--e), background var(--t1) var(--e);
+}
+.sidebar-row .ico { --ico: 16px; flex: none; color: var(--fg-3); }
+.sidebar-row:hover { color: var(--fg); background: var(--raised); }
+.sidebar-row:focus-visible { outline: 2px solid var(--a); outline-offset: -2px; }
+/* An unsent conversation is not listed; this row stands for it instead,
+   lit in text only so the sidebar has no standing block of grey. */
+.sidebar-row[aria-current] { color: var(--fg); }
+.sidebar-row[aria-current] .ico { color: currentColor; }
+/* Swaps in for the search row with the icon and text in the same place. */
+.sidebar-search { position: relative; }
+.sidebar-search .ico { position: absolute; left: 13px; top: 50%; translate: 0 -50%; --ico: 16px; color: var(--fg-3); pointer-events: none; }
+.sidebar-search input { height: 36px; padding-left: 44px; font-size: var(--fz-sm); }
+.sidebar-foot { margin: 0 calc(var(--sp-2) * -1) calc(var(--sp-3) * -1); padding: var(--sp-2) var(--sp-2) calc(var(--sp-2) + env(safe-area-inset-bottom)); border-top: 1px solid var(--line); }
 .conversation-list { flex: 1; overflow: auto; overscroll-behavior: contain; display: flex; flex-direction: column; gap: 1px; }
 .conversation-group { margin: 14px 10px 4px; font-size: var(--fz-2xs); font-weight: var(--fw-medium); color: var(--fg-4); }
 .conversation-group:first-child { margin-top: 2px; }
+.conversation-empty { margin: 4px 10px; font-size: var(--fz-xs); color: var(--fg-4); }
 .conversation-item {
   position: relative; flex: none;
   display: flex; align-items: center; height: 36px;
@@ -24,15 +47,25 @@
   transition: color var(--t1) var(--e), background var(--t1) var(--e);
 }
 .conversation-item:hover { color: var(--fg); background: var(--raised); }
-.conversation-item[data-current] { color: var(--fg); background: var(--a-dim); }
+.conversation-item[data-current] { color: var(--fg); background: var(--hover); }
 /* The row a menu belongs to stays lit while the menu is open. */
 .conversation-item:has(.conversation-more[aria-expanded="true"]):not([data-current]) { color: var(--fg); background: var(--raised); }
-.conversation-open {
-  flex: 1; min-width: 0; align-self: stretch; padding: 0 10px;
-  font-size: var(--fz-sm); text-align: left;
-  overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
-  border-radius: inherit;
+/* Laid over the button's left padding, so the whole row stays one target. */
+.conversation-thumb {
+  position: absolute; left: 8px; top: 50%; translate: 0 -50%;
+  display: grid; place-items: center; width: 26px; height: 26px; overflow: hidden;
+  color: var(--fg-4); background: var(--raised); border-radius: 6px;
+  pointer-events: none;
 }
+.conversation-thumb::after { content: ""; position: absolute; inset: 0; border-radius: inherit; box-shadow: inset 0 0 0 1px rgba(255,255,255,.06); }
+.conversation-thumb img { width: 100%; height: 100%; object-fit: cover; }
+.conversation-thumb .ico { --ico: 15px; }
+.conversation-open {
+  flex: 1; min-width: 0; align-self: stretch; padding: 0 8px 0 44px;
+  display: flex; align-items: center;
+  text-align: left; border-radius: inherit;
+}
+.conversation-title { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: var(--fz-sm); line-height: 1.35; }
 .conversation-open:focus-visible { outline: 2px solid var(--a); outline-offset: -2px; }
 .conversation-busy { flex: none; width: 6px; height: 6px; margin: 0 10px 0 4px; border-radius: 50%; background: var(--a); animation: conversationBusy 1.4s var(--e) infinite; }
 @keyframes conversationBusy { 50% { opacity: .35; } }
@@ -42,15 +75,17 @@
 .conversation-more:hover { background: var(--hover); }
 .conversation-item:is(:hover, :focus-within, [data-current]) .conversation-more,
 .conversation-more[aria-expanded="true"] { width: 28px; margin-right: 4px; opacity: 1; }
-.conversation-rename { flex: 1; min-width: 0; height: 28px; margin: 0 4px; padding: 0 6px; font-size: var(--fz-sm); -webkit-user-select: text; user-select: text; }
+.conversation-rename { flex: 1; min-width: 0; height: 26px; margin: 0 4px 0 38px; padding: 0 6px; font-size: var(--fz-sm); -webkit-user-select: text; user-select: text; }
 .conversation-item[data-renaming] { background: transparent; }
 .conversation-item[data-renaming] .conversation-more { display: none; }
-/* Collapsed to a rail: just the two actions, stacked. The list leaves the
-   tab order with it. */
+/* Collapsed to a rail: the two actions as icons, stacked; the toggle stays
+   in the top bar. The list leaves the tab order with it. */
 @media (min-width: 861px) {
   .chat-page[data-rail="collapsed"] .chat-layout { grid-template-columns: 52px minmax(0, 1fr); }
   .chat-page[data-rail="collapsed"] .chat-sidebar { padding-inline: 0; }
-  .chat-page[data-rail="collapsed"] .sidebar-heading { flex-direction: column; }
+  .chat-page[data-rail="collapsed"] .sidebar-actions { justify-items: center; }
+  .chat-page[data-rail="collapsed"] .sidebar-row { width: 36px; padding: 0; justify-content: center; }
+  .chat-page[data-rail="collapsed"] .sidebar-row span,
   .chat-page[data-rail="collapsed"] .conversation-list { display: none; }
 }
 /* The conversation menu: a manual popover in the top layer, placed by script
@@ -85,123 +120,180 @@
 }
 .chat-workspace { display: flex; flex-direction: column; min-height: 0; position: relative; background: var(--canvas); }
 .chat-scroll { flex: 1; min-height: 0; overflow-y: auto; overflow-x: hidden; overscroll-behavior: contain; scroll-padding: 24px; }
-.chat-empty { min-height: 100%; display: flex; flex-direction: column; justify-content: center; align-items: center; gap: var(--sp-3); padding: var(--sp-5); text-align: center; color: var(--fg-3); }
-.chat-empty .ico { color: var(--fg-3); margin-bottom: 4px; }
-.chat-empty h1 { color: var(--fg-2); font-size: var(--fz-lg); font-weight: var(--fw-medium); }
-/* The stream: what you asked on the right, the model's pictures on the left.
-   Messages and composer share one column so the exchange reads as one line
-   of conversation instead of a gallery with a text box under it. */
-.chat-page { --column: 832px; --img-w: 600px; --img-h: min(62dvh, 640px); }
-.message-list { max-width: calc(var(--column) + 48px); margin: 0 auto; padding: var(--sp-6) var(--sp-5) var(--sp-5); display: grid; gap: 40px; }
+/* A new conversation opens with the mark and wordmark alone, a size above
+   the drawing page's: the placeholder already asks, the starters under the
+   composer offer a way in, so no hint line repeats them. */
+.chat-empty { min-height: 100%; display: flex; flex-direction: column; justify-content: center; align-items: center; padding: var(--sp-5); text-align: center; color: var(--fg-3); }
+.chat-lock { display: inline-flex; align-items: center; gap: 18px; }
+.chat-mark { width: 54px; height: 54px; }
+.chat-word { display: inline-flex; align-items: baseline; gap: 11px; line-height: 1; }
+.chat-word .brand-title { font-size: 38px; }
+.chat-word .brand-subtitle { font-size: 15px; }
+/* Typing or attaching takes over, so the starters fade but keep their room:
+   the centred group must not jump under the caret. */
+.chat-starters {
+  display: flex; flex-wrap: wrap; justify-content: center; gap: 8px;
+  width: calc(100% - 48px); max-width: var(--column); align-self: center; margin: 0 24px;
+  transition: opacity var(--t2) var(--e), visibility var(--t2);
+}
+.chat-starters[data-quiet] { visibility: hidden; opacity: 0; }
+.chat-starter {
+  display: inline-flex; align-items: center; gap: 7px; height: 34px; padding: 0 14px;
+  font-size: var(--fz-sm); color: var(--fg-2);
+  border: 1px solid var(--line-2); border-radius: 999px;
+  transition: color var(--t1) var(--e), background var(--t1) var(--e);
+}
+.chat-starter .ico { --ico: 15px; color: var(--fg-3); }
+.chat-starter:first-child { color: var(--fg); }
+.chat-starter:first-child .ico { color: var(--a); }
+.chat-starter:hover { color: var(--fg); background: var(--raised); }
+.chat-starter:focus-visible { outline: 2px solid var(--a); outline-offset: 2px; }
+/* H1: prompts on the right; numbered results follow one continuous rail.
+   The rail uses grid cells, so no oversized lines clip controls or focus rings. */
+.chat-page { --column: 832px; --img-w: 600px; --img-h: min(56dvh, 540px); }
+.message-list { max-width: calc(var(--column) + 48px); margin: 0 auto; padding: 32px 24px 24px 16px; display: grid; }
 .message-list:empty { display: none; }
-.chat-turn { min-width: 0; display: grid; gap: var(--sp-4); }
+.chat-turn { position: relative; min-width: 0; display: grid; grid-template-columns: 28px minmax(0, 1fr); column-gap: 16px; row-gap: 14px; padding: 0 0 40px 8px; }
+.chat-turn::before { content: ""; grid-column: 1; grid-row: 1; justify-self: center; width: 1px; margin-bottom: -14px; background: var(--line-2); pointer-events: none; }
+.chat-turn:first-child::before { visibility: hidden; }
+.turn-rail { position: relative; grid-column: 1; grid-row: 2; }
+.turn-rail::after { content: ""; position: absolute; top: 34px; bottom: -40px; left: 13.5px; width: 1px; background: var(--line-2); pointer-events: none; }
+.chat-turn:last-child .turn-rail::after { display: none; }
+.turn-number { position: relative; display: grid; place-items: center; width: 28px; height: 28px; font-size: var(--fz-xs); font-weight: var(--fw-bold); color: var(--fg-3); background: var(--raised); border-radius: 50%; box-shadow: 0 0 0 1px var(--line-2), 0 -5px 0 3px var(--canvas); }
+.chat-turn[data-base] .turn-number { color: var(--a-ink); background: var(--a); box-shadow: 0 0 0 4px var(--a-dim); }
+.chat-turn[data-pending] .turn-number { color: var(--a); background: var(--chrome); box-shadow: 0 0 0 1.5px var(--a), 0 0 0 5px var(--a-dim); }
 .msg { min-width: 0; }
-.msg-user { position: relative; justify-self: end; max-width: min(78%, 600px); display: grid; justify-items: end; gap: 6px; }
-.msg-bubble { padding: 10px 16px; background: var(--raised); border: 1px solid var(--line); border-radius: 18px 18px 6px 18px; color: var(--fg); font-size: var(--fz-md); line-height: 1.65; white-space: pre-wrap; overflow-wrap: anywhere; outline: none; }
-.turn-references { display: flex; flex-wrap: wrap; justify-content: flex-end; gap: 6px; }
-.turn-references button { width: 64px; height: 64px; overflow: hidden; border-radius: var(--r3); background: var(--well); box-shadow: 0 0 0 1px var(--line-2); }
-/* The init image: the one picture this turn actually edited. */
-.turn-references button[data-slot="base"] { box-shadow: 0 0 0 2px rgba(179, 161, 255, .62); }
+.msg-user { position: relative; grid-column: 2; grid-row: 1; justify-self: end; max-width: min(78%, 560px); display: grid; justify-items: end; gap: 8px; }
+.msg-bubble { padding: 10px 16px; background: var(--hover); border-radius: 20px 20px 6px 20px; color: var(--fg); font-size: var(--fz-md); line-height: 1.65; white-space: pre-wrap; overflow-wrap: anywhere; }
+.msg-bubble:focus-visible { outline: 2px solid var(--a); outline-offset: 3px; }
+.chat-turn[data-older] .msg-bubble { padding: 8px 14px; color: var(--fg-2); font-size: var(--fz-sm); }
+.turn-references { display: flex; flex-wrap: wrap; justify-content: flex-end; gap: 4px 0; padding: 3px; }
+.turn-references button { flex: none; position: relative; width: 40px; height: 40px; overflow: hidden; border-radius: 10px; background: var(--well); box-shadow: 0 0 0 2px var(--canvas); }
+.turn-references button + button { margin-left: -10px; }
+.turn-references button[data-slot="base"] { box-shadow: 0 0 0 2px var(--canvas), 0 0 0 3.5px var(--a); }
+.turn-references button:hover, .turn-references button:focus-visible { z-index: 1; }
 .turn-references img { display: block; width: 100%; height: 100%; object-fit: cover; }
-/* Beside the bubble rather than under it, so hidden tools hold no space. */
+.chat-turn[data-older] .turn-references button { width: 30px; height: 30px; border-radius: 8px; }
+/* Prompt tools don't reserve another row on a pointer-driven desktop. */
 .msg-tools { position: absolute; right: 100%; bottom: 0; display: flex; gap: 2px; padding-right: 6px; opacity: 0; transition: opacity var(--t1) var(--e); }
 .msg-user:hover .msg-tools, .msg-user:focus-within .msg-tools { opacity: 1; }
 .msg-tools .ibtn { width: 28px; height: 28px; --ico: 15px; }
-.msg-model { display: grid; gap: 10px; }
-.msg-head { display: flex; align-items: center; gap: 8px; min-height: 28px; color: var(--fg-2); font-size: var(--fz-sm); }
-.msg-avatar { flex: none; display: grid; place-items: center; width: 26px; height: 26px; border-radius: 50%; color: var(--fg-2); background: var(--raised); box-shadow: 0 0 0 1px var(--line-2); }
-.msg-avatar .ico { width: 14px; height: 14px; }
-.msg-name { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-weight: var(--fw-medium); }
-.msg-phase { flex: none; display: inline-flex; gap: 6px; color: var(--a); font-size: var(--fz-xs); }
-.msg-elapsed { color: var(--fg-3); font-size: var(--fz-2xs); }
-.version-pager { flex: none; display: inline-flex; align-items: center; margin-left: 2px; color: var(--fg-3); }
-.version-pager .ibtn { width: 24px; height: 24px; --ico: 14px; }
-.version-pager .ibtn:disabled { opacity: .35; pointer-events: none; }
-.version-prev .ico { transform: rotate(180deg); }
-.version-count { min-width: 30px; text-align: center; font-size: var(--fz-2xs); font-variant-numeric: tabular-nums; }
-/* Indented under the name, so the avatar column stays a clean left edge. */
-.msg-body { min-width: 0; display: grid; justify-items: start; gap: var(--sp-3); padding-left: 34px; }
-.msg-body[data-images] { display: flex; flex-wrap: wrap; align-items: flex-start; }
-.msg-body[data-images] .msg-text { flex-basis: 100%; }
-.msg-text { white-space: pre-wrap; overflow-wrap: anywhere; font-size: var(--fz-md); line-height: 1.75; color: var(--fg); }
-.chat-result { width: min(100%, var(--image-width), var(--img-w), calc(var(--img-h) * var(--image-ratio))); display: grid; gap: 6px; }
-.msg-body[data-images] .chat-result { width: min(calc(50% - 6px), var(--image-width), calc(var(--img-w) / 2), calc(var(--img-h) * var(--image-ratio) / 2)); }
-.chat-page .chat-print { width: 100%; max-width: 100%; animation: none; transition: box-shadow var(--t2) var(--e); }
+.msg-model { grid-column: 2; grid-row: 2; display: grid; align-content: start; gap: 10px; }
+.msg-body { min-width: 0; display: grid; justify-items: start; gap: 12px; }
+.msg-text { max-width: 560px; white-space: pre-wrap; overflow-wrap: anywhere; font-size: var(--fz-sm); line-height: 1.7; color: var(--fg-2); }
+.chat-turn[data-older] .msg-text { font-size: var(--fz-xs); color: var(--fg-4); }
+.chat-result { min-width: 0; width: 100%; display: grid; gap: 8px; }
+.turn-visual-row { width: 100%; min-width: 0; display: flex; align-items: flex-end; gap: 12px; }
+.chat-art { container: chat-art / inline-size; flex: 0 1 auto; min-width: 0; width: calc(min(100%, var(--image-width), var(--img-w), calc(var(--img-h) * var(--image-ratio))) * var(--result-scale, 1)); }
+.chat-turn[data-older] .chat-art { --result-scale: .75; flex-shrink: 0; }
+.chat-page .chat-print { width: 100%; max-width: 100%; border-radius: 14px; animation: none; transition: box-shadow var(--t2) var(--e); }
+.chat-turn[data-older] .chat-print { border-radius: 10px; }
 .chat-page .chat-print[data-new="true"] { animation: printIn var(--t3) var(--e-out); }
 .chat-page .chat-print img { width: 100%; height: auto; max-width: 100%; max-height: var(--img-h); object-fit: contain; }
-/* Marks the picture the next turn will edit, which used to be visible only
-   inside the context panel. */
-.chat-page .chat-print[data-base] { box-shadow: 0 0 0 2px rgba(179, 161, 255, .62), 0 14px 36px -12px rgba(0,0,0,.6); }
-/* While a fresh result opens out of the wave, the picture is the canvas's
-   until it has fully merged; the frame and the base mark arrive with the crest. */
-.chat-page .chat-print[data-reveal] img { opacity: 0; }
+.chat-page .chat-print[data-base] { box-shadow: 0 0 0 2px var(--a), 0 14px 36px -12px rgba(0,0,0,.6); }
+.chat-base-badge { position: absolute; top: 10px; left: 10px; display: grid; place-items: center; width: 28px; height: 28px; line-height: 1; color: var(--a-ink); background: var(--a); border-radius: 9px; }
+.chat-base-badge .ico { width: 18px; height: 18px; stroke-width: 1.8; }
+/* The native wave alone owns its empty host; the badge/tools remain Vue DOM. */
+.chat-page .chat-print[data-reveal] > img { opacity: 0; }
+.chat-page .chat-print[data-reveal] .result-actions-overlay, .chat-page .chat-print[data-reveal] .result-menu-trigger { visibility: hidden; }
 .chat-page .chat-print[data-wave] { transition: box-shadow 1.2s var(--e); }
 .chat-page .chat-print[data-wave="rest"] { box-shadow: var(--print-shadow-off); }
-.chat-page .chat-pending { width: min(100%, var(--img-w), calc(var(--img-h) * var(--image-ratio, 1))); height: auto; aspect-ratio: var(--image-ratio, 1); }
-.turn-error { max-width: 520px; padding: 12px 14px; border: 1px solid var(--line-2); border-radius: var(--r3); background: var(--chrome); display: grid; gap: 10px; justify-items: start; overflow-wrap: anywhere; }
+.chat-wait { position: relative; flex: 0 1 auto; min-width: 0; width: min(100%, var(--img-w), calc(var(--img-h) * var(--image-ratio, 1))); }
+.chat-page .chat-pending { width: 100%; height: auto; aspect-ratio: var(--image-ratio, 1); border-radius: 14px; }
+.msg-phase { position: absolute; left: 12px; bottom: 12px; display: inline-flex; align-items: center; gap: 8px; max-width: calc(100% - 24px); padding: 8px 10px; font-size: var(--fz-xs); line-height: 1.4; color: var(--fg-2); background: var(--chrome); border: 1px solid var(--line-2); border-radius: 9px; }
+.msg-phase::before { content: ""; flex: none; width: 6px; height: 6px; border-radius: 50%; background: var(--a); box-shadow: 0 0 0 3px var(--a-dim); }
+.msg-elapsed { color: var(--fg-3); font-size: var(--fz-2xs); }
+.turn-error { min-width: 0; max-width: 520px; padding: 12px 14px; border: 1px solid var(--line-2); border-radius: var(--r3); background: var(--chrome); display: grid; gap: 10px; justify-items: start; overflow-wrap: anywhere; }
 .turn-error p { display: flex; gap: 8px; color: var(--fg-2); line-height: 1.6; }
-.turn-error p .ico { width: 16px; height: 16px; margin-top: 3px; color: var(--fg-3); }
-.msg-model[data-status="error"] .turn-error p { color: var(--err); }
-.msg-model[data-status="error"] .turn-error p .ico { color: var(--err); }
-.chat-meta { display: flex; align-items: center; gap: 8px; min-height: 32px; }
-.chat-meta .result-actions { display: flex; gap: 2px; margin-left: -6px; transition: opacity var(--t1) var(--e); }
-.chat-meta .result-actions .ibtn { background: transparent; border-color: transparent; box-shadow: none; }
-.chat-meta .result-actions .ibtn:hover { background: var(--raised); }
-.chat-meta .result-actions .ibtn-accent, .chat-meta .result-actions .ibtn-accent:hover { color: var(--a); }
-.chat-meta-info { margin-left: auto; display: flex; gap: 10px; flex: none; color: var(--fg-3); font-size: var(--fz-2xs); }
-/* Older answers keep their tools out of the way until pointed at; the newest
-   one, the usual next step, always shows them. */
-@media (hover: hover) {
-  .chat-turn:not(:last-child) .result-actions { opacity: 0; }
-  .chat-turn:hover .result-actions, .chat-result:focus-within .result-actions { opacity: 1; }
+.turn-error p .ico { flex: none; width: 16px; height: 16px; margin-top: 3px; color: var(--fg-3); }
+.msg-model[data-status="error"] .turn-error p, .msg-model[data-status="error"] .turn-error p .ico { color: var(--err); }
+.chat-meta { display: flex; flex-wrap: wrap; align-items: center; gap: 4px 12px; min-height: 24px; color: var(--fg-4); font-size: var(--fz-2xs); }
+.msg-model-name { min-width: 0; display: inline-flex; align-items: center; gap: 6px; color: var(--fg-2); font-size: var(--fz-xs); font-weight: var(--fw-medium); }
+.msg-model-name .ico, .msg-model-name .vl { flex: none; width: 14px; height: 14px; }
+.msg-name { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.chat-turn[data-older] .msg-model-name { color: var(--fg-3); font-weight: var(--fw-normal); }
+.chat-dimensions { color: var(--fg-4); font-size: var(--fz-2xs); white-space: nowrap; }
+.chat-versions { flex: 0 0 auto; display: flex; flex-direction: column; align-items: center; gap: 8px; max-height: 208px; padding: 3px; overflow: auto; scrollbar-width: thin; }
+.chat-version { position: relative; flex: none; display: grid; place-items: center; width: 42px; aspect-ratio: 3/4; padding: 0; overflow: hidden; color: var(--fg-3); background: var(--well); border-radius: 7px; box-shadow: 0 0 0 1px var(--line-2); opacity: .62; }
+.chat-version img { width: 100%; height: 100%; object-fit: cover; }
+.chat-version > .ico { --ico: 16px; }
+.chat-version[aria-pressed="true"] { opacity: 1; box-shadow: 0 0 0 2px var(--a); }
+.chat-version:hover, .chat-version:focus-visible { opacity: 1; }
+.chat-version span { position: absolute; left: 3px; bottom: 3px; min-width: 14px; padding: 0 3px; font-size: 10px; line-height: 14px; color: #fff; text-align: center; background: rgba(0,0,0,.6); border-radius: 4px; }
+.chat-turn[data-older] .chat-version { width: 30px; }
+/* Tool surfaces live inside the print, with popovers in the browser top layer.
+   Narrow prints use a menu; the full bar never overflows or forces art to grow. */
+.chat-page .result-actions { gap: 2px; padding: 4px; color: #fff; background: rgba(14,14,18,.72); backdrop-filter: blur(16px) saturate(1.4); border: 1px solid rgba(255,255,255,.08); border-radius: 12px; line-height: 1; }
+.chat-page .result-actions-overlay { position: absolute; left: 50%; bottom: 12px; transform: translateX(-50%); display: flex; transition: opacity var(--t1) var(--e); }
+.chat-page .result-actions-menu { display: none; position: fixed; inset: auto; margin: 0; width: max-content; }
+.chat-page .result-actions-menu:popover-open { display: flex; }
+.chat-page .result-actions .ibtn { flex: none; width: 32px; height: 32px; --ico: 17px; color: rgba(255,255,255,.88); background: transparent; border-color: transparent; box-shadow: none; border-radius: 8px; }
+.chat-page .result-actions .ibtn:hover { color: #fff; background: rgba(255,255,255,.12); }
+.chat-page .result-actions .ibtn-accent, .chat-page .result-actions .ibtn-accent:hover { color: var(--a); }
+.chat-page .result-menu-trigger { position: absolute; right: 6px; bottom: 6px; display: none; width: 32px; height: 32px; color: #fff; background: rgba(14,14,18,.72); backdrop-filter: blur(12px); border: 1px solid rgba(255,255,255,.1); border-radius: 9px; }
+@container chat-art (max-width: 239px) {
+  .chat-page .result-actions-overlay { display: none; }
+  .chat-page .result-menu-trigger { display: grid; }
 }
-/* Touch has no hover: the newest prompt shows its tools under the bubble, and
-   older ones show theirs once the bubble is tapped. */
+@media (hover: hover) {
+  .chat-page .result-actions-overlay { opacity: 0; }
+  .chat-page .chat-print:hover .result-actions-overlay, .chat-page .chat-print:focus-within .result-actions-overlay { opacity: 1; }
+  .chat-turn[data-older] .result-menu-trigger { opacity: 0; }
+  .chat-turn:hover .result-menu-trigger, .chat-result:focus-within .result-menu-trigger { opacity: 1; }
+}
 @media (hover: none) {
   .msg-tools { position: static; padding: 0; margin-right: -6px; opacity: 1; }
   .chat-turn:last-child .msg-tools { display: flex; }
   .chat-turn:not(:last-child) .msg-tools { display: none; }
   .chat-turn:not(:last-child) .msg-user:focus-within .msg-tools { display: flex; }
 }
-/* The composer: attachments, the text, then one toolbar — upload and context
-   on the left; model, any credit cost and send on the right. */
-.chat-composer { position: relative; flex: none; width: calc(100% - 48px); max-width: var(--column); align-self: center; margin: 0 24px 20px; padding: 8px 10px 10px; background: var(--chrome); border: 1px solid var(--line-2); border-radius: var(--r4); box-shadow: var(--sh-lip), 0 8px 28px -16px rgba(0,0,0,.55); transition: border-color var(--t1) var(--e), background var(--t1) var(--e); }
-.chat-page #chatPrompt { display: block; resize: none; min-height: 44px; max-height: 26dvh; background: transparent; border-color: transparent; box-shadow: none; padding: 10px 6px; font-size: var(--fz-md); line-height: 1.6; }
+/* The composer: attachments, the text, then one toolbar — what this turn
+   brings (upload, context, parameters) on the left; who draws it (model, any
+   credit cost) and send on the right. One 10px frame holds every 36px
+   control, so their corners are the frame's less the frame (18 − 10 = 8),
+   and the text starts where the + is drawn. */
+.chat-composer { position: relative; flex: none; width: calc(100% - 48px); max-width: var(--column); align-self: center; margin: 0 24px 20px; padding: 10px; background: var(--chrome); border: 1px solid var(--line-2); border-radius: 18px; box-shadow: var(--sh-lip), 0 8px 28px -16px rgba(0,0,0,.55); transition: border-color var(--t1) var(--e), background var(--t1) var(--e); }
+.chat-page #chatPrompt { display: block; resize: none; min-height: 40px; max-height: 26dvh; background: transparent; border-color: transparent; box-shadow: none; padding: 8px 13px 6px; font-size: var(--fz-md); line-height: 1.6; }
 .chat-page #chatPrompt::placeholder { color: var(--fg-3); }
 .chat-composer-bottom { display: flex; align-items: center; gap: 4px; }
-.context-button { display: inline-flex; align-items: center; gap: 6px; height: 32px; padding: 0 8px; color: var(--fg-3); font: var(--fw-medium) var(--fz-xs)/1 var(--mono); border-radius: var(--r2); transition: color var(--t1) var(--e), background var(--t1) var(--e); }
+/* The + glyph is inset 3.3px in its 16px box, centred in 36px: 13px of
+   text padding lands the text on its stroke. */
+.chat-composer-bottom > .ibtn { width: 36px; height: 36px; border-radius: 8px; }
+.context-button { display: inline-flex; align-items: center; gap: 6px; height: 36px; padding: 0 8px; color: var(--fg-3); font: var(--fw-medium) var(--fz-xs)/1 var(--mono); border-radius: 8px; transition: color var(--t1) var(--e), background var(--t1) var(--e); }
 .context-button .ico { width: 14px; height: 14px; }
 .context-divider { width: 1px; height: 10px; background: var(--line-2); margin-inline: 2px; }
 .context-button:hover { color: var(--fg); background: var(--raised); }
-/* Parameters, then the model: two quiet chips, each opening its own panel.
+/* Parameters and the model: two quiet chips, each opening its own panel.
    The parameter chip is just its icon until something leaves the default. */
-.param-button, .model-chip { display: inline-flex; align-items: center; gap: 6px; min-width: 0; height: 32px; font-size: var(--fz-sm); white-space: nowrap; border-radius: 999px; transition: color var(--t1) var(--e), background var(--t1) var(--e); }
-.param-button { position: relative; justify-content: center; flex: 0 1 auto; min-width: 32px; margin-left: auto; padding: 0 8px; color: var(--fg-3); }
-.param-button[data-changed] { padding-inline: 9px 11px; color: var(--fg-2); }
+.param-button, .model-chip { display: inline-flex; align-items: center; gap: 6px; min-width: 0; height: 36px; font-size: var(--fz-sm); white-space: nowrap; border-radius: 8px; transition: color var(--t1) var(--e), background var(--t1) var(--e); }
+.param-button { position: relative; justify-content: center; flex: 0 1 auto; min-width: 36px; padding: 0 10px; color: var(--fg-3); }
+.param-button[data-changed] { padding-inline: 10px 12px; color: var(--fg-2); }
 .param-button .ico { width: 16px; height: 16px; }
 .param-summary { min-width: 0; overflow: hidden; text-overflow: ellipsis; }
 .param-summary:empty { display: none; }
-.param-button[hidden] + .model-chip { margin-left: auto; }
-.model-chip { flex: 0 1 auto; padding: 0 8px 0 10px; color: var(--fg-2); }
+.model-chip { flex: 0 1 auto; margin-left: auto; padding: 0 10px 0 12px; color: var(--fg-2); }
 .param-button:hover, .param-button[aria-expanded="true"], .model-chip:hover, .model-chip[aria-expanded="true"] { color: var(--fg); background: var(--raised); }
 .param-button:focus-visible, .model-chip:focus-visible { outline: 2px solid var(--a); outline-offset: 1px; }
 .model-chip-icon { flex: none; width: 15px; height: 15px; }
-.model-chip-name { min-width: 0; overflow: hidden; text-overflow: ellipsis; }
+.model-chip-name { min-width: 0; overflow: hidden; text-overflow: ellipsis; font-weight: var(--fw-semibold); }
 .model-chip-caret { flex: none; width: 12px; height: 12px; color: var(--fg-3); transform: rotate(90deg); transition: transform var(--t1) var(--e); }
 .model-chip[aria-expanded="true"] .model-chip-caret { transform: rotate(-90deg); }
 .quote-cost { flex: none; padding: 0 4px; font-size: var(--fz-xs); color: var(--warn); }
 /* Send and stop stack in one cell: send shrinks away as stop grows in. */
-.send-slot { display: grid; flex: none; margin-left: 4px; }
-.send-slot > .btn { grid-area: 1 / 1; width: 40px; height: 40px; padding: 0;
+.send-slot { display: grid; flex: none; }
+.send-slot > .btn { grid-area: 1 / 1; width: 36px; height: 36px; padding: 0; border-radius: 8px;
   transition: opacity var(--t2) var(--e), transform var(--t2) var(--e-out), visibility 0s,
     color var(--t2) var(--e), background-color var(--t2) var(--e), border-color var(--t1) var(--e), box-shadow var(--t2) var(--e); }
 .send-slot > .btn[hidden] { display: inline-flex; visibility: hidden; pointer-events: none; opacity: 0; transform: scale(.72);
   transition: opacity var(--t1) var(--e), transform var(--t1) var(--e), visibility 0s linear var(--t1); }
-.chat-send .ico { width: 20px; height: 20px; stroke-width: 2; }
+.chat-send .ico { width: 18px; height: 18px; stroke-width: 2; }
+/* Not ready yet: a flat well, lighter than the chips beside it, not a
+   ringed button. */
+.chat-send:disabled { background: var(--hover); box-shadow: none; }
 /* Stop: a ring that turns while the turn runs, around the square that ends
    it. Neutral at rest; the error hue only on hover, when it means "cancel". */
-.chat-stop { position: relative; color: var(--fg); background: var(--raised); border: 1px solid var(--line-2); border-radius: var(--r3); box-shadow: var(--sh-lip); }
-.chat-stop .ico { width: 20px; height: 20px; fill: currentColor; stroke: none; }
+.chat-stop { position: relative; color: var(--fg); background: var(--raised); border: 1px solid var(--line-2); box-shadow: var(--sh-lip); }
+.chat-stop .ico { width: 18px; height: 18px; fill: currentColor; stroke: none; }
 .chat-stop::before { content: ""; position: absolute; inset: 6px; border-radius: 50%; border: 2px solid var(--a-dim); border-top-color: var(--a); animation: goSpin .9s linear infinite; pointer-events: none; }
 /* Only where a pointer can actually hover: a tap leaves :hover stuck on
    touch screens, and the stop that just appeared under the finger would sit
@@ -211,7 +303,7 @@
   .chat-stop:hover::before { border-color: rgba(232,135,135,.16); border-top-color: var(--err); }
 }
 .chat-inline-error { color: var(--err); font-size: var(--fz-xs); overflow-wrap: anywhere; }
-.chat-inline-error:not(:empty) { margin: 0 6px 6px; }
+.chat-inline-error:not(:empty) { margin: 0 13px 6px; }
 .chat-attachments { display: flex; gap: 8px; overflow-x: auto; overscroll-behavior: contain; }
 .chat-attachments:not(:empty) { padding: 2px 2px 4px; }
 .attachment { position: relative; flex: none; width: 56px; height: 56px; border: 1px solid var(--line-2); background: var(--well); border-radius: var(--r3); }
@@ -232,7 +324,7 @@
 .model-panel { min-width: 200px; }
 .model-panel .editor-pop-item { min-height: 30px; font-size: var(--fz-sm); }
 .model-panel .editor-pop-group p.model-group-head { display: flex; align-items: center; gap: 6px; padding: 6px 8px 3px; }
-.model-group-head .ico { width: 12px; height: 12px; }
+.model-group-head .ico, .model-group-head .vl { width: 12px; height: 12px; }
 .model-panel-foot { padding-top: 3px; border-top: 1px solid var(--line); }
 .model-panel .model-manage { width: 100%; gap: 6px; color: var(--fg-3); }
 .model-manage .ico { width: 12px; height: 12px; }
@@ -261,75 +353,68 @@
 }
 @media (max-width: 1199px) { .chat-page { --context-w: 300px; } }
 .context-button[aria-expanded="true"] { color: var(--fg); background: var(--raised); }
-.context-head { flex: none; display: flex; align-items: center; gap: 2px; height: 52px; padding: 0 8px 0 16px; }
-.context-head h2 { flex: 1; margin: 0; font-size: var(--fz-md); font-weight: var(--fw-semibold); }
-/* One column width for every picture in the panel; the base takes two. */
-.context-body { --cols: 4; --gap: 8px; flex: 1; min-height: 0; overflow-y: auto; overscroll-behavior: contain; padding: 0 16px 24px; }
-.context-section + .context-section { margin-top: 20px; border-top: 1px solid var(--line); }
-.context-section-head { display: flex; align-items: center; gap: 8px; min-height: 44px; }
-.context-section-head h3 { margin: 0; font-size: var(--fz-xs); font-weight: var(--fw-semibold); color: var(--fg-2); }
-/* Capacity is a count against the model's cap, not a sentence. */
-.context-count { margin-left: auto; font-size: var(--fz-xs); color: var(--fg-4); font-variant-numeric: tabular-nums; }
-.context-count[data-state="over"], .context-over { color: var(--warn); }
-.context-over { font-size: var(--fz-xs); }
-.context-group { margin-top: 16px; }
-.context-sub { margin: 0 0 8px; font-size: var(--fz-xs); color: var(--fg-4); }
-.context-grid, .context-base { display: grid; grid-template-columns: repeat(var(--cols), minmax(0, 1fr)); gap: var(--gap); }
-/* The base is the picture being edited: the largest tile, its label and the
-   follow switch beside it in the remaining columns. */
-.context-base > .context-tile { grid-column: span 2; }
-.context-base-meta { grid-column: 3 / -1; display: flex; flex-direction: column; justify-content: space-between; min-width: 0; padding-block: 2px; }
-.context-base-label { display: grid; gap: 2px; margin: 0; font-size: var(--fz-xs); color: var(--fg-3); }
-.context-base-label b { font-size: var(--fz-sm); font-weight: var(--fw-semibold); color: var(--fg); }
-.context-follow { position: relative; display: inline-flex; align-items: center; gap: 8px; min-height: 28px; font-size: var(--fz-xs); color: var(--fg-2); cursor: pointer; }
+.context-head { flex: none; padding: 0 8px 6px 16px; }
+.context-title { display: flex; align-items: center; gap: 2px; height: 52px; }
+.context-title h2 { flex: 1; margin: 0; font-size: var(--fz-md); font-weight: var(--fw-semibold); }
+.context-stats { display: flex; flex-wrap: wrap; gap: 6px; margin: 0; }
+.context-stat { display: inline-flex; align-items: center; gap: 6px; height: 28px; padding: 0 10px 0 8px; font-size: var(--fz-xs); color: var(--fg-3); background: var(--raised); border-radius: 8px; }
+.context-stat .ico { width: 14px; height: 14px; color: var(--fg-4); }
+.context-stat .mono { color: var(--fg); font-variant-numeric: tabular-nums; }
+.context-stat[data-over] .mono { color: var(--warn); }
+.context-minus { padding: 1px 5px; font-size: 10px; font-weight: var(--fw-semibold); color: var(--warn); background: rgba(224,171,104,.14); border-radius: 999px; }
+.context-body { flex: 1; min-height: 0; overflow-y: auto; overscroll-behavior: contain; padding: 12px 16px 24px; }
+.context-floors { margin: 0; padding: 0; list-style: none; }
+/* One floor per turn: its text box is the node on the rail at the left, and
+   its text and pictures sit on a card beside it. The card is the floor's
+   backdrop (::after), so both columns stay on one grid: box 16, card gap 12,
+   card padding 12. A floor whose text is left out keeps only the card's
+   outline; the turn being written is the raised card at the end. */
+.context-floor { position: relative; isolation: isolate; display: grid; grid-template-columns: 16px minmax(0, 1fr); column-gap: 24px; row-gap: 10px; margin-bottom: 10px; padding: 12px 12px 12px 0; }
+.context-floor::after { content: ""; position: absolute; inset: 0 0 0 28px; z-index: -1; background: var(--raised); border-radius: 12px; box-shadow: inset 0 1px 0 rgba(255,255,255,.035), 0 1px 2px rgba(0,0,0,.35); }
+.context-floor::before { content: ""; position: absolute; top: 34px; bottom: -6px; left: 7.5px; width: 1px; background: var(--line-2); }
+.context-floor[data-off]::after { background: none; box-shadow: inset 0 0 0 1px var(--line-2); }
+.context-floor.context-now { margin: 6px 0 0; }
+.context-now::before { display: none; }
+.context-now::after { background: var(--hover); box-shadow: inset 0 0 0 1px var(--a-line), var(--sh-2); }
+.context-text, .check.context-text { grid-column: 1 / -1; display: grid; grid-template-columns: 16px minmax(0, 1fr); column-gap: 24px; align-items: start; font-size: var(--fz-sm); line-height: 20px; color: var(--fg-2); }
+.check.context-text > span:first-of-type { margin-top: 2px; }
+.context-prompt { min-width: 0; display: -webkit-box; overflow: hidden; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow-wrap: anywhere; }
+.context-floor[data-off] .context-prompt { color: var(--fg-4); }
+.context-dot { justify-self: center; width: 8px; height: 8px; margin-top: 6px; background: var(--a); border-radius: 50%; box-shadow: 0 0 0 4px var(--a-dim); }
+.context-now .context-prompt { color: var(--fg); }
+.context-now .context-prompt b { margin-right: 8px; font-weight: var(--fw-medium); color: var(--a); }
+.context-now [data-empty] { color: var(--fg-4); }
+.context-tiles { grid-column: 2; display: flex; flex-wrap: wrap; gap: 8px; }
+.context-tile { position: relative; display: block; width: 48px; height: 48px; padding: 0; overflow: hidden; background: var(--well); border-radius: 8px; cursor: pointer; }
+.context-tile img { display: block; width: 100%; height: 100%; object-fit: cover; transition: opacity var(--t1) var(--e); }
+.context-tile:focus-visible { outline: 2px solid var(--a); outline-offset: 2px; }
+/* The picture being edited is ringed; focus on it shows as a halo instead. */
+.context-tile[data-state="base"] { outline: 2px solid var(--a); outline-offset: 2px; }
+.context-tile[data-state="base"]:focus-visible { box-shadow: 0 0 0 6px var(--a-line); }
+.context-tile:is([data-state="dropped"], [data-state="pool"]) img { opacity: .35; filter: grayscale(1); }
+.context-tile[data-state="pool"]:is(:hover, :focus-visible) img { opacity: .7; }
+/* One badge, always the top-left corner: base, reference order, past the cap, or + to bring it back. */
+.context-badge { position: absolute; top: 3px; left: 3px; display: grid; place-items: center; min-width: 16px; height: 16px; padding: 0 4px; font: var(--fw-medium) 10px/1 var(--sans); color: #fff; background: rgba(0,0,0,.62); border-radius: 999px; }
+.context-tile[data-state="ref"] .context-badge { font-family: var(--mono); }
+.context-tile:is([data-state="base"], [data-state="pool"]) .context-badge { color: var(--a-ink); background: var(--a); }
+.context-tile[data-state="pool"] .context-badge { padding: 0; }
+.context-tile[data-state="dropped"] .context-badge { color: var(--warn); }
+.context-badge .ico { width: 10px; height: 10px; stroke-width: 2.6; }
+.context-now-foot { grid-column: 2; padding-top: 6px; border-top: 1px solid rgba(255,255,255,.06); }
+.context-follow { position: relative; display: flex; align-items: center; justify-content: space-between; gap: 8px; min-height: 34px; font-size: var(--fz-xs); color: var(--fg-3); cursor: pointer; }
 .context-follow input { position: absolute; opacity: 0; width: 0; height: 0; }
-.switch { position: relative; flex: none; width: 28px; height: 16px; border-radius: 999px; background: var(--line-2); transition: background var(--t1) var(--e); }
+.switch { position: relative; flex: none; width: 28px; height: 16px; border-radius: 999px; background: rgba(255, 255, 255, 0.12); transition: background var(--t1) var(--e); }
 .switch::after { content: ""; position: absolute; top: 2px; left: 2px; width: 12px; height: 12px; border-radius: 50%; background: var(--fg-2); transition: transform var(--t1) var(--e-out), background var(--t1) var(--e); }
 .context-follow input:checked + .switch { background: var(--a); }
 .context-follow input:checked + .switch::after { transform: translateX(12px); background: #fff; }
 .context-follow input:focus-visible + .switch { outline: 2px solid var(--a); outline-offset: 2px; }
-.context-tile { position: relative; display: block; width: 100%; aspect-ratio: 1; padding: 0; overflow: hidden; background: var(--well); border: 1px solid var(--line-2); border-radius: var(--r2); cursor: pointer; transition: border-color var(--t1) var(--e), opacity var(--t1) var(--e); }
-.context-base > .context-tile { border-radius: var(--r3); }
-.context-tile img { display: block; width: 100%; height: 100%; object-fit: cover; }
-.context-tile:hover { border-color: var(--fg-4); }
-.context-tile:focus-visible { outline: 2px solid var(--a); outline-offset: 2px; }
-.context-tile[data-dragging] { opacity: .35; }
-.context-tile[data-dropped] { border-style: dashed; }
-.context-tile[data-dropped] img { opacity: .4; filter: grayscale(1); }
-.context-tile-empty { display: grid; place-items: center; color: var(--fg-4); border-style: dashed; cursor: default; }
-.context-tile-empty:hover { border-color: var(--line-2); }
-/* Order number top-left, provenance bottom-right: both legible on any picture. */
-.context-tile-no, .context-tile-origin { position: absolute; display: inline-flex; align-items: center; justify-content: center; height: 16px; padding: 0 4px; font: var(--fw-medium) 10px/1 var(--mono); color: #fff; background: rgba(0,0,0,.6); }
-.context-tile-no { top: 4px; left: 4px; min-width: 16px; border-radius: 999px; }
-.context-tile-origin { right: 4px; bottom: 4px; border-radius: 4px; }
-.context-tile-origin .ico { width: 10px; height: 10px; }
-.context-pool .context-tile img { opacity: .6; }
-.context-pool .context-tile:is(:hover, :focus-visible) img { opacity: 1; }
-.context-tile-add { position: absolute; top: 4px; right: 4px; display: grid; place-items: center; width: 16px; height: 16px; border-radius: 50%; color: #fff; background: var(--a); }
-.context-tile-add .ico { width: 10px; height: 10px; stroke-width: 2.4; }
-/* Where a dragged picture will land. */
-.context-base[data-over] > .context-tile, .context-grid[data-over], .context-tile[data-over] { outline: 2px dashed var(--a); outline-offset: 3px; }
-/* Text rows share three columns — box, turn number, text — and their hover
-   wash bleeds into the gutter so the content keeps the panel's left edge. */
-.context-turns { display: grid; gap: 2px; margin-inline: -8px; }
-.context-turn, .check.context-turn { display: grid; grid-template-columns: 16px 28px minmax(0, 1fr); column-gap: 8px; align-items: start; padding: 6px 8px; font-size: var(--fz-sm); line-height: 20px; color: var(--fg-2); border-radius: var(--r2); }
-.check.context-turn:hover { background: var(--hover); }
-.check.context-turn > span:first-of-type { margin-top: 2px; }
-.context-turn-no { font-size: var(--fz-2xs); color: var(--fg-4); }
-.context-turn-text { min-width: 0; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; overflow-wrap: anywhere; }
-.context-turn:has(input:not(:checked)) .context-turn-text { color: var(--fg-4); text-decoration: line-through; }
-.context-now-mark { display: grid; place-items: center; height: 20px; }
-.context-now-mark::before { content: ""; width: 6px; height: 6px; border-radius: 50%; background: var(--a); }
-.context-now .context-turn-no { font-size: var(--fz-xs); color: var(--a); }
-.context-now [data-empty] { color: var(--fg-4); }
-.context-raw { margin: 2px -8px 0; }
-.context-raw summary { display: grid; grid-template-columns: 16px minmax(0, 1fr); column-gap: 8px; align-items: center; padding: 6px 8px; list-style: none; font-size: var(--fz-xs); line-height: 20px; color: var(--fg-3); cursor: pointer; border-radius: var(--r2); }
+.context-raw summary { display: flex; align-items: center; justify-content: space-between; min-height: 34px; list-style: none; font-size: var(--fz-xs); color: var(--fg-3); cursor: pointer; border-radius: var(--r1); }
 .context-raw summary::-webkit-details-marker { display: none; }
-.context-raw summary:hover { color: var(--fg); background: var(--hover); }
-.context-raw summary:focus-visible { outline: 2px solid var(--a); outline-offset: -2px; }
-.context-raw summary .ico { justify-self: center; width: 14px; height: 14px; transition: transform var(--t1) var(--e); }
+.context-raw summary:hover { color: var(--fg); }
+.context-raw summary:focus-visible { outline: 2px solid var(--a); outline-offset: 2px; }
+.context-raw summary .ico { width: 14px; height: 14px; color: var(--fg-4); transition: transform var(--t1) var(--e); }
 .context-raw[open] summary .ico { transform: rotate(90deg); }
-.context-raw pre { margin: 4px 8px 0; padding: 10px 12px; max-height: 260px; overflow: auto; white-space: pre-wrap; overflow-wrap: anywhere; font: var(--fz-xs)/1.7 var(--sans); color: var(--fg-2); background: var(--well); border-radius: var(--r2); }
+.context-raw pre { margin: 2px 0 4px; padding: 10px 12px; max-height: 260px; overflow: auto; white-space: pre-wrap; overflow-wrap: anywhere; font: var(--fz-xs)/1.7 var(--sans); color: var(--fg-2); background: var(--well); border-radius: var(--r2); }
 .attachment[data-dropped="true"] { border-style: dashed; }
 .attachment[data-dropped="true"] img { opacity: .4; filter: grayscale(1); }
 /* The overflow count rides the entry point, since the panel is usually closed.
@@ -351,7 +436,8 @@
 @media (min-width: 861px) {
   .chat-workspace[data-empty="true"] { justify-content: center; padding-bottom: 10vh; }
   .chat-workspace[data-empty="true"] .chat-scroll { flex: none; overflow: visible; }
-  .chat-workspace[data-empty="true"] .chat-empty { min-height: 0; padding-bottom: 28px; }
+  .chat-workspace[data-empty="true"] .chat-empty { min-height: 0; padding-bottom: 36px; }
+  .chat-workspace[data-empty="true"] .chat-composer { margin-bottom: 12px; }
 }
 @media (max-width: 860px) {
   .chat-page { --bar-h: 54px; }
@@ -366,33 +452,47 @@
   .chat-app > .topbar .topbar-menu { order: 1; margin-left: 0; }
   .chat-app > .topbar .topbar-sep { display: none; }
   .chat-menu { display: grid; }
-  .chat-tools-slot { display: block; padding-bottom: 12px; border-bottom: 1px solid var(--line); }
-  .chat-tools-slot .topbar-end { gap: 8px; }
-  .chat-tools-slot [data-tip]::after { display: none; }
   .chat-layout { grid-template-columns: minmax(0,1fr); }
   .chat-sidebar { position: absolute; inset: var(--bar-h) auto 0 0; width: min(280px, 85vw); z-index: var(--z-pop); visibility: hidden; transform: translateX(-100%); transition: transform var(--t2) var(--e), visibility var(--t2); }
   .chat-page[data-sidebar="open"] .chat-sidebar { visibility: visible; transform: none; }
   .chat-sidebar-backdrop { position: absolute; inset: var(--bar-h) 0 0; z-index: calc(var(--z-pop) - 1); background: rgba(0,0,0,.55); }
-  .sidebar-close { display: grid; }
+  /* The drawer opens under the top bar, so ☰ and the backdrop close it. */
   .rail-toggle { display: none; }
+  .sidebar-row { height: 44px; font-size: var(--fz-md); }
+  /* Under 16px iOS zooms the page to type. */
+  .sidebar-search input { height: 44px; font-size: 16px; }
   /* Touch has no hover, so ⋯ shows on the open conversation; the rest long-press. */
   .conversation-item { height: 44px; }
-  /* Under 16px iOS zooms the page to edit the name. */
-  .conversation-rename { height: 34px; font-size: 16px; }
+  .conversation-title { font-size: var(--fz-md); }
+  .conversation-rename { height: 34px; margin-left: 38px; font-size: 16px; }
   .conversation-item:is(:hover, :focus-within, [data-current]) .conversation-more,
   .conversation-more[aria-expanded="true"] { width: 36px; height: 36px; }
   .conv-menu button { min-height: 44px; font-size: var(--fz-md); }
-  .chat-page { --img-w: 100%; --img-h: 66dvh; }
-  .message-list { padding: 20px 12px; gap: 32px; }
+  .chat-page { --img-w: 100%; --img-h: 58dvh; }
+  .message-list { padding: 20px 12px 20px 4px; }
+  .chat-turn { grid-template-columns: 24px minmax(0, 1fr); column-gap: 12px; }
+  .turn-number { width: 24px; height: 24px; font-size: var(--fz-2xs); }
+  .turn-rail::after { left: 11.5px; top: 30px; }
+  .turn-visual-row { flex-direction: column; align-items: flex-start; }
+  .chat-versions { flex-direction: row; max-width: 100%; max-height: none; }
+  .chat-turn[data-older] .chat-version { width: 40px; }
   .msg-user { max-width: 88%; }
   /* No room beside a near-full-width bubble: tools drop under it instead. */
   .msg-tools { position: static; display: none; padding: 0; margin-right: -6px; opacity: 1; }
   .msg-user:hover .msg-tools, .msg-user:focus-within .msg-tools { display: flex; }
-  .msg-body { padding-left: 0; }
   .chat-page .msg-tools .ibtn { width: 40px; height: 40px; }
-  .chat-page .version-pager .ibtn { width: 36px; height: 36px; }
-  .chat-composer { width: 100%; margin: 0; padding: 8px 12px calc(8px + env(safe-area-inset-bottom)); border-radius: 0; border-inline: 0; border-bottom: 0; }
-  .chat-page #chatPrompt { font-size: 16px; min-height: 40px; max-height: 22dvh; padding: 8px 4px; }
+  .chat-composer { order: 2; width: 100%; margin: 0; padding: 8px 12px calc(8px + env(safe-area-inset-bottom)); border-radius: 0; border-inline: 0; border-bottom: 0; }
+  .chat-lock { gap: 12px; }
+  .chat-mark { width: 38px; height: 38px; }
+  .chat-word { gap: 8px; }
+  .chat-word .brand-title { font-size: 27px; }
+  .chat-word .brand-subtitle { font-size: 10.5px; }
+  /* One scrolling row just above the composer, within thumb reach. */
+  .chat-starters { order: 1; flex-wrap: nowrap; justify-content: flex-start; width: 100%; margin: 0; padding: 0 12px 10px; overflow-x: auto; scrollbar-width: none; }
+  .chat-starter { flex: none; height: 36px; }
+  /* The + is 44px here, so its stroke starts 17px in. */
+  .chat-page #chatPrompt { font-size: 16px; min-height: 40px; max-height: 22dvh; padding: 8px 17px 6px; }
+  .chat-inline-error:not(:empty) { margin-inline: 17px; }
   .chat-composer-bottom { gap: 2px; }
   .param-button { flex: none; width: 44px; height: 44px; padding: 0; }
   .param-button[data-changed] { padding: 0; }
@@ -410,19 +510,18 @@
   .param-row { grid-template-columns: 48px minmax(0, 1fr); }
   .param-name { padding-top: 12px; font-size: var(--fz-xs); }
   .param-chip { min-height: 40px; padding: 0 14px; font-size: var(--fz-sm); }
-  .chat-page .ibtn, .chat-meta .result-actions .ibtn { width: 44px; height: 44px; }
+  .chat-page .ibtn { width: 44px; height: 44px; }
+  .chat-page .result-actions .ibtn { width: 40px; height: 40px; }
+  .chat-page .result-menu-trigger { width: 40px; height: 40px; }
   .chat-page .chat-menu { width: 36px; height: 44px; }
   .attachment { width: 64px; height: 64px; }
   .chat-page .attachment-remove { width: 44px; height: 44px; top: -8px; right: -8px; }
   .attachment-remove::before { width: 22px; height: 22px; }
   .context-button { height: 44px; padding-inline: 8px; }
-  /* The context panel as a bottom sheet, its rows sized for thumbs. */
+  /* The context panel as a bottom sheet, its controls sized for thumbs. */
   .context-panel:modal { position: fixed; inset: auto 0 0 0; width: 100%; max-height: 85dvh; padding-bottom: env(safe-area-inset-bottom); border-left: 0; border-top: 1px solid var(--line-2); border-radius: var(--r4) var(--r4) 0 0; }
   .context-panel::backdrop { background: rgba(0,0,0,.45); }
-  .context-body { --cols: 5; }
-  .context-follow { min-height: 44px; font-size: var(--fz-sm); }
-  .context-turn, .check.context-turn { padding-block: 12px; font-size: var(--fz-md); }
-  .context-raw summary { padding-block: 12px; font-size: var(--fz-sm); }
+  .context-follow, .context-raw summary { min-height: 44px; font-size: var(--fz-sm); }
   .latest-button { bottom: calc(var(--composer-height, 180px) + 12px); }
 }
 /* Small phones: the model name needs the room more than its provider mark. */

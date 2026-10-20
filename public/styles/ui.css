@@ -280,10 +280,10 @@ body[data-gate="open"] .gate-card { transform: none; }
 
 /* ── Wallet: free allowance and media credits ───────────────── */
 /* Two figures on one line, split by a hairline. The free allowance wears its
-   provider's mark and a hairline gauge under the figure that empties as the
-   pool runs down; credits use a coin, kept neutral so it never reads as the
-   amber warning. The labels that sat under the figures made the well busy;
-   what each figure is now lives in its tip (and .w-k, for screen readers).
+   provider's mark inside a ring gauge that empties as the pool runs down;
+   credits use a coin, kept neutral so it never reads as the amber warning.
+   The labels that sat under the figures made the well busy; what each
+   figure is now lives in its tip (and .w-k, for screen readers).
    Both sit in one recessed well, like the rail's view tabs: bare on the bar
    they floated and the eye had nothing to rest them on. The well is pinned to
    --sunken because every bar is --chrome, while --well is re-pointed inside
@@ -329,23 +329,27 @@ button.w-seg:hover { background: var(--raised); }
 }
 .w-v b { font-weight: inherit; color: var(--fg); transition: color var(--t2) var(--e); }
 .w-v i { font-style: normal; font-weight: var(--fw-regular); font-size: 11px; color: var(--fg-4); }
-/* The gauge hangs below the figure, so both figures keep one centre line. */
-.w-gauge { position: relative; transition: --gauge var(--t3) var(--e-out); }
-.w-gauge::after {
+/* The ring shares the mark's centre, so both figures keep one centre line
+   whatever the face. (A bar hung under the figure followed the font's line
+   box, and a taller face pushed it out of the well.) The mark shrinks to sit
+   inside it; the ring lands where the bare mark's centre was. An unknown pool
+   reads 0, so it shows the bare track. */
+.w-free { padding-left: 7px; transition: background var(--t1) var(--e), --gauge var(--t3) var(--e-out); }
+.w-free .w-ico { width: 10px; height: 10px; margin: 0 5px; }
+.w-free::before {
   content: "";
-  position: absolute; left: 0; right: 0; top: calc(100% + 4px);
-  height: 2px;
-  border-radius: 1px;
-  background: linear-gradient(90deg, var(--lc) calc(var(--gauge) * 100%), var(--line-2) 0);
-  transition: opacity var(--t2) var(--e);
+  position: absolute; left: 7px; top: 50%; translate: 0 -50%;
+  width: 20px; height: 20px;
+  border-radius: 50%;
+  background: conic-gradient(var(--lc) calc(var(--gauge) * 1turn), var(--line-2) 0);
+  mask: radial-gradient(farthest-side, transparent calc(100% - 2px), #000 calc(100% - 1.5px));
+  pointer-events: none;
 }
 /* The mark, the gauge and the figure change colour together. */
 .w-seg[data-level="low"] { --lc: var(--warn); }
 .w-seg[data-level="crit"] { --lc: var(--err); }
 .w-seg[data-level="unknown"] { --lc: var(--fg-4); }
 .w-seg:is([data-level="low"], [data-level="crit"], [data-level="unknown"]) .w-v b { color: var(--lc); }
-/* An unknown pool shows a dash, and an empty track under it read as two. */
-.w-seg[data-level="unknown"] .w-gauge::after { opacity: 0; }
 /* The tips carry a full sentence (pool, reset time, temp-key budget), so
    they wrap instead of running one long line across the header. */
 .w-seg[data-tip]::after {
@@ -355,13 +359,15 @@ button.w-seg:hover { background: var(--raised); }
   line-height: 1.45;
 }
 /* Quota in flight: pulse the gauge rather than swapping in a spinner. */
-.wallet[data-loading="1"] .w-gauge::after { opacity: 1; animation: meterWait 1.1s var(--e) infinite; }
+.wallet[data-loading="1"] .w-free::before { animation: meterWait 1.1s var(--e) infinite; }
 @keyframes meterWait { 50% { opacity: 0.45; } }
 
 @media (max-width: 600px) {
   .topbar .brand-wordmark { display: none; }
   .wallet { gap: 2px; }
   .w-seg { padding: 0 8px; }
+  .w-free { padding-left: 5px; }
+  .w-free::before { left: 5px; }
   .w-v i { display: none; }
 }
 
@@ -457,7 +463,7 @@ button.w-seg:hover { background: var(--raised); }
   display: inline-flex; align-items: center; gap: 6px;
   padding: 6px var(--sp-3) 7px;
   color: var(--fg-3);
-  font-size: var(--fz-xs); font-weight: var(--fw-medium);
+  font-size: var(--fz-xs); font-weight: var(--fw-semibold);
   letter-spacing: -0.005em;
   border-radius: var(--r2) var(--r2) 0 0;
   white-space: nowrap;
@@ -475,7 +481,9 @@ button.w-seg:hover { background: var(--raised); }
   transform: scaleX(0);
   transition: transform var(--t2) var(--e-out);
 }
-.tab[aria-selected="true"] { color: var(--fg); font-weight: var(--fw-semibold); }
+.tab[aria-selected="true"] { color: var(--fg); font-weight: var(--fw-bold); }
+/* The bundled 600/700 weights share one Bold face; strengthen only the active label optically. */
+.tab[aria-selected="true"] > span:first-child { -webkit-text-stroke: 0.2px currentColor; }
 .tab[aria-selected="true"]::after { transform: scaleX(1); }
 
 /* Reads as a count, not a badge — it must not compete with the label. */

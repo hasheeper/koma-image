@@ -17,9 +17,16 @@ import { selectSource, retainImage } from "../../domain/conversation.ts";
 import { chatOptions } from "../../services/chat";
 import { copyText } from "../../shared/files";
 import AppIcon from "../../shared/AppIcon.vue";
+import ModelIcon from "../../shared/ModelIcon.vue";
 import ChatPrint from "./ChatPrint.vue";
+import ChatVersions from "./ChatVersions.vue";
+import ChatResultTools from "./ChatResultTools.vue";
 import WaveHost from "../image/WaveHost.vue";
-const props = defineProps<{ turn: ConversationTurn }>(),
+const props = defineProps<{
+    turn: ConversationTurn;
+    number: number;
+    older: boolean;
+  }>(),
   emit = defineEmits<{ view: [id: string] }>();
 const { chat, view } = useChat(),
   ui = useUi(),
@@ -30,6 +37,23 @@ const version = computed(() => {
   }),
   model = computed(() =>
     view.value.models.find((m) => m.id === props.turn.settings.model),
+  );
+const images = computed(() => {
+    view.value;
+    return version.value.blocks.filter((block) => block.type === "image");
+  }),
+  // A single image reads as a print with its caption. Interleaved multi-image
+  // replies keep their exact block order; the stored response is never changed.
+  blocks = computed(() =>
+    images.value.length === 1 ? images.value : version.value.blocks,
+  ),
+  captions = computed(() =>
+    images.value.length === 1
+      ? version.value.blocks.filter((block) => block.type === "text")
+      : [],
+  ),
+  currentBase = computed(() =>
+    images.value.some((block) => isBase(block.assetId)),
   );
 const phase = shallowRef<HTMLElement | null>(null);
 let tick: ReturnType<typeof setInterval> | undefined,
@@ -66,7 +90,10 @@ function clock() {
   tick = setInterval(paint, 1000);
 }
 watch(
-  () => version.value.status,
+  () => {
+    view.value;
+    return `${version.value.id}:${version.value.status}`;
+  },
   () => void nextTick(clock),
 );
 onMounted(() => {
@@ -126,7 +153,14 @@ const filename = (id: string) =>
   `Koma-${view.value.current.turns.indexOf(props.turn) + 1}-v${props.turn.selectedVersion + 1}.${asset(id)?.blob.type.split("/")[1] || "png"}`;
 </script>
 <template>
-  <article class="chat-turn" :data-turn="turn.id">
+  <article
+    class="chat-turn"
+    :data-turn="turn.id"
+    :data-older="older && version.status === 'done' ? '' : undefined"
+    :data-pending="version.status === 'pending' ? '' : undefined"
+    :data-base="currentBase ? '' : undefined"
+    :aria-label="`第 ${number} 轮`"
+  >
     <div class="msg msg-user">
       <div v-if="turn.snapshot.imageIds.length" class="turn-references">
         <button
@@ -137,14 +171,15 @@ const filename = (id: string) =>
           :aria-label="`查看${i === 0 ? '底图' : `参考 ${i}`}：${asset(id)?.name || '图片'}`"
           @click="emit('view', id)"
         >
-          <img :src="url(id)" :alt="asset(id)?.name" width="64" height="64" />
+          <img :src="url(id)" :alt="asset(id)?.name" width="40" height="40" />
         </button>
       </div>
-      <div class="msg-bubble turn-prompt" tabindex="-1">{{ turn.prompt }}</div>
+      <div class="msg-bubble turn-prompt" tabindex="0">{{ turn.prompt }}</div>
       <div class="msg-tools">
         <button class="ibtn" type="button" aria-label="复制描述" @click="copy">
-          <AppIcon name="i-copy" /></button
-        ><button
+          <AppIcon name="i-copy" />
+        </button>
+        <button
           class="ibtn"
           type="button"
           aria-label="填入输入框"
@@ -154,163 +189,139 @@ const filename = (id: string) =>
         </button>
       </div>
     </div>
+    <div class="turn-rail" aria-hidden="true">
+      <span class="turn-number mono">{{ number }}</span>
+    </div>
     <div
       class="msg msg-model turn-output"
       :data-status="version.status"
       :aria-busy="version.status === 'pending'"
     >
-      <header class="msg-head">
-        <span class="msg-avatar"
-          ><AppIcon
-            :class="{ solid: model?.provider !== 'gemini' }"
-            :name="
-              model?.provider === 'openai'
-                ? 'i-openai'
-                : model?.provider === 'gemini'
-                  ? 'i-gemini'
-                  : 'i-points'
-            " /></span
-        ><span
-          class="msg-name"
-          :title="model?.name || String(turn.settings.model)"
-          >{{ model?.name || turn.settings.model }}</span
-        ><span v-if="version.status === 'pending'" class="msg-phase"
-          ><span role="status" :data-phase="version.id">{{
-            view.busy?.versionId === version.id ? view.busy.phase : "生成中"
-          }}</span
-          ><span ref="phase" class="msg-elapsed mono" aria-hidden="true"></span
-        ></span>
-        <div
-          v-if="turn.versions.length > 1"
-          class="version-pager"
-          role="group"
-          aria-label="生成版本"
-        >
-          <button
-            class="ibtn version-prev"
-            type="button"
-            aria-label="上一个版本"
-            :disabled="turn.selectedVersion === 0"
-            @click="chat.mutate(() => turn.selectedVersion--, true)"
-          >
-            <AppIcon name="i-chevron" /></button
-          ><span class="version-count mono"
-            >{{ turn.selectedVersion + 1 }}/{{ turn.versions.length }}</span
-          ><button
-            class="ibtn"
-            type="button"
-            aria-label="下一个版本"
-            :disabled="turn.selectedVersion === turn.versions.length - 1"
-            @click="chat.mutate(() => turn.selectedVersion++, true)"
-          >
-            <AppIcon name="i-chevron" />
-          </button>
+      <div class="msg-body" :data-images="images.length">
+        <div v-if="version.status === 'pending'" class="turn-visual-row">
+          <div class="chat-wait" :style="{ '--image-ratio': ratio }">
+            <WaveHost class="print skeleton chat-pending" aria-hidden="true" />
+            <span class="msg-phase"
+              ><span role="status" :data-phase="version.id">{{
+                view.busy?.versionId === version.id ? view.busy.phase : "生成中"
+              }}</span
+              ><span
+                ref="phase"
+                class="msg-elapsed mono"
+                aria-hidden="true"
+              ></span
+            ></span>
+          </div>
+          <ChatVersions :turn="turn" />
         </div>
-      </header>
-      <div
-        class="msg-body"
-        :data-images="
-          version.blocks.filter((b) => b.type === 'image').length > 1
-            ? version.blocks.filter((b) => b.type === 'image').length
-            : undefined
-        "
-      >
-        <WaveHost
-          v-if="version.status === 'pending'"
-          class="print skeleton chat-pending"
-          aria-hidden="true"
-          :style="{ '--image-ratio': ratio }"
-        />
-        <div v-else-if="version.status !== 'done'" class="turn-error">
-          <p>
-            <AppIcon
-              :name="version.status === 'cancelled' ? 'i-stop' : 'i-alert'"
-            /><span>{{
-              version.error || "已取消；上游可能仍在处理，请勿立即重复提交。"
-            }}</span>
-          </p>
-          <button
-            class="btn btn-quiet btn-sm"
-            type="button"
-            @click="chat.execute(turn)"
-          >
-            <AppIcon name="i-retry" />重新生成
-          </button>
+        <div v-else-if="version.status !== 'done'" class="turn-visual-row">
+          <div class="turn-error">
+            <p>
+              <AppIcon
+                :name="version.status === 'cancelled' ? 'i-stop' : 'i-alert'"
+              /><span>{{
+                version.error || "已取消；上游可能仍在处理，请勿立即重复提交。"
+              }}</span>
+            </p>
+            <button
+              class="btn btn-quiet btn-sm"
+              type="button"
+              @click="chat.execute(turn)"
+            >
+              <AppIcon name="i-retry" />重新生成
+            </button>
+          </div>
+          <ChatVersions :turn="turn" />
         </div>
-        <template v-else v-for="(b, i) in version.blocks" :key="i"
-          ><p v-if="b.type === 'text'" class="msg-text">{{ b.text }}</p>
-          <div
-            v-else-if="asset(b.assetId)"
-            class="chat-result"
-            :style="{
-              '--image-width': `${asset(b.assetId)!.width}px`,
-              '--image-ratio':
-                asset(b.assetId)!.width / asset(b.assetId)!.height,
-            }"
-          >
-            <ChatPrint
-              :key="`${version.id}:${b.assetId}`"
-              :url="url(b.assetId)!"
-              :alt="turn.prompt.slice(0, 160)"
-              :width="asset(b.assetId)!.width"
-              :height="asset(b.assetId)!.height"
-              :asset-id="b.assetId"
-              :base="isBase(b.assetId)"
-              :fresh="chat.isFresh(version.id)"
-              @view="emit('view', b.assetId)"
-            />
-            <footer class="chat-meta">
-              <div class="result-actions">
-                <a
-                  class="ibtn"
-                  :href="url(b.assetId)"
-                  :download="filename(b.assetId)"
-                  aria-label="下载图片"
-                  ><AppIcon name="i-download" /></a
-                ><button
-                  class="ibtn"
-                  type="button"
-                  aria-label="放大图片"
-                  @click="upscale(b.assetId)"
-                >
-                  <AppIcon name="i-upscale" /></button
-                ><button
-                  class="ibtn continue-edit"
-                  :class="{ 'ibtn-accent': isBase(b.assetId) }"
-                  type="button"
-                  aria-label="继续编辑这张图"
-                  @click="chat.mutate((c) => selectSource(c, turn, b.assetId))"
-                >
-                  <AppIcon name="i-edit" /></button
-                ><button
-                  class="ibtn"
-                  type="button"
-                  aria-label="添加为参考图"
-                  @click="more(b.assetId)"
-                >
-                  <AppIcon name="i-image-plus" /></button
-                ><button
-                  class="ibtn"
-                  type="button"
-                  aria-label="重新生成此版本"
-                  @click="chat.execute(turn)"
-                >
-                  <AppIcon name="i-retry" />
-                </button>
-              </div>
-              <span class="chat-meta-info mono"
-                ><span v-if="Number(version.quote?.cost) > 0" class="chat-cost"
-                  >{{ version.quote?.cost }} 积分</span
-                ><span class="chat-dimensions"
-                  >{{ asset(b.assetId)!.width }}×{{
-                    asset(b.assetId)!.height
-                  }}</span
-                ></span
+        <template v-else v-for="(b, i) in blocks" :key="i">
+          <p v-if="b.type === 'text'" class="msg-text">{{ b.text }}</p>
+          <div v-else-if="asset(b.assetId)" class="chat-result">
+            <div class="turn-visual-row">
+              <div
+                class="chat-art"
+                :style="{
+                  '--image-width': `${asset(b.assetId)!.width}px`,
+                  '--image-ratio':
+                    asset(b.assetId)!.width / asset(b.assetId)!.height,
+                }"
               >
-            </footer>
-          </div></template
-        >
+                <ChatPrint
+                  :key="`${version.id}:${b.assetId}`"
+                  :url="url(b.assetId)!"
+                  :alt="turn.prompt.slice(0, 160)"
+                  :width="asset(b.assetId)!.width"
+                  :height="asset(b.assetId)!.height"
+                  :asset-id="b.assetId"
+                  :base="isBase(b.assetId)"
+                  :fresh="chat.isFresh(version.id)"
+                  @view="emit('view', b.assetId)"
+                >
+                  <span
+                    v-if="isBase(b.assetId)"
+                    class="chat-base-badge"
+                    role="img"
+                    aria-label="当前底图"
+                    title="当前底图"
+                  >
+                    <AppIcon name="i-image-base" />
+                  </span>
+                  <ChatResultTools
+                    :url="url(b.assetId)!"
+                    :filename="filename(b.assetId)"
+                    :base="isBase(b.assetId)"
+                    @upscale="upscale(b.assetId)"
+                    @continue="
+                      chat.mutate((c) => selectSource(c, turn, b.assetId))
+                    "
+                    @retain="more(b.assetId)"
+                    @retry="chat.execute(turn)"
+                  />
+                </ChatPrint>
+              </div>
+              <ChatVersions
+                v-if="b.assetId === images[0]?.assetId"
+                :turn="turn"
+              />
+            </div>
+            <span v-if="images.length > 1" class="chat-dimensions mono"
+              >{{ asset(b.assetId)!.width }}×{{
+                asset(b.assetId)!.height
+              }}</span
+            >
+          </div>
+        </template>
+        <ChatVersions
+          v-if="version.status === 'done' && !images.length"
+          :turn="turn"
+        />
       </div>
+      <footer class="chat-meta">
+        <span class="msg-model-name">
+          <ModelIcon :family="model?.provider" />
+          <span
+            class="msg-name"
+            :title="model?.name || String(turn.settings.model)"
+            >{{ model?.name || turn.settings.model }}</span
+          >
+        </span>
+        <template v-if="version.status === 'done'">
+          <span
+            v-if="images.length === 1 && asset(images[0].assetId)"
+            class="chat-dimensions mono"
+            >{{ asset(images[0].assetId)!.width }}×{{
+              asset(images[0].assetId)!.height
+            }}</span
+          >
+          <span v-if="Number(version.quote?.cost) > 0" class="chat-cost mono"
+            >{{ version.quote?.cost }} 积分</span
+          >
+        </template>
+      </footer>
+      <template v-if="version.status === 'done'"
+        ><p v-for="(caption, i) in captions" :key="i" class="msg-text">
+          {{ caption.text }}
+        </p></template
+      >
     </div>
   </article>
 </template>

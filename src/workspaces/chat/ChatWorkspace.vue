@@ -11,6 +11,8 @@ import { quoteLabel } from "../../domain/quote";
 import WorkspaceSwitch from "../../shared/WorkspaceSwitch.vue";
 import WalletDisplay from "../../shared/WalletDisplay.vue";
 import AppIcon from "../../shared/AppIcon.vue";
+import ModelIcon from "../../shared/ModelIcon.vue";
+import WaveMark from "../../shared/WaveMark.vue";
 import ConversationList from "./ConversationList.vue";
 import ContextPanel from "./ContextPanel.vue";
 import ChatTurn from "./ChatTurn.vue";
@@ -20,8 +22,8 @@ const { chat, view } = useChat(),
   ui = useUi();
 const { narrow, router } = shell;
 const scroll = shallowRef<HTMLElement | null>(null),
-  account = shallowRef<HTMLElement | null>(null),
-  sidebarTools = shallowRef<HTMLElement | null>(null),
+  search = shallowRef<HTMLInputElement | null>(null),
+  searchRow = shallowRef<HTMLButtonElement | null>(null),
   menu = shallowRef<HTMLButtonElement | null>(null),
   prompt = shallowRef<HTMLTextAreaElement | null>(null),
   form = shallowRef<HTMLFormElement | null>(null),
@@ -33,10 +35,18 @@ const scroll = shallowRef<HTMLElement | null>(null),
 const full = ref(""),
   latest = ref(false),
   drop = ref(false),
-  lockTarget = computed(() =>
-    narrow.value ? sidebarTools.value : account.value,
-  ),
+  searching = ref(false),
+  query = ref(""),
   c = computed(() => view.value.current),
+  latestResult = computed(() => {
+    for (let i = c.value.turns.length - 1; i >= 0; i--)
+      if (
+        c.value.turns[i].versions[c.value.turns[i].selectedVersion]?.status ===
+        "done"
+      )
+        return i;
+    return -1;
+  }),
   options = computed(() => chatOptions(c.value));
 const labels: Record<string, string> = {
     quality: "质量",
@@ -56,6 +66,22 @@ const labels: Record<string, string> = {
     "1536x1024": "横向",
     "1024x1536": "竖向",
   };
+/* A starter only fills the composer; nothing is sent, or charged, until the
+   user sends it. */
+const starters = [
+  {
+    label: "窗边打盹的橘猫",
+    prompt: "一只橘猫在洒满阳光的窗台上打盹，暖色调，柔和的自然光",
+  },
+  {
+    label: "雨夜霓虹街头",
+    prompt: "赛博朋克风格的雨夜街头，霓虹灯倒映在积水里，电影感构图",
+  },
+  {
+    label: "水彩森林小屋",
+    prompt: "水彩风格，森林深处的小木屋，清晨薄雾，柔和配色",
+  },
+];
 const label = (v: string) => values[v] || v.toUpperCase(),
   summary = computed(() =>
     Object.entries(view.value.model?.fields || {})
@@ -82,6 +108,38 @@ function closeSidebar() {
 function security() {
   shell.chat.sidebarOpen = false;
   router.openOverlay("settings", "security");
+}
+function newConversation() {
+  chat.addConversation();
+  shell.chat.sidebarOpen = false;
+  prompt.value?.focus();
+}
+async function startSearch() {
+  if (shell.chat.railCollapsed && !narrow.value) rail();
+  searching.value = true;
+  await nextTick();
+  search.value?.focus();
+}
+async function endSearch(refocus = false) {
+  query.value = "";
+  searching.value = false;
+  if (!refocus) return;
+  await nextTick();
+  searchRow.value?.focus();
+}
+/* Escape leaves the search, and must not also close the phone drawer. */
+function searchKey(e: KeyboardEvent) {
+  if (e.key !== "Escape") return;
+  e.stopPropagation();
+  if (e.isComposing) return;
+  e.preventDefault();
+  void endSearch(true);
+}
+async function fillPrompt(text: string) {
+  chat.setPrompt(text);
+  await nextTick();
+  prompt.value?.focus();
+  prompt.value?.setSelectionRange(text.length, text.length);
 }
 function resizePrompt() {
   if (prompt.value) {
@@ -189,6 +247,7 @@ watch(
 watch([() => view.value.ready, ui.imageDelivery], () => void claim());
 function rail() {
   shell.chat.railCollapsed = !shell.chat.railCollapsed;
+  if (shell.chat.railCollapsed) void endSearch();
   void services.preferences.set(
     names.chatRail,
     shell.chat.railCollapsed ? "collapsed" : "expanded",
@@ -324,7 +383,16 @@ onDeactivated(() => {
 <template>
   <div class="chat-app" id="chatApp" data-workspace-root="chat">
     <header class="topbar">
-      <WorkspaceSwitch workspace="chat" />
+      <WorkspaceSwitch workspace="chat" /><button
+        class="ibtn rail-toggle"
+        type="button"
+        :aria-label="shell.chat.railCollapsed ? '展开侧栏' : '收起侧栏'"
+        :aria-expanded="!shell.chat.railCollapsed"
+        aria-controls="conversationList"
+        @click="rail"
+      >
+        <AppIcon name="i-sidebar" />
+      </button>
       <div class="topbar-menu">
         <div class="topbar-end" role="group" aria-label="工具"></div>
         <button
@@ -339,8 +407,17 @@ onDeactivated(() => {
           <AppIcon name="i-menu" />
         </button>
       </div>
-      <div ref="account" class="topbar-account">
-        <WalletDisplay :quota="view.quota" :model="view.model" />
+      <div class="topbar-account">
+        <WalletDisplay :quota="view.quota" :model="view.model" /><button
+          v-if="!narrow"
+          class="ibtn topbar-lock"
+          type="button"
+          aria-label="API Key"
+          data-tip="API Key"
+          @click="security"
+        >
+          <AppIcon name="i-lock" />
+        </button>
       </div>
     </header>
     <div class="chat-layout">
@@ -352,45 +429,48 @@ onDeactivated(() => {
         @click="closeSidebar"
       ></button>
       <aside class="chat-sidebar" id="chatSidebar" aria-label="会话与工具">
-        <div class="sidebar-heading">
+        <div class="sidebar-actions">
           <button
-            class="ibtn rail-toggle"
-            type="button"
-            :aria-label="shell.chat.railCollapsed ? '展开侧栏' : '收起侧栏'"
-            :aria-expanded="!shell.chat.railCollapsed"
-            aria-controls="conversationList"
-            @click="rail"
-          >
-            <AppIcon name="i-sidebar" /></button
-          ><button
-            class="ibtn"
+            class="sidebar-row"
             type="button"
             aria-label="新对话"
-            @click="
-              chat.addConversation();
-              shell.chat.sidebarOpen = false;
-              prompt?.focus();
-            "
+            :aria-current="c.turns.length ? undefined : 'page'"
+            @click="newConversation"
           >
-            <AppIcon name="i-compose" /></button
-          ><button
-            class="ibtn sidebar-close"
+            <AppIcon name="i-compose" /><span>新对话</span>
+          </button>
+          <div v-if="searching" class="sidebar-search">
+            <AppIcon name="i-search" /><input
+              ref="search"
+              v-model="query"
+              type="search"
+              placeholder="搜索对话"
+              aria-label="搜索对话"
+              aria-controls="conversationList"
+              enterkeyhint="search"
+              autocomplete="off"
+              @keydown="searchKey"
+              @blur="query.trim() || endSearch()"
+            />
+          </div>
+          <button
+            v-else
+            ref="searchRow"
+            class="sidebar-row"
             type="button"
-            aria-label="关闭侧栏"
-            @click="closeSidebar"
+            aria-label="搜索对话"
+            aria-controls="conversationList"
+            @click="startSearch"
           >
-            <AppIcon name="i-close" />
+            <AppIcon name="i-search" /><span>搜索对话</span>
           </button>
         </div>
-        <div class="chat-tools-slot">
-          <div
-            ref="sidebarTools"
-            class="topbar-end"
-            role="group"
-            aria-label="工具"
-          ></div>
+        <ConversationList :query="query" />
+        <div v-if="narrow" class="sidebar-foot">
+          <button class="sidebar-row" type="button" @click="security">
+            <AppIcon name="i-lock" /><span>API Key</span>
+          </button>
         </div>
-        <ConversationList />
       </aside>
       <main
         class="chat-workspace"
@@ -406,12 +486,23 @@ onDeactivated(() => {
           @scroll="latest = !near()"
         >
           <div class="chat-empty" :hidden="!!c.turns.length">
-            <AppIcon class="ico-xl" name="i-image" />
-            <h1>从一张图，继续想象</h1>
-            <p>描述画面，或上传图片开始修改。</p>
+            <h1 class="chat-lock" aria-label="Koma Chat">
+              <WaveMark class="chat-mark" surface="chat" /><span
+                class="chat-word"
+                ><span class="brand-title">Koma</span
+                ><span class="brand-subtitle">CHAT</span></span
+              >
+            </h1>
           </div>
           <div class="message-list" id="messageList">
-            <ChatTurn v-for="t in c.turns" :key="t.id" :turn="t" @view="show" />
+            <ChatTurn
+              v-for="(t, i) in c.turns"
+              :key="t.id"
+              :turn="t"
+              :number="i + 1"
+              :older="i < latestResult"
+              @view="show"
+            />
           </div>
         </div>
         <button
@@ -541,16 +632,9 @@ onDeactivated(() => {
               :aria-label="`模型：${view.model?.name || '未配置连接'}`"
               @click="openPop(modelPop, $event)"
             >
-              <AppIcon
+              <ModelIcon
                 class="model-chip-icon"
-                :class="{ solid: view.model?.provider !== 'gemini' }"
-                :name="
-                  view.model?.provider === 'openai'
-                    ? 'i-openai'
-                    : view.model?.provider === 'gemini'
-                      ? 'i-gemini'
-                      : 'i-points'
-                "
+                :family="view.model?.provider"
               /><span class="model-chip-name">{{
                 view.model?.name || "未配置连接"
               }}</span
@@ -588,20 +672,30 @@ onDeactivated(() => {
             view.busy?.phase || (view.uploading ? "读取图片中" : "")
           }}</span>
         </form>
+        <div
+          v-if="!c.turns.length"
+          class="chat-starters"
+          role="group"
+          aria-label="开始方式"
+          :data-quiet="!!c.prompt.trim() || !!c.attachments.length || undefined"
+        >
+          <button class="chat-starter" type="button" @click="upload?.click()">
+            <AppIcon name="i-image-plus" />上传图片修改</button
+          ><button
+            v-for="s in starters"
+            :key="s.label"
+            class="chat-starter"
+            type="button"
+            :title="s.prompt"
+            @click="fillPrompt(s.prompt)"
+          >
+            <AppIcon name="i-brush" />{{ s.label }}
+          </button>
+        </div>
       </main>
       <ContextPanel ref="context" @view="show" />
     </div>
   </div>
-  <Teleport v-if="lockTarget" :to="lockTarget"
-    ><button
-      class="ibtn topbar-lock"
-      type="button"
-      aria-label="API Key"
-      data-tip="API Key"
-      @click="security"
-    >
-      <AppIcon name="i-lock" /></button
-  ></Teleport>
   <Teleport to="body"
     ><dialog ref="lightbox" class="chat-lightbox" @close="full = ''">
       <button
@@ -629,16 +723,7 @@ onDeactivated(() => {
           :aria-label="g.provider"
         >
           <p class="model-group-head">
-            <AppIcon
-              :class="{ solid: g.provider !== 'gemini' }"
-              :name="
-                g.provider === 'openai'
-                  ? 'i-openai'
-                  : g.provider === 'gemini'
-                    ? 'i-gemini'
-                    : 'i-points'
-              "
-            /><span>{{
+            <ModelIcon :family="g.provider" /><span>{{
               g.provider === "openai"
                 ? "OpenAI"
                 : g.provider === "gemini"

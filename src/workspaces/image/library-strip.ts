@@ -24,10 +24,12 @@ export function stripBar(
   const area = clamp(1 + 0.08 * Math.log2((width * height) / 1048576), 0.86, 1.12),
     shape = clamp(0.82 * Math.pow(width / height, 0.38), 0.58, 1.04),
     jitter = 0.9 + 0.2 * variation(id),
-    depth = 0.48 + 0.52 / (1 + away * 0.16);
+    depth = 0.72 + 0.28 / (1 + away * 0.12),
+    baseLength = clamp(110 * area * shape * jitter * depth, 24, 96);
   return {
+    // Fill more of the rail without flattening the per-image variation.
     length:
-      Math.round(clamp(100 * area * shape * jitter * depth, 24, 96) * 100) / 100,
+      Math.round((baseLength + (96 - baseLength) * 0.35) * 100) / 100,
     opacity: 0.3 + 0.6 / (1 + away * 0.12),
   };
 }
