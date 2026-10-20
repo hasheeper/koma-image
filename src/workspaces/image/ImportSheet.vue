@@ -14,8 +14,8 @@ import { useUi, message } from "../../app/ui";
 import { resolveModel } from "../../domain/catalog";
 import { reuseFields, samplerName } from "../../domain/drawing";
 import { names } from "../../storage/names";
-import { readImageParams } from "../../native/image-meta.js";
-import type { ImageMetadata } from "../../native/image-meta.js";
+import { readImageParams } from "../../native/image-meta.ts";
+import type { ImageMetadata } from "../../native/image-meta.ts";
 import { render as renderHighlight } from "../../domain/highlight";
 import AppIcon from "../../shared/AppIcon.vue";
 const { drawing, view } = useDrawing(),
@@ -39,7 +39,7 @@ const labels: Record<string, string> = {
   seed: "Seed",
 };
 const rows = computed(() => {
-  const fields = candidate.value?.fields ?? {},
+  const fields: Readonly<Record<string, string | number | undefined>> = candidate.value?.fields ?? {},
     form = view.value.form;
   return Object.entries(labels).flatMap(([key, label]) => {
     const keys = (key === "size" ? ["width", "height"] : [key]).filter(
@@ -79,7 +79,7 @@ const rows = computed(() => {
   });
 });
 const texts = computed(() =>
-  ["prompt", "negative_prompt"]
+  (["prompt", "negative_prompt"] as const)
     .filter((key) => candidate.value?.fields[key] !== undefined)
     .map((key) => ({
       key,
@@ -131,11 +131,12 @@ async function read(blob: File) {
 }
 function apply() {
   if (!candidate.value) return;
+  const values: Readonly<Record<string, string | number | undefined>> = candidate.value.fields;
   const fields: Record<string, unknown> = {};
   for (const key of selected.value)
     for (const k of key === "size" ? ["width", "height"] : [key])
-      if (candidate.value.fields[k] !== undefined)
-        fields[k] = candidate.value.fields[k];
+      if (values[k] !== undefined)
+        fields[k] = values[k];
   const n = drawing.apply(fields).length;
   close();
   ui.toast(`已导入 ${n} 项参数`, "ok");

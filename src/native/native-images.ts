@@ -1,4 +1,4 @@
-function imageBlob(bytes) {
+function imageBlob(bytes: Uint8Array<ArrayBuffer>): Blob {
   const mime = bytes[0] === 137 && bytes[1] === 80 && bytes[2] === 78 && bytes[3] === 71 ? "image/png"
     : bytes[0] === 255 && bytes[1] === 216 ? "image/jpeg"
     : String.fromCharCode(...bytes.slice(0, 4)) === "RIFF" && String.fromCharCode(...bytes.slice(8, 12)) === "WEBP" ? "image/webp" : null;
@@ -10,17 +10,17 @@ const crcTable = Uint32Array.from({ length: 256 }, (_, value) => {
   for (let i = 0; i < 8; i++) value = value & 1 ? 0xedb88320 ^ (value >>> 1) : value >>> 1;
   return value >>> 0;
 });
-function crc32(bytes) {
+function crc32(bytes: Uint8Array): number {
   let value = 0xffffffff;
   for (const byte of bytes) value = crcTable[(value ^ byte) & 255] ^ (value >>> 8);
   return (value ^ 0xffffffff) >>> 0;
 }
 
 /** Native responses can be a ZIP even when Content-Type is octet-stream. */
-export async function decodeNativeImages(buffer) {
+export async function decodeNativeImages(buffer: ArrayBuffer): Promise<Blob[]> {
   const bytes = new Uint8Array(buffer), view = new DataView(bytes.buffer, bytes.byteOffset, bytes.byteLength);
   if (bytes.length < 4 || view.getUint32(0, true) !== 0x04034b50) return [imageBlob(bytes)];
-  const fail = () => { throw new Error("原生图片包损坏或格式不支持，请勿重复提交"); };
+  const fail = (): never => { throw new Error("原生图片包损坏或格式不支持，请勿重复提交"); };
   let end = bytes.length - 22;
   while (end >= Math.max(0, bytes.length - 65557) && view.getUint32(end, true) !== 0x06054b50) end--;
   if (end < Math.max(0, bytes.length - 65557)) return fail();
@@ -28,7 +28,7 @@ export async function decodeNativeImages(buffer) {
   let offset = view.getUint32(end + 16, true), totalSize = 0;
   if (view.getUint16(end + 4, true) || view.getUint16(end + 6, true)
     || view.getUint16(end + 8, true) !== count || count > 16 || offset + directorySize > end) return fail();
-  const blobs = [];
+  const blobs: Blob[] = [];
   for (let i = 0; i < count; i++) {
     if (offset + 46 > end || view.getUint32(offset, true) !== 0x02014b50) return fail();
     const flags = view.getUint16(offset + 8, true), method = view.getUint16(offset + 10, true);
@@ -46,10 +46,10 @@ export async function decodeNativeImages(buffer) {
     if (start + packed > end) return fail();
     let decoded = bytes.slice(start, start + packed);
     if (method === 8) {
-      let stream;
+      let stream: ReadableStream<Uint8Array<ArrayBuffer>>;
       try { stream = new Blob([decoded]).stream().pipeThrough(new DecompressionStream("deflate-raw")); }
       catch { throw new Error("浏览器不支持原生图片包解压，请更新浏览器；请勿重复提交"); }
-      const reader = stream.getReader(), chunks = [];
+      const reader = stream.getReader(), chunks: Uint8Array<ArrayBuffer>[] = [];
       let length = 0;
       try {
         while (true) {

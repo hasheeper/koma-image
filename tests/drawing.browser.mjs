@@ -717,3 +717,64 @@ test("M4 native wave does not rerender Vue and releases canvas work while inacti
     await t.close();
   }
 });
+
+test("comparison: bitmap and image fallbacks release resources on success, decode failure and cancellation", async () => {
+  const context = await browser.newContext(), page = await context.newPage();
+  try {
+    await page.goto(origin);
+    const result = await page.evaluate(async () => {
+      const { makeComparison } = await import("/src/native/comparison.ts");
+      const source = document.createElement("canvas");
+      source.width = 128; source.height = 64;
+      source.getContext("2d").fillStyle = "rgb(200,30,40)";
+      source.getContext("2d").fillRect(0, 0, 128, 64);
+      const blob = await new Promise((resolve) => source.toBlob(resolve));
+      const records = [{ blob, params: { seed: 0 } }];
+      const base = { width: 128, height: 64, model: "fixture", steps: 25, sampler: "fixture" };
+      const bitmap = window.createImageBitmap, create = URL.createObjectURL, revoke = URL.revokeObjectURL;
+      const decode = Object.getOwnPropertyDescriptor(HTMLImageElement.prototype, "decode");
+      const urls = new Set();
+      let closed = 0;
+      URL.createObjectURL = (blob) => { const url = create(blob); urls.add(url); return url; };
+      URL.revokeObjectURL = (url) => { urls.delete(url); revoke(url); };
+      const pixel = async (blob) => {
+        const image = await bitmap(blob), canvas = document.createElement("canvas");
+        canvas.width = image.width; canvas.height = image.height;
+        canvas.getContext("2d").drawImage(image, 0, 0);
+        image.close();
+        return [...canvas.getContext("2d").getImageData(50, 150, 1, 1).data];
+      };
+      try {
+        window.createImageBitmap = async (blob) => {
+          const image = await bitmap(blob), close = image.close.bind(image);
+          image.close = () => { closed++; close(); };
+          return image;
+        };
+        const direct = await makeComparison(records, base);
+        window.createImageBitmap = async () => { throw new Error("force image fallback"); };
+        const fallback = await makeComparison(records, base);
+        Object.defineProperty(HTMLImageElement.prototype, "decode", { configurable: true, value: undefined });
+        const loadEvent = await makeComparison(records, base);
+        let failure = "", cancelled = "";
+        try { await makeComparison([{ blob: new Blob(["invalid"]), params: { seed: 0 } }], base); }
+        catch (error) { failure = error.message; }
+        const abort = new AbortController(); abort.abort();
+        try { await makeComparison(records, base, abort.signal); }
+        catch (error) { cancelled = error.name; }
+        return { closed, urls: urls.size, failure, cancelled,
+          sizes: [direct.size, fallback.size, loadEvent.size],
+          pixels: await Promise.all([direct, fallback, loadEvent].map((v) => pixel(v.blob))) };
+      } finally {
+        window.createImageBitmap = bitmap;
+        URL.createObjectURL = create; URL.revokeObjectURL = revoke;
+        if (decode) Object.defineProperty(HTMLImageElement.prototype, "decode", decode);
+      }
+    });
+    assert.equal(result.closed, 1);
+    assert.equal(result.urls, 0);
+    assert.equal(result.failure, "图片解码失败");
+    assert.equal(result.cancelled, "AbortError");
+    assert.deepEqual(result.sizes, Array(3).fill({ width: 528, height: 364 }));
+    assert.deepEqual(result.pixels, Array(3).fill([200, 30, 40, 255]));
+  } finally { await context.close(); }
+});

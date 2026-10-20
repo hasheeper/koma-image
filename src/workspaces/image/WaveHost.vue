@@ -6,7 +6,7 @@ import {
   onMounted,
   useTemplateRef,
 } from "vue";
-import { tileWave } from "../../native/tile-wave.js";
+import { tileWave } from "../../native/tile-wave.ts";
 const props = defineProps<{ small?: boolean }>();
 const host = useTemplateRef<HTMLElement>("host");
 let wave: ReturnType<typeof tileWave> | undefined;

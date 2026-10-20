@@ -1,7 +1,7 @@
 import { object } from "../domain/value";
 import type { ImagePayload } from "../gateway/routes";
 import { decodeImage } from "./image-response";
-import { decodeNativeImages } from "../native/native-images.js";
+import { decodeNativeImages } from "../native/native-images.ts";
 export type MediaBlock =
   | { type: "text"; text: string }
   | { type: "image"; blob: Blob; size: { width: number; height: number } };

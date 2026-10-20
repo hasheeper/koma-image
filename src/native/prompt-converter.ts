@@ -1,4 +1,4 @@
-const NAMED_ENTITIES = {
+const NAMED_ENTITIES: Record<string, string | undefined> = {
   amp: "&",
   apos: "'",
   gt: ">",
@@ -7,18 +7,20 @@ const NAMED_ENTITIES = {
   quot: '"'
 };
 
-function decodeEntities(text) {
+function decodeEntities(text: string): string {
   return text
-    .replace(/&#(?:x([0-9a-f]+)|(\d+));?/gi, (_, hex, decimal) => {
+    .replace(/&#(?:x([0-9a-f]+)|(\d+));?/gi, (_: string, hex: string | undefined, decimal = "") => {
       const codePoint = Number.parseInt(hex || decimal, hex ? 16 : 10);
       try { return Number.isFinite(codePoint) ? String.fromCodePoint(codePoint) : _; }
       catch { return _; }
     })
-    .replace(/&([a-z]+);/gi, (entity, name) => NAMED_ENTITIES[name.toLowerCase()] ?? entity);
+    .replace(/&([a-z]+);/gi, (entity: string, name: string) => NAMED_ENTITIES[name.toLowerCase()] ?? entity);
 }
 
-function splitTopLevel(text) {
-  const chunks = [];
+interface PromptChunk { text: string; separator: "," | "\n" | "" }
+
+function splitTopLevel(text: string): PromptChunk[] {
+  const chunks: PromptChunk[] = [];
   let start = 0;
   let round = 0;
   let square = 0;
@@ -42,8 +44,7 @@ function splitTopLevel(text) {
     else if (char === "{") curly += 1;
     else if (char === "}") curly = Math.max(0, curly - 1);
 
-    const separator = char === "," || char === "\n";
-    if (separator && round === 0 && square === 0 && curly === 0) {
+    if ((char === "," || char === "\n") && round === 0 && square === 0 && curly === 0) {
       chunks.push({ text: text.slice(start, index), separator: char });
       start = index + 1;
     }
@@ -52,7 +53,7 @@ function splitTopLevel(text) {
   return chunks;
 }
 
-function fullyWrapped(text) {
+function fullyWrapped(text: string): boolean {
   if (text.length < 2 || text[0] !== "(" || text.at(-1) !== ")") return false;
   let depth = 0;
   let escaped = false;
@@ -76,14 +77,14 @@ function fullyWrapped(text) {
   return depth === 0;
 }
 
-function explicitWeight(text) {
+function explicitWeight(text: string): { text: string; weight: number } | null {
   const match = text.match(/^([\s\S]*?[^:])\s*:\s*(-?(?:\d+(?:\.\d*)?|\.\d+))\s*$/);
   if (!match) return null;
   const weight = Number(match[2]);
   return Number.isFinite(weight) ? { text: match[1].trim(), weight } : null;
 }
 
-function normalizedText(text) {
+function normalizedText(text: string): string {
   return text
     .replace(/\\_/g, "_")
     .replace(/_/g, " ")
@@ -94,11 +95,11 @@ function normalizedText(text) {
     .trim();
 }
 
-function formattedWeight(weight) {
+function formattedWeight(weight: number): string {
   return String(Number(weight.toFixed(4)));
 }
 
-function convertPart(rawPart) {
+function convertPart(rawPart: string): string {
   let part = rawPart.trim().replace(/^\\+|\\+$/g, "").trim();
   if (!part) return "";
 
@@ -123,7 +124,7 @@ function convertPart(rawPart) {
     : `${formattedWeight(weight)}::${content}::`;
 }
 
-export function convertToNaiPrompt(rawPrompt) {
+export function convertToNaiPrompt(rawPrompt: string): string {
   const normalized = decodeEntities(String(rawPrompt || ""))
     .replace(/\\[ \t]*(?:\r?\n|$)/g, "\n")
     .replace(/\r\n?/g, "\n");

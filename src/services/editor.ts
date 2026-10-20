@@ -10,13 +10,13 @@ import {
   editorModels,
   validateEditorSource,
   buildEditorPayload,
-} from "../domain/media.js";
-import type { EditMode, EditorMode, EditorFields } from "../domain/media.js";
+} from "../domain/media.ts";
+import type { EditMode, EditorMode, EditorFields } from "../domain/media.ts";
 import type { Fields } from "../storage/records";
 import type { Quote } from "../domain/quote";
 import { normalizeQuota } from "../domain/quota";
 import type { QuotaStatus } from "../domain/quota";
-import type { MaskState } from "../native/mask-editor.js";
+import type { MaskState } from "../native/mask-editor.ts";
 import { decodeImage } from "./image-response";
 import { consumeMedia } from "./media-response";
 import { dataUrl } from "./assets";

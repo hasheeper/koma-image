@@ -13,7 +13,7 @@ import type { ConversationTurn } from "../../storage/records";
 import { useChat } from "../../app/chat";
 import { useUi, message } from "../../app/ui";
 import { useEditor } from "../../app/editor";
-import { selectSource, retainImage } from "../../domain/conversation.js";
+import { selectSource, retainImage } from "../../domain/conversation.ts";
 import { chatOptions } from "../../services/chat";
 import { copyText } from "../../shared/files";
 import AppIcon from "../../shared/AppIcon.vue";

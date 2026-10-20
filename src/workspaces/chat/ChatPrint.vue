@@ -6,7 +6,7 @@ import {
   ref,
   shallowRef,
 } from "vue";
-import { tileWave } from "../../native/tile-wave.js";
+import { tileWave } from "../../native/tile-wave.ts";
 const props = defineProps<{
     url: string;
     alt: string;

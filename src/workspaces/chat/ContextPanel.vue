@@ -8,7 +8,7 @@ import {
   conversationImages,
   branchTurns,
   retainImage,
-} from "../../domain/conversation.js";
+} from "../../domain/conversation.ts";
 import { placeMenu, menuKeys } from "../../shared/popover";
 import { names } from "../../storage/names";
 import AppIcon from "../../shared/AppIcon.vue";

@@ -1130,3 +1130,182 @@ test("M5 pending and result waves stay native and release on workspace deactivat
     await t.close();
   }
 });
+
+// Import the native drivers without mounting the app, so failure injection cannot
+// interfere with unrelated Vue canvases or paid-request mocks.
+async function nativePage() {
+  const context = await browser.newContext({ reducedMotion: "no-preference" });
+  await context.route(`${origin}/__native-drivers`, (route) => route.fulfill({
+    contentType: "text/html",
+    body: '<!doctype html><style>#frame{width:240px;height:180px}.tile-wave{width:100%;height:100%}</style><div id="frame"></div><canvas id="mask"></canvas>',
+  }));
+  const page = await context.newPage();
+  await page.goto(`${origin}/__native-drivers`);
+  return { context, page };
+}
+
+test("T4 mask snapshots preserve clear records, undo/redo, encoding cache and Canvas failure boundaries", async () => {
+  const { context, page } = await nativePage();
+  try {
+    const result = await page.evaluate(async () => {
+      const { createMaskEditor } = await import("/src/native/mask-editor.ts");
+      const canvas = document.querySelector("#mask");
+      const mask = createMaskEditor(canvas, () => {});
+      const state = {
+        width: 64, height: 48, position: 2,
+        strokes: [
+          { points: [{ x: 24, y: 24 }, { x: 40, y: 24 }], diameter: 16, erase: false, pointer: 1 },
+          { clear: true },
+        ],
+      };
+      const originalEncode = HTMLCanvasElement.prototype.toDataURL;
+      const originalContext = HTMLCanvasElement.prototype.getContext;
+      let encodes = 0;
+      HTMLCanvasElement.prototype.toDataURL = function (...args) {
+        encodes++;
+        return originalEncode.apply(this, args);
+      };
+      const failure = (fn) => { try { fn(); return null; } catch (error) { return error.message; } };
+      try {
+        mask.restore(state);
+        const cleared = mask.getMask();
+        mask.undo();
+        const encoded = mask.getMask(), cached = mask.getMask();
+        const cachedEncodes = encodes;
+        const bitmap = await createImageBitmap(await (await fetch(encoded)).blob());
+        const sample = document.createElement("canvas");
+        sample.width = bitmap.width; sample.height = bitmap.height;
+        const g = sample.getContext("2d");
+        g.drawImage(bitmap, 0, 0);
+        const pixels = [Array.from(g.getImageData(32, 24, 1, 1).data), Array.from(g.getImageData(0, 0, 1, 1).data)];
+        const size = [bitmap.width, bitmap.height];
+        bitmap.close();
+        mask.redo();
+        const redone = mask.getMask();
+        mask.undo();
+        const undone = mask.getMask();
+        const afterUndoEncodes = encodes;
+        const snapshot = mask.snapshot();
+        snapshot.strokes[0].points[0].x = 999;
+        const isolated = mask.snapshot().strokes[0].points[0].x;
+        mask.resize(32, 32);
+        const resized = { value: mask.getMask(), undo: mask.canUndo(), redo: mask.canRedo() };
+        mask.restore({ ...state, position: 1 });
+        HTMLCanvasElement.prototype.getContext = () => null;
+        const outputFailure = failure(() => mask.getMask());
+        const initFailure = failure(() => createMaskEditor(canvas, () => {}));
+        HTMLCanvasElement.prototype.getContext = function (...args) {
+          return this === canvas ? null : originalContext.apply(this, args);
+        };
+        const previewFailure = failure(() => createMaskEditor(canvas, () => {}));
+        HTMLCanvasElement.prototype.getContext = originalContext;
+        const recovered = mask.getMask();
+        return { cleared, redone, cached: cached === encoded, undone: undone === encoded,
+          cachedEncodes, afterUndoEncodes, isolated, resized, pixels, size,
+          outputFailure, initFailure, previewFailure, recovered: recovered === encoded };
+      } finally {
+        HTMLCanvasElement.prototype.toDataURL = originalEncode;
+        HTMLCanvasElement.prototype.getContext = originalContext;
+        mask.dispose();
+      }
+    });
+    assert.equal(result.cleared, null);
+    assert.equal(result.redone, null);
+    assert.equal(result.cached, true);
+    assert.equal(result.undone, true);
+    assert.equal(result.cachedEncodes, 1);
+    assert.equal(result.afterUndoEncodes, 2);
+    assert.equal(result.isolated, 24);
+    assert.deepEqual(result.resized, { value: null, undo: false, redo: false });
+    assert.deepEqual(result.size, [64, 48]);
+    assert.deepEqual(result.pixels, [[255, 255, 255, 255], [0, 0, 0, 255]]);
+    for (const key of ["outputFailure", "initFailure", "previewFailure"])
+      assert.equal(result[key], "当前浏览器不支持 Canvas 蒙版");
+    assert.equal(result.recovered, true);
+  } finally {
+    await context.close();
+  }
+});
+
+test("T4 wave completion, reset/destroy, skipped reveals and Canvas failures release native resources", async () => {
+  const { context, page } = await nativePage();
+  const errors = [];
+  page.on("pageerror", (error) => errors.push(error.message));
+  try {
+    const result = await page.evaluate(async () => {
+      const observed = { intersection: new Set(), resize: new Set() };
+      for (const [name, key] of [["IntersectionObserver", "intersection"], ["ResizeObserver", "resize"]]) {
+        const Original = window[name];
+        window[name] = class extends Original {
+          observe(target, ...args) { observed[key].add(target); return super.observe(target, ...args); }
+          unobserve(target) { observed[key].delete(target); return super.unobserve(target); }
+        };
+      }
+      const { tileWave } = await import("/src/native/tile-wave.ts");
+      const frame = document.querySelector("#frame");
+      const source = document.createElement("canvas");
+      source.width = 24; source.height = 18;
+      const g = source.getContext("2d");
+      g.fillStyle = "rgb(40, 120, 200)"; g.fillRect(0, 0, 24, 18);
+      const wave = tileWave(frame);
+      const complete = await wave.reveal(source);
+      wave.draw(performance.now() + 2000);
+      const pixel = Array.from(frame.querySelector("canvas").getContext("2d").getImageData(120, 90, 1, 1).data);
+      wave.reset();
+      const pendingReset = wave.reveal(source);
+      wave.reset();
+      const reset = await pendingReset, rest = frame.dataset.wave;
+      const pendingDestroy = wave.reveal(source);
+      wave.destroy();
+      const destroyed = await pendingDestroy;
+      frame.style.position = "fixed"; frame.style.top = "-1000px";
+      const offscreen = tileWave(frame);
+      const skippedOffscreen = await offscreen.reveal(source);
+      offscreen.destroy();
+      frame.style.top = "0";
+      const hidden = tileWave(frame);
+      Object.defineProperty(document, "hidden", { configurable: true, value: true });
+      const skippedHidden = await hidden.reveal(source);
+      delete document.hidden;
+      hidden.destroy();
+      const originalContext = HTMLCanvasElement.prototype.getContext;
+      const failure = (fn) => { try { fn(); return null; } catch (error) { return error.message; } };
+      let initFailure, scaledFailure;
+      try {
+        HTMLCanvasElement.prototype.getContext = () => null;
+        initFailure = failure(() => tileWave(frame));
+        HTMLCanvasElement.prototype.getContext = originalContext;
+        const scaling = tileWave(frame);
+        try {
+          HTMLCanvasElement.prototype.getContext = () => null;
+          scaledFailure = failure(() => scaling.reveal(source));
+        } finally { scaling.destroy(); }
+      } finally { HTMLCanvasElement.prototype.getContext = originalContext; }
+      return { complete, pixel, reset, rest, destroyed, skippedOffscreen, skippedHidden,
+        initFailure, scaledFailure, canvases: frame.children.length, waveState: frame.dataset.wave ?? null,
+        observers: [observed.intersection.size, observed.resize.size] };
+    });
+    assert.equal(result.complete, true);
+    assert.deepEqual(result.pixel, [40, 120, 200, 255]);
+    assert.equal(result.reset, false);
+    assert.equal(result.rest, "rest");
+    assert.equal(result.destroyed, false);
+    assert.equal(result.skippedOffscreen, false);
+    assert.equal(result.skippedHidden, false);
+    assert.equal(result.initFailure, "当前浏览器不支持 Canvas 动画");
+    assert.equal(result.scaledFailure, "当前浏览器不支持 Canvas 动画");
+    assert.equal(result.canvases, 0);
+    assert.equal(result.waveState, null);
+    assert.deepEqual(result.observers, [0, 0]);
+    await page.emulateMedia({ reducedMotion: "reduce" });
+    assert.equal(await page.evaluate(async () => {
+      const { tileWave } = await import("/src/native/tile-wave.ts");
+      const frame = document.querySelector("#frame"), wave = tileWave(frame);
+      try { return await wave.reveal(document.createElement("canvas")); }
+      finally { wave.destroy(); }
+    }), false);
+    assert.deepEqual(errors, []);
+  } finally {
+    await context.close();
+  }
+});

@@ -1,5 +1,5 @@
 import type { ApplicationServices } from "./application";
-import { MAX_INPUT_BYTES } from "../domain/media.js";
+import { MAX_INPUT_BYTES } from "../domain/media.ts";
 import { HANDOFF_MAX_AGE } from "../storage/records";
 import type { HandoffRecord } from "../storage/records";
 import { names } from "../storage/names";

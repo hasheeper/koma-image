@@ -1,4 +1,4 @@
-import { decodeNativeImages } from "../native/native-images.js";
+import { decodeNativeImages } from "../native/native-images.ts";
 import { object } from "../domain/value.ts";
 import type { ImagePayload } from "../gateway/routes.ts";
 export async function decodeImage(blob: Blob) {

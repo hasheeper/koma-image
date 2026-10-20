@@ -1,13 +1,13 @@
 /** Read source dimensions without decoding pixels; the browser also decodes uploads. */
-export function imageDimensions(dataUrl) {
+export function imageDimensions(dataUrl: string): { width: number; height: number } {
   const bytes = Uint8Array.from(
     atob(dataUrl.slice(dataUrl.indexOf(",") + 1)),
     (c) => c.charCodeAt(0),
   );
   const view = new DataView(bytes.buffer);
-  const ascii = (start, length) =>
+  const ascii = (start: number, length: number) =>
     String.fromCharCode(...bytes.slice(start, start + length));
-  let width, height;
+  let width: number | undefined, height: number | undefined;
   if (bytes.length >= 24 && ascii(1, 3) === "PNG" && ascii(12, 4) === "IHDR") {
     width = view.getUint32(16);
     height = view.getUint32(20);
@@ -45,7 +45,7 @@ export function imageDimensions(dataUrl) {
         length = view.getUint32(offset + 4, true),
         start = offset + 8;
       if (start + length > bytes.length) break;
-      const uint24 = (n) =>
+      const uint24 = (n: number) =>
         bytes[n] | (bytes[n + 1] << 8) | (bytes[n + 2] << 16);
       if (type === "VP8X" && length >= 10) {
         width = uint24(start + 4) + 1;

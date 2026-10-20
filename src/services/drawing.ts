@@ -19,7 +19,7 @@ import { usesNative } from "../gateway/routes.ts";
 import { createQuotePreview } from "./quote-preview.ts";
 import type { QuoteState } from "./quote-preview.ts";
 import { consumeImage, makeThumb } from "./image-response.ts";
-import { makeComparison } from "../native/comparison.js";
+import { makeComparison } from "../native/comparison.ts";
 import { names } from "../storage/names.ts";
 import { idbRequest, transactionDone } from "../storage/databases.ts";
 import type { FavoriteRecord, Fields } from "../storage/records.ts";

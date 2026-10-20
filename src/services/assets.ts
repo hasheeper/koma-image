@@ -1,4 +1,4 @@
-import { MAX_INPUT_BYTES, MAX_TOTAL_BYTES } from "../domain/media.js";
+import { MAX_INPUT_BYTES, MAX_TOTAL_BYTES } from "../domain/media.ts";
 import { decodeImage } from "./image-response";
 import { assetRefs } from "../storage/records";
 import type { AssetRecord, ConversationRecord } from "../storage/records";

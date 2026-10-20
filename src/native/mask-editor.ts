@@ -1,19 +1,35 @@
+export interface MaskPoint { x: number; y: number }
+export interface MaskStroke {
+  points: [MaskPoint, ...MaskPoint[]];
+  diameter: number;
+  erase: boolean;
+  pointer: number;
+  clear?: false;
+}
+export type MaskEntry = MaskStroke | { clear: true };
+export interface MaskState {
+  width: number;
+  height: number;
+  strokes: MaskEntry[];
+  position: number;
+}
+
 /** Source-pixel coordinates keep touch/mouse masks aligned at every display size. */
-export function createMaskEditor(canvas, onChange) {
+export function createMaskEditor(canvas: HTMLCanvasElement, onChange: () => void) {
   const mask = document.createElement("canvas"),
-    ctx = mask.getContext("2d", { willReadFrequently: true });
-  const preview = canvas.getContext("2d");
+    context = mask.getContext("2d", { willReadFrequently: true });
+  const previewContext = canvas.getContext("2d");
+  if (!context || !previewContext) throw new Error("当前浏览器不支持 Canvas 蒙版");
+  const ctx = context, preview = previewContext;
   // Paint in the accent token so the mask follows the theme rather than a copy of it.
   const tint =
     getComputedStyle(canvas).getPropertyValue("--a").trim() || "#b3a1ff";
-  let strokes = [],
-    position = 0,
-    stroke = null,
-    diameter = 64,
+  let strokes: MaskEntry[] = [], stroke: MaskStroke | null = null;
+  let position = 0, diameter = 64,
     erase = false,
-    locked = false,
-    encoded;
-  function paint(item, from = 0) {
+    locked = false;
+  let encoded: string | null | undefined;
+  function paint(item: MaskEntry, from = 0) {
     if (item.clear) {
       ctx.clearRect(0, 0, mask.width, mask.height);
       return;
@@ -53,7 +69,7 @@ export function createMaskEditor(canvas, onChange) {
     display();
     onChange();
   }
-  function point(event) {
+  function point(event: PointerEvent): MaskPoint {
     const rect = canvas.getBoundingClientRect();
     return {
       x: Math.max(
@@ -72,7 +88,7 @@ export function createMaskEditor(canvas, onChange) {
       ),
     };
   }
-  const down = (event) => {
+  const down = (event: PointerEvent) => {
     if (locked || stroke || event.button !== 0) return;
     event.preventDefault();
     canvas.setPointerCapture(event.pointerId);
@@ -86,13 +102,13 @@ export function createMaskEditor(canvas, onChange) {
     display();
     onChange();
   };
-  const move = (event) => {
+  const move = (event: PointerEvent) => {
     if (!stroke || stroke.pointer !== event.pointerId) return;
     stroke.points.push(point(event));
     paint(stroke, stroke.points.length - 1);
     display();
   };
-  function finish(event) {
+  function finish(event: PointerEvent) {
     if (!stroke || stroke.pointer !== event.pointerId) return;
     strokes = strokes.slice(0, position);
     strokes.push(stroke);
@@ -100,7 +116,7 @@ export function createMaskEditor(canvas, onChange) {
     stroke = null;
     onChange();
   }
-  let events;
+  let events: AbortController | null | undefined;
   function pause() {
     events?.abort();
     events = null;
@@ -118,14 +134,14 @@ export function createMaskEditor(canvas, onChange) {
       ["pointerup", finish],
       ["pointercancel", finish],
       ["lostpointercapture", finish],
-    ])
+    ] as const)
       canvas.addEventListener(name, handler, { signal: events.signal });
   }
   return {
     pause,
     resume,
     dispose: pause,
-    snapshot() {
+    snapshot(): MaskState {
       return {
         width: mask.width,
         height: mask.height,
@@ -133,7 +149,7 @@ export function createMaskEditor(canvas, onChange) {
         position,
       };
     },
-    restore(state) {
+    restore(state: MaskState) {
       stroke = null;
       canvas.width = mask.width = state.width;
       canvas.height = mask.height = state.height;
@@ -141,7 +157,7 @@ export function createMaskEditor(canvas, onChange) {
       position = state.position;
       replay();
     },
-    resize(width, height) {
+    resize(width: number, height: number) {
       canvas.width = mask.width = width;
       canvas.height = mask.height = height;
       strokes = [];
@@ -150,12 +166,12 @@ export function createMaskEditor(canvas, onChange) {
       display();
       onChange();
     },
-    setBrush(size, eraser) {
+    setBrush(size: number, eraser: boolean) {
       diameter = size;
       erase = eraser;
       canvas.dataset.eraser = String(eraser);
     },
-    setLocked(value) {
+    setLocked(value: boolean) {
       locked = value;
     },
     undo() {
@@ -190,7 +206,7 @@ export function createMaskEditor(canvas, onChange) {
     canUndo: () => position > 0,
     canRedo: () => position < strokes.length,
     isDrawing: () => stroke !== null,
-    getMask() {
+    getMask(): string | null {
       if (stroke) throw new Error("请完成当前蒙版笔画");
       if (encoded !== undefined) return encoded;
       const data = ctx.getImageData(0, 0, mask.width, mask.height);
@@ -205,8 +221,11 @@ export function createMaskEditor(canvas, onChange) {
       const output = document.createElement("canvas");
       output.width = mask.width;
       output.height = mask.height;
-      output.getContext("2d").putImageData(data, 0, 0);
+      const outputContext = output.getContext("2d");
+      if (!outputContext) throw new Error("当前浏览器不支持 Canvas 蒙版");
+      outputContext.putImageData(data, 0, 0);
       return (encoded = output.toDataURL("image/png"));
     },
   };
 }
+export type MaskEditor = ReturnType<typeof createMaskEditor>;

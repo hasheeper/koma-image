@@ -21,7 +21,7 @@ const { preferences } = useServices(),
   ui = useUi(),
   { router } = useShell();
 import { useDrawing } from "../../app/drawing";
-import { convertToNaiPrompt } from "../../native/prompt-converter.js";
+import { convertToNaiPrompt } from "../../native/prompt-converter.ts";
 const { drawing, view } = useDrawing();
 const emit = defineEmits<{ import: [] }>();
 const props = defineProps<{ suggest: boolean }>();

@@ -1,4 +1,6 @@
-function comparisonColumns(total) {
+import type { ImageRecord, DrawingParams } from "../domain/drawing.ts";
+
+function comparisonColumns(total: number): number {
   if (total <= 2) return total;
   if (total === 3) return 3;
   if (total <= 4) return 2;
@@ -7,14 +9,22 @@ function comparisonColumns(total) {
   return Math.ceil(Math.sqrt(total));
 }
 
-async function drawBlobContained(ctx, blob, x, y, width, height) {
-  let source = null;
+async function drawBlobContained(
+  ctx: CanvasRenderingContext2D,
+  blob: Blob,
+  x: number,
+  y: number,
+  width: number,
+  height: number,
+): Promise<void> {
+  let source: ImageBitmap | HTMLImageElement | null = null;
   let release = () => {};
 
   if (typeof createImageBitmap === "function") {
     try {
-      source = await createImageBitmap(blob);
-      release = () => source.close?.();
+      const bitmap = await createImageBitmap(blob);
+      source = bitmap;
+      release = () => bitmap.close?.();
     } catch {
       source = null;
     }
@@ -26,8 +36,8 @@ async function drawBlobContained(ctx, blob, x, y, width, height) {
     image.src = url;
     try {
       if (image.decode) await image.decode();
-      else await new Promise((resolve, reject) => {
-        image.onload = resolve;
+      else await new Promise<void>((resolve, reject) => {
+        image.onload = () => resolve();
         image.onerror = () => reject(new Error("图片解码失败"));
       });
     } catch (error) {
@@ -50,8 +60,8 @@ async function drawBlobContained(ctx, blob, x, y, width, height) {
   }
 }
 
-function canvasBlob(canvas) {
-  return new Promise((resolve, reject) => {
+function canvasBlob(canvas: HTMLCanvasElement): Promise<Blob> {
+  return new Promise<Blob>((resolve, reject) => {
     canvas.toBlob((blob) => {
       if (blob) resolve(blob);
       else reject(new Error("浏览器未能编码对比图"));
@@ -59,7 +69,11 @@ function canvasBlob(canvas) {
   });
 }
 
-export async function makeComparison(records, base, signal) {
+export async function makeComparison(
+  records: ImageRecord[],
+  base: DrawingParams,
+  signal?: AbortSignal,
+): Promise<{ blob: Blob; size: { width: number; height: number } }> {
   const total = records.length;
   const columns = comparisonColumns(total);
   const rows = Math.ceil(total / columns);

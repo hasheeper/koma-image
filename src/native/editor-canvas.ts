@@ -1,4 +1,4 @@
-import type { MaskEditor } from "./mask-editor.js";
+import type { MaskEditor } from "./mask-editor.ts";
 /** Vue owns these nodes. This driver owns their delegated geometry, cursor and scroll only. */
 export function createEditorCanvas(
   root: HTMLDialogElement,

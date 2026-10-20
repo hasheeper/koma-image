@@ -1,12 +1,14 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import * as c from "../src/domain/conversation.js";
+import * as c from "../src/domain/conversation.ts";
 import {
   buildChatPayload,
   buildEditorPayload,
+  buildNAIEditPayload,
+  buildUpscalePayload,
   validateEditorSource,
   editorModels,
-} from "../src/domain/media.js";
+} from "../src/domain/media.ts";
 const model = {
   id: "gemini-3-pro-image",
   provider: "gemini",
@@ -107,6 +109,40 @@ test("chat: duplicate remaps ancestry/version IDs, preserves shared assets, drop
   assert.equal(revived.turns[1].versions[1].status, "cancelled");
   assert.equal(revived.attachments.length, 0);
 });
+
+test("chat: stable pin order, missing branch references and result completion keep original state rules", () => {
+  const con = c.newConversation(), peer = c.newConversation();
+  con.updatedAt = peer.updatedAt = 100;
+  assert.deepEqual(c.sortConversations([con, peer]), [con, peer]);
+  peer.pinned = true;
+  const rows = [con, peer];
+  assert.deepEqual(c.sortConversations(rows), [peer, con]);
+  assert.deepEqual(rows, [con, peer]);
+
+  const { turn, version } = c.beginTurn(con, c.contextSnapshot(con, "next"), "next", {});
+  const before = structuredClone(con);
+  assert.throws(() => c.completeVersion(con, turn, version, [{ type: "text", text: "no image" }], null, 0), /结果没有图片/);
+  assert.deepEqual(con, before);
+  const blocks = [{ type: "text", text: "result" }, { type: "image", assetId: "first" }, { type: "image", assetId: "second" }];
+  assert.equal(c.completeVersion(con, turn, version, blocks, null, 0), true);
+  assert.equal(con.mainId, "first");
+  assert.equal(version.quote, null);
+  assert.deepEqual(version.blocks, blocks);
+  assert.equal(c.completeVersion(con, turn, version, [], { cost: 0 }, 0), false);
+  assert.deepEqual([...c.assetRefs([con])], ["first", "second"]);
+
+  turn.parentId = turn.snapshot.parentId = "missing";
+  turn.snapshot.turnIds = [turn.id, "missing"];
+  con.skipTurnIds = [turn.id, "missing"];
+  const copy = c.duplicateConversation(con);
+  assert.equal(copy.turns[0].parentId, null);
+  assert.equal(copy.turns[0].snapshot.parentId, null);
+  assert.deepEqual(copy.turns[0].snapshot.turnIds, [copy.turns[0].id, "missing"]);
+  assert.deepEqual(copy.skipTurnIds, [copy.turns[0].id]);
+  assert.deepEqual(c.ancestry(con).map((t) => t.id), [turn.id]);
+  turn.parentId = turn.id;
+  assert.throws(() => c.ancestry(con), /会话分支无效/);
+});
 test("media: generation/edit fields, Gemini output_size and strict count/text limits", () => {
   assert.equal(buildChatPayload(model, "word", {}, []).tool, undefined);
   const p = buildChatPayload(model, "exact text", { image_size: "2K" }, [
@@ -186,4 +222,46 @@ test("editor: source/mask dimensions, seed zero, per-mode payload allowlist, ded
     /上限/,
   );
   assert.equal(editorModels({ models: [nai, upscale] }, "upscale").length, 2);
+});
+
+test("media: numeric validation order, defaults and mode-specific output fields survive type narrowing", () => {
+  const nai = { ...model, id: "nai-diffusion-5-full", provider: "novelai", tools: ["img2img", "inpaint", "upscale"] };
+  const image = png(256, 256);
+  const p = buildNAIEditPayload(nai, "img2img", image, {
+    prompt: "  ", seed: 0, steps: "25", scale: 0, strength: 0, noise: 0,
+    max_cost: 100, cache: true, transform_prompt: true, unused: "drop",
+  });
+  assert.equal(p.prompt, "best quality");
+  assert.equal(p.steps, 25);
+  for (const key of ["seed", "scale", "strength", "noise"]) assert.equal(p[key], 0);
+  assert.deepEqual(Object.keys(p), [
+    "model", "tool", "init_image", "prompt", "negative_prompt", "cache", "transform_prompt", "transform_mode",
+    "noise_schedule", "cfg_rescale", "steps", "scale", "seed", "strength", "noise", "sampler",
+  ]);
+  assert.equal(p.cache, false);
+  assert.equal(p.transform_prompt, false);
+  const defaults = buildNAIEditPayload(nai, "img2img", image, { seed: null, strength: undefined });
+  assert.equal(defaults.seed, -1);
+  assert.equal(defaults.strength, 0.5);
+  const masked = buildNAIEditPayload(nai, "inpaint", image, {}, image);
+  assert.equal(masked.strength, 1);
+  assert.equal(masked.mask_image, image);
+  assert.throws(() => buildNAIEditPayload(nai, "img2img", image, { steps: 0, seed: -2 }), /参数 steps 超出范围/);
+  for (const [key, value] of [["steps", 1.5], ["scale", 21], ["seed", 4294967296], ["strength", -0.1], ["noise", Infinity]]) {
+    assert.throws(() => buildNAIEditPayload(nai, "img2img", image, { [key]: value }), new RegExp(`参数 ${key} 超出范围`));
+  }
+  assert.throws(() => buildNAIEditPayload(nai, "img2img", image, {}, image), /图生图不接受蒙版/);
+  assert.throws(() => buildEditorPayload("img2img", nai, { original: image }), /底图须为/);
+  assert.throws(() => buildEditorPayload("upscale", nai, { png: image }), /仅接受/);
+
+  const native = buildUpscalePayload(nai, image, { ignored: "option" }, "  keep  ");
+  assert.equal(native.prompt, "  keep  ");
+  assert.equal(native.tool, "upscale");
+  assert.equal(Object.hasOwn(native, "image_options"), false);
+  const dedicated = { ...model, id: "fal-upscale", provider: "fal", name: "Upscale", tools: ["image-edit"] };
+  const up = buildUpscalePayload(dedicated, image);
+  assert.equal(up.tool, "image-edit");
+  assert.deepEqual(up.image_options, { image_size: "1K" });
+  assert.equal(up.prompt, "Upscale the image while preserving the original composition, colors and details.");
+  assert.throws(() => buildUpscalePayload(dedicated, image, { image_size: "4K" }), /参数 image_size 不受模型支持/);
 });

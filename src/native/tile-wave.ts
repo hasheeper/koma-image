@@ -22,6 +22,19 @@
    frame mounted mid-wave (a re-rendered message, the stage after a batch
    step) continues the same wave instead of restarting it. */
 
+export interface TileWave {
+  resize(): void;
+  draw(now: number): void;
+  reveal(source: CanvasImageSource): Promise<boolean>;
+  reset(): void;
+  destroy(): void;
+}
+interface LiveWave extends TileWave {
+  canvas: HTMLCanvasElement;
+  visible: boolean | null;
+}
+interface ScaledImage { canvas: HTMLCanvasElement; source: CanvasImageSource }
+
 const PERIOD = 2000;      // one swell, ms
 const PEAK = 0.45;        // share of the period spent rising
 const STEP = 90;          // ms between neighbouring diagonals: about 22 diagonals
@@ -31,25 +44,25 @@ const LENGTH = 1350;      // the crest, ms; the last tile settles at ~1270
 const INK = "rgb(179, 161, 255)";
 const INK_ALPHA = 0.26;   // a tile at the top of its swell, mid-field
 
-const clamp01 = v => Math.min(1, Math.max(0, v));
-const lerp = (a, b, t) => a + (b - a) * t;
-const ease = t => 1 - (1 - t) ** 3;
-const easeIO = t => t < 0.5 ? 4 * t * t * t : 1 - (2 - 2 * t) ** 3 / 2;
-const smooth = (a, b, v) => { const t = clamp01((v - a) / (b - a)); return t * t * (3 - 2 * t); };
+const clamp01 = (v: number) => Math.min(1, Math.max(0, v));
+const lerp = (a: number, b: number, t: number) => a + (b - a) * t;
+const ease = (t: number) => 1 - (1 - t) ** 3;
+const easeIO = (t: number) => t < 0.5 ? 4 * t * t * t : 1 - (2 - 2 * t) ** 3 / 2;
+const smooth = (a: number, b: number, v: number) => { const t = clamp01((v - a) / (b - a)); return t * t * (3 - 2 * t); };
 const reduced = matchMedia("(prefers-reduced-motion: reduce)");
 
 // 0 → 1 → 0 once per period, offset by the tile's diagonal.
-function swell(now, x, y) {
+function swell(now: number, x: number, y: number): number {
   const u = (((now - (x + y) * STEP) % PERIOD) + PERIOD) % PERIOD / PERIOD;
   return 0.5 - 0.5 * Math.cos(Math.PI * (u < PEAK ? u / PEAK : 1 - (u - PEAK) / (1 - PEAK)));
 }
 
 /* One clock for every wave on the page. Frames that are off screen, detached
    or hidden (the stage's busy layer between jobs) are not drawn at all. */
-const live = new Set();
-const byCanvas = new WeakMap();
+const live = new Set<LiveWave>();
+const byCanvas = new WeakMap<Element, LiveWave>();
 let ticking = false;
-function tick(now) {
+function tick(now: number) {
   for (const wave of live) {
     if (wave.canvas.isConnected) wave.draw(now);
     else live.delete(wave);
@@ -74,7 +87,7 @@ const sized = new ResizeObserver(entries => {
   for (const entry of entries) byCanvas.get(entry.target)?.resize();
 });
 
-function onScreen(node) {
+function onScreen(node: Element): boolean {
   const box = node.getBoundingClientRect();
   return box.width > 0 && box.bottom > 0 && box.right > 0 && box.top < innerHeight && box.left < innerWidth;
 }
@@ -84,19 +97,30 @@ function onScreen(node) {
    few chunky blocks. `fade` dissolves the field into its surroundings; a
    thumbnail keeps its edge, since there it is a control with its own outline
    and too small to spare the border. */
-export function tileWave(frame, { cell = 0, fade = true } = {}) {
+export function tileWave(
+  frame: HTMLElement,
+  { cell = 0, fade = true }: { cell?: number; fade?: boolean } = {},
+): TileWave {
   const canvas = document.createElement("canvas");
   canvas.className = "tile-wave";
   canvas.setAttribute("aria-hidden", "true");
   frame.append(canvas);
-  const g = canvas.getContext("2d");
+  const context = canvas.getContext("2d");
+  if (!context) {
+    canvas.remove();
+    throw new Error("当前浏览器不支持 Canvas 动画");
+  }
+  const g = context;
 
-  let w = 0, h = 0, dpr = 1, cols = 0, rows = 0, pw = 0, ph = 0, base = 0, edge = null;
+  let w = 0, h = 0, dpr = 1, cols = 0, rows = 0, pw = 0, ph = 0, base = 0;
+  let edge: Float32Array<ArrayBuffer> | null = null;
   // `finished` freezes the last frame: the merged picture, or the still wave
   // under reduced motion. Either way there is nothing left to animate.
-  let art = null, at = 0, finished = false, timer = 0, settle = null;
+  let art: ScaledImage | null = null;
+  let at = 0, finished = false, timer = 0;
+  let settle: ((played: boolean) => void) | null = null;
 
-  const wave = {
+  const wave: LiveWave = {
     // null until the observer first reports; reveal() measures it itself then.
     canvas, visible: null,
     resize() {
@@ -123,19 +147,19 @@ export function tileWave(frame, { cell = 0, fade = true } = {}) {
     },
     draw(now) {
       if (finished) { live.delete(wave); return; }
-      if (!w) return;
+      if (!w || !edge) return;
       g.setTransform(dpr, 0, 0, dpr, 0, 0);
       g.clearRect(0, 0, w, h);
       // Reduced motion holds one frame of the wave: the diagonal still reads,
       // nothing moves.
       if (!art) {
-        paintWave(reduced.matches ? PERIOD * 0.3 : now);
+        paintWave(reduced.matches ? PERIOD * 0.3 : now, edge);
         if (reduced.matches) stop();
         return;
       }
       const k = (now - at) / 1000;
       if (k * 1000 >= LENGTH) { g.drawImage(art.canvas, 0, 0, w, h); stop(); return; }
-      paintCrest(now, k);
+      paintCrest(now, k, art, edge);
     },
     /* Opens the wave onto `source` (a decoded image). Resolves once the canvas
        shows the whole picture — true if the crest played, false if it was
@@ -149,11 +173,11 @@ export function tileWave(frame, { cell = 0, fade = true } = {}) {
       art = scaled(source); at = performance.now(); finished = false;
       frame.dataset.wave = "crest";
       live.add(wave); wake();
-      return new Promise(resolve => {
+      return new Promise<boolean>(resolve => {
         // A timer, not the frame loop: frames stop in a background tab and
         // the caller would otherwise wait for the user to come back.
         settle = played => { settle = null; clearTimeout(timer); resolve(played); };
-        timer = setTimeout(() => settle(true), LENGTH);
+        timer = window.setTimeout(() => settle?.(true), LENGTH);
       });
     },
     // Back to the wave, for the next job in the same frame.
@@ -175,10 +199,11 @@ export function tileWave(frame, { cell = 0, fade = true } = {}) {
   function stop() { finished = true; live.delete(wave); }
 
   // The picture at the canvas's own pixel size, so every window is a 1:1 copy.
-  function scaled(source) {
+  function scaled(source: CanvasImageSource): ScaledImage {
     const copy = document.createElement("canvas");
     copy.width = canvas.width; copy.height = canvas.height;
     const cg = copy.getContext("2d");
+    if (!cg) throw new Error("当前浏览器不支持 Canvas 动画");
     cg.imageSmoothingQuality = "high";
     cg.drawImage(source, 0, 0, copy.width, copy.height);
     return { canvas: copy, source };
@@ -187,14 +212,14 @@ export function tileWave(frame, { cell = 0, fade = true } = {}) {
   // A tile's look at rest: side length and alpha for swell `s`, edge `e`.
   // Light falls off steeply from the crest, so only one band reads clearly at
   // a time; the trough keeps a trace so the field never empties between crests.
-  const sideAt = (s, e) => lerp(0.5, 0.82, s) * lerp(0.6, 1, e) * base;
-  const alphaAt = (s, e) => INK_ALPHA * lerp(0.06, 1, s * s) * e;
+  const sideAt = (s: number, e: number) => lerp(0.5, 0.82, s) * lerp(0.6, 1, e) * base;
+  const alphaAt = (s: number, e: number) => INK_ALPHA * lerp(0.06, 1, s * s) * e;
 
   /* Tiles at rest share a handful of alpha levels, so the wave is a few
      batched fills rather than one per tile. */
   const LEVELS = 16;
-  function paintWave(now) {
-    const buckets = Array.from({ length: LEVELS }, () => []);
+  function paintWave(now: number, edge: Float32Array) {
+    const buckets = Array.from({ length: LEVELS }, (): number[] => []);
     for (let y = 0; y < rows; y++) for (let x = 0; x < cols; x++) {
       const s = swell(now, x, y), e = edge[y * cols + x], a = alphaAt(s, e);
       if (a < 0.004) continue;
@@ -219,7 +244,7 @@ export function tileWave(frame, { cell = 0, fade = true } = {}) {
      the last sliver of gap decisively instead of leaving a hairline grid.
      Windows open at full strength even where the field had faded: the picture
      reaches its own edges. */
-  function paintCrest(now, k) {
+  function paintCrest(now: number, k: number, art: ScaledImage, edge: Float32Array) {
     const sx = art.canvas.width / w, sy = art.canvas.height / h, span = cols + rows - 2;
     for (let y = 0; y < rows; y++) for (let x = 0; x < cols; x++) {
       const delay = (x + y) / span * 0.75;

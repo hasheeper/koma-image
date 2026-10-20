@@ -1,5 +1,13 @@
-const id = () => crypto.randomUUID();
-export function newConversation(settings = {}) {
+import type {
+  ConversationRecord,
+  ConversationTurn,
+  ConversationVersion,
+  Fields,
+  MessageBlock,
+} from "../storage/records.ts";
+
+const id = (): string => crypto.randomUUID();
+export function newConversation(settings: Fields = {}): ConversationRecord {
   return {
     id: id(),
     title: "新对话",
@@ -20,7 +28,7 @@ export function newConversation(settings = {}) {
 }
 /* Nothing sent, nothing typed, nothing staged: a second "new conversation"
    would only be a duplicate of this one. */
-export function isBlank(conversation) {
+export function isBlank(conversation: ConversationRecord): boolean {
   return (
     !conversation.turns.length &&
     !conversation.prompt.trim() &&
@@ -28,7 +36,7 @@ export function isBlank(conversation) {
   );
 }
 /* A name the user chose outranks the one taken from the first prompt. */
-export function renameConversation(conversation, title) {
+export function renameConversation(conversation: ConversationRecord, title: string): boolean {
   const name = String(title ?? "")
     .replace(/\s+/g, " ")
     .trim()
@@ -40,24 +48,25 @@ export function renameConversation(conversation, title) {
 }
 /* Pinned first, then most recently used. Array#sort is stable, so ties keep
    their current order instead of shuffling on every render. */
-export function sortConversations(conversations) {
+export function sortConversations(conversations: ConversationRecord[]): ConversationRecord[] {
   return [...conversations].sort(
-    (a, b) => b.pinned - a.pinned || b.updatedAt - a.updatedAt,
+    (a, b) => Number(b.pinned) - Number(a.pinned) || b.updatedAt - a.updatedAt,
   );
 }
 /* Turn and version ids are fresh because the page caches rendered turns by id
    across every conversation; shared ids would let the copy drive the
    original's DOM. Asset ids stay shared — images are content-addressed and
    collected by reference. The draft is not copied: a fork starts a new reply. */
-export function duplicateConversation(conversation) {
+export function duplicateConversation(conversation: ConversationRecord): ConversationRecord {
   const source = structuredClone({
     ...conversation,
     prompt: "",
     attachments: [],
   });
-  const ids = new Map(source.turns.map((t) => [t.id, id()]));
+  const ids = new Map<string | null, string>(source.turns.map((t) => [t.id, id()]));
   for (const turn of source.turns) {
-    turn.id = ids.get(turn.id);
+    // Every source turn's original ID was inserted above; only references may be missing.
+    turn.id = ids.get(turn.id)!;
     turn.parentId = ids.get(turn.parentId) ?? null;
     turn.snapshot.parentId = ids.get(turn.snapshot.parentId) ?? null;
     turn.snapshot.turnIds = turn.snapshot.turnIds.map((t) => ids.get(t) ?? t);
@@ -76,7 +85,7 @@ export function duplicateConversation(conversation) {
     title: `${conversation.title}（副本）`.slice(0, 60),
     renamed: true,
     headId: ids.get(conversation.headId) ?? null,
-    skipTurnIds: source.skipTurnIds.map((t) => ids.get(t)).filter(Boolean),
+    skipTurnIds: source.skipTurnIds.map((t) => ids.get(t)).filter((id): id is string => Boolean(id)),
     pinned: false,
     updatedAt: Date.now(),
   };
@@ -85,17 +94,17 @@ export function duplicateConversation(conversation) {
    whatever its provenance — an upload, or a result they promoted and then
    replaced. Membership is a decision, not a fact about the image, so it lives
    here while `origin` (upload vs result) stays on the asset itself. */
-export function retainImage(conversation, assetId) {
+export function retainImage(conversation: ConversationRecord, assetId: string): void {
   if (!assetId) return;
   if (!conversation.keepIds.includes(assetId))
     conversation.keepIds.push(assetId);
 }
-export function attachUpload(conversation, assetId) {
+export function attachUpload(conversation: ConversationRecord, assetId: string): void {
   retainImage(conversation, assetId);
   if (!conversation.attachments.includes(assetId))
     conversation.attachments.push(assetId);
 }
-export function forgetImage(conversation, assetId) {
+export function forgetImage(conversation: ConversationRecord, assetId: string): void {
   // A held base is held to this picture; once it leaves, nothing is held.
   if (conversation.mainId === assetId)
     Object.assign(conversation, { mainId: null, baseFollows: true });
@@ -106,7 +115,7 @@ export function forgetImage(conversation, assetId) {
   // completed turn would helpfully "restore" the image the user just cut.
   conversation.keepIds = conversation.keepIds.filter((x) => x !== assetId);
 }
-export function reorderRefs(conversation, order) {
+export function reorderRefs(conversation: ConversationRecord, order: string[]): void {
   const known = new Set(order);
   conversation.keepIds = [
     ...order,
@@ -118,9 +127,14 @@ export function reorderRefs(conversation, order) {
    every version of it returned, on every branch — newest first, so the panel
    can offer back anything that has left the context. `turnId` is where it
    first appeared; `result` says whether a model made it there. */
-export function conversationImages(conversation) {
-  const seen = new Map();
-  const note = (assetId, turnId, result) => {
+export interface ConversationImage {
+  assetId: string;
+  turnId: string | null;
+  result: boolean;
+}
+export function conversationImages(conversation: ConversationRecord): ConversationImage[] {
+  const seen = new Map<string, ConversationImage>();
+  const note = (assetId: string | null, turnId: string | null, result: boolean) => {
     if (assetId && !seen.has(assetId))
       seen.set(assetId, { assetId, turnId, result });
   };
@@ -139,11 +153,11 @@ export function conversationImages(conversation) {
 }
 /* Every image a conversation still needs: what it will send next, and what
    each turn sent and returned. Nothing else needs to be kept. */
-export function assetRefs(conversations) {
-  const used = new Set();
+export function assetRefs(conversations: ConversationRecord[]): Set<string> {
+  const used = new Set<string>();
   for (const c of conversations) {
     [c.mainId, ...c.attachments, ...c.keepIds]
-      .filter(Boolean)
+      .filter((id): id is string => Boolean(id))
       .forEach((id) => used.add(id));
     for (const t of c.turns) {
       t.snapshot.imageIds.forEach((id) => used.add(id));
@@ -160,7 +174,10 @@ export function assetRefs(conversations) {
    interrupted instead of waiting forever. Fields added after the record was
    written get their defaults, and an image that is missing from storage is
    dropped from the next turn's context. */
-export function reviveConversation(record, hasAsset = () => true) {
+export function reviveConversation(
+  record: ConversationRecord,
+  hasAsset: (id: string) => boolean = () => true,
+): ConversationRecord {
   const conversation = { ...newConversation(record.settings), ...record };
   for (const turn of conversation.turns)
     for (const version of turn.versions) {
@@ -179,10 +196,13 @@ export function reviveConversation(record, hasAsset = () => true) {
   }
   return conversation;
 }
-export function ancestry(conversation, headId = conversation.headId) {
+export function ancestry(
+  conversation: ConversationRecord,
+  headId: string | null = conversation.headId,
+): ConversationTurn[] {
   const byId = new Map(conversation.turns.map((t) => [t.id, t]));
-  const chain = [],
-    seen = new Set();
+  const chain: ConversationTurn[] = [];
+  const seen = new Set<string>();
   while (headId) {
     if (seen.has(headId)) throw new Error("会话分支无效");
     seen.add(headId);
@@ -199,16 +219,16 @@ export function ancestry(conversation, headId = conversation.headId) {
    through array order. `limit` mirrors the model's ceiling so the panel can show
    what would be dropped rather than failing at send time. */
 /* The turns whose text can ride along: done turns on the current branch. */
-export function branchTurns(conversation) {
+export function branchTurns(conversation: ConversationRecord): ConversationTurn[] {
   return ancestry(conversation).filter(
     (t) => t.versions[t.selectedVersion]?.status === "done",
   );
 }
 export function contextSnapshot(
-  conversation,
+  conversation: ConversationRecord,
   prompt = conversation.prompt,
   limit = Infinity,
-) {
+): ConversationTurn["snapshot"] {
   const skip = new Set(conversation.skipTurnIds);
   const turns = branchTurns(conversation).filter((t) => !skip.has(t.id));
   const base = conversation.mainId || null;
@@ -243,8 +263,13 @@ export function contextSnapshot(
     parentId: conversation.headId,
   };
 }
-export function beginTurn(conversation, snapshot, prompt, settings) {
-  const turn = {
+export function beginTurn(
+  conversation: ConversationRecord,
+  snapshot: ConversationTurn["snapshot"],
+  prompt: string,
+  settings: Fields,
+): { turn: ConversationTurn; version: ConversationVersion } {
+  const turn: ConversationTurn = {
     id: id(),
     parentId: snapshot.parentId,
     prompt,
@@ -265,10 +290,10 @@ export function beginTurn(conversation, snapshot, prompt, settings) {
     conversation.title = prompt.replace(/\s+/g, " ").slice(0, 36);
   return { turn, version: beginVersion(turn) };
 }
-export function beginVersion(turn) {
+export function beginVersion(turn: ConversationTurn): ConversationVersion {
   if (turn.versions.some((v) => v.status === "pending"))
     throw new Error("该轮仍在生成");
-  const version = {
+  const version: ConversationVersion = {
     id: id(),
     status: "pending",
     blocks: [],
@@ -280,26 +305,27 @@ export function beginVersion(turn) {
   return version;
 }
 export function completeVersion(
-  conversation,
-  turn,
-  version,
-  blocks,
-  quote,
-  selectionRevision,
-) {
+  conversation: ConversationRecord,
+  turn: ConversationTurn,
+  version: ConversationVersion,
+  blocks: MessageBlock[],
+  quote: Fields | null,
+  selectionRevision: number,
+): boolean {
   if (version.status !== "pending") return false;
-  if (!blocks.some((b) => b.type === "image")) throw new Error("结果没有图片");
+  const image = blocks.find((b) => b.type === "image");
+  if (!image) throw new Error("结果没有图片");
   Object.assign(version, { status: "done", blocks, quote });
   if (conversation.selectionRevision === selectionRevision) {
     conversation.headId = turn.id;
     // A held base stays put while the text moves on; with nothing to hold,
     // the result becomes the base as usual.
     if (conversation.baseFollows || !conversation.mainId)
-      conversation.mainId = blocks.find((b) => b.type === "image").assetId;
+      conversation.mainId = image.assetId;
   }
   return true;
 }
-export function selectSource(conversation, turn, assetId) {
+export function selectSource(conversation: ConversationRecord, turn: ConversationTurn, assetId: string): void {
   conversation.headId = turn.id;
   conversation.mainId = assetId;
   conversation.selectionRevision += 1;

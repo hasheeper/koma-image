@@ -17,6 +17,28 @@
  * can show it without pretending it will carry over.
  */
 
+export type ImageFields = {
+  prompt?: string;
+  negative_prompt?: string;
+  model?: string;
+  sampler?: string;
+  width?: number;
+  height?: number;
+  steps?: number;
+  scale?: number;
+  seed?: number;
+  /** Used by in-memory history import; file parsers never map CFG Rescale here. */
+  cfg?: number;
+};
+type Extra = { label: string; value: string };
+type ParsedMetadata = {
+  dialect: string;
+  source?: string;
+  fields: ImageFields;
+  extras: Extra[];
+};
+export interface ImageMetadata extends ParsedMetadata { name: string }
+
 const PNG_SIGNATURE = [0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a];
 const JPEG_SIGNATURE = [0xff, 0xd8, 0xff];
 const MAX_BYTES = 40 * 1024 * 1024;
@@ -28,7 +50,7 @@ const utf8Strict = new TextDecoder("utf-8", { fatal: true });
 /* PNG tEXt is Latin-1 by spec, but every generator in practice writes UTF-8
    bytes into it, which matters the moment a prompt contains CJK. Try strict
    UTF-8 first and fall back only when the bytes cannot be valid UTF-8. */
-function decodeText(bytes) {
+function decodeText(bytes: Uint8Array): string {
   try {
     return utf8Strict.decode(bytes);
   } catch {
@@ -36,23 +58,23 @@ function decodeText(bytes) {
   }
 }
 
-function startsWith(bytes, signature) {
+function startsWith(bytes: Uint8Array, signature: readonly number[]): boolean {
   return signature.every((byte, index) => bytes[index] === byte);
 }
 
-async function inflate(bytes) {
+async function inflate(bytes: Uint8Array<ArrayBuffer>): Promise<Uint8Array<ArrayBuffer>> {
   const stream = new Blob([bytes]).stream().pipeThrough(new DecompressionStream("deflate"));
   return new Uint8Array(await new Response(stream).arrayBuffer());
 }
 
-function splitNul(bytes, from = 0) {
+function splitNul(bytes: Uint8Array<ArrayBuffer>, from = 0): [Uint8Array<ArrayBuffer>, number] {
   const at = bytes.indexOf(0, from);
   return at < 0 ? [bytes.subarray(from), bytes.length] : [bytes.subarray(from, at), at + 1];
 }
 
 /** Collect every textual chunk in a PNG, keyed by keyword. */
-async function readPngText(bytes) {
-  const found = new Map();
+async function readPngText(bytes: Uint8Array<ArrayBuffer>): Promise<Map<string, string>> {
+  const found = new Map<string, string>();
   const view = new DataView(bytes.buffer, bytes.byteOffset, bytes.byteLength);
   let at = 8;
 
@@ -89,17 +111,17 @@ async function readPngText(bytes) {
 /* JPEG keeps no PNG chunks. NovelAI and most WebUI exports write the same
    payload into an EXIF UserComment, which is enough to find by scanning for
    the JSON or the parameters block rather than walking the full TIFF tree. */
-function readJpegText(bytes) {
-  const found = new Map();
+function readJpegText(bytes: Uint8Array): Map<string, string> {
+  const found = new Map<string, string>();
   const text = latin1.decode(bytes);
-  const json = text.match(/\{"prompt":[\s\S]*?\}(?=\u0000|$)/);
+  const json = /\{"prompt":[\s\S]*?\}(?=\u0000|$)/.exec(text);
   if (json) found.set("Comment", decodeText(bytes.subarray(json.index, json.index + json[0].length)));
-  const webui = text.match(/[\s\S]{0,8000}?Steps:\s*\d+[^\u0000]*/);
+  const webui = /[\s\S]{0,8000}?Steps:\s*\d+[^\u0000]*/.exec(text);
   if (!json && webui) found.set("parameters", decodeText(bytes.subarray(webui.index, webui.index + webui[0].length)));
   return found;
 }
 
-const SAMPLER_ALIASES = {
+const SAMPLER_ALIASES: Record<string, string | undefined> = {
   "euler a": "k_euler_ancestral",
   "euler ancestral": "k_euler_ancestral",
   euler: "k_euler",
@@ -112,48 +134,53 @@ const SAMPLER_ALIASES = {
   plms: "plms"
 };
 
-function normalizeSampler(value) {
+function normalizeSampler(value: unknown): string | undefined {
   const raw = String(value || "").trim();
   if (!raw) return undefined;
   if (/^k_|^ddim|^plms/i.test(raw)) return raw.toLowerCase();
   return SAMPLER_ALIASES[raw.toLowerCase()];
 }
 
-function finiteNumber(value) {
+function finiteNumber(value: unknown): number | undefined {
   const n = Number(value);
   return Number.isFinite(n) ? n : undefined;
 }
 
-function cleanText(value) {
+function cleanText(value: unknown): string | undefined {
   return typeof value === "string" ? value.trim() : undefined;
 }
 
 /* "NovelAI Diffusion V4.5 C02D4F98" names the release; the trailing hash
    is the checkpoint and means nothing to a reader. */
-function naiSource(name) {
+function naiSource(name: unknown): string | undefined {
   const text = String(name || "").replace(/\s+[0-9a-f]{8}$/i, "").trim();
   return text || undefined;
 }
 
 /* Releases map onto this app's model IDs by version. The hash cannot tell
    Full from Curated, so an unlabelled V4 / V4.5 image reads as Full. */
-function naiModel(source) {
+function naiModel(source: string | undefined): string | undefined {
   const match = String(source || "").match(/NovelAI Diffusion V(\d+)(?:\.(\d+))?/i);
   if (!match) return undefined;
-  return `nai-diffusion-${match[1]}${match[2] ? `-${match[2]}` : ""}-${/curated/i.test(source) ? "curated" : "full"}`;
+  return `nai-diffusion-${match[1]}${match[2] ? `-${match[2]}` : ""}-${/curated/i.test(source || "") ? "curated" : "full"}`;
+}
+
+/** JSON children stay unknown; preserve optional property access, including primitive boxing. */
+function field(value: unknown, key: string | number): unknown {
+  return value == null ? undefined : Reflect.get(Object(value), key);
 }
 
 /* NAI places characters on a 5×5 grid, columns A–E and rows 1–5. */
-function gridCell(center) {
-  const cell = (value) => Math.min(4, Math.max(0, Math.floor(Number(value) * 5)));
-  return center && Number.isFinite(Number(center.x)) && Number.isFinite(Number(center.y))
-    ? `${"ABCDE"[cell(center.x)]}${cell(center.y) + 1}`
+function gridCell(center: unknown): string {
+  const cell = (value: unknown) => Math.min(4, Math.max(0, Math.floor(Number(value) * 5)));
+  return center && Number.isFinite(Number(field(center, "x"))) && Number.isFinite(Number(field(center, "y")))
+    ? `${"ABCDE"[cell(field(center, "x"))]}${cell(field(center, "y")) + 1}`
     : "";
 }
 
-function naiExtras(data) {
-  const extras = [];
-  const add = (label, value) => {
+function naiExtras(data: Record<string, unknown>): Extra[] {
+  const extras: Extra[] = [];
+  const add = (label: string, value: unknown) => {
     if (value === undefined || value === null || value === "") return;
     extras.push({ label, value: String(value) });
   };
@@ -163,13 +190,15 @@ function naiExtras(data) {
     add("重绘强度", finiteNumber(data.strength));
     add("噪声", finiteNumber(data.noise));
   }
-  const positioned = data.v4_prompt?.use_coords === true;
-  const characters = data.v4_prompt?.caption?.char_captions || [];
-  const avoided = data.v4_negative_prompt?.caption?.char_captions || [];
-  characters.forEach((item, index) => {
-    const where = positioned ? gridCell(item?.centers?.[0]) : "";
-    add(`角色 ${index + 1}${where ? ` · ${where}` : ""}`, cleanText(item?.char_caption));
-    add(`角色 ${index + 1} 排除`, cleanText(avoided[index]?.char_caption));
+  const positioned = field(data.v4_prompt, "use_coords") === true;
+  const characters: unknown = field(field(data.v4_prompt, "caption"), "char_captions") || [];
+  const avoided = field(field(data.v4_negative_prompt, "caption"), "char_captions") || [];
+  // The JS reader also failed here for a truthy non-array; do not silently accept it.
+  if (!Array.isArray(characters)) throw new TypeError("characters.forEach is not a function");
+  characters.forEach((item: unknown, index) => {
+    const where = positioned ? gridCell(field(field(item, "centers"), 0)) : "";
+    add(`角色 ${index + 1}${where ? ` · ${where}` : ""}`, cleanText(field(item, "char_caption")));
+    add(`角色 ${index + 1} 排除`, cleanText(field(field(avoided, index), "char_caption")));
   });
   const vibes = Array.isArray(data.reference_strength_multiple) ? data.reference_strength_multiple.length : 0;
   if (vibes) add("Vibe Transfer", `${vibes} 张`);
@@ -183,14 +212,15 @@ function naiExtras(data) {
 }
 
 /** NovelAI: JSON in the Comment chunk. */
-function fromNovelAI(comment, chunks) {
-  let data;
+function fromNovelAI(comment: string, chunks: Map<string, string>): ParsedMetadata | null {
+  let parsed: unknown;
   try {
-    data = JSON.parse(comment);
+    parsed = JSON.parse(comment);
   } catch {
     return null;
   }
-  if (!data || typeof data !== "object") return null;
+  if (!parsed || typeof parsed !== "object") return null;
+  const data = parsed as Record<string, unknown>;
 
   const source = naiSource(data.model_name || chunks.get("Source"));
   return {
@@ -218,7 +248,7 @@ function fromNovelAI(comment, chunks) {
 const WEBUI_USED = new Set(["steps", "sampler", "cfg scale", "seed", "size"]);
 
 /** A1111 / WebUI: freeform text in the parameters chunk. */
-function fromWebUI(text) {
+function fromWebUI(text: string): ParsedMetadata | null {
   const body = String(text || "");
   if (!body.trim()) return null;
 
@@ -239,7 +269,7 @@ function fromWebUI(text) {
     ? ""
     : head.slice(negativeMarker).replace(/(^|\n)Negative prompt:/, "").trim();
 
-  const settings = new Map(), extras = [];
+  const settings = new Map<string, string>(), extras: Extra[] = [];
   for (const pair of settingsLine.split(/,\s*(?=[A-Za-z][\w +/-]*:)/)) {
     const at = pair.indexOf(":");
     if (at <= 0) continue;
@@ -270,21 +300,19 @@ function fromWebUI(text) {
   };
 }
 
-function pruned(fields) {
-  const out = {};
-  for (const [key, value] of Object.entries(fields || {})) {
-    if (value === undefined || value === null || value === "") continue;
-    out[key] = value;
+function pruned(fields?: ImageFields): ImageFields {
+  const out = { ...fields };
+  for (const key of Object.keys(out) as (keyof ImageFields)[]) {
+    const value = out[key];
+    if (value === undefined || value === null || value === "") delete out[key];
   }
   return out;
 }
 
 /**
- * @param {File|Blob} file
- * @returns {Promise<{dialect:string, source?:string, fields:object, extras:{label:string, value:string}[], name:string}>}
  * @throws {Error} with a message meant to be shown to the reader
  */
-export async function readImageParams(file) {
+export async function readImageParams(file: Blob & { name?: string }): Promise<ImageMetadata> {
   if (!file) throw new Error("没有文件");
   const name = file.name || "图片";
   if (file.size > MAX_BYTES) throw new Error("文件超过 40 MB，未读取");
