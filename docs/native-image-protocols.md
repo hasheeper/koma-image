@@ -6,8 +6,8 @@
 
 | 协议 | 模型与鉴权 | 基础生成与修改 | 费用与额度 | 当前边界 |
 | --- | --- | --- | --- | --- |
-| OpenAI Images | GET /v1/models；Bearer；筛选 GPT Image 图像模型 | POST /v1/images/generations：JSON；POST /v1/images/edits：multipart，参考图使用 image[]；返回 data[].b64_json | 不假造预报价或账户余额；费用未知 | 对话页生图与参考图修改；不包含 Responses、流式部分图片、DALL·E、蒙版编辑或远程结果 URL 下载 |
-| Gemini 原生 | GET /v1beta/models，读取分页；x-goog-api-key | POST /v1beta/models/{model}:generateContent；contents/parts/inlineData；generationConfig；读取文本和内嵌图片 | 不套用标准网关的积分与 300／400 阈值；费用未知 | 对话页生图与参考图修改；沿用现有拼接上下文，每次请求独立，不宣称已经实现有状态的原生多轮和 thoughtSignature 续传 |
+| OpenAI Images | GET /v1/models；Bearer；读取 ID，由现有模型页匹配 | POST /v1/images/generations：JSON；POST /v1/images/edits：multipart，参考图使用 image[]；返回 data[].b64_json | 不假造预报价或账户余额；费用未知 | 对话页生图与参考图修改；不包含 Responses、流式部分图片、DALL·E、蒙版编辑或远程结果 URL 下载 |
+| Gemini 原生 | GET /v1beta/models?pageSize=1000，单次读取 ID；x-goog-api-key | POST /v1beta/models/{model}:generateContent；contents/parts/inlineData；generationConfig；读取文本和内嵌图片 | 不套用标准网关的积分与 300／400 阈值；费用未知 | 对话页生图与参考图修改；沿用现有拼接上下文，每次请求独立，不宣称已经实现有状态的原生多轮和 thoughtSignature 续传 |
 | NovelAI 官方 | 图片主机 image.novelai.net；账户主机 api.novelai.net；Bearer；GET /user/subscription | POST /ai/generate-image；input/model/action/parameters；基础生图、img2img、ZIP 原图解包 | 显示账户返回的两类可用额度之和为 Anlas；不推断免费、不生成虚拟报价，不承诺本次扣费 | 静态模型表沿用现有 NAI 型号，界面标记尚未实测；官方蒙版、放大、订阅优惠、V5 限额与具体模型参数仍待核验 |
 | Koma 标准网关 | 原目录、统计与鉴权 | 原三条执行路线 | 650/400ms 报价、执行前重报、max_cost、涨价提示、批量最多提示一次、原额度保护 | 行为保持；新增协议不关闭此协议的报价保护 |
 
@@ -16,8 +16,8 @@
 ## 已落地的结构
 
 - `gateway/profile.ts` 统一登记四种协议及鉴权、目录、报价、额度和路径能力。新增连接和现有连接均显式选择协议；未知 Profile 继续拒绝。
-- `gateway/native-protocols.ts` 负责原生目录和请求转换；UI／领域层继续使用现有规范模型与参数。模型目录不再要求所有协议返回 studio_features。
-- `gateway/transport.ts` 处理 Gemini 的安全模型路径、目录分页、OpenAI 的 multipart 边界，以及官方 NAI 的账户／图片两主机。URL 不携带 Key，不跟随重定向；版本前缀不会重复拼接。
+- `gateway/native-protocols.ts` 分开处理原生 ID 列表与匹配后的执行能力；UI／领域层继续使用现有规范模型与参数。不要求目录返回 studio_features，不按 ID 的品牌前缀或 supportedGenerationMethods 筛掉模型；未匹配 ID 留在设置供用户选择，不自动变成可生图模型。
+- `gateway/transport.ts` 处理 Gemini 的安全模型路径、OpenAI 的 multipart 边界，以及官方 NAI 的账户／图片两主机。Gemini 单次请求最多 1000 条，不追读 nextPageToken；URL 不携带 Key，不跟随重定向，版本前缀不重复拼接。
 - 原生协议不支持报价时，对话与编辑不再把“没有报价接口”显示成连接错误；编辑执行条件仍校验所选模型、源图和操作能力。费用始终为未知，不伪装成免费。
 - NAI 官方只允许固定图片地址；添加时明确说明 Key 的两个官方接收域名。已有其他地址的连接不能通过切换协议把保存的 Key 自动发送到官方域名，需单独添加并填写 Key。
 - 所有任务继续走应用级 runTask，共用 N=1；保留取消、超时、失败停止、不自动重试及原图字节。不改变数据键名；新版连接配置和备份携带 profileId。
@@ -38,10 +38,18 @@
 
 - `npm run check` 通过：字体一致性、Stylelint、严格类型、65 项单元测试及生产构建。
 - `node --test --test-concurrency=2 tests/*.browser.mjs tests/release.package.mjs`：55 项通过，合计 120 项自动化测试。
-- 新增协议测试覆盖显式协议选择、版本路径去重、安全模型 ID、Gemini 分页、鉴权、JSON／multipart／inlineData、NAI ZIP 与图生图、未知费用保存与备份、不调用标准网关报价／额度接口，以及失败与取消不重试。
+- 初次新增协议测试覆盖显式协议选择、版本路径去重、安全模型 ID、当时的 Gemini 分页、鉴权、JSON／multipart／inlineData、NAI ZIP 与图生图、未知费用保存与备份、不调用标准网关报价／额度接口，以及失败与取消不重试。ID 获取方式随后按下节调整。
 - 真实页面用合成响应完成两种对话协议的生成／参考图修改、NAI 绘图与编辑、协议保存／切换。禁止将已有其他地址连接的 Key 自动切到 NAI 官方，拒绝时控件恢复实际协议。未改原有标准网关回归断言。
 - 320／390／768／1440px 设置界面检查通过，复用原有样式，无横向溢出；截图位于忽略提交的 `.local/native-protocols/`。
 - 源码、文档、测试和构建产物的私有渠道标识／凭据模式扫描无命中。未增加依赖；此处记录本地验收，发布状态以实际 Git 提交与 Pages 部署为准。
+
+## 模型 ID 获取修正
+
+2026-10-21，按用户要求简化目录读取。旧版会追读分页，遇到重复 nextPageToken 或超过 20 个标记即抛出“模型列表分页异常”，导致已取得的 ID 也不可用。现在每次拉取只请求一次模型列表；Gemini 使用 pageSize=1000，不再追读分页或把分页标记作为连接成功条件。
+
+原生目录保留返回的 ID（Gemini 去掉协议的 models/ 前缀），无需额外能力字段。已有精确匹配继续可用；自定义 ID 在原模型页手动指定。能力选项来自用户选择的应用模型，发送时保留真正的上游 ID；没有匹配的条目只用于目录展示，不能直接当作图像模型执行。请求仍校验 ID 与路径安全，不自动试用另一协议。
+
+本次修正通过 `npm run check`（66 项单元测试、类型、样式及构建），以及原生协议／共享设置的 17 项页面测试。新增断言覆盖重复分页标记只请求一次、无能力字段的 ID 列表、自定义 ID 手动匹配与真实控件提交、关闭来源后不再可用；全部使用模拟响应，没有真实收费调用。
 
 ## 后续步骤
 

@@ -10,7 +10,7 @@ import type { GatewayProfile } from "./profile.ts";
 import { createTransport, readJson, errorMessage } from "./transport.ts";
 import { executionRoute, toNativePayload } from "./routes.ts";
 import type { ImagePayload } from "./routes.ts";
-import { nativeCatalog, nativeRequest } from "./native-protocols.ts";
+import { nativeCatalog, nativeMappedCatalog, nativeRequest } from "./native-protocols.ts";
 
 export class QuoteUnsupported extends Error {
   constructor() {
@@ -36,18 +36,7 @@ export function createGateway(
     context.assertCurrent();
     if (rawCache && !force) return rawCache;
     const readSignal = timedSignal(15_000, signal);
-    let source = await readJson(await transport.request(profilePath(profile, "catalog"), { signal: readSignal }));
-    if (profile.protocol === "gemini-native") {
-      const tokens = new Set<string>();
-      while (typeof source.nextPageToken === "string" && source.nextPageToken) {
-        const token = source.nextPageToken;
-        if (tokens.has(token) || tokens.size >= 20) throw new Error("模型列表分页异常");
-        tokens.add(token);
-        const next = await readJson(await transport.request(profilePath(profile, "catalog"), { signal: readSignal, pageToken: token }));
-        if (!Array.isArray(source.models) || !Array.isArray(next.models)) throw new Error("模型列表格式无效");
-        source = { ...next, models: [...source.models, ...next.models] };
-      }
-    }
+    const source = await readJson(await transport.request(profilePath(profile, "catalog"), { signal: readSignal }));
     const raw = validateCatalog(profile.protocol && profile.protocol !== "standard" ? nativeCatalog(profile, source) : source, profile);
     context.assertCurrent();
     rawCache = raw;
@@ -62,7 +51,8 @@ export function createGateway(
     context.assertCurrent();
     if (cached && !force) return cached;
     const raw = await rawCatalog(force, signal);
-    cached = normalizeCatalog(raw, context.routing, context.connection.id, profile);
+    const mapped = nativeMappedCatalog(profile, raw, context.routing, context.connection.id);
+    cached = normalizeCatalog(mapped, context.routing, context.connection.id, profile);
     return cached;
   }
   function wire(payload: ImagePayload): ImagePayload {

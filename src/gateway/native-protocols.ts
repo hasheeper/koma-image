@@ -1,5 +1,7 @@
 import { MODELS } from "../domain/models.ts";
-import { object, strings } from "../domain/value.ts";
+import { object } from "../domain/value.ts";
+import { catalogEntries, linkFor } from "../domain/catalog.ts";
+import type { Routing } from "../config/connections.ts";
 import { imageDimensions } from "../native/image-dimensions.ts";
 import type { GatewayProfile } from "./profile.ts";
 import { profilePath } from "./profile.ts";
@@ -9,7 +11,7 @@ import type { ImagePayload } from "./routes.ts";
 const field = (options: string[], value = options[0]) => ({ options, default: value });
 const ratios = ["1:1", "2:3", "3:2", "3:4", "4:3", "4:5", "5:4", "9:16", "16:9", "21:9"];
 
-/** Adapt public protocol metadata into the application's catalog, without inventing quotes. */
+/** Discovery lists upstream IDs; their use is decided by the existing model mappings. */
 export function nativeCatalog(profile: GatewayProfile, raw: unknown) {
   const data = object(raw), models: Record<string, unknown> = {};
   if (profile.protocol === "novelai") {
@@ -24,29 +26,44 @@ export function nativeCatalog(profile: GatewayProfile, raw: unknown) {
   if (!Array.isArray(entries)) throw new Error("模型列表不符合所选接口协议");
   for (const entry of entries) {
     const item = object(entry);
-    const id = String(profile.protocol === "openai-images" ? item.id || "" : item.name || "").replace(/^models\//, "");
-    if (!/^[a-zA-Z0-9][a-zA-Z0-9._-]{0,191}$/.test(id)) continue;
-    const openai = profile.protocol === "openai-images";
-    if (openai ? !/^(gpt-image-|chatgpt-image-)/.test(id)
-      : !/^gemini-.*image/.test(id) || !strings(item.supportedGenerationMethods).includes("generateContent")) continue;
+    const rawId: unknown = profile.protocol === "openai-images" ? item.id : item.name ?? item.id;
+    if (typeof rawId !== "string") continue;
+    const id = profile.protocol === "gemini-native" ? rawId.replace(/^models\//, "") : rawId;
+    if (!id.trim() || id.length > 512 || /[\x00-\x1f\x7f]/.test(id) || ["__proto__", "constructor", "prototype"].includes(id)) continue;
+    models[id] = {
+      name: typeof item.displayName === "string" ? item.displayName : id,
+      editor_family: profile.protocol === "openai-images" ? "gpt" : "gemini",
+    };
+  }
+  if (!Object.keys(models).length) throw new Error("连接没有返回模型 ID");
+  return { models };
+}
+
+/** Capabilities follow the chosen application model, never an upstream alias's spelling. */
+export function nativeMappedCatalog(profile: GatewayProfile, raw: Record<string, unknown>, routing: Routing, connection: string) {
+  if (profile.protocol !== "openai-images" && profile.protocol !== "gemini-native") return raw;
+  const openai = profile.protocol === "openai-images", entries = catalogEntries(raw);
+  const models: Record<string, unknown> = {};
+  for (const model of MODELS.filter(m => m.family === (openai ? "gpt" : "gemini"))) {
+    const link = linkFor(routing, connection, model, entries);
+    if (!link?.on || !Object.hasOwn(object(raw.models), link.id)) continue;
     const fields = openai ? {
       quality: field(["auto", "low", "medium", "high"], "auto"),
       size: field(["auto", "1024x1024", "1536x1024", "1024x1536"], "auto"),
       output_format: field(["png", "jpeg", "webp"], "png"),
     } : {
       aspect_ratio: field(ratios, "1:1"),
-      ...(!id.startsWith("gemini-2.5-") ? { image_size: field(["1K", "2K", "4K"], "1K") } : {}),
+      ...(!model.id.startsWith("gemini-2.5-") ? { image_size: field(["1K", "2K", "4K"], "1K") } : {}),
     };
-    models[id] = {
-      name: item.displayName || MODELS.find(m => m.id === id)?.name || id,
+    models[link.id] = {
+      name: model.name,
       provider: openai ? "openai" : "gemini", editor_family: openai ? "gpt" : "gemini",
       operations: ["generate", "edit"], tools: ["image-edit"], chat: true,
-      max_context_images: openai ? 16 : id.startsWith("gemini-2.5-") ? 3 : 14,
+      max_context_images: model.inputImages ?? 16,
       image_capabilities: { fields },
     };
   }
-  if (!Object.keys(models).length) throw new Error("此连接没有支持的图像模型");
-  return { models };
+  return { ...raw, models };
 }
 
 function imageData(value: unknown) {
@@ -71,7 +88,7 @@ export function nativeRequest(profile: GatewayProfile, payload: ImagePayload) {
   const input = images(payload), options = object(payload.image_options);
   const path = profilePath(profile, payload.tool ? "toolRun" : "generate");
   if (profile.protocol === "openai-images") {
-    if (!/^(gpt-image-|chatgpt-image-)/.test(payload.model)) throw new Error("请选择 GPT Image 模型");
+    if (!payload.model?.trim() || payload.model.length > 512 || /[\x00-\x1f\x7f]/.test(payload.model)) throw new Error("模型 ID 无效");
     if (input.length > 16) throw new Error("最多使用 16 张参考图");
     const body: Record<string, string | number> = { model: payload.model, prompt: String(payload.prompt || ""), n: 1 };
     for (const key of ["size", "quality", "output_format"])
@@ -86,7 +103,6 @@ export function nativeRequest(profile: GatewayProfile, payload: ImagePayload) {
     return { path, body: form, native: false };
   }
   if (profile.protocol === "gemini-native") {
-    if (!/^gemini-.*image/.test(payload.model)) throw new Error("请选择 Gemini 图像模型");
     const imageConfig: Record<string, string> = {};
     if (typeof options.aspect_ratio === "string") imageConfig.aspectRatio = options.aspect_ratio;
     const size = options.image_size ?? options.output_size;

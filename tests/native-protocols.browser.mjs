@@ -14,7 +14,7 @@ before(async () => {
   browser = await chromium.launch({ headless: true });
 });
 after(async () => { await browser?.close(); await server?.close(); });
-async function open(profile, seed = true) {
+async function open(profile, seed = true, customId = "") {
   const context = await browser.newContext({ viewport: { width: 1440, height: 900 }, reducedMotion: "reduce" });
   const page = await context.newPage(), requests = [], errors = [];
   page.setDefaultTimeout(12000);
@@ -40,8 +40,8 @@ async function open(profile, seed = true) {
     }
     const record = { url: url.href, path: url.pathname, method: request.method(), headers: request.headers(), body: request.postData() };
     requests.push(record);
-    if (url.pathname.endsWith("/v1/models")) return route.fulfill({ json: { data: [{ id: "gpt-image-1.5" }] } });
-    if (url.pathname.endsWith("/v1beta/models")) return route.fulfill({ json: { models: [{ name: "models/gemini-2.5-flash-image", supportedGenerationMethods: ["generateContent"] }] } });
+    if (url.pathname.endsWith("/v1/models")) return route.fulfill({ json: { data: [{ id: customId || "gpt-image-1.5" }] } });
+    if (url.pathname.endsWith("/v1beta/models")) return route.fulfill({ json: { models: [{ name: "models/" + (customId || "gemini-2.5-flash-image") }], nextPageToken: "repeated-token" } });
     if (url.pathname === "/user/subscription") return route.fulfill({ json: { active: true, tier: 3, trainingStepsLeft: { fixedTrainingStepsLeft: 1000, purchasedTrainingSteps: 100 } } });
     if (request.method() === "POST" && /\/images\/(generations|edits)$/.test(url.pathname))
       return route.fulfill({ json: { data: [{ b64_json: png.toString("base64") }] } });
@@ -123,6 +123,31 @@ test("NovelAI basic: ZIP generation, non-free wallet, image editor without quote
     assert.deepEqual(await page.evaluate(() => [...new Set(editor.snapshot().models.flatMap(m => m.tools))]), ["img2img"]);
     assert.deepEqual(t.errors, []);
   } finally { await t.context.close(); }
+});
+
+test("native settings: user maps a returned custom ID and the chat submits that exact upstream ID", async () => {
+  for (const protocol of ["openai-images-v1", "gemini-native-v1"]) {
+    const alias = protocol === "openai-images-v1" ? "custom/render@v2" : "custom-render@v2";
+    const name = protocol === "openai-images-v1" ? "GPT Image 1.5" : "Nano Banana";
+    const t = await open(protocol, true, alias), { page } = t;
+    try {
+      await page.evaluate(() => { location.hash = "#/chat/settings/models"; });
+      await page.locator("#settingsPanel[open]").waitFor();
+      await page.getByRole("button", { name: `展开 ${name} 的来源`, exact: true }).click();
+      await page.getByRole("combobox", { name: `为 ${name} 指定 模拟协议 上的 ID`, exact: true }).selectOption(alias);
+      await page.waitForFunction(() => chat.snapshot().ready);
+      await page.locator("#settingsPanel").getByRole("button", { name: "返回", exact: true }).click();
+      await page.locator("#chatPrompt").fill("使用手动匹配的模型");
+      await page.getByRole("button", { name: "发送绘图请求", exact: true }).click();
+      await page.waitForFunction(() => !chat.snapshot().busy && chat.snapshot().current.turns[0]?.versions[0].status === "done");
+      const posts = t.requests.filter(r => r.method === "POST");
+      assert.equal(posts.length, 1);
+      if (protocol === "openai-images-v1") assert.equal(JSON.parse(posts[0].body).model, alias);
+      else assert.ok(posts[0].path.endsWith("/models/custom-render%40v2:generateContent"));
+      assert.ok(t.requests.every(r => !new URL(r.url).searchParams.has("pageToken")));
+      assert.deepEqual(t.errors, []);
+    } finally { await t.context.close(); }
+  }
 });
 
 test("native connection settings: explicit protocol, saved selection, key input, switch and four viewports", async () => {

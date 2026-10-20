@@ -37,12 +37,9 @@ export async function testConnection(
     if (!response.ok)
       return { s: "err", text: `请求失败（${response.status}）` };
     if (profile.protocol && profile.protocol !== "standard") {
-      // A valid first page is enough to diagnose access; discovery handles all pages.
-      if (profile.protocol === "gemini-native" && Array.isArray(object(data).models) && object(data).nextPageToken)
-        return { s: "ok", text: "连接可用，正在读取模型列表" };
       try {
         const catalog = nativeCatalog(profile, data);
-        return { s: "ok", text: profile.protocol === "novelai" ? "订阅可用 · 生图尚未实测" : `可用，共 ${Object.keys(catalog.models).length} 个图像模型` };
+        return { s: "ok", text: profile.protocol === "novelai" ? "订阅可用 · 生图尚未实测" : `可用，共 ${Object.keys(catalog.models).length} 个模型 ID` };
       } catch (error) {
         return { s: "err", text: error instanceof Error ? error.message : "接口协议不匹配" };
       }

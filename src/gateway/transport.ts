@@ -20,11 +20,14 @@ export function endpoint(
   if (profile.protocol && profile.protocol !== "standard" && prefix && base.endsWith(prefix))
     base = base.slice(0, -prefix.length);
   if (path.includes("{model}")) {
-    if (!model || !/^[a-zA-Z0-9][a-zA-Z0-9._-]{0,191}$/.test(model))
+    if (!model || !/^[a-zA-Z0-9][a-zA-Z0-9._:@-]{0,511}$/.test(model))
       throw new Error("模型 ID 无效");
     path = path.replace("{model}", encodeURIComponent(model));
   }
-  return new URL(`${base}${prefix}${path}`);
+  const url = new URL(`${base}${prefix}${path}`);
+  if (profile.protocol === "gemini-native" && path === profile.transport.paths.catalog)
+    url.searchParams.set("pageSize", "1000");
+  return url;
 }
 export function authHeaders(context: ConnectionContext, profile: GatewayProfile): Record<string, string> {
   return context.localToken ? { "X-Koma-Local-Token": context.localToken }
@@ -58,16 +61,11 @@ export function createTransport(
         native?: boolean;
         stats?: boolean;
         model?: string;
-        pageToken?: string;
       } = {},
     ) {
       context.assertCurrent();
       options.signal?.throwIfAborted();
       const url = endpoint(context.connection.baseUrl, path, profile, options.model);
-      if (options.pageToken) {
-        if (path !== profile.transport.paths.catalog || profile.protocol !== "gemini-native") throw new Error("分页参数无效");
-        url.searchParams.set("pageToken", options.pageToken);
-      }
       const headers: Record<string, string> = {
         Accept: "application/json, image/png, image/jpeg, image/webp",
       };

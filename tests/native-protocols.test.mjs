@@ -67,18 +67,19 @@ test("OpenAI Images: authenticated catalog, JSON generation, multipart reference
   assert.equal(result.s, "ok");
 });
 
-test("Gemini native: paginated discovery, API-key header, ordered inline references and generation settings", async () => {
+test("Gemini native: one model-list request, API-key header, ordered inline references and generation settings", async () => {
   const calls = [];
   const { gateway } = await setup(gemini, async (url, init) => {
     calls.push({ url, init });
-    if (url.pathname.endsWith("/models")) return json(url.searchParams.has("pageToken")
-      ? { models: [{ name: "models/gemini-3-pro-image-preview", displayName: "Image model", supportedGenerationMethods: ["generateContent"] }] }
-      : { models: [{ name: "models/text-model", supportedGenerationMethods: ["generateContent"] }], nextPageToken: "page 2?" });
+    if (url.pathname.endsWith("/models")) return json({ models: [{ name: "models/text-model" }, { name: "models/gemini-3-pro-image-preview", displayName: "Image model" }], nextPageToken: "repeated-token" });
     return json({ candidates: [{ content: { parts: [{ text: "caption" }, { inlineData: { mimeType: "image/png", data: "result" } }] } }] });
   }, "https://gateway.example.test/google");
   const { models } = await gateway.catalog();
   assert.equal(models.length, 1);
-  assert.equal(calls[1].url.searchParams.get("pageToken"), "page 2?");
+  assert.equal(calls.length, 1);
+  assert.equal(calls[0].url.searchParams.get("pageSize"), "1000");
+  assert.equal(calls[0].url.searchParams.has("pageToken"), false);
+  assert.deepEqual(Object.keys((await gateway.rawCatalog()).models), ["text-model", "gemini-3-pro-image-preview"]);
   const payload = buildChatPayload(models[0], "keep original text", { aspect_ratio: "16:9", image_size: "2K" }, [png]);
   const output = await gateway.execute(payload, r => r.json());
   const request = calls.at(-1), body = JSON.parse(request.init.body);
@@ -93,13 +94,49 @@ test("Gemini native: paginated discovery, API-key header, ordered inline referen
   assert.equal(payload.image_options.output_size, "2k");
 });
 
-test("native discovery rejects malformed catalogs and looping pages without trying another protocol", async () => {
+test("native discovery keeps IDs despite repeated page tokens and still rejects malformed or empty lists", async () => {
   let count = 0;
-  const { gateway } = await setup(gemini, async () => { count++; return json({ models: [], nextPageToken: "repeat" }); });
-  await assert.rejects(gateway.catalog(), /分页异常/);
-  assert.equal(count, 2);
+  const { gateway } = await setup(gemini, async () => { count++; return json({ models: [{ name: "models/custom-render" }], nextPageToken: "repeat" }); });
+  assert.deepEqual(Object.keys((await gateway.rawCatalog()).models), ["custom-render"]);
+  assert.deepEqual((await gateway.catalog()).models, []);
+  assert.equal(count, 1);
+  const empty = await setup(gemini, async () => json({ models: [], nextPageToken: "repeat" }));
+  await assert.rejects(empty.gateway.catalog(), /没有返回模型 ID/);
   const malformed = await setup(oai, async () => json({ studio_features: { version: 2 }, models: {} }));
   await assert.rejects(malformed.gateway.catalog(), /所选接口协议/);
+});
+
+test("native model mappings: keep arbitrary IDs, use the selected model's capabilities and send the upstream ID", async () => {
+  for (const profile of [oai, gemini]) {
+    const calls = [], alias = profile === oai ? "custom/render@v2" : "custom-render@v2";
+    const canonical = profile === oai ? "gpt-image-1.5" : "gemini-2.5-flash-image";
+    const fetcher = async (url, init) => {
+      calls.push({ url, init });
+      return url.pathname.endsWith("/models")
+        ? json(profile === oai ? { data: [{ id: alias }, { id: "another-model" }] } : { models: [{ name: "models/" + alias }, { name: "models/another-model" }], nextPageToken: "repeat" })
+        : json({ result: "synthetic" });
+    };
+    const { gateway, connections, routing, context } = await setup(profile, fetcher);
+    assert.equal((await testConnection(context, fetcher)).s, "ok");
+    assert.deepEqual(Object.keys((await gateway.rawCatalog()).models), [alias, "another-model"]);
+    assert.equal((await gateway.catalog()).models.length, 0);
+    routing.links.test = { [canonical]: { id: alias, manual: true, on: true } };
+    await connections.save(routing);
+    const mapped = createGateway(connections.context("test"), fetcher);
+    const [model] = (await mapped.catalog()).models;
+    assert.equal(model.id, canonical);
+    assert.equal(model.upstreamId, alias);
+    assert.equal(model.maxImages, profile === oai ? 16 : 3);
+    if (profile === gemini) assert.equal(model.fields.image_size, undefined);
+    await mapped.execute(buildChatPayload(model, "exact prompt", {}), r => r.json());
+    const request = calls.at(-1);
+    if (profile === oai) assert.equal(JSON.parse(request.init.body).model, alias);
+    else assert.ok(request.url.pathname.endsWith("/models/custom-render%40v2:generateContent"));
+    assert.ok(calls.every(c => !c.url.searchParams.has("pageToken")));
+    routing.links.test[canonical].on = false;
+    await connections.save(routing);
+    assert.equal((await createGateway(connections.context("test"), fetcher).catalog()).models.length, 0);
+  }
 });
 
 test("NovelAI basic: static catalog after subscription auth, unknown charge, generation/one-image edit and explicit unsupported tools", async () => {
