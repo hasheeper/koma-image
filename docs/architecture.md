@@ -90,6 +90,8 @@ docs/           中性工程说明、业务契约和实施记录
 
 字体与样式治理 G0–G4 已完成本地验收：字体配置集中生成，公共基础按 tokens／base／controls／ui 加载，组件私有样式归对应 Vue。现行入口、必要的全局结构、词典布局依赖与编辑版本栏边界见[样式归属](style-ownership.md)；Stylelint 已接入 `check`／CI，规则与例外见[检查说明](style-checks.md)。
 
+[TypeScript 迁移 T0–T5](typescript-migration-plan.md) 已完成本地收口。`src/` 自有逻辑由 TS 与 Vue TS 承载，九份手写配对声明已由实现内类型取代；原生驱动继续独立管理 Canvas 与高频状态。测试、服务器、工具和静态兼容脚本按现有运行方式保留 JS。
+
 ## 验证范围
 
 业务以 [B01–B31](business-contracts.md) 为准，使用合成数据和模拟接口。基础视口仅 320／390／768／1440px；高频验证仅检查指针／逐帧操作不引起 Vue 重渲染，以及反复开关／切换无资源泄漏。保留新版备份的导入校验与写入安全检查，不设置跨版本迁移验收。

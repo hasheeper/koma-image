@@ -104,6 +104,7 @@ docs/         规范、实施记录与发布说明
 - [架构规范](docs/architecture.md)
 - [业务契约](docs/business-contracts.md)
 - [实施阶段](docs/implementation-plan.md)
+- [主要模块 TypeScript 迁移与验收](docs/typescript-migration-plan.md)：T0–T5 已完成，九个应用模块纳入严格类型检查；108 项全量测试、脱敏与发布包验证通过
 - [字体与 CSS 治理计划](docs/css-governance-plan.md)：G0–G4 已完成本地验收，见[字体维护](docs/font-style-governance.md)、[样式归属](docs/style-ownership.md)与[检查收口](docs/style-checks.md)
 - [M1 外壳实现与验证](docs/app-shell.md)
 - [M2 网关、数据与调度实现](docs/gateway-data-scheduler.md)

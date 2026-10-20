@@ -22,7 +22,7 @@
 
 ## 服务与 DOM 所有权
 
-`services/chat.ts`、`services/editor.ts` 在 App 中各创建一次，位于 KeepAlive 外。`domain/conversation.js` 与 `domain/media.js` 是审查后的纯状态／参数算法；原生蒙版和图片尺寸模块保留算法，补充 TypeScript 声明与生命周期接口。
+`services/chat.ts`、`services/editor.ts` 在 App 中各创建一次，位于 KeepAlive 外。会话与参数算法已在 [T2](typescript-migration-plan.md) 中迁为 `domain/conversation.ts` 与 `domain/media.ts`，实现直接接受严格类型检查；图片尺寸模块也已在 T1 迁为 TS。T3／T4 已完成图片处理、原生蒙版与波浪的 TS 实现并移除配对声明，保留生命周期接口；笔画／清空记录与可空资源状态由实现直接定义。
 
 Vue 模板拥有 `.hl-wrap`、控件、消息和图片结构；移动端账户操作仍经 Teleport 切换宿主。原生驱动只操作独立 Canvas 宿主和明确委托的尺寸、光标、滚动、计时样式。Blob、图片 URL、AbortController、蒙版笔画与编辑会话都不进入深层 reactive；组件只订阅浅层显示快照。
 

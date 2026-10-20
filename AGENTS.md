@@ -7,6 +7,7 @@
 - 唯一 App Shell；绘图／对话／词典用 KeepAlive，编辑为覆盖层，设置为弹窗，备份为设置子页。
 - 设置分为连接、模型、通用、安全与备份。Tag 自动补全和历史保留在通用中，沿用绘图服务的同一份偏好；安全、备份和配置导入导出合页，旧 backup 路由仍可访问。界面只保留基本信息与操作反馈，避免重复标题和大段说明。
 - Vue 管低频状态和 DOM；原生驱动管 Canvas、指针与逐帧更新。大图片、DOM、数据库和密钥不进入深层 reactive。
+- TypeScript 迁移 T0–T5 已完成，见 `docs/typescript-migration-plan.md`。`src/` 自有逻辑使用 TS／Vue TS，类型直接来自实现，不再新增 JS 与手写配对声明；测试、服务器、工具和静态兼容脚本保留原运行方式。不放宽 strict 或以忽略诊断代替边界收窄。
 - Vue 节点不得由旧脚本包裹或搬移；高亮宿主写入模板，位置切换用 Teleport，监听器与 Observer 有对应清理。
 - 字体族、字重、用途与预加载统一维护于 `config/fonts.json`，资源圆体范围位于 `config/font-ranges/koma-rounded.json`；`public/fonts/index.css` 为生成文件，不手改。普通构建复用既有 WOFF2，Python 仅用于主动离线重建。G0–G4 已完成，维护方式见 `docs/font-style-governance.md`、`docs/style-ownership.md` 与 `docs/style-checks.md`；变量／基础／控件／共享组合分层，组件私有规则回对应 Vue，保留已记录的全局结构与工作区覆盖。`npm run styles:check` 使用唯一 Stylelint 配置，已接入 `check`／CI；必要禁用指令须注明原因，不新增全局补丁。
 - 使用中性的 Gateway Profile，无私有渠道名称、域名、头像、默认连接或品牌判断；未配置 URL／Key 不请求上游。公开官方 API（如 NovelAI 官方）属于协议适配，可以有自己的 Profile、固定官方地址和合法图标，仍由用户添加连接和 Key；私有渠道与中转只走中性的标准 Profile。业务按 Profile 声明的能力分支，不按连接名称或地址判断。
