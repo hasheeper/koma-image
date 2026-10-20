@@ -26,11 +26,13 @@ npm run check
 npm run preview
 ```
 
-`check` 执行字体一致性检查、严格类型检查、单元测试及构建，输出为 `dist/`。预览使用 http://127.0.0.1:3217，不启用环境变量代理。
+`check` 执行字体一致性、CSS／Vue 样式检查、严格类型检查、单元测试及构建，输出为 `dist/`。预览使用 http://127.0.0.1:3217，不启用环境变量代理。
 
 字体由 `config/fonts.json` 集中配置，Unicode 分片独立保存，统一 CSS 自动生成。`dev`／`build` 会先生成声明，`check` 会核对生成文件与预加载清单；修改字体配置后可运行 `npm run fonts:build`。普通构建继续复用已有 WOFF2，无需 Python 或原始 TTF。详见[字体维护与验证](docs/font-style-governance.md)。
 
 公共 CSS 按变量、基础、控件和共享组合分层，组件私有细节归对应 Vue 样式块，工作区仍按原 media 开关加载。维护入口、覆盖关系与保留的全局依赖见[样式归属](docs/style-ownership.md)。
+
+单独检查手写样式运行 `npm run styles:check`；本地与 CI 使用同一 Stylelint 配置，不强制重排现有 CSS。必要的优先级例外及检查依赖限制见[G4 检查说明](docs/style-checks.md)。
 
 ## 本地运行与发布包
 
@@ -76,7 +78,7 @@ npm run test:local
 npm run test:release
 ```
 
-工作区地址为 `#/image`、`#/chat`、`#/tags`；`chat.html`、`tags.html`、`transfer.html` 仅重定向到同一应用并保留查询参数。测试截图输出到忽略提交的 `.local/`。最近 G2／G3 本地验收通过 91 项检查（52 项单元、39 项浏览器与发布包），覆盖四个基础视口及高频原生驱动的渲染／资源清理，具体执行范围见[样式归属与验证](docs/style-ownership.md)。业务与发布基线见 [M7 验收记录](docs/release-acceptance.md)。所有网关测试使用合成数据，不执行真实收费请求。
+工作区地址为 `#/image`、`#/chat`、`#/tags`；`chat.html`、`tags.html`、`transfer.html` 仅重定向到同一应用并保留查询参数。测试截图输出到忽略提交的 `.local/`。G4 收口本地验收通过 99 项检查（52 项单元、47 项浏览器与发布包），覆盖四个基础视口及高频原生驱动的渲染／资源清理，具体执行范围见[检查收口记录](docs/style-checks.md)。业务与发布基线见 [M7 验收记录](docs/release-acceptance.md)。所有网关测试使用合成数据，不执行真实收费请求。
 
 ## 目录
 
@@ -102,7 +104,7 @@ docs/         规范、实施记录与发布说明
 - [架构规范](docs/architecture.md)
 - [业务契约](docs/business-contracts.md)
 - [实施阶段](docs/implementation-plan.md)
-- [字体与 CSS 治理计划](docs/css-governance-plan.md)：G0–G3 已完成本地验收，见[字体维护](docs/font-style-governance.md)与[样式归属](docs/style-ownership.md)；G4 待实施
+- [字体与 CSS 治理计划](docs/css-governance-plan.md)：G0–G4 已完成本地验收，见[字体维护](docs/font-style-governance.md)、[样式归属](docs/style-ownership.md)与[检查收口](docs/style-checks.md)
 - [M1 外壳实现与验证](docs/app-shell.md)
 - [M2 网关、数据与调度实现](docs/gateway-data-scheduler.md)
 - [M3 设置、备份与词典实现](docs/shared-settings-tags.md)

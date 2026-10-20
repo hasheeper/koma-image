@@ -69,7 +69,7 @@ select option { background: var(--raised); }
 /* The prompt is the primary input, so it claims all leftover height. */
 .fld-hero {
   position: relative;
-  flex: 1 1 auto !important;
+  flex: 1 1 auto !important; /* stylelint-disable-line declaration-no-important -- The prompt fills remaining composer height instead of the generic field flex. */
   min-height: 190px;
   display: grid;
   /* tab row + input row */
@@ -87,7 +87,7 @@ select option { background: var(--raised); }
   border-top-right-radius: 0;
   border-top-color: transparent;
 }
-.fld-hero[data-resized="1"] { flex: none !important; }
+.fld-hero[data-resized="1"] { flex: none !important; } /* stylelint-disable-line declaration-no-important -- Explicitly resized prompts must stop growing with the composer. */
 
 
 /* ── Icons ───────────────────────────────────────────────────── */

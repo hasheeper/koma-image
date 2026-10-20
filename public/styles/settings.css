@@ -13,7 +13,7 @@
 }
 .settings[open] { display: grid; grid-template-rows: auto minmax(0, 1fr); }
 .settings::backdrop { background: var(--canvas); }
-.set-ui [hidden] { display: none !important; }
+.set-ui [hidden] { display: none !important; } /* stylelint-disable-line declaration-no-important -- Hidden state must override settings display rules. */
 
 .set-bar { gap: var(--sp-3); }
 .set-back { width: 34px; height: 34px; margin-right: -4px; --ico: 20px; color: var(--fg-2); }

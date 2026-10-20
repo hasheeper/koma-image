@@ -184,7 +184,7 @@ onBeforeUnmount(() => {
    motion is reduced (the rule below would cut it to nothing), but is not
    drawn. */
 @media (prefers-reduced-motion: reduce) {
-  .toast-timer { animation-duration: var(--dwell) !important; opacity: 0; }
+  .toast-timer { animation-duration: var(--dwell) !important; opacity: 0; } /* stylelint-disable-line declaration-no-important -- Keep the real dismissal clock despite the global reduced-motion override. */
 }
 
 

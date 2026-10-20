@@ -1,6 +1,6 @@
 /* Conversation layout only. The visual language lives in ui.css. */
 .chat-page { overflow: hidden; }
-.chat-page [hidden] { display: none !important; }
+.chat-page [hidden] { display: none !important; } /* stylelint-disable-line declaration-no-important -- Hidden state must override component display rules. */
 .chat-page .solid { fill: currentColor; stroke: none; }
 .chat-app { height: min(100dvh, var(--visible-height, 100dvh)); transform: translateY(var(--visible-top, 0px)); display: flex; flex-direction: column; }
 .chat-page .topbar { position: relative; }

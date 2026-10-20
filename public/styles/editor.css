@@ -28,7 +28,7 @@
 }
 .editor[open] { display: grid; grid-template-rows: auto minmax(0, 1fr); }
 .editor::backdrop { background: var(--canvas); }
-.editor [hidden] { display: none !important; }
+.editor [hidden] { display: none !important; } /* stylelint-disable-line declaration-no-important -- Hidden state must override editor layout rules. */
 .editor[data-rail="off"] { --editor-rail: 0px; }
 
 /* ── Top bar: a way back, the EDIT mark, the tools and the balances ── */

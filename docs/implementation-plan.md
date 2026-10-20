@@ -13,7 +13,7 @@
 | M6   | 编辑面板与版本、原生画布接入、会话保留及结果归属                                 | 已实现；见 [M5／M6 实施记录](chat-editor-workspaces.md)                       |
 | M7   | 业务回归、四视口与两项流畅度验证、脱敏检查、新版备份、本地代理与只读设置、发布包 | 已完成并发布到 main 与 Pages；见 [M7 记录](release-acceptance.md)             |
 | P3   | NovelAI 官方连接：连接管理、Profile 泛化、官方 Profile、生图／编辑、钱包与实测   | P3.0／P3.1 已完成；P3.2 起等待 NovelAI Key，见 [P3 记录](novelai-official.md) |
-| G0–G4 | 字体配置集中管理、CSS 分层、组件样式归属与轻量检查 | G0–G3 已完成本地验收，见[字体记录](font-style-governance.md)与[样式归属记录](style-ownership.md)；G4 按[治理计划](css-governance-plan.md)待实施 |
+| G0–G4 | 字体配置集中管理、CSS 分层、组件样式归属与轻量检查 | 已完成本地验收；见[字体记录](font-style-governance.md)、[样式归属](style-ownership.md)与[G4 检查收口](style-checks.md) |
 
 每阶段只标记实际完成和验证过的部分。网关服务已用模拟接口验证；默认启动不通信，绘图／对话／编辑已共用全局调度服务。生产发布不包含数据迁移或旧库清理。
 

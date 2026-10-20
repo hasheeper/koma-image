@@ -1,6 +1,6 @@
 # G0／G1：样式基线与字体配置
 
-2026-10-20。本文记录 G0／G1 当时的基线与验证；后续 G2／G3 已完成，现行入口与归属见[样式归属记录](style-ownership.md)。G4 尚未实施，范围见[CSS 治理计划](css-governance-plan.md)。当前治理改动仅在本地，未推送或部署。
+2026-10-20。本文记录 G0／G1 当时的基线与验证；后续 G2–G4 已完成，现行入口与归属见[样式归属记录](style-ownership.md)，检查与本轮 Git 交付见[收口记录](style-checks.md)。范围见[CSS 治理计划](css-governance-plan.md)。
 
 ## G0：当前应用基线
 

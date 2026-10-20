@@ -84,7 +84,7 @@ body[data-gate="open"] .gate-card { transform: none; }
 .modal[open] { display: flex; flex-direction: column; }
 .modal::backdrop { background: rgba(8, 8, 10, 0.8); backdrop-filter: blur(4px); }
 /* Field rules below set display; [hidden] must still win. */
-.modal [hidden] { display: none !important; }
+.modal [hidden] { display: none !important; } /* stylelint-disable-line declaration-no-important -- Hidden modal sections must override component display rules. */
 /* A form may wrap head, body and foot so its submit button can sit in the foot. */
 .modal-form { display: contents; }
 .modal-head {
@@ -1063,6 +1063,7 @@ body[data-zoom="on"] .lightbox img { transform: none; }
 .lightbox-x { position: fixed; top: var(--sp-4); right: var(--sp-4); cursor: pointer; }
 
 
+/* stylelint-disable declaration-no-important -- Reduced motion must override all component animations, including the static loading band. */
 @media (prefers-reduced-motion: reduce) {
   *, *::before, *::after {
     animation-duration: 0.01ms !important;
@@ -1090,4 +1091,5 @@ body[data-zoom="on"] .lightbox img { transform: none; }
     ) !important;
   }
 }
+/* stylelint-enable declaration-no-important */
 .sr-only { position:absolute; width:1px; height:1px; padding:0; margin:-1px; overflow:hidden; clip-path:inset(50%); white-space:nowrap; }
