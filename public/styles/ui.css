@@ -2093,6 +2093,12 @@ body[data-zoom="on"] .lightbox img { transform: none; }
 .toast[data-tone="err"] { --tc: var(--err); }
 .toast:has(.toast-action, .toast-x) { padding-right: 8px; }
 .toast-ico { --ico: 18px; color: var(--tc); stroke-width: 1.7; }
+.toast-spinner {
+  flex: none; width: 18px; height: 18px;
+  border: 2px solid var(--a-dim); border-top-color: var(--tc);
+  border-radius: 50%; animation: toastSpin 800ms linear infinite;
+}
+@keyframes toastSpin { to { transform: rotate(1turn); } }
 .toast-text {
   flex: 1; min-width: 0; padding: 12px 0;
   overflow-wrap: anywhere;

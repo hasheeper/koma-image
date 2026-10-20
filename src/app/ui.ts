@@ -67,27 +67,34 @@ export function createUi() {
       text: string,
       tone = "info",
       action?: { label: string; run: () => Promise<boolean | void> },
+      replaceId?: number,
     ) {
+      if (disposed) return 0;
       const same = notices.value.find(
         (n) => n.text === text && n.tone === tone && !n.out,
       );
-      const duration = action
-        ? 8000
-        : ({ ok: 3000, info: 4000, warn: 6000, err: 8000 }[tone] ?? 8000);
+      const duration =
+        tone === "load"
+          ? 0
+          : action
+            ? 8000
+            : ({ ok: 3000, info: 4000, warn: 6000, err: 8000 }[tone] ?? 8000);
       notices.value = [
         {
           id: ++sequence,
           text,
           tone,
-          count: (same?.count ?? 0) + 1,
+          count: replaceId === undefined ? (same?.count ?? 0) + 1 : 1,
           duration,
           out: false,
           action,
         },
-        ...notices.value.filter((n) => n !== same).slice(0, 2),
+        ...notices.value.filter((n) => n !== same && n.id !== replaceId).slice(0, 2),
       ];
+      return sequence;
     },
     dismissNotice(id: number) {
+      if (disposed) return;
       if (!notices.value.some((n) => n.id === id && !n.out)) return;
       notices.value = notices.value.map((n) =>
         n.id === id ? { ...n, out: true } : n,

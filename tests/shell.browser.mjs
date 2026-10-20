@@ -75,6 +75,11 @@ async function open(path = "/") {
   });
   await page.goto(`${origin}${path}`);
   await page.waitForSelector("[data-workspace-root]");
+  if (!/transfer\.html|\/settings\//.test(path)) {
+    await page.waitForSelector("#settingsPanel[open]");
+    await page.locator("#settingsPanel .set-back").click();
+    await page.waitForSelector("#settingsPanel[open]", { state: "hidden" });
+  }
   return { page, context, errors, external };
 }
 async function switchTo(page, id) {
@@ -373,10 +378,10 @@ test("neutral HTML redirects preserve tickets and work under a static subpath", 
           await result.page.locator("#tagSearch").inputValue(),
           "blue hair",
         );
-      const avatarLoaded = await result.page
-        .locator("img[alt='默认头像']")
-        .evaluate((img) => img.complete && img.naturalWidth === 64);
-      assert.equal(avatarLoaded, true);
+      await result.page.waitForFunction(() => {
+        const img = document.querySelector("img[alt='默认头像']");
+        return img?.complete && img.naturalWidth === 64;
+      });
       await clean(result);
     }
   }

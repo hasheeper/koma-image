@@ -113,6 +113,7 @@
 /* Folded, the rail keeps a strip: the two views stacked over their counts,
    the pictures as a scrubber between them, and the toggle at its foot.
    Phones have no fold; the rail lives in the menu. */
+.library-tail { display: none; }
 @media (min-width: 861px) {
   body[data-hist="off"] { --hist: 52px; }
   body[data-hist="off"] .gallery :is(.tray-empty, .library-clear) { display: none; }
@@ -129,8 +130,8 @@
      own tones rather than the picture's: grey that fades with age, dim accent
      for a favourite, solid accent for the one on stage. Thumbnails 36px wide
      were unreadable, and the pictures' own colours turned the strip into a
-     mosaic. A bar's length gives its shape (landscape longest, portrait
-     shortest); the picture itself shows beside the strip on hover. Each tile
+     mosaic. Length combines pixel area, aspect ratio, stable variation and
+     distance from the selected picture (library-strip.ts). Each tile
      spans the full pitch, gaps included, so sliding down the strip steps
      through every picture. Past about fifty the pitch tightens to 7px, then
      the strip scrolls. */
@@ -150,11 +151,9 @@
     border-radius: 2px;
     background: color-mix(in srgb, var(--fg-3) calc(var(--age, 0.9) * 100%), transparent);
     filter: none;
-    transition: background-color var(--t1) var(--e), transform var(--t1) var(--e), box-shadow var(--t1) var(--e);
+    transition: width var(--t2) var(--e), background-color var(--t1) var(--e), transform var(--t1) var(--e), box-shadow var(--t1) var(--e);
   }
-  body[data-hist="off"] .gallery .tile[data-shape="square"] { --bar: 80%; }
-  body[data-hist="off"] .gallery .tile[data-shape="tall"] { --bar: 61%; }
-  body[data-hist="off"] .gallery .tile[data-fav]::before { background: var(--a-line); }
+  body[data-hist="off"] .gallery .tile[data-fav]::before { background: color-mix(in srgb, var(--a) calc(var(--age, 0.9) * 60%), transparent); }
   body[data-hist="off"] .gallery .tile[aria-current="true"]::before { background: var(--a); box-shadow: 0 0 0 3px var(--a-dim); }
   body[data-hist="off"] .gallery .tile:is(:hover, :focus-visible)::before { transform: translateX(-4px); }
   body[data-hist="off"] .gallery .tile:not(.tile-pending):is(:hover, :focus-visible)::before { background: var(--fg); }
@@ -168,18 +167,23 @@
     animation: stripSheen 1.6s linear infinite;
   }
   body[data-hist="off"] .tray [data-tip]::after { display: none; }
-  /* Unused pitch continues as empty slots and fades out: as long as the
-     shortest bar and on the same right edge and centre line, but half its
-     weight and far dimmer, so the clickable part still ends where the bars
-     do. Tiny 10px marks looked off to one side; full-width ones too long. */
-  body[data-hist="off"] .gallery .tray::after {
-    content: ""; flex: 1 0 0;
-    background: linear-gradient(transparent 4.5px, var(--line-2) 4.5px 6.5px, transparent 6.5px) right top / 61% 11px repeat-y;
-    mask-image: linear-gradient(#000, transparent 85%);
+  /* Decorative continuation: quieter, varied marks recede into the mat.
+     They never take space away from real image hit targets. */
+  body[data-hist="off"] .gallery .library-tail {
+    display: flex; flex-direction: column; align-items: flex-end; gap: 9px;
+    flex: 1 0 0; min-height: 0; overflow: hidden;
+    pointer-events: none;
+    mask-image: linear-gradient(#000, transparent min(100%, 180px));
   }
+  body[data-hist="off"] .library-tail i {
+    display: block; flex: none; width: var(--bar); height: 2px;
+    border-radius: 2px; background: var(--line-2);
+  }
+  body[data-hist="off"] .library-tail i:first-child { margin-top: 4.5px; }
 }
 @keyframes stripSheen { from { background-position: 150% 0; } to { background-position: -50% 0; } }
 @media (min-width: 861px) and (prefers-reduced-motion: reduce) {
+  body[data-hist="off"] .gallery .tile::before { transition: none; }
   body[data-hist="off"] .gallery .tile-pending::before { animation: none; background: var(--a); }
 }
 /* Folded: the picture under the pointer, beside the strip. */

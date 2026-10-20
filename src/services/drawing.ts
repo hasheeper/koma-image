@@ -81,6 +81,9 @@ export function createDrawing(
   let reveal: ((record: ImageRecord) => Promise<void>) | undefined;
   const favoritePending = new Set<string>();
   const connectionSamplers = new Map<string, string[]>();
+  let catalogFingerprint = "",
+    catalogQueued = false,
+    catalogNotice: number | undefined;
   const channel =
     typeof BroadcastChannel === "function"
       ? new BroadcastChannel(names.sync)
@@ -280,15 +283,49 @@ export function createDrawing(
     emit();
   }
   async function refreshCatalog() {
-    if (disposed) return;
+    if (disposed || services.data.phase !== "ready") return;
     refreshAbort?.abort();
     refreshAbort = new AbortController();
     const signal = refreshAbort.signal;
     catalogLoading = true;
     catalogError = "";
     emit();
+    const configured = Object.values(
+        services.connections.configuration.connections,
+      ),
+      available = configured.filter((c) =>
+        services.connections.hasCredential(c.credentialRef),
+      ),
+      availableIds = new Set(available.map((c) => c.id));
+    // Model-source edits and renames still refresh the catalog silently.
+    // Only a new address/profile/credential, or an unfinished check, needs feedback.
+    const fingerprint = JSON.stringify(
+      configured.map((c) => [
+        c.id, c.baseUrl, c.profileId, c.credentialRef,
+        availableIds.has(c.id)
+          ? services.connections.context(c.id).credentialRevision
+          : null,
+      ]),
+    );
+    const announce =
+      fingerprint !== catalogFingerprint || catalogNotice !== undefined;
+    catalogFingerprint = fingerprint;
+    if (announce && available.length) {
+      catalogNotice = ui.toast(
+        available.length === 1
+          ? `正在连接 ${available[0]!.name}…`
+          : `正在连接 ${available.length} 个供应商…`,
+        "load",
+        undefined,
+        catalogNotice,
+      );
+    } else if (catalogNotice !== undefined) {
+      ui.dismissNotice(catalogNotice);
+      catalogNotice = undefined;
+    }
+    const notice = catalogNotice;
     const results = await Promise.allSettled(
-      Object.values(services.connections.configuration.connections).map(
+      configured.map(
         async (c) => ({
           catalog: await services.gateway(c.id).catalog(false, signal),
           id: c.id,
@@ -296,6 +333,14 @@ export function createDrawing(
       ),
     );
     if (signal.aborted || disposed) return;
+    if (services.data.phase !== "ready") {
+      catalogLoading = false;
+      if (catalogNotice !== undefined) ui.dismissNotice(catalogNotice);
+      catalogNotice = undefined;
+      catalogFingerprint = "";
+      emit();
+      return;
+    }
     const next: CatalogModel[] = [];
     connectionSamplers.clear();
     for (const result of results)
@@ -310,6 +355,60 @@ export function createDrawing(
     );
     catalogLoading = false;
     bindModel();
+    if (notice !== undefined && catalogNotice === notice) {
+      const connected = results.filter((r) => r.status === "fulfilled"),
+        failed = results.filter(
+          (r, i): r is PromiseRejectedResult =>
+            r.status === "rejected" && availableIds.has(configured[i]!.id),
+        ),
+        missing = configured.length - available.length;
+      const settings = {
+        label: "设置",
+        run: async () => {
+          router.openOverlay("settings", "connections");
+        },
+      };
+      let text: string;
+      if (connected.length) {
+        text =
+          configured.length === 1
+            ? `已连接 ${configured[0]!.name} · ${connected[0]!.value.catalog.models.length} 个模型`
+            : `已连接 ${connected.length} 个供应商`;
+        if (failed.length) text += ` · ${failed.length} 个连接失败`;
+        if (missing) text += ` · ${missing} 个待配置 Key`;
+      } else {
+        const reason = failed[0]?.reason,
+          detail = message(reason);
+        const hint =
+          /401|403|unauthorized|forbidden|invalid.*key|key.*invalid/i.test(detail)
+            ? "Key 无效"
+            : reason instanceof DOMException && reason.name === "TimeoutError"
+              ? "连接超时"
+              : detail.includes("报价保护")
+                ? "网关协议不兼容"
+                : "请检查地址、Key 或网络";
+        text =
+          available.length === 1
+            ? `连接 ${available[0]!.name} 失败 · ${hint}`
+            : `连接失败 · ${hint}`;
+      }
+      const incomplete = failed.length > 0 || missing > 0;
+      ui.toast(
+        text,
+        connected.length ? (incomplete ? "warn" : "ok") : "err",
+        incomplete || !connected.length ? settings : undefined,
+        notice,
+      );
+      catalogNotice = undefined;
+    }
+  }
+  function queueCatalog() {
+    if (catalogQueued || disposed) return;
+    catalogQueued = true;
+    queueMicrotask(() => {
+      catalogQueued = false;
+      if (!disposed) void refreshCatalog();
+    });
   }
   async function reloadFavorites() {
     favoritesLoading = true;
@@ -721,9 +820,7 @@ export function createDrawing(
       scheduleQuote();
     }
   }
-  const stopConnections = services.connections.subscribe(() => {
-    void refreshCatalog();
-  });
+  const stopConnections = services.connections.subscribe(queueCatalog);
   const stopPrefs = services.preferences.subscribe((key) => {
     if (!key || key === names.preferences) {
       const next = {
@@ -747,7 +844,7 @@ export function createDrawing(
       await reloadFavorites();
     },
     ready() {
-      if (!disposed) void refreshCatalog();
+      queueCatalog();
     },
   });
   const changed = (e: MessageEvent) => {
@@ -858,6 +955,7 @@ export function createDrawing(
       disposed = true;
       taskAbort?.abort();
       refreshAbort?.abort();
+      if (catalogNotice !== undefined) ui.dismissNotice(catalogNotice);
       quotaAbort?.abort();
       preview?.dispose();
       clearTimeout(resetTimer);

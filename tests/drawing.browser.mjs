@@ -297,6 +297,18 @@ test("M4 complete draw, original controls, strict native wire, favorite persiste
         .then((s) => s.trim()),
       "Seed 0",
     );
+    await p.locator("#favoritesTab").click();
+    await p.locator("#histToggle").click();
+    await p.waitForFunction(
+      () => document.querySelector("#gallery").getBoundingClientRect().width === 52,
+    );
+    await p.locator("#tray .tile[data-id]").first().hover();
+    await p.waitForFunction(() => {
+      const peek = document.querySelector(".library-peek");
+      return peek && !peek.hidden && parseFloat(peek.style.top) >= 72;
+    });
+    await p.locator("#histToggle").click();
+    await p.waitForSelector(".library-peek[hidden]", { state: "attached" });
     for (const width of [320, 390, 768, 1440]) {
       await p.setViewportSize({ width, height: 900 });
       await p.waitForTimeout(150);

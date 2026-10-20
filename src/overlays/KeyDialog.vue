@@ -54,6 +54,11 @@ function close() {
   ui.credential.value = null;
   wipe();
 }
+function settings() {
+  if (busy.value) return;
+  close();
+  router.openOverlay("settings", "connections");
+}
 const unsub = vault.subscribe((type) => {
   if (connections.local) return;
   version.value++;
@@ -93,18 +98,17 @@ watch(ui.credential, async (value) => {
 });
 onMounted(() => {
   if (connections.local) return;
+  const configured = Object.values(connections.configuration.connections);
   if (
-    mode.value === "encrypted" &&
-    !unlocked.value &&
+    configured.length &&
+    ((mode.value === "encrypted" && !unlocked.value) ||
+      !configured.some((c) => connections.hasCredential(c.credentialRef))) &&
     !(
       router.route.value.overlay === "settings" &&
       ["security", "backup"].includes(router.route.value.section)
     )
   ) {
-    ui.requestKey(
-      Object.values(connections.configuration.connections)[0]?.credentialRef ??
-        "",
-    );
+    ui.requestKey(configured[0]!.credentialRef);
   }
 });
 onBeforeUnmount(() => {
@@ -268,7 +272,7 @@ function backup() {
           class="btn-link centered"
           type="button"
           :disabled="busy"
-          @click="close"
+          @click="settings"
         >
           返回设置
         </button>

@@ -42,9 +42,16 @@ onBeforeUnmount(() => {
         <div
           class="toast"
           :data-tone="notice.tone"
+          :aria-busy="notice.tone === 'load' ? true : undefined"
           :role="['warn', 'err'].includes(notice.tone) ? 'alert' : undefined"
         >
+          <i
+            v-if="notice.tone === 'load'"
+            class="toast-spinner"
+            aria-hidden="true"
+          ></i>
           <AppIcon
+            v-else
             class="toast-ico"
             :name="glyph[notice.tone] || glyph.err"
           /><span class="toast-text"
@@ -73,6 +80,7 @@ onBeforeUnmount(() => {
           >
             <AppIcon class="toast-x-ico" name="i-close" /></button
           ><i
+            v-if="notice.duration > 0"
             class="toast-timer"
             aria-hidden="true"
             :style="{ '--dwell': `${notice.duration}ms` }"

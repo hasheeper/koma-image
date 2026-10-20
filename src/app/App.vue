@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { provide, onScopeDispose } from "vue";
+import { provide, onMounted, onScopeDispose } from "vue";
 import { createRouter } from "./router";
 import { createShell, shellKey } from "./shell";
 import { usePresentation } from "./presentation";
@@ -37,6 +37,15 @@ onScopeDispose(() => chat.dispose());
 provide(drawingKey, drawing);
 onScopeDispose(() => drawing.dispose());
 usePresentation(shell, ui);
+onMounted(() => {
+  if (
+    services.data.phase === "ready" &&
+    !services.connections.local &&
+    !Object.keys(services.connections.configuration.connections).length &&
+    !router.route.value.overlay
+  )
+    router.openOverlay("settings", "connections");
+});
 // Stable workspace keys, regardless of overlay or query ticket. Components stay non-reactive.
 const workspaces = {
   image: ImageWorkspace,

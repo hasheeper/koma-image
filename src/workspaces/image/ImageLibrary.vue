@@ -7,12 +7,52 @@ import { imageFileName } from "../../domain/drawing";
 import { names } from "../../storage/names";
 import AppIcon from "../../shared/AppIcon.vue";
 import WaveHost from "./WaveHost.vue";
+import { stripBar } from "./library-strip";
 const { image, narrow } = useShell(),
   { drawing, view } = useDrawing();
 const tabs = ["history", "favorites"] as const,
   items = computed(() =>
     image.library === "favorites" ? view.value.favorites : view.value.history,
   );
+const pending = computed(() =>
+  image.library === "history" ? view.value.pending : null,
+);
+const focus = computed(() =>
+  pending.value && !view.value.browsing
+    ? -1
+    : Math.max(
+        0,
+        items.value.findIndex((item) => item.id === view.value.current?.id),
+      ),
+);
+function barStyle(
+  id: string,
+  size: { width: number; height: number },
+  distance: number,
+) {
+  const bar = stripBar(id, size, distance);
+  return { "--bar": `${bar.length}%`, "--age": bar.opacity };
+}
+const bars = computed(() =>
+  items.value.map((item, index) =>
+    barStyle(item.id, item.size, Math.abs(index - focus.value)),
+  ),
+);
+const pendingBar = computed(() =>
+  pending.value
+    ? barStyle("pending", pending.value, Math.abs(-1 - focus.value))
+    : undefined,
+);
+const tail = computed(() =>
+  Array.from({ length: 24 }, (_, index) => {
+    const bar = stripBar(
+      `empty-${index}`,
+      { width: 1024, height: 1024 },
+      items.value.length + index - focus.value,
+    );
+    return { "--bar": `${bar.length * 0.65}%` };
+  }),
+);
 const peek = shallowRef<ImageRecord | null>(null),
   peekNode = shallowRef<HTMLElement | null>(null),
   gallery = shallowRef<HTMLElement | null>(null);
@@ -73,10 +113,20 @@ function drag(e: DragEvent, item: ImageRecord) {
 }
 async function preview(item: ImageRecord, e: Event) {
   if (image.historyOpen || narrow.value) return;
+  // currentTarget is cleared when the event handler yields.
+  const target = e.currentTarget as HTMLElement;
   peek.value = item;
   await nextTick();
-  if (!peekNode.value || !gallery.value) return;
-  const tile = (e.currentTarget as HTMLElement).getBoundingClientRect(),
+  if (
+    !peekNode.value ||
+    !gallery.value ||
+    !target.isConnected ||
+    peek.value?.id !== item.id ||
+    image.historyOpen ||
+    narrow.value
+  )
+    return;
+  const tile = target.getBoundingClientRect(),
     rail = gallery.value.getBoundingClientRect();
   peekNode.value.style.top = `${Math.max(72, Math.min(rail.height - peekNode.value.offsetHeight - 8, tile.top + tile.height / 2 - rail.top - peekNode.value.offsetHeight / 2))}px`;
 }
@@ -125,6 +175,7 @@ async function preview(item: ImageRecord, e: Event) {
         class="tile tile-pending"
         type="button"
         :data-shape="shape(view.pending)"
+        :style="pendingBar"
         :aria-current="!view.browsing"
         :aria-label="
           view.pending.composing
@@ -150,7 +201,7 @@ async function preview(item: ImageRecord, e: Event) {
         :aria-label="`${has(item.id) ? '已收藏，' : ''}查看 ${imageFileName(item)}`"
         :style="{
           '--thumb': `url('${drawing.url(item, true)}')`,
-          '--age': 0.9 - (0.48 * index) / Math.max(1, items.length - 1),
+          ...bars[index],
         }"
         :draggable="item.params.tool !== 'upscale'"
         @dragstart="drag($event, item)"
@@ -176,6 +227,13 @@ async function preview(item: ImageRecord, e: Event) {
           >×</span
         >
       </button>
+      <div
+        v-if="!image.historyOpen && !narrow && (items.length || pending)"
+        class="library-tail"
+        aria-hidden="true"
+      >
+        <i v-for="(style, index) in tail" :key="index" :style="style"></i>
+      </div>
     </div>
     <div
       ref="peekNode"

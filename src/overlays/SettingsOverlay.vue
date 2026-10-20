@@ -203,7 +203,7 @@ watch(
     await nextTick();
     void load();
   },
-  { immediate: true },
+  { immediate: true, flush: "post" },
 );
 onBeforeUnmount(() => {
   disposed = true;
@@ -318,13 +318,18 @@ async function remove(id: string) {
 }
 async function test(id: string) {
   if (testing.value) return;
+  const connection = routing.value.connections[id];
+  if (!connection) return;
   testing.value = id;
+  const notice = ui.toast(`正在连接 ${connection.name}…`, "load");
   try {
     const result = await testConnection(connections.context(id));
     statuses.value[id] = result;
+    ui.toast(`${connection.name} · ${result.text}`, result.s, undefined, notice);
     if (result.s === "ok") await load(true);
   } catch (error) {
     statuses.value[id] = { s: "err", text: message(error) };
+    ui.toast(`${connection.name} · ${message(error)}`, "err", undefined, notice);
   } finally {
     testing.value = null;
   }

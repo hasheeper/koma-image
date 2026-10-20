@@ -40,7 +40,7 @@ after(async () => {
   await browser?.close();
   await server?.close();
 });
-async function open(path = "/") {
+async function open(path = "/", options = {}) {
   const context = await browser.newContext({
       viewport: { width: 1440, height: 900 },
     }),
@@ -52,6 +52,14 @@ async function open(path = "/") {
   page.on("console", (m) => {
     if (m.type() === "error") errors.push(m.text());
   });
+  if (options.connections)
+    await context.addInitScript(({ connections, keys }) => {
+      if (localStorage.getItem("koma.routing.v1")) return;
+      localStorage.setItem("koma.routing.v1", JSON.stringify({
+        version: 1, connections, links: {},
+      }));
+      if (keys) sessionStorage.setItem("koma.session.keys", JSON.stringify(keys));
+    }, { connections: options.connections, keys: options.keys });
   await context.route("**/*", (route) => {
     const url = new URL(route.request().url());
     if (url.origin === origin) return route.continue();
@@ -60,11 +68,13 @@ async function open(path = "/") {
       method: route.request().method(),
       auth: route.request().headers().authorization,
     });
-    if (url.host === "tagsuggest.zeabur.app")
+    if (url.host === "tagsuggest.zeabur.app" && url.pathname === "/api/tags/suggest")
       return route.fulfill({ json: { results: tags } });
     if (url.host === "gateway.example.test") {
       if (url.pathname.endsWith("/image/models"))
-        return route.fulfill({ json: catalog });
+        return options.catalogResponse
+          ? options.catalogResponse(route)
+          : route.fulfill({ json: catalog });
       if (url.pathname.endsWith("/media/quota"))
         return route.fulfill({
           json: {
@@ -80,6 +90,11 @@ async function open(path = "/") {
   });
   await page.goto(origin + path);
   await page.waitForSelector("[data-workspace-root]");
+  if (!options.keepStartup && !options.connections && !path.includes("/settings/")) {
+    await page.waitForSelector("#settingsPanel[open]");
+    await page.locator("#settingsPanel .set-back").click();
+    await page.waitForSelector("#settingsPanel[open]", { state: "hidden" });
+  }
   return { context, page, errors, requests };
 }
 async function clean(t) {
@@ -115,6 +130,202 @@ async function addConnection(page, encrypted = false) {
     () => document.querySelector(".conn-row .st")?.dataset.s === "ok",
   );
 }
+
+const startupConnection = {
+  id: "startup",
+  name: "测试供应商",
+  baseUrl: "https://gateway.example.test",
+  profileId: "koma-standard-v1",
+  credentialRef: "startup-key",
+  revision: "startup-rev",
+};
+const successNotice = '.toast[data-tone="ok"]:has-text("已连接")';
+
+test("startup: empty configuration opens connections once, with no requests or Key prompt", async () => {
+  const t = await open("/", { keepStartup: true });
+  try {
+    const { page } = t;
+    await page.waitForSelector("#settingsPanel[open]");
+    assert.match(page.url(), /settings\/connections$/);
+    assert.equal(await page.locator("#gate[open]").count(), 0);
+    assert.equal(t.requests.length, 0);
+    await page.locator("#settingsPanel .set-back").click();
+    await page.waitForSelector("#settingsPanel[open]", { state: "hidden" });
+    for (const hash of ["#/chat", "#/tags", "#/image"])
+      await route(page, hash);
+    await page.waitForSelector("#prompt");
+    assert.equal(await page.locator("dialog[open]").count(), 0);
+    assert.equal(t.requests.length, 0);
+    await clean(t);
+  } finally { await t.context.close(); }
+});
+
+test("startup: restored Key automatically connects, progress is replaced by the result, and renames stay silent", async () => {
+  let release;
+  const options = {
+    connections: { startup: startupConnection },
+    keys: { "startup-key": "synthetic-startup-key" },
+    catalogResponse: async (route) => {
+      await new Promise((resolve) => { release = resolve; });
+      return route.fulfill({ json: catalog });
+    },
+  };
+  const t = await open("/", options);
+  try {
+    const { page } = t;
+    await page.waitForSelector('.toast[data-tone="load"]');
+    assert.equal(await page.locator("dialog[open]").count(), 0);
+    assert.equal(await page.locator(".toast-timer").count(), 0);
+    assert.equal(await page.locator('.toast[aria-busy="true"]').count(), 1);
+    assert.equal(t.requests.length, 1);
+    assert.equal(t.requests[0].auth, "Bearer synthetic-startup-key");
+    options.catalogResponse = (route) => route.fulfill({ json: catalog });
+    release();
+    await page.waitForSelector(successNotice);
+    assert.equal(await page.locator(".toast").count(), 1);
+    assert.match(await page.locator(successNotice).textContent(), /测试供应商 · 2 个模型/);
+    await page.reload();
+    await page.waitForSelector(successNotice);
+    assert.equal(t.requests.length, 2, "one automatic catalog request per document");
+    // A rename changes the config revision but must not announce a new connection.
+    await settings(page);
+    await page.getByRole("button", { name: "改名", exact: true }).click();
+    await page.getByRole("textbox", { name: "连接名称" }).fill("新名称");
+    await page.keyboard.press("Enter");
+    await page.waitForFunction(() =>
+      document.querySelector(".conn-name b")?.textContent === "新名称" &&
+      document.querySelector(".conn-row .st")?.dataset.s === "ok",
+    );
+    assert.equal(await page.locator('.toast[data-tone="load"]').count(), 0);
+    assert.equal(await page.locator('.toast:has-text("已连接 新名称")').count(), 0);
+    assert.ok(t.requests.every((r) => r.method === "GET"));
+    await clean(t);
+  } finally { release?.(); await t.context.close(); }
+});
+
+test("startup: incompatible connection reports failure; manual test shows progress and a fresh result", async () => {
+  let release;
+  const options = {
+    connections: { startup: startupConnection },
+    keys: { "startup-key": "synthetic-startup-key" },
+    catalogResponse: (route) => route.fulfill({ json: { models: {} } }),
+  };
+  const t = await open("/", options);
+  try {
+    const { page } = t;
+    const failure = page.locator('.toast[data-tone="err"]');
+    await failure.waitFor();
+    assert.match(await failure.textContent(), /连接 测试供应商 失败/);
+    assert.equal(await page.locator('.toast[data-tone="load"]').count(), 0);
+    await failure.getByRole("button", { name: "设置", exact: true }).click();
+    await page.waitForSelector("#settingsPanel[open]");
+    await page.waitForFunction(() => document.querySelector(".conn-row .st")?.dataset.s === "err");
+    options.catalogResponse = async (route) => {
+      await new Promise((resolve) => { release = resolve; });
+      return route.fulfill({ json: catalog });
+    };
+    await page.getByRole("button", { name: "测试连接", exact: true }).click();
+    await page.waitForSelector('#settingsPanel .toast[data-tone="load"]');
+    options.catalogResponse = (route) => route.fulfill({ json: catalog });
+    release();
+    await page.waitForSelector('.toast[data-tone="ok"]:has-text("可用，共 2 个模型")');
+    assert.equal(await page.locator('.toast[data-tone="load"]').count(), 0);
+    assert.ok(t.requests.every((r) => r.method === "GET"));
+    await clean(t);
+  } finally { release?.(); await t.context.close(); }
+});
+
+test("startup: saved URL without Key prompts setup, partial connections are reported, and backup stays accessible", async () => {
+  const t = await open("/", {
+    connections: { startup: startupConnection },
+  });
+  try {
+    const { page } = t;
+    await page.waitForSelector("#gate[open] #setupKey");
+    assert.equal(t.requests.length, 0);
+    await page.getByRole("button", { name: "返回设置", exact: true }).click();
+    await page.waitForSelector("#settingsPanel[open]");
+    await page.locator("#settingsPanel .set-back").click();
+    await page.waitForSelector("#settingsPanel[open]", { state: "hidden" });
+    await page.evaluate(() => {
+      const routing = JSON.parse(localStorage.getItem("koma.routing.v1"));
+      routing.connections.missing = {
+        ...routing.connections.startup, id: "missing", credentialRef: "missing-key",
+      };
+      localStorage.setItem("koma.routing.v1", JSON.stringify(routing));
+      sessionStorage.setItem("koma.session.keys", JSON.stringify({ "startup-key": "synthetic-startup-key" }));
+    });
+    await page.reload();
+    await page.waitForSelector('.toast[data-tone="warn"]:has-text("1 个待配置 Key")');
+    assert.equal(await page.locator("#gate[open]").count(), 0);
+    assert.equal(t.requests.length, 1, "missing Key never reaches the network");
+    await route(page, "#/image/settings/backup");
+    await page.evaluate(() => sessionStorage.clear());
+    await page.reload();
+    await page.waitForSelector('#settingsPanel[open] button[aria-label="导出备份"]');
+    assert.equal(await page.locator("#gate[open]").count(), 0);
+    assert.equal(t.requests.length, 1);
+    await clean(t);
+  } finally { await t.context.close(); }
+});
+
+test("startup: locked vault makes no requests and connects immediately after unlock", async () => {
+  const t = await open();
+  try {
+    const { page } = t;
+    await addConnection(page, true);
+    await page.locator("#settingsPanel .set-back").click();
+    await page.waitForSelector("#settingsPanel[open]", { state: "hidden" });
+    await page.evaluate(() => sessionStorage.clear());
+    const before = t.requests.length;
+    await page.reload();
+    await page.waitForSelector("#gate[open] #unlockPass");
+    assert.equal(t.requests.length, before);
+    await page.locator("#unlockPass").fill("test-passphrase");
+    await page.locator("#gate").getByRole("button", { name: "解锁", exact: true }).click();
+    await page.waitForSelector(successNotice);
+    assert.equal(await page.locator("#gate[open]").count(), 0);
+    assert.equal(t.requests.length, before + 1);
+    assert.ok(t.requests.every((r) => r.method === "GET"));
+    await clean(t);
+  } finally { await t.context.close(); }
+});
+
+test("startup: changing the address during a check suppresses the obsolete result", async () => {
+  let release, started;
+  const waiting = new Promise((resolve) => { started = resolve; });
+  const t = await open("/", {
+    connections: { startup: startupConnection },
+    keys: { "startup-key": "synthetic-startup-key" },
+    catalogResponse: async (route) => {
+      if (!route.request().url().includes("/changed/")) {
+        await new Promise((resolve) => { release = resolve; started(); });
+        return route.fulfill({ json: { models: {} } });
+      }
+      return route.fulfill({ json: catalog });
+    },
+  });
+  try {
+    const { page } = t;
+    await waiting;
+    await page.waitForSelector('.toast[data-tone="load"]');
+    await page.evaluate(() => {
+      const routing = JSON.parse(localStorage.getItem("koma.routing.v1"));
+      Object.assign(routing.connections.startup, {
+        name: "新连接", baseUrl: "https://gateway.example.test/changed", revision: "changed-rev",
+      });
+      localStorage.setItem("koma.routing.v1", JSON.stringify(routing));
+      dispatchEvent(new StorageEvent("storage", { key: "koma.routing.v1" }));
+    });
+    await page.waitForSelector(`${successNotice}:has-text("新连接")`);
+    release();
+    assert.equal(await page.locator('.toast[data-tone="load"], .toast[data-tone="err"]').count(), 0);
+    assert.equal(await page.locator(".toast").count(), 1);
+    assert.equal(t.requests.length, 2);
+    assert.ok(t.requests.every((r) => r.method === "GET"));
+    await clean(t);
+  } finally { release?.(); await t.context.close(); }
+});
 
 test("settings: empty network default, connection/key input, model source controls, persistence and encryption lock", async () => {
   const t = await open();
@@ -352,6 +563,14 @@ test("dictionary and prompt: weighted handoff once, picker toggle, highlight, au
     await route(page, "#/tags");
     await page.locator("#tagSearch").fill("blue");
     await page.waitForSelector(".tag-card");
+    const tagRequests = t.requests.filter((r) => new URL(r.url).host === "tagsuggest.zeabur.app").length;
+    await page.getByRole("button", { name: "下一页", exact: true }).click();
+    await page.waitForFunction(() => document.querySelectorAll(".tag-card").length === 1);
+    assert.match(await page.locator(".tag-card strong").textContent(), /blue_tag_25/);
+    assert.equal(await page.getByRole("button", { name: "下一页", exact: true }).isDisabled(), true);
+    await page.getByRole("button", { name: "上一页", exact: true }).click();
+    await page.waitForFunction(() => document.querySelectorAll(".tag-card").length === 25);
+    assert.equal(t.requests.filter((r) => new URL(r.url).host === "tagsuggest.zeabur.app").length, tagRequests);
     await page.locator(".tag-add").first().click();
     await page
       .getByRole("spinbutton", { name: "blue_hair 权重", exact: true })

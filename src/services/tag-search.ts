@@ -14,7 +14,8 @@ export function createTagSearch(
   fetcher: typeof fetch = fetch,
 ) {
   const cache = new Map<string, TagItem[]>(),
-    pageCache = new Map<string, { items: TagItem[]; hasNext: boolean }>();
+    pageCache = new Map<string, { items: TagItem[]; hasNext: boolean }>(),
+    translatedCache = new Map<string, TagItem[]>();
   const remember = <T>(map: Map<string, T>, key: string, value: T) => {
     map.delete(key);
     map.set(key, value);
@@ -22,11 +23,17 @@ export function createTagSearch(
     return structuredClone(value);
   };
   async function get(url: URL, signal?: AbortSignal) {
-    const options = { signal, headers: { Accept: "application/json" } };
+    const timeout = AbortSignal.timeout(8_000);
+    const options = {
+      signal: signal ? AbortSignal.any([signal, timeout]) : timeout,
+      headers: { Accept: "application/json" },
+      credentials: "omit" as const,
+      referrerPolicy: "no-referrer" as const,
+    };
     try {
       return await fetcher(url, options);
     } catch (error) {
-      if (signal?.aborted) throw error;
+      if (options.signal.aborted || !(error instanceof TypeError)) throw error;
       return fetcher(url, options);
     }
   }
@@ -34,14 +41,13 @@ export function createTagSearch(
     query: string,
     limit: number,
     offset: number,
-    broad: boolean,
     official: boolean,
     signal?: AbortSignal,
   ): Promise<TagItem[]> {
     const url = new URL(
       official
         ? "https://danbooru.donmai.us/autocomplete.json"
-        : `https://tagsuggest.zeabur.app/api${broad ? "/tags" : "/tags/suggest"}`,
+        : "https://tagsuggest.zeabur.app/api/tags/suggest",
     );
     if (official) {
       url.searchParams.set("search[query]", query);
@@ -52,9 +58,12 @@ export function createTagSearch(
         "q",
         hasHan(query) ? query : query.replace(/\s+/g, "_"),
       );
-      if (broad) {
-        url.searchParams.set("limit", String(Math.min(200, limit)));
-        url.searchParams.set("offset", String(Math.max(0, offset)));
+      // The public bilingual API returns at most 30 candidates and has no
+      // limit/offset parameters. Share that result and paginate it locally.
+      const stored = translatedCache.get(url.href);
+      if (stored) {
+        signal?.throwIfAborted();
+        return structuredClone(stored.slice(offset, offset + limit));
       }
     }
     const response = await get(url, signal);
@@ -68,15 +77,11 @@ export function createTagSearch(
       throw new Error(
         `${official ? "Danbooru" : "中文 Tag 词典"}暂不可用 (${response.status})`,
       );
-    const data = await response.json(),
-      rows = official
-        ? Array.isArray(data)
-          ? data.slice(offset, offset + limit)
-          : []
-        : Array.isArray(data?.results)
-          ? data.results.slice(0, limit)
-          : [];
-    return rows
+    const data: unknown = await response.json().catch(() => null),
+      rows = official ? data : object(data).results;
+    if (!Array.isArray(rows)) throw new Error("Tag 词典返回格式异常，请稍后再试");
+    signal?.throwIfAborted();
+    const items = rows
       .map((raw: unknown) => {
         const r = object(raw),
           tag = object(r.tag);
@@ -91,11 +96,15 @@ export function createTagSearch(
         };
       })
       .filter((r: TagItem) => r.name);
+    if (!official) remember(translatedCache, url.href, items);
+    return items.slice(offset, offset + limit);
   }
   const friendly = (error: unknown) =>
     error instanceof TypeError
       ? new Error("Tag 服务暂时不可用，请稍后再试")
-      : error;
+      : error instanceof DOMException && error.name === "TimeoutError"
+        ? new Error("Tag 查询超时，请稍后再试")
+        : error;
   function ids(options: Options) {
     return (
       options.categories?.length ? options.categories : categories()
@@ -119,14 +128,7 @@ export function createTagSearch(
       let primary: unknown;
       try {
         const results = rankTags(
-          await search(
-            query,
-            requestLimit,
-            0,
-            !!options.broad,
-            false,
-            options.signal,
-          ),
+          await search(query, requestLimit, 0, false, options.signal),
           query,
           allowed,
           limit,
@@ -134,7 +136,8 @@ export function createTagSearch(
         if (results.length || hasHan(query))
           return remember(cache, key, results);
       } catch (error) {
-        if (options.signal?.aborted || hasHan(query)) throw error;
+        if (options.signal?.aborted) throw error;
+        if (hasHan(query)) throw friendly(error);
         primary = error;
       }
       try {
@@ -142,7 +145,7 @@ export function createTagSearch(
           cache,
           key,
           rankTags(
-            await search(query, requestLimit, 0, false, true, options.signal),
+            await search(query, requestLimit, 0, true, options.signal),
             query,
             allowed,
             limit,
@@ -166,16 +169,17 @@ export function createTagSearch(
       try {
         const rows = await search(
           query,
-          size + 1,
-          offset,
-          true,
+          200,
+          0,
           false,
           options.signal,
         );
         if (rows.length || hasHan(query))
           return remember(pageCache, key, {
-            items: rankTags(rows.slice(0, size), query, allowed, size),
-            hasNext: rows.length > size,
+            items: rankTags(
+              rows.slice(offset, offset + size), query, allowed, size,
+            ),
+            hasNext: rows.length > offset + size,
           });
       } catch (error) {
         if (options.signal?.aborted || hasHan(query)) throw friendly(error);
@@ -186,7 +190,6 @@ export function createTagSearch(
           query,
           size + 1,
           offset,
-          false,
           true,
           options.signal,
         );

@@ -254,7 +254,7 @@ test("tags: text preserving insertion, weights, normalization and escaped highli
     ["blue_hair", "blue"],
   );
 });
-test("tags: explicit search only, cache, Chinese no fallback, English fallback and pagination probe", async () => {
+test("tags: explicit search only, cache, supported bilingual endpoint, English fallback and local pagination", async () => {
   const calls = [];
   const fetcher = async (url) => {
     calls.push(String(url));
@@ -277,10 +277,14 @@ test("tags: explicit search only, cache, Chinese no fallback, English fallback a
   await tags.suggest("blue", { limit: 20, broad: true });
   assert.equal(calls.length, 1);
   const p = await tags.page("page", { page: 2 });
-  assert.equal(p.items.length, 25);
-  assert.equal(p.hasNext, true);
-  assert.match(calls.at(-1), /offset=25/);
-  assert.match(calls.at(-1), /limit=26/);
+  assert.equal(p.items.length, 1);
+  assert.equal(p.items[0].name, "tag_25");
+  assert.equal(p.hasNext, false);
+  const url = new URL(calls.at(-1));
+  assert.equal(url.pathname, "/api/tags/suggest");
+  assert.equal(url.searchParams.get("q"), "page");
+  assert.equal(url.searchParams.has("offset"), false);
+  assert.equal(url.searchParams.has("limit"), false);
   const fallback = [];
   const empty = createTagSearch(
     () => [0],
@@ -299,6 +303,72 @@ test("tags: explicit search only, cache, Chinese no fallback, English fallback a
   assert.equal(fallback.length, 1);
   assert.equal((await empty.suggest("blue"))[0].name, "blue_hair");
   assert.equal(fallback.length, 3);
+});
+
+test("tags: autocomplete, picker and dictionary share the 30-candidate snapshot without repeated pages", async () => {
+  const calls = [];
+  const rows = Array.from({ length: 30 }, (_, i) => ({
+    name: `blue_tag_${i}`, cn_name: `蓝色标签 ${i}`, category: 0, count: 30 - i,
+  }));
+  const tags = createTagSearch(() => [0], async (url, init) => {
+    calls.push({ url: new URL(url), init });
+    return new Response(JSON.stringify({ results: rows }));
+  });
+  const suggestions = await tags.suggest("blue hair", { limit: 20, broad: true });
+  assert.equal(suggestions.length, 20);
+  assert.equal((await tags.suggest("blue hair", { limit: 30, broad: true })).length, 30);
+  const first = await tags.page("blue hair"),
+    second = await tags.page("blue hair", { page: 2 }),
+    last = await tags.page("blue hair", { page: 3 });
+  assert.equal(first.items.length, 25);
+  assert.equal(first.hasNext, true);
+  assert.equal(second.items.length, 5);
+  assert.equal(second.hasNext, false);
+  assert.equal(last.items.length, 0);
+  assert.equal(last.hasNext, false);
+  assert.equal(new Set([...first.items, ...second.items].map((v) => v.name)).size, 30);
+  assert.equal(calls.length, 1);
+  assert.equal(calls[0].url.pathname, "/api/tags/suggest");
+  assert.equal(calls[0].url.searchParams.get("q"), "blue_hair");
+  assert.equal(calls[0].init.credentials, "omit");
+  assert.equal(calls[0].init.referrerPolicy, "no-referrer");
+  first.items[0].name = "mutated";
+  assert.equal((await tags.page("blue hair")).items[0].name, rows[0].name);
+});
+
+test("tags: Chinese network failures and timeouts are readable; cancellation never retries or falls back", async () => {
+  let calls = 0;
+  const unavailable = createTagSearch(() => [0], async () => {
+    calls++;
+    throw new TypeError("Failed to fetch");
+  });
+  await assert.rejects(unavailable.suggest("蓝发", { broad: true }), /Tag 服务暂时不可用/);
+  assert.equal(calls, 2, "one network retry, no Chinese official fallback");
+  calls = 0;
+  const timedOut = createTagSearch(() => [0], async () => {
+    calls++;
+    throw new DOMException("timed out", "TimeoutError");
+  });
+  await assert.rejects(timedOut.page("蓝发"), /Tag 查询超时/);
+  assert.equal(calls, 1);
+  const controller = new AbortController();
+  let started;
+  const waiting = new Promise((resolve) => { started = resolve; });
+  calls = 0;
+  const cancelled = createTagSearch(() => [0], async (_url, { signal }) => {
+    calls++;
+    started();
+    await new Promise((_resolve, reject) => {
+      signal.addEventListener("abort", () => reject(signal.reason), { once: true });
+    });
+  });
+  const result = cancelled.suggest("blue", { signal: controller.signal });
+  await waiting;
+  controller.abort();
+  await assert.rejects(result, { name: "AbortError" });
+  assert.equal(calls, 1);
+  const invalid = createTagSearch(() => [0], async () => new Response("<html>upstream error</html>"));
+  await assert.rejects(invalid.suggest("蓝发"), /Tag 词典返回格式异常/);
 });
 const diagnosticContext = (extra = {}) => ({
   connection: {
