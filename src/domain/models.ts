@@ -26,6 +26,7 @@ export const MODELS: ModelIdentity[] = [
   gemini("gemini-3-pro-image-preview", "Nano Banana Pro Preview", 14),
   gemini("gemini-3.1-flash-image", "Nano Banana 2", 14),
   gemini("gemini-3.1-flash-image-preview", "Nano Banana 2 Preview", 14),
+  gemini("gemini-nano-banana-2.1", "Nano Banana 2.1", 14),
   gemini("gemini-3.1-flash-lite-image", "Nano Banana 2 Lite", 1, { options: { image_size: ["1K"] } }),
 ];
 const byName = new Map(MODELS.flatMap(model => [[model.id, model] as const, ...model.aliases.map(alias => [alias, model] as const)]));
