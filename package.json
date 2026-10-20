@@ -25,6 +25,7 @@
     "test:shared": "node --test tests/shared.browser.mjs",
     "test:drawing": "node --test tests/drawing.browser.mjs",
     "test:workspaces": "node --test tests/workspaces.browser.mjs",
+    "test:native": "node --test tests/native-protocols.browser.mjs",
     "test:local": "node --test tests/local.browser.mjs",
     "test:release": "node --test tests/release.package.mjs",
     "package": "npm run build && node scripts/package-release.mjs",

@@ -1,6 +1,6 @@
 # Koma Image 工程约定
 
-这是独立复刻工程。M1–M7 已完成单页外壳、共享服务、公共界面、绘图／对话／编辑、本地代理、只读设置、验收与发布包，并已发布到 koma-image Cloudflare Pages。P3（NovelAI 官方连接）已完成 P3.0 连接管理与 P3.1 Profile 泛化，P3.2 起等待 NovelAI Key。推送 hasheeper/koma-image 和发布 Pages 每次需用户授权，并先通过脱敏复查。继续前阅读 docs/gateway-data-scheduler.md、docs/shared-settings-tags.md、docs/drawing-workspace.md、docs/chat-editor-workspaces.md、docs/release-acceptance.md 与 docs/novelai-official.md 的接入约定和边界。
+这是独立复刻工程。M1–M7 已完成单页外壳、共享服务、公共界面、绘图／对话／编辑、本地代理、只读设置、验收与发布包，并已发布到 koma-image Cloudflare Pages。已新增 OpenAI Images、Gemini 原生与 NovelAI 官方基础协议适配；供应商实测、NAI 官方重绘／放大和订阅优惠仍待核验，不能用模拟测试声称真实接入成功。推送 hasheeper/koma-image 和发布 Pages 每次需用户授权，并先通过脱敏复查。继续前阅读 docs/gateway-data-scheduler.md、docs/shared-settings-tags.md、docs/drawing-workspace.md、docs/chat-editor-workspaces.md、docs/release-acceptance.md、docs/novelai-official.md 与 docs/native-image-protocols.md 的接入约定和边界。
 
 - 先读 `docs/architecture.md`、`docs/business-contracts.md` 和 `docs/implementation-plan.md`。实际界面与业务基线位于内部参考工程，不能凭空设计或声称已验证。
 - 复刻原有业务与 UI，已批准的调整包括导航、默认头像、渠道脱敏、存储命名、旧数据迁移功能裁撤，以及设置分组、样式统一、结果参数单行滚动、绘图空白页居中与品牌字（Fredoka），以及界面字体改用资源圆体。不得顺便修改报价、分流、额度阈值、取消和失败行为。
@@ -10,7 +10,7 @@
 - TypeScript 迁移 T0–T5 已完成，见 `docs/typescript-migration-plan.md`。`src/` 自有逻辑使用 TS／Vue TS，类型直接来自实现，不再新增 JS 与手写配对声明；测试、服务器、工具和静态兼容脚本保留原运行方式。不放宽 strict 或以忽略诊断代替边界收窄。
 - Vue 节点不得由旧脚本包裹或搬移；高亮宿主写入模板，位置切换用 Teleport，监听器与 Observer 有对应清理。
 - 字体族、字重、用途与预加载统一维护于 `config/fonts.json`，资源圆体范围位于 `config/font-ranges/koma-rounded.json`；`public/fonts/index.css` 为生成文件，不手改。普通构建复用既有 WOFF2，Python 仅用于主动离线重建。G0–G4 已完成，维护方式见 `docs/font-style-governance.md`、`docs/style-ownership.md` 与 `docs/style-checks.md`；变量／基础／控件／共享组合分层，组件私有规则回对应 Vue，保留已记录的全局结构与工作区覆盖。`npm run styles:check` 使用唯一 Stylelint 配置，已接入 `check`／CI；必要禁用指令须注明原因，不新增全局补丁。
-- 使用中性的 Gateway Profile，无私有渠道名称、域名、头像、默认连接或品牌判断；未配置 URL／Key 不请求上游。公开官方 API（如 NovelAI 官方）属于协议适配，可以有自己的 Profile、固定官方地址和合法图标，仍由用户添加连接和 Key；私有渠道与中转只走中性的标准 Profile。业务按 Profile 声明的能力分支，不按连接名称或地址判断。
+- 使用中性的 Gateway Profile，无私有渠道名称、域名、头像、默认连接或品牌判断；未配置 URL／Key 不请求上游。公开官方 API（如 NovelAI 官方）属于协议适配，可以有自己的 Profile、固定官方地址和合法图标，仍由用户添加连接和 Key。兼容服务由用户显式选择其实际支持的标准网关、OpenAI Images 或 Gemini 原生协议；不内置私有地址，不按域名猜测或自动回退协议。业务按 Profile 声明的能力分支，无报价不等于免费；原标准网关的报价／max_cost／额度护栏保持。
 - 只使用 Koma 存储与锁命名。用户已取消整条旧数据迁移线：不建迁移桥、转换器、迁移状态／锁、旧数据检测或清理流程及相关 UI；不作为待办或发布前置条件。普通「备份与恢复」只支持新版 Koma 格式；连接与 Key 重新配置。
 - 不复制内部基线、Git 历史、截图、真实备份、部署配置、Key 或 Token；不把服务端秘密放入 VITE\_\*。
 - 本地代理只监听回环地址，沿用标准 Profile 的固定路径；服务端 URL／Key 不注入浏览器。只读连接不持久化，本地模型来源单独保存；静态版不探测代理，默认不通信。发布使用显式文件清单，不复制 .env 或工作目录。

@@ -6,6 +6,7 @@ import type { GatewayProfile } from "../gateway/profile.ts";
 
 export interface CatalogEntry { id: string; family?: string }
 export interface CatalogModel {
+  profileId?: string;
   id: string; upstreamId: string; connection: string; name: string; description: string; provider: string; family?: string;
   quotaGroup?: string; maxPixels: number; operations: string[]; tools: string[]; replaces: string[];
   fields: Record<string, { options: string[]; default: string }>;
@@ -32,11 +33,11 @@ export function sourceState(routing: Routing, connection: string, model: ModelId
 }
 export function validateCatalog(raw: unknown, profile: GatewayProfile) {
   const value = object(raw), features = object(value.studio_features);
-  if (!(Number(features.version) >= profile.catalog.minimumVersion) || profile.catalog.requireCostCeiling && features.max_cost !== true) throw new Error("上游尚未支持报价保护，请更新后重试");
+  if (profile.catalog.minimumVersion > 0 && !(Number(features.version) >= profile.catalog.minimumVersion) || profile.catalog.requireCostCeiling && features.max_cost !== true) throw new Error("上游尚未支持报价保护，请更新后重试");
   if (!Object.keys(object(value.models)).length) throw new Error("连接没有可用模型");
   return value;
 }
-export function normalizeCatalog(raw: unknown, routing: Routing, connection: string) {
+export function normalizeCatalog(raw: unknown, routing: Routing, connection: string, profile?: GatewayProfile) {
   const value = object(raw), features = object(value.studio_features);
   const contextImages = Number(features.max_context_images) || 15;
   const entries = catalogEntries(value), claimed = new Map<string, ModelIdentity>();
@@ -69,12 +70,13 @@ export function normalizeCatalog(raw: unknown, routing: Routing, connection: str
       if (options.length) fields[key] = { options, default: options.includes(field.default) ? field.default : options[0] };
       else delete fields[key];
     }
-    models.push({ id, upstreamId, connection, name: String(meta.name || entry?.name || id), description: String(meta.description || ""),
+    const native = profile?.protocol && profile.protocol !== "standard";
+    models.push({ id, upstreamId, connection, ...(profile ? { profileId: profile.id } : {}), name: String(meta.name || entry?.name || id), description: String(meta.description || ""),
       provider, family: entry?.family ?? (typeof meta.editor_family === "string" ? meta.editor_family : undefined),
       quotaGroup: typeof meta.quota_group === "string" ? meta.quota_group : undefined,
       maxPixels: Number(meta.max_resolution) || 1_048_576, operations: strings(meta.operations), fields, replaces: strings(meta.replaces), tools: strings(meta.tools),
       sourceMaxPixels: Number(object(meta.generation_references).max_pixels) || 32_000_000,
-      maxImages: Math.min(entry?.inputImages ?? 16, contextImages), chat: entry?.chat === true,
+      maxImages: Math.min(entry?.inputImages ?? 16, native ? Number(meta.max_context_images) || 16 : contextImages), chat: entry?.chat === true || !!native && meta.chat === true,
       transparentBackground: entry?.transparentBackground === true, unmetered: meta.unmetered === true });
   }
   return { models, features, defaults: object(value.defaults), samplers: strings(value.valid_samplers).length ? strings(value.valid_samplers) : ["k_euler_ancestral"] };

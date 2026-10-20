@@ -1,6 +1,6 @@
 # Koma Image
 
-基于 Vue 3、TypeScript 和 Vite 的图片创作工作区。M1–M7 已完成实现、验收和发布，保留原界面及业务语义；支持静态托管和本地代理两种运行方式。P3（NovelAI 官方连接）已完成连接管理和 Profile 泛化，官方接入等待 Key 实测。
+基于 Vue 3、TypeScript 和 Vite 的图片创作工作区。M1–M7 已完成实现、验收和发布，保留原界面及业务语义；支持静态托管和本地代理两种运行方式。支持 OpenAI Images、Gemini 原生与 NovelAI 官方基础适配，已用模拟接口验证，真实供应商联调尚未完成。
 
 站点：[Koma Image](https://koma-image.pages.dev/)。源码仓库：[hasheeper/koma-image](https://github.com/hasheeper/koma-image)。
 
@@ -9,6 +9,19 @@
 连接可在「设置 → 连接」中添加、改名和删除，删除时一并清除 Key 和模型来源。Tag 自动补全与历史保留位于「设置 → 通用」，安全和备份操作集中在「安全与备份」。
 
 可在浏览器中显式填写 URL／Key，也可使用本地 Node 代理，由环境变量提供连接。初始无默认上游地址；本地模式的地址和 Key 为只读，模型来源仍可编辑。
+
+## 连接协议
+
+在「设置 → 连接 → 添加连接」中选择实际接口协议。已有连接也可修改协议，修改后重建其模型映射；不会按连接名称或域名自动猜测。
+
+| 协议 | 当前用途 | 地址填写 |
+| --- | --- | --- |
+| Koma 标准网关 | 原生图、对话、编辑、报价与额度保护 | 支持标准聚合协议的服务根地址 |
+| OpenAI Images | 对话页生图与参考图修改 | 接口根地址或以 `/v1` 结尾的地址，保留服务前缀 |
+| Gemini 原生 | 对话页生图与参考图修改 | 接口根地址或以 `/v1beta` 结尾的地址，保留服务前缀 |
+| NovelAI 官方 · 基础接入 | 绘图、图生图、Anlas 查询 | 选择后固定为官方图片地址；单独填写对应 Key |
+
+原生接口没有预报价时显示“费用未知”，不套用标准网关的积分或免费额度。NAI 官方重绘／放大尚未开放。浏览器直连需服务允许 CORS；环境变量本地代理本轮仍只支持标准网关。完整范围与联调边界见[原生图像协议](docs/native-image-protocols.md)。
 
 ## 本地开发
 
@@ -74,6 +87,7 @@ npm run test:services
 npm run test:shared
 npm run test:drawing
 npm run test:workspaces
+npm run test:native
 npm run test:local
 npm run test:release
 ```
@@ -95,7 +109,7 @@ docs/         规范、实施记录与发布说明
 
 - 复刻既有业务和 UI，按已批准范围调整工作区导航、默认头像、连接配置及数据命名。
 - Vue 管理低频界面状态；高频绘制与图片资源交给原生驱动。
-- 业务通过 Koma Gateway Profile 访问服务，只按 Profile 声明的能力分支，初始 URL／Key 为空。私有渠道与中转只走中性的标准 Profile；公开官方 API（如 NovelAI 官方）可以有自己的 Profile，仍由用户添加连接和 Key。
+- 业务通过 Gateway Profile 访问服务，初始 URL／Key 为空。用户显式选择标准网关、OpenAI Images、Gemini 原生或 NovelAI 官方协议；兼容服务不内置私有名称或地址，不按域名判断或自动回退。原标准网关的报价与额度保护保持。
 - 前端构建不包含私有地址或凭据；本地环境变量不进入 `VITE_*`，运行时连接和令牌不写入浏览器存储或备份。
 - 正式包仅使用 Koma 命名空间。旧数据迁移整条线已取消，不检测、读取或清理旧库；连接与 Key 重新配置。设置中的「备份与恢复」仅支持新版格式，不内置旧备份转换器。
 
@@ -113,6 +127,7 @@ docs/         规范、实施记录与发布说明
 - [M5／M6 对话与编辑工作区实现](docs/chat-editor-workspaces.md)
 - [M7 本地代理与发布验收](docs/release-acceptance.md)
 - [P3 NovelAI 官方连接](docs/novelai-official.md)：[P3.0 连接管理](docs/shared-settings-tags.md#p30-连接管理)、[P3.1 Profile 泛化](docs/gateway-data-scheduler.md#p31-profile-泛化)
+- [原生图像协议接入](docs/native-image-protocols.md)：OpenAI Images、Gemini 原生、NAI 官方基础适配及实测边界
 - [发布包使用、更新与回退](docs/release-guide.md)
 - [第三方资源](docs/third-party-assets.md)
 - [协作约定](AGENTS.md)

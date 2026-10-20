@@ -10,6 +10,7 @@ import type { GatewayProfile } from "./profile.ts";
 import { createTransport, readJson, errorMessage } from "./transport.ts";
 import { executionRoute, toNativePayload } from "./routes.ts";
 import type { ImagePayload } from "./routes.ts";
+import { nativeCatalog, nativeRequest } from "./native-protocols.ts";
 
 export class QuoteUnsupported extends Error {
   constructor() {
@@ -34,14 +35,20 @@ export function createGateway(
   async function rawCatalog(force = false, signal?: AbortSignal) {
     context.assertCurrent();
     if (rawCache && !force) return rawCache;
-    const raw = validateCatalog(
-      await readJson(
-        await transport.request(profilePath(profile, "catalog"), {
-          signal: timedSignal(15_000, signal),
-        }),
-      ),
-      profile,
-    );
+    const readSignal = timedSignal(15_000, signal);
+    let source = await readJson(await transport.request(profilePath(profile, "catalog"), { signal: readSignal }));
+    if (profile.protocol === "gemini-native") {
+      const tokens = new Set<string>();
+      while (typeof source.nextPageToken === "string" && source.nextPageToken) {
+        const token = source.nextPageToken;
+        if (tokens.has(token) || tokens.size >= 20) throw new Error("模型列表分页异常");
+        tokens.add(token);
+        const next = await readJson(await transport.request(profilePath(profile, "catalog"), { signal: readSignal, pageToken: token }));
+        if (!Array.isArray(source.models) || !Array.isArray(next.models)) throw new Error("模型列表格式无效");
+        source = { ...next, models: [...source.models, ...next.models] };
+      }
+    }
+    const raw = validateCatalog(profile.protocol && profile.protocol !== "standard" ? nativeCatalog(profile, source) : source, profile);
     context.assertCurrent();
     rawCache = raw;
     fetchedAt = Date.now();
@@ -55,7 +62,7 @@ export function createGateway(
     context.assertCurrent();
     if (cached && !force) return cached;
     const raw = await rawCatalog(force, signal);
-    cached = normalizeCatalog(raw, context.routing, context.connection.id);
+    cached = normalizeCatalog(raw, context.routing, context.connection.id, profile);
     return cached;
   }
   function wire(payload: ImagePayload): ImagePayload {
@@ -89,6 +96,17 @@ export function createGateway(
     estimate: (payload: ImagePayload, signal?: AbortSignal) =>
       estimateWire(wire(payload), signal),
     async quota(quotaGroup?: string, signal?: AbortSignal) {
+      if (profile.quotaPolicy.supported === false) {
+        context.assertCurrent();
+        signal?.throwIfAborted();
+        if (profile.protocol !== "novelai") return normalizeQuota(profile, {}, null, false, quotaGroup);
+        const subscription = await readJson(await transport.request(profilePath(profile, "quota"), { signal: timedSignal(10_000, signal) }));
+        context.assertCurrent();
+        const steps = subscription.trainingStepsLeft as Record<string, unknown> | undefined;
+        const fixed = steps?.fixedTrainingStepsLeft, purchased = steps?.purchasedTrainingSteps;
+        const remaining = typeof fixed === "number" && typeof purchased === "number" && Number.isFinite(fixed) && Number.isFinite(purchased) ? fixed + purchased : null;
+        return normalizeQuota(profile, { credits: { remaining }, subscription }, null, false, quotaGroup);
+      }
       const results = await Promise.allSettled([
         transport
           .request(profilePath(profile, "quota"), {
@@ -164,8 +182,9 @@ export function createGateway(
         }
         signal.throwIfAborted();
         context.assertCurrent();
-        const route = executionRoute(payload, quote, profile),
-          native = route.kind === "native";
+        const adapted = profile.protocol && profile.protocol !== "standard" ? nativeRequest(profile, payload) : null;
+        const route = adapted ? { path: adapted.path } : executionRoute(payload, quote, profile),
+          native = adapted ? adapted.native : "kind" in route && route.kind === "native";
         if (native) {
           try {
             new DecompressionStream("deflate-raw");
@@ -190,13 +209,16 @@ export function createGateway(
           quote && profile.costCeiling
             ? { ...payload, [profile.costCeiling.field]: quote.cost }
             : payload;
-        const requestBody = native ? toNativePayload(body) : body;
+        const requestBody = adapted ? adapted.body : native ? toNativePayload(body) : body;
         submitted = true;
         const response = await transport.request(route.path, {
           body: requestBody,
           signal,
           native,
+          model: adapted && "model" in adapted ? adapted.model : undefined,
         });
+        signal.throwIfAborted();
+        context.assertCurrent();
         if (!response.ok)
           throw new Error(
             errorMessage(

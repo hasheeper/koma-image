@@ -1,7 +1,8 @@
 import { object } from "../domain/value.ts";
 import type { ConnectionContext } from "../services/connections.ts";
 import { profileFor, profilePath } from "./profile.ts";
-import { endpoint } from "./transport.ts";
+import { endpoint, authHeaders } from "./transport.ts";
+import { nativeCatalog } from "./native-protocols.ts";
 export async function testConnection(
   context: ConnectionContext,
   fetcher: typeof fetch = fetch,
@@ -18,9 +19,7 @@ export async function testConnection(
     const response = await fetcher(url, {
       headers: {
         Accept: "application/json",
-        ...(context.localToken
-          ? { "X-Koma-Local-Token": context.localToken }
-          : { Authorization: `Bearer ${context.key()}` }),
+        ...authHeaders(context, profile),
       },
       cache: "no-store",
       credentials: "omit",
@@ -37,6 +36,17 @@ export async function testConnection(
     if (response.status === 404 || !data) return { s: "err", text: "地址错误" };
     if (!response.ok)
       return { s: "err", text: `请求失败（${response.status}）` };
+    if (profile.protocol && profile.protocol !== "standard") {
+      // A valid first page is enough to diagnose access; discovery handles all pages.
+      if (profile.protocol === "gemini-native" && Array.isArray(object(data).models) && object(data).nextPageToken)
+        return { s: "ok", text: "连接可用，正在读取模型列表" };
+      try {
+        const catalog = nativeCatalog(profile, data);
+        return { s: "ok", text: profile.protocol === "novelai" ? "订阅可用 · 生图尚未实测" : `可用，共 ${Object.keys(catalog.models).length} 个图像模型` };
+      } catch (error) {
+        return { s: "err", text: error instanceof Error ? error.message : "接口协议不匹配" };
+      }
+    }
     const count = Object.keys(object(object(data).models)).length,
       features = object(object(data).studio_features);
     if (
@@ -64,6 +74,8 @@ export async function testConnection(
     } catch {
       return { s: "err", text: "网络不可达或域名错误" };
     }
-    return { s: "err", text: "该地址不允许网页直接调用，可改用本地代理" };
+    return { s: "err", text: profile.protocol && profile.protocol !== "standard"
+      ? "该地址不允许网页直接调用，请检查服务端 CORS 配置"
+      : "该地址不允许网页直接调用，可改用本地代理" };
   }
 }

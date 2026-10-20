@@ -1,4 +1,5 @@
 import type { ApplicationServices } from "./application";
+import { profileFor, STANDARD_PROFILE_ID } from "../gateway/profile.ts";
 import type { Ui } from "../app/ui";
 import { message } from "../app/ui";
 import type { AppRouter } from "../app/router";
@@ -319,6 +320,11 @@ export function createEditor(
         const p = await payload(key);
         if (rev !== j.revision) return;
         const gateway = services.gateway(p.model.connection);
+        if (!gateway.profile.quote.supported && !gateway.profile.costCeiling) {
+          j.price = "费用未知";
+          emit();
+          return;
+        }
         const q = await gateway.estimate(p.payload, controller.signal);
         if (rev !== j.revision || busy || !open) return;
         j.quote = q;
@@ -428,11 +434,11 @@ export function createEditor(
       busy ||
       preparing ||
       reading ||
-      !jobs[key].quote ||
+      !canRun(key) ||
       services.data.phase !== "ready"
     )
       return;
-    const shownCost = jobs[key].quote!.cost;
+    const shownCost = jobs[key].quote?.cost ?? null;
     preparing = true;
     emit();
     let p: Awaited<ReturnType<typeof payload>>;
@@ -568,6 +574,12 @@ export function createEditor(
     }
   };
   window.addEventListener("beforeunload", leave);
+  function canRun(key: Job) {
+    const m = selected(key === "upscale" ? "upscale" : current.mode);
+    if (!m) return false;
+    const profile = profileFor(m.profileId || STANDARD_PROFILE_ID);
+    return !!jobs[key].quote || !profile.quote.supported && !profile.costCeiling;
+  }
   return {
     snapshot: () => ({
       session: {
@@ -595,11 +607,13 @@ export function createEditor(
       running,
       startedAt,
       edit: {
+        canRun: canRun("edit"),
         quote: jobs.edit.quote,
         error: jobs.edit.error,
         price: jobs.edit.price,
       },
       upscale: {
+        canRun: canRun("upscale"),
         quote: jobs.upscale.quote,
         error: jobs.upscale.error,
         price: jobs.upscale.price,

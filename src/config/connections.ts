@@ -1,5 +1,5 @@
 import { object } from "../domain/value.ts";
-import { profileFor } from "../gateway/profile.ts";
+import { profileFor, NOVELAI_IMAGE_URL } from "../gateway/profile.ts";
 
 export interface Connection {
   id: string;
@@ -101,11 +101,14 @@ export function validateRouting(value: unknown): Routing {
       typeof c.profileId !== "string"
     )
       throw new Error("连接配置格式无效");
-    profileFor(c.profileId);
+    const profile = profileFor(c.profileId);
+    const baseUrl = normalizeBaseUrl(c.baseUrl);
+    if (profile.protocol === "novelai" && baseUrl !== NOVELAI_IMAGE_URL)
+      throw new Error("NovelAI 官方连接使用固定的图片与账户地址");
     out.connections[id] = {
       id,
       name: c.name.trim(),
-      baseUrl: normalizeBaseUrl(c.baseUrl),
+      baseUrl,
       credentialRef: c.credentialRef,
       profileId: c.profileId,
       revision: c.revision,

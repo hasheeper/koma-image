@@ -27,7 +27,7 @@ import {
   validateModelLinks,
   LOCAL_CONNECTION_ID,
 } from "../config/connections.ts";
-import { STANDARD_PROFILE_ID } from "../gateway/profile.ts";
+import { STANDARD_PROFILE_ID, connectionProfiles, profileFor, NOVELAI_IMAGE_URL } from "../gateway/profile.ts";
 import { testConnection } from "../gateway/connection-test.ts";
 import { object } from "../domain/value.ts";
 import { MODELS } from "../domain/models.ts";
@@ -56,6 +56,7 @@ const editing = ref<string | null>(null),
   renaming = ref<string | null>(null),
   nameDraft = ref(""),
   addingName = ref(""),
+  addingProfile = ref(STANDARD_PROFILE_ID),
   addingUrl = ref(""),
   formError = ref("");
 const { requestClose, cancel, closed } = useDialog(
@@ -158,7 +159,7 @@ async function load(force = false) {
         if (token !== sequence || signal.aborted) return;
         if (results[0].status === "fulfilled") {
           raw.value = { ...raw.value, [c.id]: results[0].value };
-          statuses.value[c.id] = { s: "ok", text: "可用 · 刚刚检查" };
+          statuses.value[c.id] = { s: "ok", text: gateway.profile.protocol === "novelai" ? "订阅可用 · 生图尚未实测" : "可用 · 刚刚检查" };
         } else
           statuses.value[c.id] = { s: "err", text: message(results[0].reason) };
         if (results[1].status === "fulfilled")
@@ -223,8 +224,26 @@ function add() {
   if (local) return;
   addingName.value = `连接 ${Object.keys(routing.value.connections).length + 1}`;
   addingUrl.value = "";
+  addingProfile.value = STANDARD_PROFILE_ID;
   formError.value = "";
   form.value?.showModal();
+}
+function selectProtocol() {
+  if (profileFor(addingProfile.value).protocol === "novelai") addingUrl.value = NOVELAI_IMAGE_URL;
+  else if (addingUrl.value === NOVELAI_IMAGE_URL) addingUrl.value = "";
+}
+async function changeProtocol(id: string, select: HTMLSelectElement) {
+  const value = select.value;
+  const profile = profileFor(value), next = structuredClone(routing.value);
+  if (profile.protocol === "novelai" && next.connections[id].baseUrl !== NOVELAI_IMAGE_URL) {
+    select.value = next.connections[id].profileId;
+    ui.toast("请单独添加 NovelAI 官方连接，并填写对应 Key", "warn");
+    return;
+  }
+  next.connections[id].profileId = value;
+  next.links[id] = {};
+  await commit(next);
+  select.value = connections.configuration.connections[id]?.profileId || value;
 }
 async function saveNew() {
   formError.value = "";
@@ -237,7 +256,7 @@ async function saveNew() {
       id,
       name: addingName.value.trim() || "连接",
       baseUrl,
-      profileId: STANDARD_PROFILE_ID,
+      profileId: addingProfile.value,
       credentialRef: `key-${suffix}`,
       revision: crypto.randomUUID(),
     };
@@ -558,6 +577,20 @@ async function reveal(id: string) {
                 </template>
               </div>
               <div class="conn-row">
+                <span class="k">协议</span>
+                <select
+                  v-if="!local"
+                  class="v sans"
+                  aria-label="接口协议"
+                  :value="c.profileId"
+                  @change="changeProtocol(c.id, $event.target as HTMLSelectElement)"
+                >
+                  <option v-for="p in connectionProfiles" :key="p.id" :value="p.id">{{ p.label }}</option>
+                </select>
+                <span v-else class="v sans">{{ profileFor(c.profileId).label }}</span>
+                <span></span>
+              </div>
+              <div class="conn-row">
                 <span class="k">状态</span
                 ><span class="v sans"
                   ><span
@@ -598,6 +631,7 @@ async function reveal(id: string) {
                     local ? "本机同源代理" : c.baseUrl
                   }}</span
                   ><span v-if="local" class="v sans dim">由服务端配置</span
+                  ><span v-else-if="profileFor(c.profileId).protocol === 'novelai'" class="addr-warn">Key 仅发送到 image.novelai.net 与 api.novelai.net</span
                   ><span v-else class="addr-warn"
                     >Key 会发送到
                     <b>{{
@@ -606,7 +640,7 @@ async function reveal(id: string) {
                   >
                 </div>
                 <button
-                  v-if="!local"
+                  v-if="!local && profileFor(c.profileId).protocol !== 'novelai'"
                   class="md-act"
                   type="button"
                   :aria-label="editing === c.id ? '完成' : '修改地址'"
@@ -641,7 +675,9 @@ async function reveal(id: string) {
               </div>
               <div class="conn-row">
                 <span class="k">余额</span>
-                <div v-if="balances[c.id]" class="bal">
+                <span v-if="profileFor(c.profileId).protocol === 'novelai'" class="v sans">{{ amount(object(balances[c.id]?.credits).remaining) }} Anlas</span>
+                <span v-else-if="profileFor(c.profileId).quotaPolicy.supported === false" class="v sans dim">接口不提供余额查询</span>
+                <div v-else-if="balances[c.id]" class="bal">
                   <span class="qt"
                     ><AppIcon name="i-credit" />媒体积分<b>{{
                       amount(object(balances[c.id].credits).remaining)
@@ -866,6 +902,12 @@ async function reveal(id: string) {
       <header class="modal-head"><h2 id="connectionTitle">添加连接</h2></header>
       <div class="modal-body">
         <div class="fld">
+          <label for="connectionProtocol">接口协议</label>
+          <select id="connectionProtocol" v-model="addingProfile" @change="selectProtocol">
+            <option v-for="p in connectionProfiles" :key="p.id" :value="p.id">{{ p.label }}</option>
+          </select>
+        </div>
+        <div class="fld">
           <label for="connectionName">名称</label
           ><input
             id="connectionName"
@@ -879,11 +921,13 @@ async function reveal(id: string) {
           ><input
             id="connectionUrl"
             v-model="addingUrl"
+            :readonly="profileFor(addingProfile).protocol === 'novelai'"
             type="text"
             placeholder="https://"
             autocomplete="off"
             spellcheck="false"
-          /><span class="addr-warn"
+          /><span v-if="profileFor(addingProfile).protocol === 'novelai'" class="addr-warn">基础生图与图生图；Key 发送到 image.novelai.net 与 api.novelai.net，生成尚未实测。</span
+          ><span v-else class="addr-warn"
             >Key 会发送到 <b>{{ host(addingUrl) || "填写的连接地址" }}</b></span
           >
         </div>

@@ -10,11 +10,11 @@
 npm start
 ```
 
-打开 http://127.0.0.1:3218。未设置环境变量时，在网页「设置 → 连接」中填写 URL 和 Key，浏览器直接访问所填网关。若网关不允许跨域，可使用下面的本地代理模式。
+打开 http://127.0.0.1:3218。未设置环境变量时，在网页「设置 → 连接」中选择协议并填写 URL 和 Key，浏览器直接访问所填服务。标准网关不允许跨域时，可使用下面的本地代理模式；OpenAI Images、Gemini 原生和 NovelAI 官方目前仅支持浏览器直连。
 
 ## 本地代理
 
-将 `.env.example` 复制为 `.env`，在本机填写 `KOMA_GATEWAY_URL` 和 `KOMA_GATEWAY_KEY`，两项必须同时设置。URL 使用 HTTPS 或本机 HTTP，可包含接口前的路径前缀；不要附加 `/v1`、查询参数或 Key。不要提交或分享 `.env`。
+本地代理仅支持 Koma 标准网关协议。将 `.env.example` 复制为 `.env`，在本机填写 `KOMA_GATEWAY_URL` 和 `KOMA_GATEWAY_KEY`，两项必须同时设置。URL 使用 HTTPS 或本机 HTTP，可包含接口前的路径前缀；不要附加 `/v1`、查询参数或 Key。不要提交或分享 `.env`。
 
 ```sh
 cp .env.example .env

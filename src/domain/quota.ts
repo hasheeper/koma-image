@@ -16,6 +16,7 @@ export function normalizeQuota(profile: GatewayProfile, media: unknown, stats: u
 }
 export type QuotaStatus = ReturnType<typeof normalizeQuota>;
 export function quotaPolicy(status: QuotaStatus | null, usesDailyQuota = true) {
+  if (status?.profile.quotaPolicy.supported === false) usesDailyQuota = false;
   const imageUsed = finite(status?.image?.used), tempRemaining = finite(status?.temporary?.remaining);
   const limited = status?.temporary?.isTemp === true && status.temporary.limited !== false;
   const thresholds = status?.profile.quotaPolicy;

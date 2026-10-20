@@ -267,6 +267,7 @@ export function createChat(services: ApplicationServices, ui: Ui) {
         const p = await prepare(c);
         controller.signal.throwIfAborted();
         const gateway = services.gateway(p.model.connection);
+        if (!gateway.profile.quote.supported && !gateway.profile.costCeiling) return;
         const q = await gateway.estimate(p.payload, controller.signal);
         if (rev !== quoteRevision || current !== c || disposed) return;
         quote = q;

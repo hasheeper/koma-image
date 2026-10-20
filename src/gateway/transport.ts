@@ -9,12 +9,27 @@ export function endpoint(
   baseUrl: string,
   path: string,
   profile: GatewayProfile,
+  model?: string,
 ) {
   if (!Object.values(profile.transport.paths).includes(path))
     throw new Error("协议路径无效");
-  return new URL(
-    `${normalizeBaseUrl(baseUrl)}${path === profile.transport.paths.native ? "" : profile.transport.apiPrefix}${path}`,
-  );
+  const name = Object.entries(profile.transport.paths).find(([, value]) => value === path)?.[0] as keyof typeof profile.transport.paths;
+  let base = normalizeBaseUrl(profile.transport.pathBases?.[name] || baseUrl);
+  const prefix = path === profile.transport.paths.native ? "" : profile.transport.apiPrefix;
+  // Native URLs accept either the service root or its version prefix.
+  if (profile.protocol && profile.protocol !== "standard" && prefix && base.endsWith(prefix))
+    base = base.slice(0, -prefix.length);
+  if (path.includes("{model}")) {
+    if (!model || !/^[a-zA-Z0-9][a-zA-Z0-9._-]{0,191}$/.test(model))
+      throw new Error("模型 ID 无效");
+    path = path.replace("{model}", encodeURIComponent(model));
+  }
+  return new URL(`${base}${prefix}${path}`);
+}
+export function authHeaders(context: ConnectionContext, profile: GatewayProfile): Record<string, string> {
+  return context.localToken ? { "X-Koma-Local-Token": context.localToken }
+    : profile.auth.kind === "google-key" ? { "x-goog-api-key": context.key() }
+      : { Authorization: `Bearer ${context.key()}` };
 }
 export function errorMessage(data: unknown, fallback = "请求失败") {
   const obj = object(data),
@@ -42,11 +57,17 @@ export function createTransport(
         signal?: AbortSignal;
         native?: boolean;
         stats?: boolean;
+        model?: string;
+        pageToken?: string;
       } = {},
     ) {
       context.assertCurrent();
       options.signal?.throwIfAborted();
-      const url = endpoint(context.connection.baseUrl, path, profile);
+      const url = endpoint(context.connection.baseUrl, path, profile, options.model);
+      if (options.pageToken) {
+        if (path !== profile.transport.paths.catalog || profile.protocol !== "gemini-native") throw new Error("分页参数无效");
+        url.searchParams.set("pageToken", options.pageToken);
+      }
       const headers: Record<string, string> = {
         Accept: "application/json, image/png, image/jpeg, image/webp",
       };
@@ -59,8 +80,9 @@ export function createTransport(
           throw new Error("查询认证只适用于额度统计");
         url.searchParams.set("days", "1");
         if (key) url.searchParams.set(queryKey, key);
-      } else if (key) headers.Authorization = `Bearer ${key}`;
-      if (options.body !== undefined)
+      } else Object.assign(headers, authHeaders(context, profile));
+      const multipart = typeof FormData !== "undefined" && options.body instanceof FormData;
+      if (options.body !== undefined && !multipart)
         headers["Content-Type"] = "application/json";
       if (options.native)
         Object.assign(headers, profile.transport.nativeHeaders);
@@ -72,7 +94,7 @@ export function createTransport(
           body:
             options.body === undefined
               ? undefined
-              : JSON.stringify(options.body),
+              : multipart ? options.body as FormData : JSON.stringify(options.body),
           signal: options.signal,
           cache: "no-store",
           credentials: "omit",

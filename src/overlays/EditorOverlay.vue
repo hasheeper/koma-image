@@ -814,7 +814,7 @@ const number = (e: Event) => Number((e.target as HTMLInputElement).value);
               id="editorRun"
               type="submit"
               :disabled="
-                locked || !view.edit.quote || !view.base || !!view.warning
+                locked || !view.edit.canRun || !view.base || !!view.warning
               "
             >
               <AppIcon class="solid" name="i-generate" /><span
@@ -1212,7 +1212,7 @@ const number = (e: Event) => Number((e.target as HTMLInputElement).value);
         id="editorUpscaleRun"
         type="button"
         :disabled="
-          locked || !view.upscale.quote || !shown || !!view.upscaleWarning
+          locked || !view.upscale.canRun || !shown || !!view.upscaleWarning
         "
         @click="editor.run('upscale')"
       >
