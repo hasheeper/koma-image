@@ -280,3 +280,152 @@ function fullDictionary() {
     </div></Teleport
   >
 </template>
+
+<style scoped>
+/* ── Tag picker ──────────────────────────────────────────────── */
+body[data-picker="open"] #pickerSheet { opacity: 1; }
+body[data-picker="open"] .picker-card { transform: none; }
+.picker-card {
+  --well: #19191c;
+  --well-focus: #17171a;
+  display: grid;
+  grid-template-rows: auto auto auto auto minmax(0, 1fr) auto;
+  gap: var(--sp-3);
+  width: min(520px, 100%);
+  height: min(640px, calc(100dvh - 2 * var(--sp-5)));
+  padding: var(--sp-4);
+  background: var(--raised);
+  border: 1px solid var(--line);
+  border-radius: var(--r4);
+  box-shadow: var(--sh-lip), var(--sh-4);
+  transform: translateY(10px) scale(0.985);
+  transition: transform var(--t3) var(--e-out);
+}
+.picker-head { display: flex; align-items: center; gap: var(--sp-3); }
+.picker-title { display: flex; align-items: center; gap: var(--sp-2); margin-right: auto; }
+.picker-title .ico { color: var(--a); }
+.picker-title strong { font-size: var(--fz-xl); font-weight: var(--fw-bold); letter-spacing: -0.02em; }
+
+.picker-search {
+  display: flex; align-items: center;
+  background: var(--well);
+  border: 1px solid var(--line-2);
+  border-radius: var(--r2);
+  transition: border-color var(--t1) var(--e), box-shadow var(--t1) var(--e);
+}
+.picker-search:focus-within { border-color: var(--a-line); box-shadow: var(--ring); }
+.picker-search > .ico { margin-left: 10px; color: var(--fg-4); }
+.picker-search input {
+  flex: 1; width: auto;
+  min-height: 38px;
+  background: transparent; border: 0; box-shadow: none;
+  font-size: var(--fz-md);
+}
+.picker-search input:hover:not(:focus),
+.picker-search input:focus { background: transparent; box-shadow: none; }
+
+/* What this session put in, so it can be taken back out without hunting
+   through the prompt text. */
+.picker-chosen { display: grid; gap: var(--sp-2); }
+.picker-chosen[hidden] { display: none; }
+.picker-chosen > span { font-size: var(--fz-2xs); color: var(--fg-4); }
+.picker-chosen > div { display: flex; flex-wrap: wrap; gap: var(--sp-1); }
+.picker-chip {
+  display: inline-flex; align-items: center; gap: 5px;
+  padding: 3px 8px;
+  font: var(--fw-regular) var(--fz-2xs)/1.5 var(--mono);
+  color: var(--a);
+  background: var(--a-dim);
+  border: 1px solid var(--a-line);
+  border-radius: 20px;
+  transition: color var(--t1) var(--e), background var(--t1) var(--e);
+}
+.picker-chip i {
+  width: 7px; height: 7px; flex: none;
+  background: currentColor;
+  clip-path: polygon(14% 0, 50% 36%, 86% 0, 100% 14%, 64% 50%, 100% 86%, 86% 100%, 50% 64%, 14% 100%, 0 86%, 36% 50%, 0 14%);
+}
+.picker-chip:hover { color: var(--err); background: var(--err-dim); border-color: transparent; }
+
+.picker-status { min-height: 15px; font-size: var(--fz-xs); color: var(--fg-3); }
+.picker-status[hidden] { display: none; }
+.picker-status.err { color: var(--err); }
+.picker-status.load { display: flex; align-items: center; gap: var(--sp-2); }
+.picker-status.load::before {
+  content: "";
+  flex: none; width: 11px; height: 11px;
+  border: 1.5px solid var(--line-2);
+  border-top-color: var(--a);
+  border-radius: 50%;
+  animation: tagSpin 620ms linear infinite;
+}
+
+.picker-results {
+  min-height: 0;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  scrollbar-gutter: stable;
+  display: grid; gap: 1px;
+  align-content: start;
+}
+.picker-row {
+  display: flex; align-items: center; justify-content: space-between;
+  gap: var(--sp-3);
+  width: 100%;
+  min-height: 44px;
+  padding: 6px 9px;
+  color: var(--fg-2);
+  text-align: left;
+  border: 1px solid transparent;
+  border-radius: var(--r2);
+  transition: color var(--t1) var(--e), background var(--t1) var(--e),
+    border-color var(--t1) var(--e);
+}
+.picker-row:hover, .picker-row.on { color: var(--fg); background: var(--hover); }
+/* Already in the prompt: clicking again removes it. */
+.picker-row[aria-pressed="true"] {
+  color: var(--fg);
+  background: var(--a-dim);
+  border-color: var(--a-line);
+}
+.picker-row[aria-pressed="true"] .picker-names strong::after {
+  content: "";
+  display: inline-block;
+  width: 9px; height: 9px;
+  margin-left: 6px;
+  background: var(--a);
+  clip-path: polygon(19% 52%, 36% 68%, 82% 22%, 92% 33%, 37% 87%, 8% 60%);
+}
+.picker-names { display: grid; gap: 1px; overflow: hidden; }
+.picker-names strong,
+.picker-names span { overflow: hidden; white-space: nowrap; text-overflow: ellipsis; }
+.picker-names strong { font: var(--fw-medium) var(--fz-sm)/1.35 var(--mono); }
+.picker-names span { font-size: var(--fz-xs); color: var(--fg-3); }
+.picker-meta {
+  flex: none;
+  display: inline-flex; align-items: center; gap: 5px;
+  font: var(--fw-regular) var(--fz-2xs)/1.3 var(--mono);
+  color: var(--fg-4);
+  white-space: nowrap;
+}
+.picker-foot {
+  padding-top: var(--sp-2);
+  border-top: 1px solid var(--line);
+  font-size: var(--fz-2xs); color: var(--fg-4);
+}
+
+
+@keyframes tagSpin { to { transform: rotate(1turn); } }
+
+@media (max-width: 860px) {
+.picker-card {
+    width: 100%;
+    height: 88dvh;
+    border: 0;
+    border-radius: var(--r4) var(--r4) 0 0;
+    padding: var(--sp-4) var(--sp-3) calc(var(--sp-3) + env(safe-area-inset-bottom));
+    transform: translateY(12px);
+  }
+.picker-row { min-height: 48px; }
+}
+</style>

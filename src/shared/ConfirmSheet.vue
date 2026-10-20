@@ -74,3 +74,15 @@ onBeforeUnmount(() => {
     </footer>
   </dialog>
 </template>
+
+<style scoped>
+/* In-page confirmation (confirm-sheet.js). */
+.modal-confirm { --modal-w: 420px; }
+.modal-confirm .modal-body { display: grid; gap: var(--sp-3); }
+.modal-confirm .modal-foot { border-top: 0; padding-top: 0; }
+.confirm-message { font-size: var(--fz-sm); line-height: 1.65; color: var(--fg-2); white-space: pre-line; }
+.confirm-items { display: grid; gap: 6px; margin: 0; padding: 0; list-style: none; }
+.confirm-items li { display: flex; gap: var(--sp-2); font-size: var(--fz-sm); line-height: 1.55; color: var(--fg-2); }
+.confirm-items li::before { content: ""; flex: none; width: 4px; height: 4px; margin-top: 0.65em; border-radius: 50%; background: var(--fg-4); }
+
+</style>

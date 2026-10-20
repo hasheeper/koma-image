@@ -359,3 +359,181 @@ defineExpose({
     ></div>
   </Teleport>
 </template>
+
+<!-- Wrapper metrics stay global so workspace-specific height overrides retain their precedence.
+     v-html weight marks are explicitly limited to the mirror, without raising specificity. -->
+<style>
+/* ── Weight highlighting ─────────────────────────────────────── */
+/* A mirror sits behind a transparent textarea. Three things previously broke:
+   1) The textarea showed an 11px scrollbar (from the global scrollbar rule)
+      while the mirror used overflow:hidden. Different content widths mean
+      different line-break points, so every wrapped line drifted. Both now
+      reserve the same gutter via `scrollbar-gutter: stable`.
+   2) The mirror drew its own border/background and fought the textarea's
+      focus ring. The wrapper owns all chrome now; both children are bare.
+   3) Sub-pixel font differences: `font: inherit` does not carry every metric,
+      so the shared block below sets each one explicitly on both elements. */
+/* THE WRAPPER IS THE ONLY SCROLLER.
+   The mirror and the textarea live in this one scrolling box, so scrolling
+   moves both at once, natively. Earlier versions gave each its own scrollport
+   and synced with `mirror.scrollTop = textarea.scrollTop`, which is always a
+   frame late (blocks lag behind the caret) and clamps differently at the
+   ends (blocks visibly detach at the top). There is no sync code now. */
+.hl-wrap {
+  position: relative;
+  overflow-y: auto;
+  overflow-x: hidden;
+  overscroll-behavior: contain;
+  background: var(--well);
+  border: 1px solid var(--line);
+  border-radius: var(--r3);
+  transition: border-color var(--t1) var(--e), background var(--t1) var(--e),
+    box-shadow var(--t1) var(--e);
+  /* the handle now resizes the scroller itself */
+  resize: vertical;
+}
+.hl-wrap:hover { border-color: var(--line-2); }
+.hl-wrap:focus-within {
+  border-color: var(--a-line);
+  background: var(--well-focus);
+  box-shadow: 0 0 0 3px var(--a-dim);
+}
+
+/* Every property here affects text layout and MUST be identical on both.
+   Neither element scrolls; both grow to full content height inside the
+   wrapper, so their glyphs cannot drift apart at any scroll offset. */
+.hl-wrap > textarea,
+.hl-wrap > .hl-mirror {
+  display: block;
+  width: 100%;
+  min-width: 0;
+  margin: 0;
+  border: 0;
+  padding: var(--sp-3);
+  font-family: var(--sans);
+  font-size: var(--fz-md);
+  font-weight: var(--fw-regular);
+  font-style: normal;
+  font-variant: normal;
+  line-height: 1.62;
+  letter-spacing: -0.006em;
+  word-spacing: normal;
+  text-indent: 0;
+  text-transform: none;
+  tab-size: 4;
+  white-space: pre-wrap;
+  overflow-wrap: break-word;
+  word-break: normal;
+  overflow: hidden;
+  background: none;
+  box-sizing: border-box;
+}
+/* The textarea is in flow and auto-grown by JS to its full content height,
+   so it defines the scroll length. It never scrolls internally. */
+.hl-wrap > textarea {
+  position: relative;
+  z-index: 1;
+  height: auto;
+  color: var(--fg);
+  caret-color: var(--a);
+  resize: none;
+  border-radius: inherit;
+}
+.hl-wrap > textarea:focus { outline: none; box-shadow: none; background: none; }
+.hl-wrap > textarea::placeholder { color: var(--fg-4); }
+
+/* Painted underneath at the same origin. Because it is inside the same
+   scrollport, it translates with the content automatically. */
+.hl-wrap > .hl-mirror {
+  position: absolute;
+  top: 0;
+  left: 0;
+  z-index: 0;
+  min-height: 100%;
+  color: transparent;
+  pointer-events: none;
+  user-select: none;
+}
+
+:where(.hl-mirror) .w { border-radius: 2px; }
+/* Weight punctuation stays readable but recedes. */
+:where(.hl-mirror) .w-mark { opacity: 0.85; }
+
+</style>
+
+<style scoped>
+/* ── Danbooru Tag autocomplete ─────────────────────────────── */
+.tag-suggest {
+  position: fixed;
+  z-index: var(--z-pop);
+  max-height: min(360px, calc(100dvh - 16px));
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  scrollbar-gutter: stable;
+  touch-action: pan-y;
+  padding: 3px;
+  background: color-mix(in srgb, var(--raised) 97%, transparent);
+  border: 1px solid var(--line-2);
+  border-radius: var(--r3);
+  box-shadow: var(--sh-3), var(--sh-lip);
+  backdrop-filter: blur(16px);
+  animation: tagSuggestIn var(--t1) var(--e-out);
+}
+.tag-suggest[hidden] { display: none; }
+.tag-suggest-list { display: grid; gap: 1px; }
+.tag-suggest-option {
+  width: 100%;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 9px;
+  min-height: 48px;
+  padding: 6px 8px;
+  color: var(--fg-2);
+  text-align: left;
+  border-radius: var(--r2);
+  transition: color var(--t1) var(--e), background var(--t1) var(--e);
+}
+.tag-suggest-option:hover,
+.tag-suggest-option[aria-selected="true"] { color: var(--fg); background: var(--hover); }
+.tag-suggest-names { display: grid; gap: 0; overflow: hidden; }
+.tag-suggest-names strong,
+.tag-suggest-names span { overflow: hidden; white-space: nowrap; text-overflow: ellipsis; }
+.tag-suggest-names strong { font: var(--fw-medium) var(--fz-2xs)/1.3 var(--mono); color: inherit; }
+.tag-suggest-names span { font-size: var(--fz-2xs); line-height: 1.3; color: var(--fg-3); }
+.tag-suggest-meta {
+  flex: none;
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  font: var(--fw-regular) var(--fz-2xs)/1.3 var(--mono);
+  color: var(--fg-4);
+  white-space: nowrap;
+}
+.tag-suggest-note {
+  display: flex; align-items: center; justify-content: center; gap: var(--sp-2);
+  padding: 12px; font-size: var(--fz-xs); color: var(--fg-3); text-align: center;
+}
+.tag-suggest-note.err { color: var(--err); }
+/* Inline spinner so the debounce + request window is not silent. */
+.tag-suggest-note.load::before {
+  content: "";
+  flex: none; width: 11px; height: 11px;
+  border: 1.5px solid var(--line-2);
+  border-top-color: var(--a);
+  border-radius: 50%;
+  animation: tagSpin 620ms linear infinite;
+}
+@keyframes tagSpin { to { transform: rotate(1turn); } }
+@keyframes tagSuggestIn {
+  from { opacity: 0; transform: translateY(3px) scale(.99); }
+}
+
+
+@media (max-width: 860px) {
+.tag-suggest { padding: 4px; border-radius: 11px; }
+.tag-suggest-option { min-height: 44px; padding: 6px 8px; }
+.tag-suggest-names strong { font-size: var(--fz-sm); }
+.tag-suggest-names span { font-size: var(--fz-xs); }
+}
+</style>

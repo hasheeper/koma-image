@@ -772,6 +772,92 @@ test("backup UI works without keys, validates file before import and exports ver
   }
 });
 
+test("shared Tag controls and editor highlighting do not depend on image CSS; version rail remains independent", async () => {
+  const t = await open();
+  try {
+    const { page } = t;
+    await page.evaluate(() => { document.querySelector("#style-image").media = "not all"; });
+    await page.locator("#prompt").fill("blue");
+    await page.waitForSelector('.tag-suggest:not([hidden]) .tag-suggest-option');
+    assert.equal(await page.locator('.tag-suggest:not([hidden])').evaluate((element) => getComputedStyle(element).position), "fixed");
+    // The entrance animation scales the visual rectangle; inspect the owned
+    // min-height without depending on which animation frame the check catches.
+    assert.equal(await page.locator('.tag-suggest-option').first().evaluate((element) => getComputedStyle(element).minHeight), "48px");
+    await page.keyboard.press("Escape");
+    await page.getByRole("button", { name: "查词插入", exact: true }).click();
+    await page.waitForSelector("#pickerSearch");
+    assert.equal(await page.locator("#pickerSheet").evaluate((element) => getComputedStyle(element).position), "fixed");
+    assert.equal(await page.locator(".picker-card").evaluate((element) => getComputedStyle(element).display), "grid");
+    await page.getByRole("button", { name: "关闭查词插入", exact: true }).click();
+    await page.waitForSelector("#pickerSheet", { state: "hidden" });
+    await page.evaluate(() => { document.querySelector("#style-image").media = "all"; });
+    for (const workspace of ["chat", "tags"]) {
+      await route(page, `#/${workspace}`);
+      await page.waitForSelector(`[data-workspace-root="${workspace}"]`);
+      await page.evaluate(async (workspace) => {
+        const p = document.body.__vue_app__._instance.provides;
+        const editor = p[Object.getOwnPropertySymbols(p).find((key) => key.description === "editor")];
+        const canvas = document.createElement("canvas");
+        canvas.width = 832; canvas.height = 1216;
+        canvas.getContext("2d").fillRect(0, 0, canvas.width, canvas.height);
+        await editor.open(workspace, await new Promise((done) => canvas.toBlob(done)), "synthetic.png", { mode: "img2img" });
+      }, workspace);
+      await page.waitForSelector("#imageEditor[open]");
+      await page.locator("#editorPrompt").fill("{blue_hair}");
+      const styles = await page.evaluate(() => {
+        const textarea = document.querySelector("#editorPrompt"), mirror = textarea.previousElementSibling;
+        const metrics = (element) => {
+          const style = getComputedStyle(element);
+          return [style.fontFamily, style.fontSize, style.lineHeight, style.letterSpacing, style.padding];
+        };
+        return {
+          imageMedia: document.querySelector("#style-image").media,
+          textarea: metrics(textarea), mirror: metrics(mirror),
+          weightRadius: getComputedStyle(mirror.querySelector(".w")).borderRadius,
+          punctuation: getComputedStyle(mirror.querySelector(".w-mark")).opacity,
+          rail: document.querySelector(".editor-rail").getBoundingClientRect().width,
+        };
+      });
+      if (workspace === "chat") assert.equal(styles.imageMedia, "not all");
+      assert.deepEqual(styles.textarea, styles.mirror);
+      assert.equal(styles.weightRadius, "2px");
+      assert.equal(styles.punctuation, "0.85");
+      assert.equal(styles.rail, 132);
+      await page.getByRole("button", { name: "版本栏", exact: true }).click();
+      await page.waitForFunction(() => document.querySelector(".editor-rail").getBoundingClientRect().width <= 1);
+      await page.getByRole("button", { name: "版本栏", exact: true }).click();
+      await page.waitForFunction(() => document.querySelector(".editor-rail").getBoundingClientRect().width === 132);
+      await page.locator("#imageEditor .editor-back").click();
+      await page.waitForSelector("#imageEditor[open]", { state: "hidden" });
+    }
+    await clean(t);
+  } finally { await t.context.close(); }
+});
+
+test("scoped notices follow a modal and keep their real dismissal clock under reduced motion", async () => {
+  const t = await open();
+  try {
+    const { page } = t;
+    await page.emulateMedia({ reducedMotion: "reduce" });
+    await page.evaluate(() => {
+      const p = document.body.__vue_app__._instance.provides;
+      window.styleUi = p[Object.getOwnPropertySymbols(p).find((key) => key.description === "ui")];
+      void styleUi.confirm({ title: "样式验证", message: "保留确认内容与操作。", items: ["第一项", "第二项"] });
+    });
+    await page.waitForSelector("#confirmSheet[open]");
+    await page.evaluate(() => styleUi.toast("计时样式验证", "ok"));
+    const notice = page.locator("#confirmSheet .editor-toasts .toast");
+    await notice.waitFor();
+    assert.equal(await notice.locator(".toast-timer").evaluate((element) => getComputedStyle(element).animationDuration), "3s");
+    await page.waitForTimeout(150);
+    assert.ok(await notice.isVisible(), "reduced motion must not dismiss immediately");
+    await notice.waitFor({ state: "hidden", timeout: 5000 });
+    assert.equal(await page.locator("#confirmSheet[open]").count(), 1);
+    await page.locator("#confirmSheet [data-confirm=cancel]").click();
+    await clean(t);
+  } finally { await t.context.close(); }
+});
+
 test("four viewport inspection of settings, dictionary/cart and picker", async () => {
   const t = await open();
   try {

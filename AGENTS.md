@@ -8,7 +8,7 @@
 - 设置分为连接、模型、通用、安全与备份。Tag 自动补全和历史保留在通用中，沿用绘图服务的同一份偏好；安全、备份和配置导入导出合页，旧 backup 路由仍可访问。界面只保留基本信息与操作反馈，避免重复标题和大段说明。
 - Vue 管低频状态和 DOM；原生驱动管 Canvas、指针与逐帧更新。大图片、DOM、数据库和密钥不进入深层 reactive。
 - Vue 节点不得由旧脚本包裹或搬移；高亮宿主写入模板，位置切换用 Teleport，监听器与 Observer 有对应清理。
-- 字体族、字重、用途与预加载统一维护于 `config/fonts.json`，资源圆体范围位于 `config/font-ranges/koma-rounded.json`；`public/fonts/index.css` 为生成文件，不手改。普通构建复用既有 WOFF2，Python 仅用于主动离线重建。G0／G1 已完成，维护方式见 `docs/font-style-governance.md`；G2–G4 的 CSS 拆分与归属整理尚未实施。
+- 字体族、字重、用途与预加载统一维护于 `config/fonts.json`，资源圆体范围位于 `config/font-ranges/koma-rounded.json`；`public/fonts/index.css` 为生成文件，不手改。普通构建复用既有 WOFF2，Python 仅用于主动离线重建。G0–G3 已完成，维护方式见 `docs/font-style-governance.md` 与 `docs/style-ownership.md`；变量／基础／控件／共享组合分层，组件私有规则回对应 Vue，保留已记录的全局结构与工作区覆盖；G4 检查接入尚未实施。
 - 使用中性的 Gateway Profile，无私有渠道名称、域名、头像、默认连接或品牌判断；未配置 URL／Key 不请求上游。公开官方 API（如 NovelAI 官方）属于协议适配，可以有自己的 Profile、固定官方地址和合法图标，仍由用户添加连接和 Key；私有渠道与中转只走中性的标准 Profile。业务按 Profile 声明的能力分支，不按连接名称或地址判断。
 - 只使用 Koma 存储与锁命名。用户已取消整条旧数据迁移线：不建迁移桥、转换器、迁移状态／锁、旧数据检测或清理流程及相关 UI；不作为待办或发布前置条件。普通「备份与恢复」只支持新版 Koma 格式；连接与 Key 重新配置。
 - 不复制内部基线、Git 历史、截图、真实备份、部署配置、Key 或 Token；不把服务端秘密放入 VITE\_\*。

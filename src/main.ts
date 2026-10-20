@@ -1,6 +1,5 @@
 import { createApp } from "vue";
 import App from "./app/App.vue";
-import "./app/shell.css";
 import { createApplicationServices } from "./services/application.ts";
 import { servicesKey } from "./app/services.ts";
 import { names } from "./storage/names.ts";

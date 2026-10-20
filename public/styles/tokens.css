@@ -1,0 +1,181 @@
+/* ══════════════════════════════════════════════════════════════
+   Koma Image
+   Design intent: the generated image is the only bright object on
+   screen. Chrome stays quiet, cool-neutral, and low-contrast so a
+   picture placed on it reads as a physical print on a dark mat.
+   ══════════════════════════════════════════════════════════════ */
+
+:root {
+  color-scheme: dark;
+
+  /* ── Surfaces ───────────────────────────────────────────────
+     Slightly blue-shifted greys. Pure neutral greys look muddy next
+     to saturated artwork; a cool cast makes warm colours pop. The
+     blue shift (B−R) grows with lightness: +2 → +8.
+
+     Steps are set by ΔL* (perceptual lightness), NOT by WCAG contrast
+     ratio. CR exists to predict text legibility; its +0.05 term
+     dominates at the dark end, so a fixed CR target demands a far
+     bigger perceptual jump near black than it does at mid grey. An
+     earlier pass here chased "CR ≥ 1.15" from a near-black canvas and
+     produced ΔL* = +13 between the viewport and the panels — two to
+     four times what any shipping product uses, which read as a rift
+     down the middle of the window rather than as structure:
+
+       VS Code  +3.45    Notion  +3.49
+       Linear   +5.15    Figma   +6.74
+
+     A later pass tightened it further: +4 still read as too much separation
+     for a tool whose entire job is looking at pictures. Image generators sit at
+     the quiet end of that band — NovelAI is barely a shade — because every step
+     in the chrome competes with the artwork. canvas→chrome is +2.5 now and the
+     panels are still unmistakably panels. The original
+     problem still had to be fixed: topbar, composer, stage, viewport
+     and gallery all painted the same colour, so the five main regions
+     had zero separation and the app read as controls scattered on one
+     black board. Panels are now distinct — by one step, not a chasm.
+
+     Absolute level stays close to the original near-black, because the
+     point of this UI is that the picture is the bright object. White
+     on --canvas is still 19.3:1. */
+  --canvas: #131315;   /* viewport — the mat a print sits on */
+  --sunken: #131316;   /* inputs, wells, thumbnails */
+  --chrome: #18181c;   /* topbar, composer, stage head, gallery */
+  --raised: #1e1e24;   /* cards, drawers, sheets, tooltips */
+  --hover:  #24242c;   /* pointer feedback on raised things */
+
+  /* Focus deepens the well by one notch. This was a hardcoded #0c0c0f that
+     survived two retunes of the ramp and had drifted to L*=3.4 — darker than
+     the canvas the image sits on. */
+  --sunken-focus: #101013;
+
+  /* "Recessed" is a relationship, not a colour. --sunken is tuned to sit one
+     notch (ΔL* 2.4) below --chrome, which is right for controls in the composer
+     but wrong inside a --raised card: there the same absolute value lands 5.5
+     below its container and the control reads as a hole punched in the panel.
+     Raised containers re-point these two so the recess stays one notch deep
+     wherever a control happens to live. */
+  --well: var(--sunken);
+  --well-focus: var(--sunken-focus);
+
+  --line: #1f1f25;     /* ΔL* +3.6 over chrome */
+  --line-2: #25252e;   /* ΔL* +6.6 — emphasis dividers, focus wells */
+
+  /* Contrast ratio IS the right metric here — it is what WCAG models.
+     Anchored against --raised, the lightest surface any of these can
+     land on: labels and hints sit inside drawers and cards too, and a
+     value tuned for the panel silently fails one level up. Measuring
+     rendered pixels caught exactly that — .chip came out at 2.79 while
+     the arithmetic said 3.20, because .chip sits on --raised. */
+  --fg: #e8e8eb;
+  --fg-2: #a8a8ae;   /* 7.01 on raised */
+  --fg-3: #86868d;   /* 4.59 on raised — AA */
+  --fg-4: #6a6a71;   /* 3.09 on raised — decorative/large only */
+
+  --a: #b3a1ff;
+  --a-ink: #17132a;
+  --a-hover: #c1b2ff;
+  --a-glow: rgba(179, 161, 255, 0.09);
+  --a-dim: rgba(179, 161, 255, 0.13);
+  --a-line: rgba(179, 161, 255, 0.34);
+
+  --ok: #74cf9b;
+  --warn: #e0ab68;
+  --err: #e88787;
+  --err-dim: rgba(232, 135, 135, 0.08);
+
+  /* elevation — spread grows negative with height so edges stay tight */
+  --sh-1: 0 6px 16px -4px rgba(0, 0, 0, 0.6);
+  --sh-2: 0 12px 32px -8px rgba(0, 0, 0, 0.7);
+  --sh-3: 0 14px 38px -10px rgba(0, 0, 0, 0.84);
+  --sh-4: 0 32px 80px -12px rgba(0, 0, 0, 0.7);
+  --sh-lip: 0 1px 0 rgba(255, 255, 255, 0.035) inset;
+  --ring: 0 0 0 3px var(--a-dim);
+
+  /* stacking contract — keep every layer in this table */
+  --z-action: 19;
+  --z-sticky: 20;
+  --z-tip: 40;
+  --z-pop: 80;
+  --z-scrim: 90;
+  --z-modal: 100;
+  --z-toast: 110;
+
+  /* ── Spacing ────────────────────────────────────────────────
+     A true 4px grid. The old scale claimed "4px baseline" while 7 of
+     its 8 values broke it (7/11/15/18/22/30/38) with ratios lurching
+     between 1.75 and 1.20. Individually each looked fine; together
+     they had no rhythm, which is the difference between a designed
+     system and accumulated nudges. */
+  --sp-1: 4px;  --sp-2: 8px;  --sp-3: 12px; --sp-4: 16px;
+  --sp-5: 24px; --sp-6: 32px; --sp-7: 48px;
+
+  --r1: 5px; --r2: 7px; --r3: 10px; --r4: 15px;
+
+  /* ── Type ───────────────────────────────────────────────────
+     The old scale was 10/11/12/13px: a 1.30× total span with 1.09
+     steps. That is below the threshold where a size difference reads
+     as hierarchy, so "title" and "body" were the same object to the
+     eye and the whole surface flattened into grey noise. Commercial
+     UI spans ~3×. This spans 2.55× and keeps steps ≥1.15 from --md
+     up, where hierarchy actually has to be legible.
+
+     Small sizes stay tight (11/12/13) because CJK glyphs carry far
+     more visual weight than Latin at the same size. */
+  --fz-2xs: 11px;  /* meta, counters, mono readouts */
+  --fz-xs:  12px;  /* labels, hints */
+  --fz-sm:  13px;  /* body, inputs, buttons */
+  --fz-md:  15px;  /* prompt, primary action */
+  --fz-lg:  18px;  /* section titles */
+  --fz-xl:  22px;  /* modal titles */
+  --fz-2xl: 28px;  /* key gate brand */
+
+  /* Four named weights; the rounded UI family uses static 400/500/700.
+     Its 600 role maps to Bold, as declared in config/fonts.json. */
+  --fw-regular: 400;
+  --fw-medium: 500;
+  --fw-semibold: 600;
+  --fw-bold: 700;
+
+  --ico: 16px;
+
+  --e: cubic-bezier(0.32, 0.72, 0.28, 1);
+  --e-out: cubic-bezier(0.16, 1, 0.3, 1);
+  --t1: 120ms; --t2: 220ms; --t3: 380ms;
+
+  /* Font families and --sans/--mono/--brand are generated in fonts/index.css.
+     Edit config/fonts.json; Fredoka remains exclusive to the wordmark. */
+
+  /* The header is taller than the inner column heads: it carries the brand and
+     the gauges, they carry a label. These were all one hardcoded 48px, so any
+     change to the header silently broke the shell height and the sticky offset.
+     Two names now, and the dependents reference --bar-h. */
+  --bar-h: 60px;    /* topbar */
+  --head-h: 48px;   /* gallery head (the stage status is sr-only, not a bar) */
+  --mobile-foot-h: 61px;
+
+  /* The print's lift off the mat. */
+  --print-shadow:
+    0 0 0 1px rgba(255,255,255,0.06),
+    0 1px 2px rgba(0,0,0,0.24),
+    0 14px 36px -12px rgba(0,0,0,0.6);
+  /* The same layers at zero strength, so the frame can fade into it. */
+  --print-shadow-off:
+    0 0 0 1px rgba(255,255,255,0),
+    0 1px 2px rgba(0,0,0,0),
+    0 14px 36px -12px rgba(0,0,0,0);
+
+  /* Loading-state ink. Both stay inside the accent hue; only lightness moves.
+     These are deliberately far stronger than a surface step (~2.5 dL*): a
+     loading state has to read as motion from across the room, and the earlier
+     0.10-alpha attempt measured as barely-there. */
+  --bar-ink: rgba(214, 205, 255, 0.92);
+  /* Peak of the travelling band. Only the strip under the band pays this, so the
+     frame keeps its own dark base — unlike a flat fill, where the alpha applies
+     to every pixel and any value high enough to notice washes the panel out. */
+  --sheen-ink: rgba(214, 205, 255, 0.14);
+
+  --rail: 316px;
+  --hist: 132px;
+  --cart: 300px;
+}

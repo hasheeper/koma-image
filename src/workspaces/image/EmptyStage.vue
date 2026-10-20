@@ -256,3 +256,49 @@ onBeforeUnmount(pause);
     </section>
   </div>
 </template>
+
+<style scoped>
+/* ── Empty stage: the brand, one hint, the favourites ─────────── */
+/* Centred. Favourites keep their proportions at one shared height in up to
+   two centred rows (EmptyStage.vue); with none saved the stage is only the
+   brand and the hint, and phones drop the hint for the button below. */
+.home { display: grid; justify-items: center; width: var(--home-w, min(800px, 100%)); text-align: center; }
+.home-lock { display: inline-flex; align-items: center; gap: 16px; min-width: 0; }
+.home-mark { width: 48px; height: 48px; flex: none; overflow: visible; fill: var(--a); }
+.home-mark rect { transform-box: fill-box; transform-origin: center; animation: homeBreath 3.6s var(--e) infinite; animation-delay: calc(var(--d) * 160ms); }
+@keyframes homeBreath { 0%, 100% { transform: scale(1); } 40% { transform: scale(0.8); } }
+.home-word { display: inline-flex; align-items: baseline; gap: 10px; line-height: 1; }
+.home-word :deep(.brand-title) { font-size: 34px; }
+.home-word :deep(.brand-subtitle) { font-size: 13.5px; }
+.home-hint { margin-top: 20px; font-size: 14px; line-height: 1.6; color: var(--fg-3); }
+
+.home-favs { display: grid; justify-items: center; margin-top: 56px; }
+.home-grid { display: grid; gap: var(--home-gap, 16px); }
+.home-row { display: flex; justify-content: center; gap: var(--home-gap, 16px); }
+.home-fav {
+  flex: none; width: var(--w); height: var(--home-h);
+  border-radius: var(--r2);
+  background: var(--thumb) center / cover no-repeat;
+  opacity: 0.9;
+  box-shadow: 0 0 0 1px rgba(255, 255, 255, 0.05), 0 10px 24px -14px rgba(0, 0, 0, 0.9);
+  transition: opacity var(--t1) var(--e), transform var(--t1) var(--e);
+}
+.home-fav:hover { opacity: 1; transform: translateY(-2px); }
+.home-all { display: inline-flex; align-items: center; gap: 2px; margin-top: 18px; font-size: var(--fz-sm); color: var(--fg-3); }
+.home-all .ico { --ico: 13px; }
+.home-all:hover { color: var(--fg); }
+
+/* A narrow stage (a phone, or a desktop squeezed by both side panels). */
+@container image-stage (max-width: 600px) {
+  .home-lock { gap: 11px; }
+  .home-mark { width: 34px; height: 34px; }
+  .home-word { gap: 7px; }
+  .home-word :deep(.brand-title) { font-size: 24px; }
+  .home-word :deep(.brand-subtitle) { font-size: 9.5px; }
+  .home-hint { display: none; }
+  .home-favs { margin-top: 20px; }
+  .home-all { margin-top: 12px; }
+}
+@media (prefers-reduced-motion: reduce) { .home-mark rect { animation: none; } }
+
+</style>

@@ -1,0 +1,50 @@
+*, *::before, *::after { box-sizing: border-box; }
+* { min-width: 0; }
+
+html, body { height: 100%; }
+
+body {
+  margin: 0;
+  background: var(--canvas);
+  color: var(--fg);
+  font: var(--fw-regular) var(--fz-sm)/1.5 var(--sans);
+  font-synthesis: none;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+  letter-spacing: -0.003em;
+}
+
+button, input, textarea, select, output { font: inherit; color: inherit; letter-spacing: inherit; }
+button { cursor: pointer; border: 0; background: none; padding: 0; }
+h1 { margin: 0; font-weight: var(--fw-bold); }
+b, strong { font-weight: var(--fw-semibold); }
+p { margin: 0; }
+hr.rule { height: 1px; margin: var(--sp-2) 0; border: 0; background: var(--line); }
+
+.mono { font-family: var(--mono); font-size: var(--fz-2xs); font-variant-numeric: tabular-nums; letter-spacing: 0; }
+.dim { color: var(--fg-3); }
+
+kbd {
+  font: var(--fw-medium) var(--fz-2xs)/1 var(--mono);
+  padding: 3px 5px;
+  color: var(--fg-2);
+  background: var(--well);
+  border: 1px solid var(--line-2);
+  border-radius: 5px;
+}
+
+:focus-visible { outline: 2px solid var(--a); outline-offset: 2px; border-radius: var(--r1); }
+:focus:not(:focus-visible) { outline: none; }
+::selection { background: rgba(179, 161, 255, 0.3); }
+
+/* thin, self-effacing scrollbars */
+* { scrollbar-width: thin; scrollbar-color: var(--line-2) transparent; }
+*::-webkit-scrollbar { width: 11px; height: 11px; }
+*::-webkit-scrollbar-track { background: transparent; }
+*::-webkit-scrollbar-thumb {
+  background: var(--line-2);
+  border: 3.5px solid transparent;
+  background-clip: content-box;
+  border-radius: 99px;
+}
+*::-webkit-scrollbar-thumb:hover { background: #40404c; background-clip: content-box; }
