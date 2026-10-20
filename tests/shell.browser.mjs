@@ -182,6 +182,50 @@ test("single document, cached drafts and nodes, back/forward, and global overlay
   await clean(result);
 });
 
+test("font entry works at root and subpath, preserves weight mapping and proportional symbols", async () => {
+  for (const path of ["/", "/repo/"]) {
+    const result = await open(path);
+    try {
+      const fonts = await result.page.evaluate(async () => {
+        await document.fonts.load('400 100px "Koma Rounded"', "中文·×+.");
+        await document.fonts.load('500 100px "Koma Rounded"', "中文");
+        await document.fonts.load('600 100px "Koma Rounded"', "中文");
+        await document.fonts.load('700 100px "Koma Rounded"', "中文");
+        await document.fonts.load('400 100px "JetBrains Mono Variable"', "0123456789");
+        await document.fonts.load('400 100px "Fredoka Variable"', "Koma");
+        await document.fonts.ready;
+        const ctx = document.createElement("canvas").getContext("2d");
+        ctx.font = '400 100px "Koma Rounded"';
+        const width = (text) => ctx.measureText(text).width;
+        const symbols = { middle: width("·"), period: width("."), times: width("×"), plus: width("+"), han: width("中") };
+        ctx.font = '400 100px "JetBrains Mono Variable"';
+        const digits = [..."0123456789"].map(width);
+        const faces = [...document.fonts];
+        return {
+          entries: [...document.querySelectorAll('link[rel="stylesheet"]')]
+            .map((link) => new URL(link.href).pathname).filter((path) => path.includes("/fonts/")),
+          symbols, digits,
+          rounded: faces.filter((face) => face.family.includes("Koma Rounded")).map((face) => face.weight),
+          loaded: [...new Set(faces.filter((face) => face.status === "loaded").map((face) => face.family.replaceAll('"', "")))].sort(),
+          requests: performance.getEntriesByType("resource").filter((entry) => entry.name.endsWith(".woff2")).length,
+          synthesis: getComputedStyle(document.body).fontSynthesis,
+        };
+      });
+      assert.deepEqual(fonts.entries, [`${path}fonts/index.css`]);
+      for (const weight of ["400", "500", "600 700"])
+        assert.equal(fonts.rounded.filter((value) => value === weight).length, 101);
+      assert.deepEqual(fonts.loaded, ["Fredoka Variable", "JetBrains Mono Variable", "Koma Rounded"]);
+      assert.equal(fonts.symbols.middle, fonts.symbols.period);
+      assert.equal(fonts.symbols.times, fonts.symbols.plus);
+      assert.ok(fonts.symbols.middle < fonts.symbols.han / 2);
+      assert.equal(new Set(fonts.digits).size, 1, "numeric readouts stay monospaced");
+      assert.equal(fonts.synthesis, "none");
+      assert.ok(fonts.requests > 3 && fonts.requests < 310, "Unicode slices load on demand");
+      await clean(result);
+    } finally { await result.context.close(); }
+  }
+});
+
 test("four viewports: layout, gallery identity across Teleport, and workspace CSS isolation", async () => {
   const result = await open();
   const { page } = result;

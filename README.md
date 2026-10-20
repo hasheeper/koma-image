@@ -26,7 +26,9 @@ npm run check
 npm run preview
 ```
 
-`check` 执行严格类型检查、单元测试及构建，输出为 `dist/`。预览使用 http://127.0.0.1:3217，不启用环境变量代理。
+`check` 执行字体一致性检查、严格类型检查、单元测试及构建，输出为 `dist/`。预览使用 http://127.0.0.1:3217，不启用环境变量代理。
+
+字体由 `config/fonts.json` 集中配置，Unicode 分片独立保存，统一 CSS 自动生成。`dev`／`build` 会先生成声明，`check` 会核对生成文件与预加载清单；修改字体配置后可运行 `npm run fonts:build`。普通构建继续复用已有 WOFF2，无需 Python 或原始 TTF。详见[字体维护与验证](docs/font-style-governance.md)。
 
 ## 本地运行与发布包
 
@@ -98,6 +100,7 @@ docs/         规范、实施记录与发布说明
 - [架构规范](docs/architecture.md)
 - [业务契约](docs/business-contracts.md)
 - [实施阶段](docs/implementation-plan.md)
+- [字体与 CSS 治理计划](docs/css-governance-plan.md)：G0／G1 已完成，见[字体维护与验证](docs/font-style-governance.md)；G2–G4 待实施
 - [M1 外壳实现与验证](docs/app-shell.md)
 - [M2 网关、数据与调度实现](docs/gateway-data-scheduler.md)
 - [M3 设置、备份与词典实现](docs/shared-settings-tags.md)
