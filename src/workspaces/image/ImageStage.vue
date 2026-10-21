@@ -436,7 +436,6 @@ function openAsk() {
 .result-panel { position: relative; }
 .result-copy { padding-right: 90px; }
 .result-ask { position: absolute; top: 10px; right: 12px; gap: 6px; color: var(--a); font-weight: var(--fw-semibold); }
-.result-ask :deep(svg), .ask-why :deep(svg) { width: 16px; height: 16px; }
 .result-ask-id { color: var(--a); }
 .ask-why { margin-top: 8px; color: var(--a); }
 @media (max-width: 860px) {

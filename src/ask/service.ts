@@ -158,6 +158,7 @@ export function createAsk(deps: {
   let sequence = 0,
     controller: AbortController | null = null,
     root: HTMLElement | null = null,
+    dismissCompact = () => {},
     disposed = false,
     stateTimer: ReturnType<typeof setTimeout> | undefined;
   const layers = new Set<() => boolean>();
@@ -519,7 +520,7 @@ export function createAsk(deps: {
     if (writingDraft.value) return;
     if (draft.value && draftStatus.value === "pending") ignoreDraft();
     else if (controller) stop();
-    else open.value = false;
+    else { open.value = false; dismissCompact(); }
   }
   function onKey(event: KeyboardEvent) {
     if (event.isComposing || event.keyCode === 229) return;
@@ -539,9 +540,10 @@ export function createAsk(deps: {
       void nextTick(() => { placeInline(); document.getElementById("askPrompt")?.focus(); });
       return;
     }
-    if (event.key === "Tab" && !event.shiftKey && !event.altKey && !event.metaKey && !event.ctrlKey && visible.value && (inside || body) && !typing && window.getSelection()?.isCollapsed !== false) {
+    const compact = !editorOpen.value && !!root && root.dataset.mode !== "idle";
+    if (event.key === "Tab" && !event.shiftKey && !event.altKey && !event.metaKey && !event.ctrlKey && (visible.value || compact) && (inside || body) && !typing && window.getSelection()?.isCollapsed !== false) {
       const button = root?.querySelector<HTMLButtonElement>(".ask-draft-apply");
-      if (button && !button.disabled) { event.preventDefault(); void applyDraft(button.dataset.fingerprint ?? ""); }
+      if (button && !button.disabled && button.getClientRects().length && !button.closest('[inert]')) { event.preventDefault(); void applyDraft(button.dataset.fingerprint ?? ""); }
       return;
     }
     if ((event.metaKey || event.ctrlKey) && !event.shiftKey && !event.altKey && event.key.toLowerCase() === "z" && canUndoDraft.value) {
@@ -563,7 +565,7 @@ export function createAsk(deps: {
       open.value = !open.value;
       return;
     }
-    if (event.key !== "Escape" || event.defaultPrevented || !visible.value || modal()) return;
+    if (event.key !== "Escape" || event.defaultPrevented || (!visible.value && !compact) || modal()) return;
     if (!inside && active && active !== document.body) return;
     event.preventDefault();
     escape();
@@ -672,8 +674,9 @@ export function createAsk(deps: {
     stop,
     retry,
     /** The drawer element, for Esc containment. */
-    attach(element: HTMLElement | null) {
+    attach(element: HTMLElement | null, dismiss = () => {}) {
       root = element;
+      dismissCompact = dismiss;
     },
     /** A popover's close handler; returns true when it closed something. */
     layer(close: () => boolean) {

@@ -148,13 +148,13 @@ defineExpose({
 .ask-inline-target { padding: 0 10px 6px; color: var(--fg-3); font-size: var(--fz-xs); }
 .ask-dock { position: relative; display: flex; flex-direction: column; gap: var(--sp-2); }
 .ask-pref { position: relative; align-self: flex-start; }
-.ask-pref-chip { height: 26px; padding: 0 10px; color: var(--fg-3); font-size: var(--fz-xs); background: var(--raised); border: 1px solid var(--line); border-radius: 999px; transition: color var(--t1) var(--e), background var(--t1) var(--e); }
-.ask-pref-chip:hover, .ask-pref-chip[aria-expanded="true"] { color: var(--fg); background: var(--hover); }
+.ask-pref-chip { height: 26px; padding: 0 10px; color: var(--fg-3); font-size: var(--fz-xs); background: var(--ask-layer, var(--raised)); border: 1px solid var(--line); border-radius: 999px; transition: color var(--t1) var(--e), background var(--t1) var(--e); }
+.ask-pref-chip:hover, .ask-pref-chip[aria-expanded="true"] { color: var(--fg); background: var(--ask-hover, var(--hover)); }
 .ask-pref-chip[data-paused] { color: var(--fg-4); text-decoration: line-through; }
-.ask-pref-pop { position: absolute; bottom: calc(100% + 6px); left: 0; z-index: 1; display: flex; flex-direction: column; align-items: flex-start; gap: var(--sp-2); width: min(360px, calc(100vw - 32px)); padding: var(--sp-3); color: var(--fg-2); font-size: var(--fz-sm); line-height: 1.6; background: var(--raised); border: 1px solid var(--line-2); border-radius: var(--r3); box-shadow: var(--sh-2); }
+.ask-pref-pop { position: absolute; bottom: calc(100% + 6px); left: 0; z-index: 1; display: flex; flex-direction: column; align-items: flex-start; gap: var(--sp-2); width: min(360px, calc(100vw - 32px)); padding: var(--sp-3); color: var(--fg-2); font-size: var(--fz-sm); line-height: 1.6; background: var(--ask-glass, var(--raised)); backdrop-filter: blur(20px) saturate(1.4); border: 1px solid var(--line-2); border-radius: var(--r3); box-shadow: var(--sh-2); }
 .ask-pref-pop p { white-space: pre-wrap; overflow-wrap: anywhere; }
-.ask-composer { padding: 12px 12px 10px; background: var(--raised); border: 1px solid var(--line-2); border-radius: 24px; box-shadow: var(--sh-lip), 0 10px 32px -18px rgba(0, 0, 0, .7); }
-.ask-composer textarea { display: block; width: 100%; min-height: 48px; max-height: 30dvh; padding: 6px 11px 4px; color: var(--fg); font: var(--fw-regular) var(--fz-md)/1.6 var(--sans); background: transparent; border: 0; box-shadow: none; resize: none; }
+.ask-composer { padding: 11px 8px 8px 16px; background: var(--ask-layer, var(--raised)); border: 1px solid var(--line-2); border-radius: 20px; box-shadow: var(--sh-lip), 0 10px 32px -18px rgba(0, 0, 0, .7); }
+.ask-composer textarea { display: block; width: 100%; min-height: 26px; max-height: 30dvh; padding: 0 4px 4px; color: var(--fg); font: var(--fw-regular) var(--fz-md)/1.6 var(--sans); background: transparent; border: 0; box-shadow: none; resize: none; }
 .ask-composer textarea:focus { outline: none; box-shadow: none; }
 .ask-composer textarea::placeholder { color: var(--fg-3); }
 .ask-notice { color: var(--err); font-size: var(--fz-xs); overflow-wrap: anywhere; }
@@ -163,13 +163,13 @@ defineExpose({
 .ask-capsule { display: inline-flex; align-items: center; gap: 2px; height: 28px; padding: 0 4px 0 6px; }
 .ask-capsule-id { font-family: var(--mono); color: var(--a); }
 .ask-capsule-clear { display: grid; place-items: center; width: 22px; height: 22px; color: var(--fg-4); border-radius: 50%; }
-.ask-capsule-clear:hover { color: var(--fg); background: var(--hover); }
+.ask-capsule-clear:hover { color: var(--fg); background: var(--ask-hover, var(--hover)); }
 .ask-capsule-clear .ico { width: 11px; height: 11px; }
 .ask-limited { padding: 2px 8px; color: var(--warn); font-size: var(--fz-xs); background: rgba(224, 171, 104, .1); border-radius: 999px; }
 .ask-end { display: flex; flex: 1 1 160px; align-items: center; justify-content: flex-end; gap: 2px; min-width: 0; }
 .ask-estimate { flex: none; padding: 0 6px; color: var(--fg-4); font: var(--fw-regular) var(--fz-xs)/1 var(--mono); }
 .ask-model { display: inline-flex; align-items: center; min-width: 0; height: 32px; padding: 0 10px; color: var(--fg-2); font: var(--fw-regular) var(--fz-sm)/1 var(--sans); border-radius: 999px; transition: color var(--t1) var(--e), background var(--t1) var(--e); }
-.ask-model:hover { color: var(--fg); background: var(--hover); }
+.ask-model:hover { color: var(--fg); background: var(--ask-hover, var(--hover)); }
 .ask-model-name { min-width: 0; overflow: hidden; line-height: 1.4; text-overflow: ellipsis; white-space: nowrap; }
 .ask-send-slot { display: grid; flex: none; margin-left: 6px; }
 .ask-send-slot > .btn { grid-area: 1 / 1; width: 32px; height: 32px; padding: 0; border-radius: 50%; transition: opacity var(--t2) var(--e), transform var(--t2) var(--e-out), visibility 0s, color var(--t2) var(--e), background-color var(--t2) var(--e); }
@@ -177,7 +177,7 @@ defineExpose({
 .ask-send .ico, .ask-stop .ico { width: 18px; height: 18px; }
 .ask-send .ico { stroke-width: 2; }
 .ask-send:disabled { color: var(--fg-4); background: rgba(255, 255, 255, .07); }
-.ask-send-slot > .ask-stop { color: var(--fg); background: var(--hover); border-radius: 9px; }
+.ask-send-slot > .ask-stop { color: var(--fg); background: var(--ask-hover, var(--hover)); border-radius: 9px; }
 .ask-stop .ico { fill: currentColor; stroke: none; }
 @media (hover: hover) {
   .ask-stop:hover { color: var(--err); background: rgba(232, 135, 135, .12); }

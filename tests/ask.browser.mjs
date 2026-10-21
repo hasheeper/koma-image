@@ -7,6 +7,7 @@ import { chromium } from "playwright";
 let server, browser, origin;
 before(async () => {
   await mkdir(".local/ask/window", { recursive: true });
+  await mkdir(".local/ask/island", { recursive: true });
   await mkdir(".local/ask/a4", { recursive: true });
   await mkdir(".local/ask/a3", { recursive: true });
   await mkdir(".local/ask/a2", { recursive: true });
@@ -238,7 +239,7 @@ test("ASK drawer: Ctrl+J toggles, a scripted tool turn streams and is announced 
     assert.match(await turn.locator(".ask-lead").textContent(), /原因是 crimson theme 压过了 blue eyes/);
     assert.equal(await turn.locator(".ask-lead code").textContent(), "crimson theme");
     assert.equal(await turn.locator("li .ask-id").textContent(), "#h1");
-    const announced = await drawer(page).locator('[aria-live="polite"]').textContent();
+    const announced = await page.locator('#askIsland [aria-live="polite"]').textContent();
     assert.match(announced, /先读一下状态。[\s\S]*原因[\s\S]*#h1 的色调词/);
     assert.equal(await page.evaluate(() => ask.announce.value.id), 1, "one announcement per finished turn");
     assert.match(await drawer(page).locator(".ask-spent").textContent(), /tokens/);
@@ -450,7 +451,7 @@ test("ASK drawer layering: settings above it, hidden with the editor, Anthropic 
       assert.equal(rect.overflow, false, `overflow at ${width}`);
       assert.ok(rect.left >= 8 && rect.left + rect.width <= width - 7, `horizontal bounds at ${width}`);
       assert.ok(rect.top >= 8 && rect.bottom <= 893, `vertical bounds at ${width}`);
-      assert.equal(Math.round(rect.width), Math.min(460, width - 16));
+      assert.equal(Math.round(rect.width), Math.min(420, width - 16));
       if (width > 860) {
         const rail = await page.locator('#gallery').boundingBox();
         const bar = await page.locator('body > .topbar').boundingBox();
@@ -752,7 +753,7 @@ test('ASK A1 entries: four viewports, collapsed history, touch selection and Ask
 // A2 exercises the actual provider → tool → preview → user confirmation path.
 const patchStep = (mode, anchor, text, target = 'image.prompt') => ({kind:'prompt_patch',target,mode,anchor,text});
 const proposal = (steps, title = '调整提示词') => ({body: request => {
-  const content=request.messages.at(-1).content;
+  const content=[...request.messages].reverse().find(m=>m.role==='user'&&typeof m.content==='string'&&m.content.includes('<workspace_state>')).content;
   const state=JSON.parse(content.match(/<workspace_state>\n([\s\S]*?)\n<\/workspace_state>/)[1]);
   return openai(text('保留已有特征，只调整指定部分。'),tool('draft_1','propose_draft',{base_hash:state.base_hash,title,steps}),end('tool_calls'));
 }});
@@ -793,7 +794,7 @@ test('ASK A2: confirmation, step withdrawal, four-width draft previews, apply an
     await applyDraft(page);
     assert.equal((await form(page)).prompt,'adult woman, blue eyes, large breasts, nude, soft lighting');
     await page.waitForFunction(()=>document.activeElement?.id==='prompt');
-    assert.match(await drawer(page).locator('[aria-live="polite"]').textContent(),/已应用草稿/);
+    assert.match(await page.locator('#askIsland [aria-live="polite"]').textContent(),/已应用草稿/);
     await page.keyboard.press('Control+z');
     await page.locator('.ask-draft[data-status="pending"]').waitFor();
     assert.deepEqual(await form(page),initial);
@@ -1013,7 +1014,7 @@ test('ASK A4 inline: selected text, four widths, confirmation, undo, expand and 
   for(const width of [320,390,768,1440]){
    await page.setViewportSize({width,height:900});await page.waitForTimeout(80);
    await page.waitForFunction(()=>{
-    const source=document.querySelector('#prompt').getBoundingClientRect(),panel=document.querySelector('#askDrawer').getBoundingClientRect();
+    const source=document.querySelector('#prompt').getBoundingClientRect(),panel=document.querySelector('#askIsland').getBoundingClientRect();
     const left=Math.max(8,Math.min(innerWidth-panel.width-8,source.left)),top=Math.max(8,Math.min(innerHeight-panel.height-8,source.bottom+8));
     return Math.abs(panel.left-left)<1&&Math.abs(panel.top-top)<1;
    });
@@ -1086,29 +1087,29 @@ test('ASK floating assistant: drag without opening or Vue updates, minimize pres
     const original = await drawer(page).boundingBox();
     await page.evaluate(() => {
       window.askRenders = 0;
-      const component = document.querySelector('#askDrawer').__vueParentComponent;
+      const component = document.querySelector('#askIsland').__vueParentComponent;
       component.u = [...(component.u || []), () => window.askRenders++];
     });
     const handle = page.getByRole('group', { name: '移动 ASK 窗口' });
     const grip = await handle.boundingBox();
     await page.mouse.move(grip.x + 40, grip.y + 20);
     await page.mouse.down();
-    await page.mouse.move(grip.x - 180, grip.y - 80, { steps: 30 });
+    await page.mouse.move(grip.x - 180, grip.y + 100, { steps: 30 });
     await page.mouse.up();
     assert.equal(await page.evaluate(() => window.askRenders), 0, 'pointer moves stay outside Vue updates');
     const moved = await drawer(page).boundingBox();
-    assert.ok(moved.x < original.x - 100 && moved.y < original.y - 50);
+    assert.ok(moved.x < original.x - 100 && moved.y > original.y + 50);
     await handle.focus();
     const keyboardStart = await drawer(page).boundingBox();
     await handle.press('Alt+ArrowRight');
     await page.waitForFunction(x => Math.abs(document.querySelector('#askDrawer').getBoundingClientRect().x - x - 16) < 1, keyboardStart.x);
     const normal = await drawer(page).boundingBox();
     await drawer(page).getByRole('button', { name: '放大 ASK 窗口' }).click();
-    await page.waitForFunction(() => document.querySelector('#askDrawer').offsetWidth === 760);
+    await page.waitForFunction(() => document.querySelector('#askIsland').offsetWidth === 760);
     await drawer(page).getByRole('button', { name: '还原 ASK 窗口' }).click();
     await page.waitForFunction(({ x, y }) => {
       const r = document.querySelector('#askDrawer').getBoundingClientRect();
-      return Math.abs(r.x - x) < 1 && Math.abs(r.y - y) < 1 && r.width === 460;
+      return Math.abs(r.x - x) < 1 && Math.abs(r.y - y) < 1 && r.width === 420;
     }, normal);
 
     llm.push({ body: openai(text('窗口收起后也保留这轮回复。'), end()), delay: 450 });
@@ -1117,10 +1118,10 @@ test('ASK floating assistant: drag without opening or Vue updates, minimize pres
     await page.waitForFunction(() => ask.running.value);
     await drawer(page).getByRole('button', { name: '收起 ASK', exact: true }).click();
     await drawer(page).waitFor({ state: 'hidden' });
-    assert.match(await launcher.getAttribute('class'), /is-thinking/);
+    await page.locator('#askIsland[data-mode=run]').waitFor();
     await page.waitForFunction(() => !ask.running.value);
     assert.equal(await drawer(page).isVisible(), false, 'reply completion does not reopen the window');
-    await launcher.click();
+    await page.locator('.ask-ready .ask-open').first().click();
     await drawer(page).locator('.ask-stream').getByText('窗口收起后也保留这轮回复。', { exact: true }).waitFor();
     llm.push(proposal([patchStep('replace', 'red eyes', 'blue eyes')]));
     await page.locator('#askPrompt').fill('把红眼睛改成蓝色');
@@ -1128,9 +1129,9 @@ test('ASK floating assistant: drag without opening or Vue updates, minimize pres
     await page.locator('.ask-draft[data-status="pending"]').waitFor();
     await page.locator('#askPrompt').fill('保留这条未发送的问题');
     await drawer(page).getByRole('button', { name: '收起 ASK', exact: true }).click();
-    await launcher.waitFor();
-    assert.equal(await page.evaluate(() => document.activeElement?.id), 'askLauncher');
-    await launcher.press('Enter');
+    await page.locator('#askIsland[data-mode=ready]').waitFor();
+    assert.equal(await page.evaluate(() => document.activeElement?.getAttribute('aria-label')), '展开 ASK 对话');
+    await page.keyboard.press('Enter');
     assert.equal(await page.locator('#askPrompt').inputValue(), '保留这条未发送的问题');
     assert.equal(await page.locator('.ask-draft[data-status="pending"]').count(), 1);
     assert.equal(await node.evaluate(el => el === document.querySelector('#askDrawer')), true);
@@ -1187,7 +1188,7 @@ test('ASK launcher: workspace anchors follow the image rail, remember each manua
     await addImage(page, 'synthetic launcher placement');
     const launcher = page.locator('#askLauncher');
     const anchored = () => page.waitForFunction(() => {
-      const icon = document.querySelector('#askLauncher'), r = icon.getBoundingClientRect();
+      const icon = document.querySelector('#askIsland'), r = icon.getBoundingClientRect();
       const bar = document.querySelector('.topbar').getBoundingClientRect();
       const right = icon.dataset.workspace === 'image' && innerWidth > 860
         ? document.querySelector('#gallery').getBoundingClientRect().left - 8
@@ -1233,6 +1234,200 @@ test('ASK launcher: workspace anchors follow the image rail, remember each manua
     await launcher.focus();
     await launcher.press('Alt+Home');
     await anchored();
+    assert.deepEqual(generation(requests), []);
+    assert.deepEqual(errors, []);
+  } finally { await context.close(); }
+});
+
+const islandMode = (page, mode) => page.locator(`#askIsland[data-mode="${mode}"]`).waitFor();
+test('ASK island: collapsed tools, reviewed draft, apply/undo, focus guards and timed idle use the real turn', async () => {
+  const { page, context, llm, requests, errors } = await open('/#/image', { ready: '.switcher', ask: askSettings() });
+  try {
+    await bind(page);
+    await page.evaluate(() => drawing.patch({ prompt: 'red eyes' }));
+    const initial = await form(page);
+    await addImage(page, 'red eyes');
+    await page.locator('#askLauncher').click();
+    const draftNode = () => page.locator('.ask-draft');
+    llm.push({ body: openai(tool('meta', 'get_meta', { id: '#h1' }), end('tool_calls')) });
+    llm.push({ ...proposal([patchStep('replace', 'red eyes', 'blue eyes')]), delay: 700 });
+    await page.locator('#askPrompt').fill('把红眼睛改成蓝色');
+    await page.locator('#askPrompt').press('Enter');
+    await page.locator('#askDrawer [aria-label="收起 ASK"]').click();
+    await islandMode(page, 'run');
+    assert.match(await page.locator('.ask-activity').textContent(), /正在/);
+    assert.equal(await page.locator('.ask-run [aria-label="停止 ASK"]').isVisible(), true);
+    await islandMode(page, 'ready');
+    assert.equal(await drawer(page).isVisible(), false);
+    assert.equal(await page.locator('#askCompactDraft .ask-draft').isVisible(), true);
+    assert.match(await page.locator('.ask-result-grip').textContent(), /2 项工具/);
+    assert.equal(await page.locator('#askCompactDraft .draft-steps').isVisible(), false);
+    assert.equal(await page.locator('#askCompactDraft [aria-label="查看草稿修改"]').isVisible(), true);
+    assert.deepEqual(await form(page), initial, 'collapsed completion never writes');
+    const node = await draftNode().elementHandle();
+    await page.locator('#askCompactDraft [aria-label="查看草稿修改"]').click();
+    assert.match(await page.locator('#askFullDraft .draft-slice').textContent(), /red eyesblue eyes/);
+    assert.equal(await node.evaluate(el => el === document.querySelector('#askFullDraft .ask-draft')), true, 'Teleport retains the reviewed card');
+    await page.locator('#askPrompt').fill('保留输入');
+    await page.locator('#askDrawer [aria-label="收起 ASK"]').click();
+    await islandMode(page, 'ready');
+    // Workspace typing, IME and modals keep their own keys while the card floats.
+    await page.locator('#prompt').focus();
+    await page.keyboard.press('Tab');
+    assert.deepEqual(await form(page), initial);
+    await page.evaluate(() => window.dispatchEvent(new KeyboardEvent('keydown', { key: 'Tab', isComposing: true, bubbles: true })));
+    assert.deepEqual(await form(page), initial);
+    await route(page, '#/image/settings/ask');
+    await page.locator('#settingsPanel[open]').waitFor();
+    await page.keyboard.press('Tab');
+    assert.deepEqual(await form(page), initial);
+    await page.keyboard.press('Escape');
+    await page.locator('#settingsPanel').waitFor({ state: 'hidden' });
+    await page.locator('.ask-ready [aria-label="展开 ASK 对话"]').focus();
+    await page.keyboard.press('Tab');
+    await islandMode(page, 'done');
+    assert.equal((await form(page)).prompt, 'blue eyes');
+    await page.locator('.ask-undo').click();
+    await islandMode(page, 'ready');
+    assert.deepEqual(await form(page), initial);
+    // Conflicting workspace edits invalidate the compact apply too.
+    await page.evaluate(() => drawing.patch({ prompt: 'green eyes' }));
+    assert.equal(await page.locator('#askCompactDraft .ask-draft-apply').isDisabled(), true);
+    assert.match(await page.locator('#askCompactDraft .draft-issue').textContent(), /锚点不唯一或已不存在/);
+    await page.evaluate(() => drawing.patch({ prompt: 'red eyes' }));
+    await page.locator('#askCompactDraft .ask-draft-apply').click();
+    await islandMode(page, 'done');
+    await islandMode(page, 'idle');
+    assert.equal((await form(page)).prompt, 'blue eyes');
+    await page.locator('#askLauncher').click();
+    assert.equal(await page.locator('#askPrompt').inputValue(), '保留输入');
+    llm.push({ body: openai(text('这是新一轮普通回复。'), end()) });
+    await page.locator('#askPrompt').press('Enter');
+    await page.locator('#askDrawer .ask-turn[data-status="done"]').nth(1).waitFor();
+    await page.locator('#askDrawer [aria-label="收起 ASK"]').click();
+    await islandMode(page, 'ready');
+    assert.equal(await page.locator('#askCompactDraft .ask-draft').count(), 0, 'an earlier applied draft stays out of a new text answer');
+    await page.locator('.ask-ready .ask-details').click();
+    await page.locator('#askDrawer .draft-done button').click();
+    assert.deepEqual(await form(page), initial, 'undo remains available after the pill returns to idle');
+    assert.deepEqual(generation(requests), []);
+    assert.deepEqual(errors, []);
+  } finally { await context.close(); }
+});
+
+test('ASK island: text, error, stop and responsive morphs retain anchors without hiding controls', async () => {
+  const { page, context, llm, requests, errors } = await open('/#/image', { ready: '.switcher', ask: askSettings() });
+  try {
+    await bind(page);
+    await addImage(page, 'synthetic island');
+    let glass;
+    for (const [width, height] of [[1440,900], [768,900], [390,900], [320,900], [390,520]]) {
+      await page.setViewportSize({ width, height });
+      const shot = async state => {
+        await islandMode(page, state);
+        await page.waitForFunction(state => {
+          const el = document.querySelector('#askIsland'), r = el.getBoundingClientRect();
+          const size = { idle: [40, 40], run: [304, 40], done: [236, 40], exp: [420, Math.min(520, innerHeight - 16)], ready: [372, el.querySelector('.ask-ready').offsetHeight] }[state];
+          return r.width === Math.min(size[0], innerWidth - 16) && Math.abs(r.height - size[1]) < 1 && r.left >= 7 && r.right <= innerWidth - 7 && r.top >= 7 && r.bottom <= innerHeight - 7 && el.scrollWidth <= el.clientWidth + 1;
+        }, state);
+        const visual = await page.locator('#askIsland').evaluate(el => {
+          const r = el.getBoundingClientRect(), layer = el.querySelector('.ask-layer:not([inert])');
+          const mark = layer?.querySelector('.ask-mark'), m = mark?.getBoundingClientRect(), style = getComputedStyle(el);
+          return { glass: style.backgroundColor, blur: style.backdropFilter, mark: m ? { width: m.width, height: m.height, left: m.x - r.x, top: m.y - r.y } : null, height: r.height };
+        });
+        glass ??= visual.glass;
+        assert.equal(visual.glass, glass, 'every state uses the same translucent surface');
+        assert.match(visual.glass, /rgba\(/);
+        assert.match(visual.blur, /blur\(20px\)/);
+        if (visual.mark) {
+          assert.equal(visual.mark.width, 20);
+          assert.equal(visual.mark.height, 20);
+          if (state === 'idle' || state === 'run') {
+            assert.equal(visual.mark.left, 10, 'the mark stays on the same 20px leading grid');
+            assert.equal(visual.mark.top, 10, 'the icon has no inline baseline gap');
+          }
+        }
+        if (state === 'ready' && width >= 390) assert.ok(visual.height < 180, 'the draft summary remains compact');
+        await page.screenshot({ path: `.local/ask/island/${state}-${width}-${height}.png` });
+        await page.locator('#askIsland').screenshot({ path: `.local/ask/island/${state}-${width}-${height}-surface.png` });
+      };
+      await shot('idle');
+      await page.locator('#askLauncher').click();
+      await shot('exp');
+      llm.push({ ...proposal([patchStep('rewrite', '', 'blue eyes')]), delay: 700 });
+      await page.locator('#askPrompt').fill('整理提示词');
+      await page.locator('#askPrompt').press('Enter');
+      await page.locator('#askDrawer [aria-label="收起 ASK"]').click();
+      await shot('run');
+      await shot('ready');
+      assert.equal(await page.locator('#askCompactDraft .ask-draft-apply').isVisible(), true);
+      await page.locator('#askCompactDraft .ask-draft-apply').click();
+      await shot('done');
+      await page.locator('.ask-done [aria-label="展开 ASK 对话"]').click();
+      await page.locator('#askDrawer .draft-done button').click();
+      await page.locator('#askDrawer .draft-actions button').first().click();
+      await page.locator('#askDrawer [aria-label="收起 ASK"]').click();
+    }
+    // Real motion: the same surface expands towards the left from its right edge.
+    await page.emulateMedia({ reducedMotion: 'no-preference' });
+    await page.setViewportSize({ width: 1440, height: 900 });
+    await page.waitForTimeout(600);
+    await page.mouse.move(500, 600);
+    await page.waitForTimeout(350);
+    const markGeometry = () => page.locator('#askLauncher').evaluate(el => {
+      const rect = selector => { const r = el.querySelector(selector).getBoundingClientRect(); return { x: r.x + r.width / 2, y: r.y + r.height / 2, width: r.width }; };
+      return { mark: rect('.ask-mark'), core: rect('.core'), corner: rect('.c4'), transform: getComputedStyle(el).transform };
+    });
+    const still = await markGeometry();
+    await page.locator('#askLauncher').hover();
+    await page.waitForTimeout(350);
+    const hover = await markGeometry();
+    assert.deepEqual(hover.mark, still.mark, 'hover must not translate the SVG or button');
+    assert.deepEqual(hover.core, still.core, 'only corner squares move');
+    assert.equal(hover.transform, 'none');
+    assert.equal(hover.corner.x - still.corner.x, -.5);
+    assert.equal(hover.corner.y - still.corner.y, .5);
+    await page.locator('#askIsland').screenshot({ path: '.local/ask/island/icon-hover.png' });
+    const right = await page.locator('#askIsland').evaluate(el => el.getBoundingClientRect().right);
+    await page.mouse.down();
+    await page.waitForTimeout(300);
+    const pressed = await markGeometry();
+    assert.ok(Math.abs(pressed.core.x - still.core.x) < .01 && Math.abs(pressed.core.y - still.core.y) < .01, 'press scales around the same center');
+    await page.mouse.up();
+    await page.waitForTimeout(100);
+    const during = await page.locator('#askIsland').boundingBox();
+    assert.ok(during.width > 40 && during.width < 420);
+    assert.ok(Math.abs(during.x + during.width - right) < 1);
+    await page.waitForTimeout(600);
+    llm.push({ body: openai(text('原因是 `crimson theme` 的色调。'), end()), delay: 300 });
+    await page.locator('#askPrompt').fill('解释图片');
+    await page.locator('#askPrompt').press('Enter');
+    await page.locator('#askDrawer [aria-label="收起 ASK"]').click();
+    await islandMode(page, 'ready');
+    assert.equal(await page.locator('.ask-summary code').textContent(), 'crimson theme');
+    assert.equal(await page.locator('.ask-draft').count(), 0);
+    await page.locator('.ask-ready [aria-label="收起 ASK 结果"]').click();
+    await islandMode(page, 'idle');
+    // Failure has a path to the existing explicit retry UI, with no auto retry.
+    await page.locator('#askLauncher').click();
+    llm.push({ status: 503, type: 'application/json', body: JSON.stringify({ error: { message: 'synthetic unavailable' } }), delay: 600 });
+    await page.locator('#askPrompt').fill('失败示例');
+    await page.locator('#askPrompt').press('Enter');
+    await page.locator('#askDrawer [aria-label="收起 ASK"]').click();
+    await islandMode(page, 'ready');
+    assert.match(await page.locator('.ask-summary').textContent(), /synthetic unavailable/);
+    await page.locator('.ask-ready .ask-details').click();
+    assert.equal(await page.locator('#askDrawer .ask-fail-actions button').first().isVisible(), true);
+    llm.push({ body: openai(text('late reply'), end()), delay: 3000 });
+    await page.locator('#askDrawer .ask-fail-actions button').first().click();
+    await page.locator('#askDrawer [aria-label="收起 ASK"]').click();
+    await islandMode(page, 'run');
+    await page.locator('.ask-run [aria-label="停止 ASK"]').click();
+    await islandMode(page, 'ready');
+    assert.match(await page.locator('.ask-summary').textContent(), /已停止/);
+    await page.locator('.ask-ready [aria-label="展开 ASK 对话"]').focus();
+    await page.keyboard.press('Escape');
+    await islandMode(page, 'idle');
     assert.deepEqual(generation(requests), []);
     assert.deepEqual(errors, []);
   } finally { await context.close(); }

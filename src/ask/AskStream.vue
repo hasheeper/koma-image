@@ -180,7 +180,7 @@ onBeforeUnmount(() => cancelAnimationFrame(frame));
   </div>
 </template>
 <style scoped>
-.ask-stream { flex: 1; min-height: 0; overflow: auto; overscroll-behavior: contain; padding: 4px 24px 24px; scrollbar-width: none; color: var(--fg); font: var(--fw-regular) var(--fz-md)/1.7 var(--sans); }
+.ask-stream { flex: 1; min-height: 0; overflow: auto; overscroll-behavior: contain; padding: 4px 20px 16px; scrollbar-width: none; color: var(--fg); font: var(--fw-regular) var(--fz-md)/1.7 var(--sans); }
 .ask-stream::-webkit-scrollbar { display: none; }
 .ask-empty { display: flex; flex-direction: column; align-items: center; justify-content: center; gap: var(--sp-3); min-height: 100%; color: var(--fg-4); font-size: var(--fz-sm); text-align: center; }
 .ask-turn { display: flex; flex-direction: column; }
@@ -190,7 +190,7 @@ onBeforeUnmount(() => cancelAnimationFrame(frame));
 .ask-turn > .ask-lead { margin-top: 16px; }
 .ask-turn > *, .ask-tool { animation: ask-fade var(--t3) cubic-bezier(.25, .1, .25, 1) both, ask-rise var(--t3) cubic-bezier(.2, .7, .2, 1) both; }
 .ask-u { align-self: flex-end; max-width: 84%; }
-.ask-q { padding: 7px 15px; color: var(--fg); background: var(--hover); border-radius: 18px; overflow-wrap: anywhere; white-space: pre-wrap; }
+.ask-q { padding: 7px 15px; color: var(--fg); background: var(--ask-hover, var(--hover)); border-radius: 18px; overflow-wrap: anywhere; white-space: pre-wrap; }
 .ask-turn p, .ask-turn li { overflow-wrap: anywhere; white-space: pre-line; }
 .ask-lead { font-weight: var(--fw-semibold); }
 .ask-turn ul, .ask-turn ol { display: flex; flex-direction: column; gap: 2px; padding-left: 20px; }
@@ -205,10 +205,10 @@ onBeforeUnmount(() => cancelAnimationFrame(frame));
 .ask-pick button:hover, .ask-pick button:focus-visible { border-color: var(--a); }
 .ask-pick button:disabled { color: var(--fg-4); }
 .ask-pick img { width: 64px; height: 86px; object-fit: cover; border-radius: 7px; }
-.ask-tool { display: flex; align-items: center; gap: 9px; min-height: 26px; color: var(--fg-4); font-size: var(--fz-sm); }
-.ask-tool .ico { flex: none; width: 15px; height: 15px; }
-.ask-tool-object { min-width: 0; overflow: hidden; color: var(--fg-3); text-overflow: ellipsis; white-space: nowrap; }
-.ask-tool-stat { flex: none; margin-left: 2px; font: var(--fw-regular) var(--fz-xs)/1 var(--mono); }
+.ask-tool { display: flex; align-items: baseline; gap: 6px; min-height: 24px; color: var(--fg-3); font-size: 13px; line-height: 24px; }
+.ask-tool .ico { flex: none; align-self: center; width: 15px; height: 15px; }
+.ask-tool-object { min-width: 0; overflow: hidden; color: var(--fg-2); font-weight: var(--fw-medium); text-overflow: ellipsis; white-space: nowrap; }
+.ask-tool-stat { flex: none; margin-left: 2px; color: var(--fg-4); font: var(--fw-regular) 11.5px/1 var(--mono); font-variant-numeric: tabular-nums; }
 .ask-tool[data-state="error"] .ico { color: var(--err); }
 .ask-tool[data-state="done"] .ask-tool-text { animation: ask-fade var(--t2) cubic-bezier(.4, 0, .2, 1) both; }
 .ask-tool[data-state="run"] .ask-tool-text { color: transparent; background: linear-gradient(90deg, var(--fg-3) 0%, var(--fg) 50%, var(--fg-3) 100%) 100% 0 / 250% 100%; background-clip: text; animation: ask-sheen 2.4s ease-in-out infinite; }

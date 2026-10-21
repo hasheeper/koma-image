@@ -4,6 +4,8 @@ import { useAsk } from "../app/ask";
 import AppIcon from "../shared/AppIcon.vue";
 import { keptParts } from "./draft/validate.ts";
 
+defineProps<{ compact?: boolean }>();
+defineEmits<{ review: [] }>();
 const ask = useAsk(), plan = ask.draftPlan;
 const originals = shallowRef<ReadonlySet<string>>(new Set());
 watch([() => !!plan.value, ask.draftStatus], () => { originals.value = new Set(); });
@@ -21,7 +23,7 @@ function apply(event: MouseEvent) {
 }
 </script>
 <template>
-  <section v-if="plan" class="ask-draft" aria-label="待确认草稿" :data-status="ask.draftStatus.value" :aria-busy="ask.writingDraft.value">
+  <section v-if="plan" class="ask-draft" :class="{ compact }" aria-label="待确认草稿" :data-status="ask.draftStatus.value" :aria-busy="ask.writingDraft.value">
     <div v-if="ask.draftStatus.value === 'applied'" class="draft-done">
       <AppIcon name="i-check" />
       <span>{{ plan.workspace === 'image' ? '已写入表单 · 未生成' : '已写入输入框 · 未发送' }}</span>
@@ -30,14 +32,15 @@ function apply(event: MouseEvent) {
     <template v-else>
       <header class="draft-head">
         <AppIcon name="i-edit" />
-        <div class="draft-title"><strong>{{ plan.title }}</strong><small>{{ count }} 处 · {{ plan.workspace === 'image' ? '应用后不会生成' : '应用后不会发送' }}</small></div>
+        <button v-if="compact" class="draft-title draft-review" type="button" aria-label="查看草稿修改" :title="plan.title" @click="$emit('review')"><strong>{{ plan.title }} · {{ count }} 处</strong><small>{{ plan.workspace === 'image' ? '应用后不会生成' : '应用后不会发送' }}</small></button>
+        <div v-else class="draft-title"><strong>{{ plan.title }}</strong><small>{{ count }} 处 · {{ plan.workspace === 'image' ? '应用后不会生成' : '应用后不会发送' }}</small></div>
         <div class="draft-actions">
           <button class="btn btn-quiet btn-sm" type="button" :disabled="ask.writingDraft.value" @click="ask.ignoreDraft()">忽略<kbd>Esc</kbd></button>
           <button class="btn btn-primary btn-sm ask-draft-apply" type="button" :data-fingerprint="plan.fingerprint" :disabled="(!plan.changes.length && !plan.branch) || ask.writingDraft.value || ask.running.value" :aria-disabled="(!plan.changes.length && !plan.branch) || ask.writingDraft.value || ask.running.value" @click="apply">{{ ask.writingDraft.value ? '写入中…' : ask.draftApplyLabel.value }}<kbd>Tab</kbd></button>
         </div>
       </header>
       <p v-if="plan.aligned" class="draft-aligned">已按当前内容对齐，请核对后应用</p>
-      <ol class="draft-steps" :class="{ multi: plan.steps.length > 1 }">
+      <ol v-show="!compact" class="draft-steps" :class="{ multi: plan.steps.length > 1 }">
         <li v-for="(step, index) in plan.steps" :key="step.id" class="draft-step" :class="{ off: !step.enabled, invalid: !!step.issue, parameter: step.kind === 'parameter', cur: step.id === currentStep, changed: step.before !== step.after }" :data-step="step.id">
           <div class="draft-step-head">
             <span class="draft-number">{{ index + 1 }}</span><span class="draft-label">{{ step.label }}</span>
@@ -62,12 +65,12 @@ function apply(event: MouseEvent) {
           <div v-else class="draft-slice patch" :class="{ insertion: !step.before }"><span class="dim">{{ step.prefix }}</span><del v-if="step.before">{{ step.before }}</del><ins v-if="step.after">{{ step.after }}</ins><span class="dim">{{ step.suffix }}</span></div>
         </li>
       </ol>
-      <footer v-if="issues" class="draft-conflict"><span>灰显步骤不会写入</span><button type="button" :disabled="ask.writingDraft.value || ask.running.value" @click="ask.reproposeDraft()">基于当前内容重新提议</button></footer>
+      <footer v-if="issues" class="draft-conflict"><span>冲突步骤不会写入</span><button v-if="compact" type="button" @click="$emit('review')">核对草稿</button><button v-else type="button" :disabled="ask.writingDraft.value || ask.running.value" @click="ask.reproposeDraft()">基于当前内容重新提议</button></footer>
     </template>
   </section>
 </template>
 <style scoped>
-.ask-draft { display: flex; flex: 0 1 auto; flex-direction: column; min-height: 0; max-height: min(43dvh, 380px); margin-bottom: 10px; overflow: hidden; color: var(--fg-2); background: var(--raised); border: 1px solid var(--line-2); border-radius: 20px; }
+.ask-draft { display: flex; flex: 0 1 auto; flex-direction: column; min-height: 0; max-height: min(43dvh, 380px); margin-bottom: 10px; overflow: hidden; color: var(--fg-2); background: var(--ask-layer, var(--raised)); border: 1px solid var(--line-2); border-radius: 16px; }
 .draft-head { display: flex; flex: none; flex-wrap: wrap; align-items: center; gap: 8px; padding: 12px; }
 .draft-head > .ico { flex: none; color: var(--a); }
 .draft-title { flex: 1; min-width: 100px; overflow-wrap: anywhere; }
@@ -85,15 +88,15 @@ function apply(event: MouseEvent) {
 .draft-step.cur .draft-number { color: var(--a); background: var(--a-dim); }
 .draft-step.invalid { color: var(--fg-3); }
 .draft-step-head { display: flex; align-items: center; gap: 6px; min-height: 30px; margin-bottom: 5px; font-size: var(--fz-xs); }
-.draft-number { display: grid; flex: none; place-items: center; width: 32px; height: 32px; color: var(--fg-3); font-family: var(--mono); background: var(--hover); border-radius: 8px; }
+.draft-number { display: grid; flex: none; place-items: center; width: 32px; height: 32px; color: var(--fg-3); font-family: var(--mono); background: var(--ask-hover, var(--hover)); border-radius: 8px; }
 .draft-lock { margin-left: auto; color: var(--fg-3); font-size: var(--fz-2xs); }
 .draft-cursor { display: inline-block; width: 2px; height: 1em; margin-left: 3px; vertical-align: text-bottom; background: var(--a); animation: draft-caret 1s steps(1) infinite; }
 @keyframes draft-caret { 50% { opacity: 0; } }
 .draft-label { min-width: 0; overflow-wrap: anywhere; }
 .draft-step-head > button { flex: none; margin-left: auto; padding: 4px; color: var(--fg-3); font-size: var(--fz-2xs); border-radius: 5px; }
-.draft-step-head > button:hover { color: var(--fg); background: var(--hover); }
+.draft-step-head > button:hover { color: var(--fg); background: var(--ask-hover, var(--hover)); }
 .draft-issue { padding: 0 0 6px; color: var(--warn); font-size: var(--fz-2xs); line-height: 1.5; overflow-wrap: anywhere; }
-.draft-slice { padding: 9px 11px; font: var(--fw-regular) var(--fz-xs)/1.85 var(--mono); white-space: pre-wrap; overflow-wrap: anywhere; background: var(--sunken); border-radius: 8px; }
+.draft-slice { padding: 9px 11px; font: var(--fw-regular) var(--fz-xs)/1.85 var(--mono); white-space: pre-wrap; overflow-wrap: anywhere; background: var(--ask-field, var(--sunken)); border-radius: 8px; }
 .draft-slice.patch { border-left: 3px solid var(--a); }
 .draft-slice.insertion { border-left-color: var(--ok); }
 .draft-slice .dim { color: var(--fg-4); }
@@ -102,8 +105,8 @@ function apply(event: MouseEvent) {
 .draft-slice .keep { text-decoration: underline; text-decoration-color: var(--a); text-decoration-thickness: 1.5px; text-underline-offset: 5px; }
 .draft-tabs { display: flex; justify-content: flex-end; gap: 3px; margin: -3px 0 5px; }
 .draft-tabs button { padding: 3px 6px; color: var(--fg-3); font-size: var(--fz-2xs); border-radius: 5px; }
-.draft-tabs button[aria-pressed="true"] { color: var(--fg); background: var(--hover); }
-.draft-step.parameter { grid-column: auto; padding: 7px; background: var(--sunken); border: 1px solid var(--line); border-radius: 8px; }
+.draft-tabs button[aria-pressed="true"] { color: var(--fg); background: var(--ask-hover, var(--hover)); }
+.draft-step.parameter { grid-column: auto; padding: 7px; background: var(--ask-field, var(--sunken)); border: 1px solid var(--line); border-radius: 8px; }
 .draft-step.parameter.changed:not(.invalid, .off) { box-shadow: inset 0 0 0 1.5px var(--a); }
 .parameter .draft-step-head { flex-wrap: wrap; gap: 3px; }
 .parameter .draft-number { display: none; }
@@ -118,9 +121,25 @@ function apply(event: MouseEvent) {
 .draft-done > .ico { color: var(--ok); }
 .draft-done button { flex: none; margin-left: auto; padding: 5px; color: var(--a); }
 .draft-done button:disabled { color: var(--fg-4); }
+.compact { flex: none; max-height: none; margin-bottom: 0; border: 0; border-radius: 12px; }
+.compact .draft-head { flex-wrap: nowrap; gap: 8px; padding: 8px 6px 8px 10px; }
+.compact .draft-head > .ico { width: 16px; height: 16px; }
+.compact .draft-title { min-width: 0; text-align: left; line-height: 1.35; }
+.compact .draft-title strong { overflow: hidden; font-size: 13px; text-overflow: ellipsis; white-space: nowrap; }
+.compact .draft-title small { margin-top: 2px; font-size: 11.5px; white-space: nowrap; }
+.draft-review:hover strong { color: var(--a); }
+.compact .draft-actions { flex: none; flex-wrap: nowrap; gap: 2px; margin-left: 0; }
+.compact .draft-actions .btn { min-height: 28px; padding: 0 7px; font-size: 12.5px; border-radius: 8px; }
+.compact .draft-actions kbd { margin-left: 4px; padding: 2px 3px; font-size: 10.5px; border: 1px solid var(--line-2); border-radius: 5px; }
+.compact .draft-aligned, .compact .draft-conflict { padding: 0 10px 8px; }
 @media (max-width: 860px) {
   .draft-actions kbd { display: none; }
   .draft-actions .btn, .draft-done button, .draft-step-head > button, .draft-tabs button { min-height: 36px; }
+}
+@media (max-width: 360px) {
+  .compact .draft-head { flex-wrap: wrap; }
+  .compact .draft-title { flex: 1 1 180px; }
+  .compact .draft-actions { margin-left: auto; }
 }
 @media (prefers-reduced-motion: reduce) {
   .draft-step { transition: none; }
