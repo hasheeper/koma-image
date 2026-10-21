@@ -452,8 +452,10 @@ test("ASK drawer layering: settings above it, hidden with the editor, Anthropic 
         assert.equal(Math.round(rect.width), width);
       } else {
         assert.equal(Math.round(rect.width), 460);
-        assert.equal(Math.round(rect.top), 60);
+        assert.equal(Math.round(rect.top), 0);
+        assert.equal(Math.round(rect.bottom), 900);
         assert.equal(Math.round(rect.left + rect.width), width);
+        assert.ok(await drawer(page).evaluate(el=>document.elementFromPoint(el.getBoundingClientRect().left+20,20)?.closest('#askDrawer')===el), 'ASK covers its top-bar area');
       }
       await page.screenshot({ path: `.local/ask/drawer-${width}.png` });
     }

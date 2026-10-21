@@ -76,8 +76,8 @@ onBeforeUnmount(() => ask.attach(null));
   </Transition>
 </template>
 <style scoped>
-/* Over the image rail, under the top bar; modal dialogs stay above it. */
-.ask { position: fixed; top: var(--bar-h); right: 0; bottom: 0; z-index: var(--z-drawer); display: flex; flex-direction: column; width: min(460px, 100vw); background: var(--chrome); border-left: 1px solid var(--line); box-shadow: -30px 0 60px rgba(0, 0, 0, .45); }
+/* Full-height over the right rail and top bar; modal dialogs stay above it. */
+.ask { position: fixed; top: 0; right: 0; bottom: 0; z-index: var(--z-drawer); display: flex; flex-direction: column; width: min(460px, 100vw); background: var(--chrome); border-left: 1px solid var(--line); box-shadow: -30px 0 60px rgba(0, 0, 0, .45); }
 .ask-head { display: flex; flex: none; align-items: center; gap: 8px; height: 54px; padding: 0 10px 0 24px; }
 .ask-brand { margin-left: 2px; color: var(--fg); font: var(--fw-bold) var(--fz-md)/1 var(--brand); }
 .ask-tag { color: var(--fg-4); font: var(--fw-semibold) var(--fz-2xs)/1 var(--sans); letter-spacing: .14em; }
