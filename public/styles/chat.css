@@ -247,66 +247,72 @@
   .chat-turn:not(:last-child) .msg-tools { display: none; }
   .chat-turn:not(:last-child) .msg-user:focus-within .msg-tools { display: flex; }
 }
-/* The composer: attachments, the text, then one toolbar — what this turn
-   brings (upload, context, parameters) on the left; who draws it (model, any
-   credit cost) and send on the right. One 10px frame holds every 36px
-   control, so their corners are the frame's less the frame (18 − 10 = 8),
-   and the text starts where the + is drawn. */
-.chat-composer { position: relative; flex: none; width: calc(100% - 48px); max-width: var(--column); align-self: center; margin: 0 24px 20px; padding: 10px; background: var(--chrome); border: 1px solid var(--line-2); border-radius: 18px; box-shadow: var(--sh-lip), 0 8px 28px -16px rgba(0,0,0,.55); transition: border-color var(--t1) var(--e), background var(--t1) var(--e); }
-.chat-page #chatPrompt { display: block; resize: none; min-height: 40px; max-height: 26dvh; background: transparent; border-color: transparent; box-shadow: none; padding: 8px 13px 6px; font-size: var(--fz-md); line-height: 1.6; }
+/* The composer: one roomy frame a step lighter than the page, so the room
+   comes from inside it rather than from shrinking what it holds. The text
+   gets two lines; under it one toolbar — what this turn brings (upload,
+   context, parameters) on the left; what it costs, who draws it and send on
+   the right. The toolbar is one size and one weight, and colour alone ranks
+   it: the text, then the model, then everything else. One 12px frame holds
+   the 32px controls, so the attachments' corners are the frame's less the
+   frame (24 − 12 = 12). */
+.chat-composer { position: relative; flex: none; width: calc(100% - 48px); max-width: var(--column); align-self: center; margin: 0 24px 20px; padding: 12px 12px 10px; background: var(--raised); border: 1px solid var(--line-2); border-radius: 24px; box-shadow: var(--sh-lip), 0 10px 32px -18px rgba(0,0,0,.7); transition: border-color var(--t1) var(--e), background var(--t1) var(--e); }
+.chat-page #chatPrompt { display: block; resize: none; min-height: 56px; max-height: 26dvh; background: transparent; border-color: transparent; box-shadow: none; padding: 6px 11px 4px; font-size: var(--fz-md); line-height: 1.6; }
 .chat-page #chatPrompt::placeholder { color: var(--fg-3); }
-.chat-composer-bottom { display: flex; align-items: center; gap: 4px; }
-/* The + glyph is inset 3.3px in its 16px box, centred in 36px: 13px of
+.chat-composer-bottom { display: flex; flex-wrap: wrap; align-items: center; gap: 0 2px; margin-top: 4px; }
+/* The right-hand group keeps room for the model name: where the row can't
+   give it that much (small phones, a long context chip), the group takes a
+   line of its own rather than squeezing the name to nothing. */
+.composer-end { display: flex; flex: 1 1 172px; align-items: center; justify-content: flex-end; gap: 2px; min-width: 0; }
+/* The + glyph is inset 3.3px in its 16px box, centred in 32px: 11px of
    text padding lands the text on its stroke. */
-.chat-composer-bottom > .ibtn { width: 36px; height: 36px; border-radius: 8px; }
-.context-button { display: inline-flex; align-items: center; gap: 6px; height: 36px; padding: 0 8px; color: var(--fg-3); font: var(--fw-medium) var(--fz-xs)/1 var(--mono); border-radius: 8px; transition: color var(--t1) var(--e), background var(--t1) var(--e); }
-.context-button .ico { width: 14px; height: 14px; }
-.context-divider { width: 1px; height: 10px; background: var(--line-2); margin-inline: 2px; }
-.context-button:hover { color: var(--fg); background: var(--raised); }
+.chat-composer-bottom > .ibtn { width: 32px; height: 32px; color: var(--fg-2); border-radius: 50%; }
+.chat-composer-bottom > .ibtn:hover { color: var(--fg); background: var(--hover); }
+.context-button, .param-button, .model-chip { display: inline-flex; align-items: center; height: 32px; font: var(--fw-regular) var(--fz-sm)/1 var(--sans); white-space: nowrap; border-radius: 999px; transition: color var(--t1) var(--e), background var(--t1) var(--e); }
+.context-button { flex: none; gap: 5px; margin-left: 2px; padding: 0 10px; color: var(--fg-3); font-variant-numeric: tabular-nums; }
+.context-button > span + .ico { margin-left: 10px; }
+.context-button .ico, .param-button .ico { width: 15px; height: 15px; }
 /* Parameters and the model: two quiet chips, each opening its own panel.
    The parameter chip is just its icon until something leaves the default. */
-.param-button, .model-chip { display: inline-flex; align-items: center; gap: 6px; min-width: 0; height: 36px; font-size: var(--fz-sm); white-space: nowrap; border-radius: 8px; transition: color var(--t1) var(--e), background var(--t1) var(--e); }
-.param-button { position: relative; justify-content: center; flex: 0 1 auto; min-width: 36px; padding: 0 10px; color: var(--fg-3); }
-.param-button[data-changed] { padding-inline: 10px 12px; color: var(--fg-2); }
-.param-button .ico { width: 16px; height: 16px; }
+.param-button { position: relative; justify-content: center; flex: 0 1 auto; gap: 6px; min-width: 32px; padding: 0 10px; color: var(--fg-3); }
+.param-button[data-changed] { padding-inline: 10px 12px; }
 .param-summary { min-width: 0; overflow: hidden; text-overflow: ellipsis; }
 .param-summary:empty { display: none; }
-.model-chip { flex: 0 1 auto; margin-left: auto; padding: 0 10px 0 12px; color: var(--fg-2); }
-.param-button:hover, .param-button[aria-expanded="true"], .model-chip:hover, .model-chip[aria-expanded="true"] { color: var(--fg); background: var(--raised); }
+/* The cost reads as part of the model's line, not as a warning beside send. */
+.quote-cost { flex: none; padding: 0 6px; font-size: var(--fz-sm); font-variant-numeric: tabular-nums; color: var(--fg-3); }
+.model-chip { flex: 0 1 auto; gap: 6px; min-width: 0; padding: 0 8px 0 12px; color: var(--fg-2); }
+.context-button:hover, .context-button[aria-expanded="true"], .param-button:hover, .param-button[aria-expanded="true"], .model-chip:hover, .model-chip[aria-expanded="true"] { color: var(--fg); background: var(--hover); }
 .param-button:focus-visible, .model-chip:focus-visible { outline: 2px solid var(--a); outline-offset: 1px; }
-.model-chip-icon { flex: none; width: 15px; height: 15px; }
-.model-chip-name { min-width: 0; overflow: hidden; text-overflow: ellipsis; font-weight: var(--fw-semibold); }
-.model-chip-caret { flex: none; width: 12px; height: 12px; color: var(--fg-3); transform: rotate(90deg); transition: transform var(--t1) var(--e); }
+.model-chip-name { min-width: 0; overflow: hidden; text-overflow: ellipsis; }
+.model-chip-caret { flex: none; width: 12px; height: 12px; color: var(--fg-4); transform: rotate(90deg); transition: transform var(--t1) var(--e); }
 .model-chip[aria-expanded="true"] .model-chip-caret { transform: rotate(-90deg); }
-.quote-cost { flex: none; padding: 0 4px; font-size: var(--fz-xs); color: var(--warn); }
 /* Send and stop stack in one cell: send shrinks away as stop grows in. */
-.send-slot { display: grid; flex: none; }
-.send-slot > .btn { grid-area: 1 / 1; width: 36px; height: 36px; padding: 0; border-radius: 8px;
+.send-slot { display: grid; flex: none; margin-left: 6px; }
+.send-slot > .btn { grid-area: 1 / 1; width: 32px; height: 32px; padding: 0; border-radius: 50%;
   transition: opacity var(--t2) var(--e), transform var(--t2) var(--e-out), visibility 0s,
-    color var(--t2) var(--e), background-color var(--t2) var(--e), border-color var(--t1) var(--e), box-shadow var(--t2) var(--e); }
+    color var(--t2) var(--e), background-color var(--t2) var(--e), box-shadow var(--t2) var(--e); }
 .send-slot > .btn[hidden] { display: inline-flex; visibility: hidden; pointer-events: none; opacity: 0; transform: scale(.72);
   transition: opacity var(--t1) var(--e), transform var(--t1) var(--e), visibility 0s linear var(--t1); }
 .chat-send .ico { width: 18px; height: 18px; stroke-width: 2; }
-/* Not ready yet: a flat well, lighter than the chips beside it, not a
-   ringed button. */
-.chat-send:disabled { background: var(--hover); box-shadow: none; }
+/* A flat accent disc once there is something to send; until then a faint
+   disc, not a lit button. */
+.chat-send:disabled { color: var(--fg-4); background: rgba(255,255,255,.07); }
 /* Stop: a ring that turns while the turn runs, around the square that ends
    it. Neutral at rest; the error hue only on hover, when it means "cancel". */
-.chat-stop { position: relative; color: var(--fg); background: var(--raised); border: 1px solid var(--line-2); box-shadow: var(--sh-lip); }
+.chat-stop { position: relative; color: var(--fg); background: var(--hover); }
 .chat-stop .ico { width: 18px; height: 18px; fill: currentColor; stroke: none; }
-.chat-stop::before { content: ""; position: absolute; inset: 6px; border-radius: 50%; border: 2px solid var(--a-dim); border-top-color: var(--a); animation: goSpin .9s linear infinite; pointer-events: none; }
+.chat-stop::before { content: ""; position: absolute; inset: 5px; border-radius: 50%; border: 2px solid var(--a-dim); border-top-color: var(--a); animation: goSpin .9s linear infinite; pointer-events: none; }
 /* Only where a pointer can actually hover: a tap leaves :hover stuck on
    touch screens, and the stop that just appeared under the finger would sit
    there red. */
 @media (hover: hover) {
-  .chat-stop:hover { color: var(--err); background: rgba(232,135,135,.1); border-color: rgba(232,135,135,.38); }
+  .chat-stop:hover { color: var(--err); background: rgba(232,135,135,.12); }
   .chat-stop:hover::before { border-color: rgba(232,135,135,.16); border-top-color: var(--err); }
 }
 .chat-inline-error { color: var(--err); font-size: var(--fz-xs); overflow-wrap: anywhere; }
-.chat-inline-error:not(:empty) { margin: 0 13px 6px; }
+.chat-inline-error:not(:empty) { margin: 0 11px 6px; }
 .chat-attachments { display: flex; gap: 8px; overflow-x: auto; overscroll-behavior: contain; }
-.chat-attachments:not(:empty) { padding: 2px 2px 4px; }
-.attachment { position: relative; flex: none; width: 56px; height: 56px; border: 1px solid var(--line-2); background: var(--well); border-radius: var(--r3); }
+.chat-attachments:not(:empty) { padding: 2px 2px 8px; }
+.attachment { position: relative; flex: none; width: 56px; height: 56px; border: 1px solid var(--line-2); background: var(--well); border-radius: 12px; }
 .attachment-preview { display: block; width: 100%; height: 100%; border-radius: inherit; overflow: hidden; }
 .attachment img { display: block; width: 100%; height: 100%; object-fit: cover; }
 .attachment-loading { overflow: hidden; border-color: var(--line); }
@@ -316,7 +322,7 @@
 .attachment-remove:hover::before { background: #fff; }
 /* Files dragged anywhere over the page land here; say so while they hover. */
 .chat-composer[data-drop] { border-color: var(--a); border-style: dashed; }
-.chat-composer[data-drop]::after { content: "松开添加图片"; position: absolute; inset: 0; display: grid; place-items: center; border-radius: inherit; color: var(--a); font-size: var(--fz-sm); font-weight: var(--fw-medium); background: color-mix(in srgb, var(--chrome) 92%, var(--a)); pointer-events: none; }
+.chat-composer[data-drop]::after { content: "松开添加图片"; position: absolute; inset: 0; display: grid; place-items: center; border-radius: inherit; color: var(--a); font-size: var(--fz-sm); font-weight: var(--fw-medium); background: color-mix(in srgb, var(--raised) 92%, var(--a)); pointer-events: none; }
 /* The two panels, built on the editor's popover (.editor-pop): models as a
    short checked menu grouped by provider; settings as rows of chips. Each is
    as wide as its content needs. */
@@ -352,7 +358,6 @@
   .chat-page[data-context="open"][data-rail="collapsed"] .chat-layout { grid-template-columns: 52px minmax(0, 1fr) var(--context-w); }
 }
 @media (max-width: 1199px) { .chat-page { --context-w: 300px; } }
-.context-button[aria-expanded="true"] { color: var(--fg); background: var(--raised); }
 .context-head { flex: none; padding: 0 8px 6px 16px; }
 .context-title { display: flex; align-items: center; gap: 2px; height: 52px; }
 .context-title h2 { flex: 1; margin: 0; font-size: var(--fz-md); font-weight: var(--fw-semibold); }
@@ -418,10 +423,10 @@
 .attachment[data-dropped="true"] { border-style: dashed; }
 .attachment[data-dropped="true"] img { opacity: .4; filter: grayscale(1); }
 /* The overflow count rides the entry point, since the panel is usually closed.
-   Inline rather than a corner badge: the composer row is 22px tall and a
-   floating dot would clip against the neighbouring status text. */
-#contextButton.has-overflow { color: var(--warn); }
-#contextButton.has-overflow::after { content: "−" attr(data-overflow); padding: 1px 5px; border-radius: 999px; font-size: 10px; font-weight: var(--fw-semibold); color: var(--warn); background: rgba(224,171,104,.14); }
+   Inline rather than a corner badge, which would clip against the chips
+   beside it. */
+.context-button.has-overflow { color: var(--warn); }
+.context-button.has-overflow::after { content: "−" attr(data-overflow); margin-left: 2px; padding: 2px 6px; border-radius: 999px; font-size: var(--fz-2xs); color: var(--warn); background: rgba(224,171,104,.14); }
 .chat-lightbox::backdrop { background: rgba(8,8,10,.8); backdrop-filter: blur(4px); }
 .dialog-note, .dialog-note:empty { color: var(--fg-3); font-size: var(--fz-xs); }
 .dialog-note { margin-top: 16px; }
@@ -481,7 +486,8 @@
   .msg-tools { position: static; display: none; padding: 0; margin-right: -6px; opacity: 1; }
   .msg-user:hover .msg-tools, .msg-user:focus-within .msg-tools { display: flex; }
   .chat-page .msg-tools .ibtn { width: 40px; height: 40px; }
-  .chat-composer { order: 2; width: 100%; margin: 0; padding: 8px 12px calc(8px + env(safe-area-inset-bottom)); border-radius: 0; border-inline: 0; border-bottom: 0; }
+  /* Still a floating frame, inset from the screen edges. */
+  .chat-composer { order: 2; width: calc(100% - 16px); margin: 0 8px calc(8px + env(safe-area-inset-bottom)); padding: 8px 8px 4px; border-radius: 22px; }
   .chat-lock { gap: 12px; }
   .chat-mark { width: 38px; height: 38px; }
   .chat-word { gap: 8px; }
@@ -490,17 +496,22 @@
   /* One scrolling row just above the composer, within thumb reach. */
   .chat-starters { order: 1; flex-wrap: nowrap; justify-content: flex-start; width: 100%; margin: 0; padding: 0 12px 10px; overflow-x: auto; scrollbar-width: none; }
   .chat-starter { flex: none; height: 36px; }
-  /* The + is 44px here, so its stroke starts 17px in. */
-  .chat-page #chatPrompt { font-size: 16px; min-height: 40px; max-height: 22dvh; padding: 8px 17px 6px; }
-  .chat-inline-error:not(:empty) { margin-inline: 17px; }
-  .chat-composer-bottom { gap: 2px; }
-  .param-button { flex: none; width: 44px; height: 44px; padding: 0; }
+  /* The + is 40px here, so its stroke starts 15px in. */
+  .chat-page #chatPrompt { font-size: 16px; min-height: 48px; max-height: 22dvh; padding: 6px 15px 2px; }
+  .chat-inline-error:not(:empty) { margin-inline: 15px; }
+  /* Thumb-sized rows; the controls give up width, not height, so the model
+     name keeps what room there is (its caret goes too). */
+  .chat-page .chat-composer-bottom > .ibtn { width: 40px; height: 44px; }
+  .param-button { flex: none; width: 40px; height: 44px; padding: 0; }
   .param-button[data-changed] { padding: 0; }
   .param-summary { display: none; }
   /* No room for the summary, so a dot says "not the defaults". */
-  .param-button[data-changed]::after { content: ""; position: absolute; top: 10px; right: 9px; width: 6px; height: 6px; border-radius: 50%; background: var(--a); }
-  .model-chip { height: 44px; padding-inline: 10px 8px; }
-  .send-slot > .btn { width: 44px; height: 44px; }
+  .param-button[data-changed]::after { content: ""; position: absolute; top: 12px; right: 7px; width: 6px; height: 6px; border-radius: 50%; background: var(--a); }
+  .quote-cost { padding: 0 4px; }
+  .model-chip { height: 44px; padding: 0 6px 0 8px; }
+  .model-chip-caret { display: none; }
+  .send-slot { margin-left: 2px; }
+  .send-slot > .btn { width: 40px; height: 40px; }
   /* Both panels become bottom sheets, sized for thumbs. */
   /* Doubled class: editor.css loads after this file and resets inset. */
   .editor-pop.chat-pop { inset: auto 0 0 0; width: 100%; min-width: 0; max-width: none; max-height: 80dvh; padding: 10px 12px calc(14px + env(safe-area-inset-bottom)); border-bottom: 0; border-radius: var(--r4) var(--r4) 0 0; }
@@ -522,12 +533,11 @@
   .context-panel:modal { position: fixed; inset: auto 0 0 0; width: 100%; max-height: 85dvh; padding-bottom: env(safe-area-inset-bottom); border-left: 0; border-top: 1px solid var(--line-2); border-radius: var(--r4) var(--r4) 0 0; }
   .context-panel::backdrop { background: rgba(0,0,0,.45); }
   .context-follow, .context-raw summary { min-height: 44px; font-size: var(--fz-sm); }
-  .latest-button { bottom: calc(var(--composer-height, 180px) + 12px); }
+  /* 12px above the frame, which now floats 8px off the bottom edge. */
+  .latest-button { bottom: calc(var(--composer-height, 180px) + 20px + env(safe-area-inset-bottom)); }
 }
-/* Small phones: the model name needs the room more than its provider mark. */
+/* Small phones: the model name needs the room more than the context chip's padding. */
 @media (max-width: 400px) {
-  .chat-composer { padding-inline: 8px; }
-  .model-chip-icon { display: none; }
   .context-button { gap: 4px; padding-inline: 4px; }
 }
 @media (max-width: 360px) {

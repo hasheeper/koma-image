@@ -20,7 +20,7 @@ import ModelListDialog from "./settings/ModelListDialog.vue";
 import BackupSection from "./settings/BackupSection.vue";
 import GeneralSection from "./settings/GeneralSection.vue";
 import type { SettingsSection } from "../app/routes";
-import type { Routing } from "../config/connections.ts";
+import type { Connection, Routing } from "../config/connections.ts";
 import {
   normalizeBaseUrl,
   validateRouting,
@@ -33,6 +33,7 @@ import { object } from "../domain/value.ts";
 import { MODELS } from "../domain/models.ts";
 import { catalogEntries, sourceState } from "../domain/catalog.ts";
 import { download } from "../shared/files";
+import { placeMenu, menuKeys } from "../shared/popover";
 const { router } = useShell(),
   services = useServices(),
   ui = useUi();
@@ -51,13 +52,11 @@ const raw = shallowRef<Record<string, unknown>>({}),
 const statuses = ref<Record<string, { s: string; text: string }>>({}),
   testing = ref<string | null>(null),
   listConnection = ref<string | null>(null);
-const editing = ref<string | null>(null),
-  address = ref(""),
-  renaming = ref<string | null>(null),
-  nameDraft = ref(""),
-  addingName = ref(""),
-  addingProfile = ref(STANDARD_PROFILE_ID),
-  addingUrl = ref(""),
+// The connection form adds a connection, or edits one when it has a target.
+const formTarget = ref<string | null>(null),
+  formName = ref(""),
+  formProfile = ref(STANDARD_PROFILE_ID),
+  formUrl = ref(""),
   formError = ref("");
 const { requestClose, cancel, closed } = useDialog(
   "settings",
@@ -92,17 +91,16 @@ const host = (url: string) => {
     return "";
   }
 };
-const mask = (id: string) => {
+// The card shows the address without its https scheme; the menu shows the Key's ends when it is readable.
+const endpoint = (url: string) => url.replace(/^https:\/\//, "");
+const keyTail = (id: string) => {
   version.value;
   const key = vault.key(id);
-  return !key
-    ? mode.value === "empty"
-      ? "未配置"
-      : "已锁定"
-    : key.length > 8
-      ? `${key.slice(0, 3)}••••••••${key.slice(-4)}`
-      : "••••••••";
+  return !key ? "" : key.length > 8 ? `${key.slice(0, 3)}••••${key.slice(-4)}` : "••••";
 };
+// A healthy status shows its first clause ("可用"); the full text stays in the tooltip. Problems show in full.
+const statusLabel = (status?: { s: string; text: string }) =>
+  !status ? "未检查" : status.s === "ok" ? status.text.split(/ · |，/)[0] : status.text;
 const pools: [string, string, string][] = [
   ["novelai-v5", "novelai", "V5"],
   ["novelai-v4.5", "novelai", "V4.5"],
@@ -113,11 +111,56 @@ const amount = (n: unknown) =>
   typeof n === "number" && Number.isFinite(n)
     ? n.toLocaleString("zh-CN", { maximumFractionDigits: 2 })
     : "—";
+type Meter = { key: string; label: string; value: string; family?: string; limit?: string; ratio?: number };
+function meters(c: Connection): Meter[] {
+  const media = balances.value[c.id], profile = profileFor(c.profileId);
+  if (!media || (profile.quotaPolicy.supported === false && profile.protocol !== "novelai")) return [];
+  const credits = amount(object(media.credits).remaining);
+  if (profile.protocol === "novelai") return [{ key: "anlas", label: "Anlas", value: credits }];
+  const images = object(media.images);
+  return [
+    { key: "credits", label: "媒体积分", value: credits },
+    ...pools.flatMap(([group, family, label]) => {
+      if (!images[group]) return [];
+      const pool = object(images[group]), limit = typeof pool.limit === "number" && pool.limit > 0 ? pool.limit : 0;
+      return [{
+        key: group, family, label, value: amount(pool.remaining),
+        limit: limit ? amount(limit) : undefined,
+        ratio: limit && typeof pool.remaining === "number" ? Math.max(0, Math.min(1, pool.remaining / limit)) : undefined,
+      }];
+    }),
+  ];
+}
 function used(id: string) {
   return MODELS.filter(
     (m) =>
       sourceState(routing.value, id, m, catalogEntries(raw.value[id])) === "on",
   ).length;
+}
+// One menu per card, opened by its own ⋯ button; it closes on scroll or resize like the chat menus.
+let openMenu: { pop: HTMLElement; off: AbortController } | undefined;
+const menuId = (id: string) => `connection-menu-${id}`;
+function closeMenu() {
+  if (openMenu?.pop.matches(":popover-open")) openMenu.pop.hidePopover();
+  openMenu?.off.abort();
+  openMenu = undefined;
+}
+function toggleMenu(event: Event) {
+  const pop = event.currentTarget as HTMLElement;
+  if ((event as ToggleEvent).newState !== "open") {
+    if (openMenu?.pop === pop) closeMenu();
+    delete pop.dataset.placed;
+    return;
+  }
+  openMenu?.off.abort();
+  const off = new AbortController(),
+    close = () => pop.matches(":popover-open") && pop.hidePopover();
+  openMenu = { pop, off };
+  const trigger = dialog.value?.querySelector(`[popovertarget="${CSS.escape(pop.id)}"]`);
+  if (trigger) placeMenu(pop, trigger.getBoundingClientRect());
+  pop.dataset.placed = "";
+  window.addEventListener("resize", close, { signal: off.signal });
+  document.addEventListener("scroll", close, { capture: true, passive: true, signal: off.signal });
 }
 let sequence = 0,
   controller: AbortController | undefined,
@@ -195,8 +238,7 @@ watch(
     if (overlay !== "settings") {
       controller?.abort();
       sequence++;
-      editing.value = null;
-      renaming.value = null;
+      closeMenu();
       listConnection.value = null;
       form.value?.close();
       return;
@@ -211,6 +253,7 @@ onBeforeUnmount(() => {
   controller?.abort();
   unconnections();
   unvault();
+  closeMenu();
   form.value?.close();
 });
 async function commit(value: Routing) {
@@ -222,41 +265,47 @@ async function commit(value: Routing) {
 }
 function add() {
   if (local) return;
-  addingName.value = `连接 ${Object.keys(routing.value.connections).length + 1}`;
-  addingUrl.value = "";
-  addingProfile.value = STANDARD_PROFILE_ID;
+  formTarget.value = null;
+  formName.value = `连接 ${Object.keys(routing.value.connections).length + 1}`;
+  formUrl.value = "";
+  formProfile.value = STANDARD_PROFILE_ID;
+  formError.value = "";
+  form.value?.showModal();
+}
+function edit(id: string) {
+  const c = routing.value.connections[id];
+  if (local || !c) return;
+  formTarget.value = id;
+  formName.value = c.name;
+  formUrl.value = c.baseUrl;
+  formProfile.value = c.profileId;
   formError.value = "";
   form.value?.showModal();
 }
 function selectProtocol() {
-  if (profileFor(addingProfile.value).protocol === "novelai") addingUrl.value = NOVELAI_IMAGE_URL;
-  else if (addingUrl.value === NOVELAI_IMAGE_URL) addingUrl.value = "";
-}
-async function changeProtocol(id: string, select: HTMLSelectElement) {
-  const value = select.value;
-  const profile = profileFor(value), next = structuredClone(routing.value);
-  if (profile.protocol === "novelai" && next.connections[id].baseUrl !== NOVELAI_IMAGE_URL) {
-    select.value = next.connections[id].profileId;
-    ui.toast("请单独添加 NovelAI 官方连接，并填写对应 Key", "warn");
+  formError.value = "";
+  const target = formTarget.value ? routing.value.connections[formTarget.value] : undefined;
+  if (target && profileFor(formProfile.value).protocol === "novelai" && target.baseUrl !== NOVELAI_IMAGE_URL) {
+    formProfile.value = target.profileId;
+    formError.value = "请单独添加 NovelAI 官方连接，并填写对应 Key";
     return;
   }
-  next.connections[id].profileId = value;
-  next.links[id] = {};
-  await commit(next);
-  select.value = connections.configuration.connections[id]?.profileId || value;
+  if (profileFor(formProfile.value).protocol === "novelai") formUrl.value = NOVELAI_IMAGE_URL;
+  else if (formUrl.value === NOVELAI_IMAGE_URL) formUrl.value = "";
 }
-async function saveNew() {
+async function saveForm() {
   formError.value = "";
+  if (formTarget.value) return saveEdit(formTarget.value);
   try {
-    const baseUrl = normalizeBaseUrl(addingUrl.value),
+    const baseUrl = normalizeBaseUrl(formUrl.value),
       suffix = crypto.randomUUID(),
       id = `connection-${suffix}`;
     const next = structuredClone(routing.value);
     next.connections[id] = {
       id,
-      name: addingName.value.trim() || "连接",
+      name: formName.value.trim() || "连接",
       baseUrl,
-      profileId: addingProfile.value,
+      profileId: formProfile.value,
       credentialRef: `key-${suffix}`,
       revision: crypto.randomUUID(),
     };
@@ -267,40 +316,25 @@ async function saveNew() {
     formError.value = message(error);
   }
 }
-async function finishAddress(id: string) {
-  try {
-    const next = structuredClone(routing.value);
-    next.connections[id].baseUrl = normalizeBaseUrl(address.value);
-    await connections.save(next);
-    editing.value = null;
-  } catch (error) {
-    ui.toast(message(error), "err");
-  }
-}
-async function startRename(id: string) {
-  renaming.value = id;
-  nameDraft.value = routing.value.connections[id]?.name ?? "";
-  await nextTick();
-  dialog.value?.querySelector<HTMLInputElement>(".conn-name input")?.select();
-}
-async function finishRename(id: string) {
-  const name = nameDraft.value.trim();
+// Saves only what changed; a new protocol starts with empty model sources, as before.
+async function saveEdit(id: string) {
+  const name = formName.value.trim();
   if (!name) {
-    ui.toast("请填写连接名称", "warn");
+    formError.value = "请填写连接名称";
     return;
   }
   try {
-    const next = structuredClone(routing.value);
-    if (
-      Object.hasOwn(next.connections, id) &&
-      next.connections[id].name !== name
-    ) {
-      next.connections[id].name = name;
+    const baseUrl = normalizeBaseUrl(formUrl.value),
+      next = structuredClone(routing.value),
+      c = next.connections[id];
+    if (c && (c.name !== name || c.baseUrl !== baseUrl || c.profileId !== formProfile.value)) {
+      if (c.profileId !== formProfile.value) next.links[id] = {};
+      Object.assign(c, { name, baseUrl, profileId: formProfile.value });
       await connections.save(next);
     }
-    renaming.value = null;
+    form.value?.close();
   } catch (error) {
-    ui.toast(message(error), "err");
+    formError.value = message(error);
   }
 }
 async function remove(id: string) {
@@ -328,8 +362,6 @@ async function remove(id: string) {
     delete next.connections[id];
     delete next.links[id];
     await connections.save(next);
-    if (editing.value === id) editing.value = null;
-    if (renaming.value === id) renaming.value = null;
     if (vault.key(c.credentialRef)) await vault.removeKey(c.credentialRef);
   } catch (error) {
     ui.toast(message(error), "err");
@@ -499,241 +531,145 @@ async function reveal(id: string) {
             class="sp-sec"
             aria-label="连接"
           >
-            <div class="sp-sec-head">
+            <div class="sp-sec-head conn-sec-head">
               <h3>连接</h3>
-              <p>
-                {{
-                  local
-                    ? "连接由本地服务管理，模型来源可在此调整。"
-                    : "每个连接包含地址、Key 和它的模型列表。"
-                }}
-              </p>
+              <button
+                v-if="!local && Object.keys(routing.connections).length"
+                class="btn btn-quiet btn-sm"
+                type="button"
+                @click="add"
+              >
+                <AppIcon name="i-plus" />添加连接
+              </button>
+              <p v-if="local">连接由本地服务管理，模型来源可在此调整。</p>
             </div>
             <div
               v-if="!Object.keys(routing.connections).length"
-              class="sp-group"
+              class="sp-empty conn-empty"
             >
-              <div class="sp-empty">
-                <span class="vtile connection-avatar"
-                  ><img
-                    :src="avatar"
-                    alt="默认头像"
-                    width="26"
-                    height="26" /></span
-                ><span>尚未配置连接</span
-                ><button
-                  class="btn btn-quiet btn-sm"
-                  type="button"
-                  @click="add"
-                >
-                  添加连接
-                </button>
-              </div>
+              <span class="vtile connection-avatar"
+                ><img
+                  :src="avatar"
+                  alt="默认头像"
+                  width="26"
+                  height="26" /></span
+              ><span>尚未配置连接</span
+              ><button class="btn btn-quiet btn-sm" type="button" @click="add">
+                添加连接
+              </button>
             </div>
-            <div
+            <article
               v-for="c in Object.values(routing.connections)"
               :key="c.id"
-              class="sp-group"
+              class="conn-card"
             >
-              <div class="conn-head">
+              <header class="conn-top">
                 <span class="vtile connection-avatar"
                   ><img :src="avatar" alt="默认头像"
                 /></span>
                 <div class="conn-name">
-                  <input
-                    v-if="renaming === c.id"
-                    v-model="nameDraft"
-                    type="text"
-                    aria-label="连接名称"
-                    maxlength="128"
-                    autocomplete="off"
-                    spellcheck="false"
-                    @keydown.enter.prevent="finishRename(c.id)"
-                    @keydown.esc.stop.prevent="renaming = null"
-                  /><b v-else>{{ c.name }}</b>
+                  <b>{{ c.name }}</b
+                  ><span class="type">{{ profileFor(c.profileId).label }}</span>
                 </div>
-                <template v-if="!local">
+                <span class="conn-meta" :title="local ? undefined : c.baseUrl">{{
+                  local ? "本机同源代理" : endpoint(c.baseUrl)
+                }}</span>
+                <span
+                  class="st"
+                  :data-s="testing === c.id ? 'wait' : statuses[c.id]?.s || 'wait'"
+                  :title="statuses[c.id]?.text"
+                  >{{ testing === c.id ? "测试中…" : statusLabel(statuses[c.id]) }}</span
+                >
+                <div class="conn-acts">
                   <button
-                    class="md-act"
+                    class="btn btn-quiet btn-sm conn-test"
                     type="button"
-                    :aria-label="renaming === c.id ? '完成' : '改名'"
-                    :data-tip="renaming === c.id ? '完成' : '改名'"
-                    @click="
-                      renaming === c.id ? finishRename(c.id) : startRename(c.id)
-                    "
+                    :disabled="Boolean(testing)"
+                    aria-label="测试连接"
+                    @click="test(c.id)"
                   >
-                    <AppIcon
-                      :name="renaming === c.id ? 'i-check' : 'i-rename'"
-                    /></button
-                  ><button
-                    class="md-act"
-                    type="button"
-                    aria-label="删除连接"
-                    data-tip="删除连接"
-                    @click="remove(c.id)"
-                  >
-                    <AppIcon name="i-trash" />
+                    <AppIcon name="i-retry" /><span>测试</span>
                   </button>
-                </template>
-              </div>
-              <div class="conn-row">
-                <span class="k">协议</span>
-                <select
-                  v-if="!local"
-                  class="v sans"
-                  aria-label="接口协议"
-                  :value="c.profileId"
-                  @change="changeProtocol(c.id, $event.target as HTMLSelectElement)"
-                >
-                  <option v-for="p in connectionProfiles" :key="p.id" :value="p.id">{{ p.label }}</option>
-                </select>
-                <span v-else class="v sans">{{ profileFor(c.profileId).label }}</span>
-                <span></span>
-              </div>
-              <div class="conn-row">
-                <span class="k">状态</span
-                ><span class="v sans"
-                  ><span
-                    class="st"
-                    :data-s="
-                      testing === c.id ? 'wait' : statuses[c.id]?.s || 'wait'
-                    "
-                    >{{
-                      testing === c.id
-                        ? "测试中…"
-                        : statuses[c.id]?.text || "未检查"
-                    }}</span
-                  ></span
-                ><button
-                  class="md-act"
-                  type="button"
-                  :disabled="Boolean(testing)"
-                  aria-label="测试连接"
-                  data-tip="测试连接"
-                  @click="test(c.id)"
-                >
-                  <AppIcon name="i-retry" />
-                </button>
-              </div>
-              <div class="conn-row">
-                <span class="k">地址</span>
-                <div class="addr">
-                  <input
-                    v-if="editing === c.id"
-                    v-model="address"
-                    type="text"
-                    aria-label="地址"
-                    autocomplete="off"
-                    spellcheck="false"
-                    @keydown.enter.prevent="finishAddress(c.id)"
-                    @keydown.esc.stop.prevent="editing = null"
-                  /><span v-else class="v">{{
-                    local ? "本机同源代理" : c.baseUrl
-                  }}</span
-                  ><span v-if="local" class="v sans dim">由服务端配置</span
-                  ><span v-else-if="profileFor(c.profileId).protocol === 'novelai'" class="addr-warn">Key 仅发送到 image.novelai.net 与 api.novelai.net</span
-                  ><span v-else class="addr-warn"
-                    >Key 会发送到
-                    <b>{{
-                      host(editing === c.id ? address : c.baseUrl) || "地址无效"
-                    }}</b></span
-                  >
+                  <template v-if="!local">
+                    <button
+                      class="btn btn-quiet btn-sm conn-more"
+                      type="button"
+                      aria-label="更多操作"
+                      aria-haspopup="menu"
+                      :popovertarget="menuId(c.id)"
+                    >
+                      <AppIcon name="i-more" />
+                    </button>
+                    <div
+                      :id="menuId(c.id)"
+                      class="conn-menu"
+                      popover="auto"
+                      role="menu"
+                      :aria-label="`${c.name} 的操作`"
+                      @toggle="toggleMenu"
+                      @keydown="menuKeys"
+                      @click="closeMenu"
+                    >
+                      <button type="button" role="menuitem" @click="edit(c.id)">
+                        <AppIcon name="i-rename" /><span>编辑连接…</span></button
+                      ><button
+                        type="button"
+                        role="menuitem"
+                        @click="ui.requestKey(c.credentialRef)"
+                      >
+                        <AppIcon name="i-lock" /><span>{{
+                          unlocked ? "更换 Key…" : "配置或解锁 Key…"
+                        }}</span
+                        ><small v-if="keyTail(c.credentialRef)">{{
+                          keyTail(c.credentialRef)
+                        }}</small>
+                      </button>
+                      <hr role="separator" />
+                      <button
+                        type="button"
+                        role="menuitem"
+                        class="danger"
+                        @click="remove(c.id)"
+                      >
+                        <AppIcon name="i-trash" /><span>删除连接</span>
+                      </button>
+                    </div>
+                  </template>
                 </div>
-                <button
-                  v-if="!local && profileFor(c.profileId).protocol !== 'novelai'"
-                  class="md-act"
-                  type="button"
-                  :aria-label="editing === c.id ? '完成' : '修改地址'"
-                  @click="
-                    editing === c.id
-                      ? finishAddress(c.id)
-                      : ((editing = c.id), (address = c.baseUrl))
-                  "
-                >
-                  <AppIcon :name="editing === c.id ? 'i-check' : 'i-rename'" />
-                </button>
-              </div>
-              <div class="conn-row">
-                <span class="k">Key</span
-                ><span class="v"
-                  >{{ local ? "由本地服务提供" : mask(c.credentialRef)
-                  }}<span
-                    v-if="!local && mode === 'session' && unlocked"
-                    class="v sans dim"
+              </header>
+              <div v-if="meters(c).length" class="conn-meters">
+                <div v-for="m in meters(c)" :key="m.key" class="conn-meter">
+                  <span
+                    ><ModelIcon v-if="m.family" :family="m.family" /><AppIcon
+                      v-else
+                      name="i-credit"
+                    />{{ m.label }}</span
                   >
-                    · 不保存</span
-                  ></span
-                ><button
-                  v-if="!local"
-                  class="md-act"
-                  type="button"
-                  :aria-label="unlocked ? '更换 Key' : '配置或解锁 Key'"
-                  @click="ui.requestKey(c.credentialRef)"
-                >
-                  <AppIcon name="i-rename" />
-                </button>
-              </div>
-              <div class="conn-row">
-                <span class="k">余额</span>
-                <span v-if="profileFor(c.profileId).protocol === 'novelai'" class="v sans">{{ amount(object(balances[c.id]?.credits).remaining) }} Anlas</span>
-                <span v-else-if="profileFor(c.profileId).quotaPolicy.supported === false" class="v sans dim">接口不提供余额查询</span>
-                <div v-else-if="balances[c.id]" class="bal">
-                  <span class="qt"
-                    ><AppIcon name="i-credit" />媒体积分<b>{{
-                      amount(object(balances[c.id].credits).remaining)
-                    }}</b></span
-                  ><template
-                    v-for="[group, family, label] in pools"
-                    :key="group"
-                    ><span
-                      v-if="object(balances[c.id].images)[group]"
-                      class="qt"
-                      ><ModelIcon :family="family" />{{ label
-                      }}<b>{{
-                        amount(
-                          object(object(balances[c.id].images)[group])
-                            .remaining,
-                        )
-                      }}</b
-                      ><i
-                        v-if="
-                          object(object(balances[c.id].images)[group]).limit
-                        "
-                        >/{{
-                          object(object(balances[c.id].images)[group]).limit
-                        }}</i
-                      ></span
-                    ></template
+                  <b
+                    >{{ m.value }}<i v-if="m.limit">/{{ m.limit }}</i></b
                   >
+                  <span
+                    v-if="m.ratio !== undefined"
+                    class="conn-bar"
+                    :style="{ '--p': `${m.ratio * 100}%` }"
+                  ></span>
                 </div>
-                <span v-else class="v sans dim">—</span><span></span>
               </div>
-              <div class="conn-row">
-                <span class="k">模型</span
-                ><span class="v sans">{{
+              <button
+                class="conn-models"
+                type="button"
+                :disabled="!raw[c.id]"
+                @click="listConnection = c.id"
+              >
+                <span>模型</span
+                ><span>{{
                   raw[c.id]
-                    ? `共 ${catalogEntries(raw[c.id]).length} 个 · 已用 ${used(c.id)} 个`
+                    ? `${catalogEntries(raw[c.id]).length} 个 · 已用 ${used(c.id)} 个`
                     : "—"
                 }}</span
-                ><button
-                  class="md-act"
-                  type="button"
-                  aria-label="模型列表"
-                  :disabled="!raw[c.id]"
-                  @click="listConnection = c.id"
-                >
-                  <AppIcon name="i-chevron" />
-                </button>
-              </div>
-            </div>
-            <button
-              v-if="!local && Object.keys(routing.connections).length"
-              class="btn btn-quiet btn-sm"
-              type="button"
-              @click="add"
-            >
-              添加连接
-            </button>
+                ><AppIcon name="i-chevron" />
+              </button>
+            </article>
           </section>
           <ModelsSection
             v-show="router.route.value.section === 'models'"
@@ -898,12 +834,14 @@ async function reveal(id: string) {
     class="modal set-ui"
     aria-labelledby="connectionTitle"
   >
-    <form class="modal-form" @submit.prevent="saveNew">
-      <header class="modal-head"><h2 id="connectionTitle">添加连接</h2></header>
+    <form class="modal-form" @submit.prevent="saveForm">
+      <header class="modal-head">
+        <h2 id="connectionTitle">{{ formTarget ? "编辑连接" : "添加连接" }}</h2>
+      </header>
       <div class="modal-body">
         <div class="fld">
           <label for="connectionProtocol">接口协议</label>
-          <select id="connectionProtocol" v-model="addingProfile" @change="selectProtocol">
+          <select id="connectionProtocol" v-model="formProfile" @change="selectProtocol">
             <option v-for="p in connectionProfiles" :key="p.id" :value="p.id">{{ p.label }}</option>
           </select>
         </div>
@@ -911,7 +849,7 @@ async function reveal(id: string) {
           <label for="connectionName">名称</label
           ><input
             id="connectionName"
-            v-model="addingName"
+            v-model="formName"
             type="text"
             maxlength="128"
           />
@@ -920,15 +858,15 @@ async function reveal(id: string) {
           <label for="connectionUrl">连接 URL</label
           ><input
             id="connectionUrl"
-            v-model="addingUrl"
-            :readonly="profileFor(addingProfile).protocol === 'novelai'"
+            v-model="formUrl"
+            :readonly="profileFor(formProfile).protocol === 'novelai'"
             type="text"
             placeholder="https://"
             autocomplete="off"
             spellcheck="false"
-          /><span v-if="profileFor(addingProfile).protocol === 'novelai'" class="addr-warn">基础生图与图生图；Key 发送到 image.novelai.net 与 api.novelai.net，生成尚未实测。</span
-          ><span v-else class="addr-warn"
-            >Key 会发送到 <b>{{ host(addingUrl) || "填写的连接地址" }}</b></span
+          /><span v-if="profileFor(formProfile).protocol === 'novelai'" class="hint">基础生图与图生图；Key 发送到 image.novelai.net 与 api.novelai.net，生成尚未实测。</span
+          ><span v-else class="hint"
+            >Key 会发送到 {{ host(formUrl) || "填写的连接地址" }}</span
           >
         </div>
       </div>
@@ -937,7 +875,9 @@ async function reveal(id: string) {
         <div class="modal-actions">
           <button class="btn btn-quiet" type="button" @click="form?.close()">
             取消</button
-          ><button class="btn btn-primary" type="submit">添加</button>
+          ><button class="btn btn-primary" type="submit">
+            {{ formTarget ? "保存" : "添加" }}
+          </button>
         </div>
       </footer>
     </form>

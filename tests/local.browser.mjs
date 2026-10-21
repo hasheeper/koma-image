@@ -204,14 +204,14 @@ test("M7 production local settings: readonly credentials, isolated model prefere
     p = t.page;
   try {
     await p.waitForFunction(
-      () => document.querySelector(".conn-row .st")?.dataset.s === "ok",
+      () => document.querySelector(".conn-card .st")?.dataset.s === "ok",
     );
     assert.equal(
       await p.getByRole("button", { name: "添加连接", exact: true }).count(),
       0,
     );
     assert.equal(
-      await p.getByRole("button", { name: "修改地址", exact: true }).count(),
+      await p.getByRole("button", { name: "更多操作", exact: true }).count(),
       0,
     );
     assert.equal(
@@ -223,7 +223,7 @@ test("M7 production local settings: readonly credentials, isolated model prefere
     assert.equal(await p.getByText("本机同源代理", { exact: true }).count(), 1);
     await p.getByRole("button", { name: "测试连接", exact: true }).click();
     await p.waitForFunction(
-      () => document.querySelector(".conn-row .st")?.dataset.s === "ok",
+      () => document.querySelector(".conn-card .st")?.dataset.s === "ok",
     );
     for (const width of [320, 390, 768, 1440]) {
       await p.setViewportSize({ width, height: 900 });

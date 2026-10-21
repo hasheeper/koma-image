@@ -108,6 +108,11 @@ async function settings(page, section = "connections") {
   await route(page, `#/image/settings/${section}`);
   await page.waitForSelector("#settingsPanel[open]");
 }
+// Card actions other than testing live in the card's ⋯ menu.
+async function connectionAction(page, name, card = page.locator("#settingsPanel .conn-card").first()) {
+  await card.getByRole("button", { name: "更多操作", exact: true }).click();
+  await page.locator(".conn-menu:popover-open").getByRole("menuitem", { name, exact: true }).click();
+}
 async function addConnection(page, encrypted = false) {
   await settings(page);
   await page.getByRole("button", { name: "添加连接", exact: true }).click();
@@ -127,7 +132,7 @@ async function addConnection(page, encrypted = false) {
     .click();
   await page.waitForSelector("#gate[open]", { state: "hidden" });
   await page.waitForFunction(
-    () => document.querySelector(".conn-row .st")?.dataset.s === "ok",
+    () => document.querySelector(".conn-card .st")?.dataset.s === "ok",
   );
 }
 
@@ -189,12 +194,12 @@ test("startup: restored Key automatically connects, progress is replaced by the 
     assert.equal(t.requests.length, 2, "one automatic catalog request per document");
     // A rename changes the config revision but must not announce a new connection.
     await settings(page);
-    await page.getByRole("button", { name: "改名", exact: true }).click();
-    await page.getByRole("textbox", { name: "连接名称" }).fill("新名称");
+    await connectionAction(page, "编辑连接…");
+    await page.locator("#connectionName").fill("新名称");
     await page.keyboard.press("Enter");
     await page.waitForFunction(() =>
       document.querySelector(".conn-name b")?.textContent === "新名称" &&
-      document.querySelector(".conn-row .st")?.dataset.s === "ok",
+      document.querySelector(".conn-card .st")?.dataset.s === "ok",
     );
     assert.equal(await page.locator('.toast[data-tone="load"]').count(), 0);
     assert.equal(await page.locator('.toast:has-text("已连接 新名称")').count(), 0);
@@ -219,7 +224,7 @@ test("startup: incompatible connection reports failure; manual test shows progre
     assert.equal(await page.locator('.toast[data-tone="load"]').count(), 0);
     await failure.getByRole("button", { name: "设置", exact: true }).click();
     await page.waitForSelector("#settingsPanel[open]");
-    await page.waitForFunction(() => document.querySelector(".conn-row .st")?.dataset.s === "err");
+    await page.waitForFunction(() => document.querySelector(".conn-card .st")?.dataset.s === "err");
     options.catalogResponse = async (route) => {
       await new Promise((resolve) => { release = resolve; });
       return route.fulfill({ json: catalog });
@@ -341,7 +346,7 @@ test("settings: empty network default, connection/key input, model source contro
       ),
       false,
     );
-    await page.getByRole("button", { name: "模型列表", exact: true }).click();
+    await page.locator("#settingsPanel .conn-models").click();
     await page.waitForSelector("#modelListDialog[open]");
     await page.getByRole("searchbox", { name: "搜索模型" }).fill("custom");
     assert.equal(await page.locator("#modelListDialog .md-row").count(), 1);
@@ -456,17 +461,13 @@ test("settings: generating without a connection offers settings; connections ren
       await vaultIds(page),
       [first.credentialRef, second.credentialRef].sort(),
     );
-    const groups = page.locator("#settingsPanel .sp-group:has(.conn-head)");
+    const groups = page.locator("#settingsPanel .conn-card");
     assert.equal(await groups.count(), 2);
 
-    await groups
-      .first()
-      .getByRole("button", { name: "改名", exact: true })
-      .click();
-    await groups
-      .first()
-      .getByRole("textbox", { name: "连接名称" })
-      .fill("主连接");
+    await connectionAction(page, "编辑连接…", groups.first());
+    assert.equal(await page.locator("#connectionTitle").textContent(), "编辑连接");
+    assert.equal(await page.locator("#connectionUrl").inputValue(), "https://gateway.example.test");
+    await page.locator("#connectionName").fill("主连接");
     await page.keyboard.press("Enter");
     await page.waitForFunction(
       () =>
@@ -474,25 +475,19 @@ test("settings: generating without a connection offers settings; connections ren
           JSON.parse(localStorage.getItem("koma.routing.v1")).connections,
         )[0].name === "主连接",
     );
-    await groups
-      .first()
-      .getByRole("button", { name: "改名", exact: true })
-      .click();
-    await groups
-      .first()
-      .getByRole("textbox", { name: "连接名称" })
-      .fill("不保存的名称");
+    await page.waitForSelector(".modal[open] #connectionName", { state: "hidden" });
+    // Escape cancels the form only; the settings page stays open and nothing is saved.
+    await connectionAction(page, "编辑连接…", groups.first());
+    await page.locator("#connectionName").fill("不保存的名称");
     await page.keyboard.press("Escape");
+    await page.waitForSelector(".modal[open] #connectionName", { state: "hidden" });
     assert.equal(
       await groups.first().locator(".conn-name b").textContent(),
       "主连接",
     );
     assert.equal(await page.locator("#settingsPanel[open]").count(), 1);
 
-    await groups
-      .nth(1)
-      .getByRole("button", { name: "删除连接", exact: true })
-      .click();
+    await connectionAction(page, "删除连接", groups.nth(1));
     await page.waitForSelector("#confirmSheet[open]");
     await page
       .locator("#confirmSheet")
@@ -516,10 +511,7 @@ test("settings: generating without a connection offers settings; connections ren
     await page.getByRole("button", { name: "立即锁定", exact: true }).click();
     await page.waitForFunction(() => !document.querySelector("#gate").open);
     await page.locator(".set-nav button").filter({ hasText: "连接" }).click();
-    await groups
-      .first()
-      .getByRole("button", { name: "删除连接", exact: true })
-      .click();
+    await connectionAction(page, "删除连接", groups.first());
     assert.equal(await page.locator("#confirmSheet[open]").count(), 0);
     await page
       .locator(".toast")
@@ -535,10 +527,7 @@ test("settings: generating without a connection offers settings; connections ren
       .getByRole("button", { name: "解锁", exact: true })
       .click();
     await page.waitForSelector("#gate[open]", { state: "hidden" });
-    await groups
-      .first()
-      .getByRole("button", { name: "删除连接", exact: true })
-      .click();
+    await connectionAction(page, "删除连接", groups.first());
     await page
       .locator("#confirmSheet")
       .getByRole("button", { name: "删除", exact: true })

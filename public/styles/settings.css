@@ -39,7 +39,7 @@
 .sp-sec-head h3 { margin: 15px 0 0; font-size: var(--fz-md); font-weight: var(--fw-semibold); letter-spacing: -0.01em; }
 .sp-sec-head p { margin-top: 15px; font-size: var(--fz-xs); line-height: 1.6; color: var(--fg-3); }
 .sp-note { font-size: var(--fz-xs); color: var(--fg-3); }
-.set-ui input[type="text"], .set-ui .conn-row input[type="password"] { height: 32px; padding: 5px 10px; font: var(--fz-xs)/1.4 var(--mono); }
+.set-ui input[type="text"] { height: 32px; padding: 5px 10px; font: var(--fz-xs)/1.4 var(--mono); }
 .set-ui .btn-xs { padding: 5px 10px; font-size: var(--fz-xs); }
 
 /* ── Logos ───────────────────────────────────────────────────── */
@@ -66,18 +66,18 @@
 .set-ui .md-count { flex: none; margin-right: auto; font: var(--fw-medium) var(--fz-xs)/1 var(--mono); color: var(--fg-4); }
 
 /* ── Groups: a title outside, rows in a box ─────────────────── */
-.set-ui :is(.md-ghead, .conn-head) { display: flex; align-items: center; gap: 10px; min-height: 30px; padding: 0 4px 10px 2px; }
+.set-ui .md-ghead { display: flex; align-items: center; gap: 10px; min-height: 30px; padding: 0 4px 10px 2px; }
 .set-ui .md-group[data-open="false"] .md-ghead { padding-bottom: 0; }
-.set-ui :is(.md-group, .sp-group) > :is(.md-row, .sm-model, .conn-row, .s-row, .sp-empty) {
+.set-ui :is(.md-group, .sp-group) > :is(.md-row, .sm-model, .s-row, .sp-empty) {
   background: color-mix(in srgb, var(--fg) 2.5%, transparent); border: solid var(--line); border-width: 1px 1px 0;
 }
-.set-ui :is(.md-group, .sp-group) > :is(.md-row, .sm-model, .conn-row, .s-row, .sp-empty):first-child,
-.set-ui :is(.md-group, .sp-group) > :is(.md-ghead, .conn-head) + * { border-radius: var(--r3) var(--r3) 0 0; }
+.set-ui :is(.md-group, .sp-group) > :is(.md-row, .sm-model, .s-row, .sp-empty):first-child,
+.set-ui :is(.md-group, .sp-group) > .md-ghead + * { border-radius: var(--r3) var(--r3) 0 0; }
 .set-ui :is(.md-group, .sp-group) > :last-child { border-bottom-width: 1px; border-radius: 0 0 var(--r3) var(--r3); }
-.set-ui :is(.md-group, .sp-group) > :is(.md-ghead, .conn-head) + :last-child,
+.set-ui :is(.md-group, .sp-group) > .md-ghead + :last-child,
 .set-ui :is(.md-group, .sp-group) > :only-child { border-radius: var(--r3); }
 .set-ui .md-gtitle { display: flex; align-items: baseline; gap: 8px; min-width: 0; }
-.set-ui .md-gtitle b, .set-ui .conn-name b { font-size: var(--fz-sm); font-weight: var(--fw-medium); color: var(--fg-2); white-space: nowrap; }
+.set-ui .md-gtitle b { font-size: var(--fz-sm); font-weight: var(--fw-medium); color: var(--fg-2); white-space: nowrap; }
 .set-ui .md-chev { display: grid; place-items: center; width: 26px; height: 26px; flex: none; color: var(--fg-4); border-radius: 6px; }
 .set-ui .md-chev:hover { color: var(--fg); background: var(--hover); }
 .set-ui .md-chev .ico { --ico: 14px; stroke-width: 2; transition: transform var(--t2) var(--e); }
@@ -153,27 +153,68 @@
 .set-ui .pl-as { flex: none; font-size: var(--fz-2xs); color: var(--fg-4); white-space: nowrap; }
 
 /* ── Connection cards ────────────────────────────────────────── */
-/* Header actions line up with the row actions below; a long name truncates instead of pushing them out. */
-.set-ui .conn-head { padding-left: 10px; padding-right: 9px; }
-.set-ui .conn-name { display: grid; grid-template-columns: minmax(0, 1fr); gap: 3px; flex: 1; min-width: 0; }
-.set-ui .conn-name b { overflow: hidden; text-overflow: ellipsis; }
-.set-ui .conn-name input { width: 220px; max-width: 100%; height: 28px; font-family: var(--sans); }
-.set-ui .conn-row { display: grid; grid-template-columns: 52px minmax(0, 1fr) auto; align-items: center; gap: 12px; min-height: 52px; padding: 6px 8px 6px 14px; }
-.set-ui .conn-row > .k { font-size: var(--fz-xs); color: var(--fg-3); }
-.set-ui .conn-row .v { font: var(--fz-xs)/1.5 var(--mono); color: var(--fg-2); overflow-wrap: anywhere; }
-.set-ui .conn-row .v.sans { font-family: var(--sans); }
-.set-ui .conn-row .v.sans b { font: 12px var(--mono); color: var(--fg); }
-.set-ui .conn-row .dim { color: var(--fg-4); }
-.set-ui .row-acts { display: flex; align-items: center; gap: 6px; }
-.set-ui .addr { display: grid; gap: 6px; min-width: 0; }
-.set-ui .addr-warn { font-size: var(--fz-2xs); color: var(--warn); }
-.set-ui .addr-warn b { font-weight: var(--fw-semibold); }
-.set-ui .bal { display: flex; flex-wrap: wrap; gap: 6px 0; }
-.set-ui .qt { display: inline-flex; align-items: center; gap: 5px; padding-right: 14px; font-size: var(--fz-2xs); color: var(--fg-3); white-space: nowrap; }
-.set-ui .qt .vl { font-size: 12px; }
-.set-ui .qt .ico { --ico: 12px; color: var(--fg-3); }
-.set-ui .qt b { margin-left: 1px; font: 11.5px/1 var(--mono); color: var(--fg); }
-.set-ui .qt i { margin-left: -4px; font: 11px/1 var(--mono); font-style: normal; color: var(--fg-4); }
+/* Three layers: who it is (name, status, one summary line), what is left, and its models.
+   Editing lives in the ⋯ menu and the connection form, so the card holds no fields. */
+.set-ui .conn-sec-head { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 0 12px; }
+.set-ui .conn-sec-head .btn { margin: 9px 0 -6px; }
+.set-ui .conn-sec-head p { flex-basis: 100%; }
+.set-ui :is(.conn-card, .conn-empty) { background: color-mix(in srgb, var(--fg) 2.5%, transparent); border: 1px solid var(--line); border-radius: 12px; }
+/* The head reads in two lines — bold name with its protocol tag, then the address — with status and actions on the right. */
+.set-ui .conn-top {
+  display: grid; grid-template-columns: auto minmax(0, 1fr) auto auto;
+  grid-template-areas: "av name st acts" "av meta st acts";
+  align-items: center; gap: 4px 14px; padding: 16px 14px 16px 16px;
+}
+.set-ui .conn-top > .vtile.connection-avatar { grid-area: av; width: 36px; height: 36px; border-radius: 10px; }
+.set-ui .conn-name { grid-area: name; align-self: end; display: flex; align-items: center; gap: 10px; min-width: 0; }
+.set-ui .conn-name b { min-width: 0; font-size: var(--fz-md); font-weight: var(--fw-semibold); letter-spacing: -0.01em; color: var(--fg); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.set-ui .conn-meta { grid-area: meta; align-self: start; min-width: 0; font-size: var(--fz-xs); line-height: 1.4; color: var(--fg-3); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.set-ui .conn-top > .st { grid-area: st; max-width: 220px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.set-ui .conn-top > .st[data-s="err"] { color: var(--err); }
+.set-ui .conn-acts { grid-area: acts; display: flex; gap: 6px; }
+.set-ui .conn-acts .btn { height: 30px; padding-block: 0; }
+.set-ui .conn-acts .conn-more { width: 30px; padding: 0; justify-content: center; --ico: 15px; }
+.set-ui .conn-meters { display: grid; grid-template-columns: repeat(auto-fill, minmax(112px, 1fr)); gap: 16px 20px; padding: 14px 16px 16px; border-top: 1px solid var(--line); }
+.set-ui .conn-meter { display: grid; align-content: start; gap: 7px; min-width: 0; }
+.set-ui .conn-meter > span:first-child { display: flex; align-items: center; gap: 6px; font-size: var(--fz-2xs); color: var(--fg-3); white-space: nowrap; }
+.set-ui .conn-meter .vl { font-size: 12px; }
+.set-ui .conn-meter .vl:not(.vl-novelai) { color: var(--fg-3); }
+.set-ui .conn-meter .ico { --ico: 12px; color: var(--fg-3); }
+.set-ui .conn-meter b { font: 14px/1 var(--mono); color: var(--fg); white-space: nowrap; }
+.set-ui .conn-meter b i { margin-left: 2px; font-size: 11px; font-style: normal; color: var(--fg-4); }
+.set-ui .conn-bar { height: 2px; overflow: hidden; border-radius: 2px; background: var(--line-2); }
+.set-ui .conn-bar::before { content: ""; display: block; width: var(--p); height: 100%; background: color-mix(in srgb, var(--fg) 32%, transparent); }
+.set-ui .conn-models {
+  display: flex; align-items: center; gap: 10px; width: 100%; min-height: 46px; padding: 0 12px 0 16px;
+  font-size: var(--fz-sm); color: var(--fg-2); text-align: left; border-top: 1px solid var(--line); border-radius: 0 0 11px 11px;
+}
+.set-ui .conn-models:not(:disabled):hover { background: color-mix(in srgb, var(--fg) 2.5%, transparent); }
+.set-ui .conn-models:disabled { cursor: default; }
+.set-ui .conn-models span:last-of-type { margin-left: auto; font-size: var(--fz-xs); color: var(--fg-3); }
+.set-ui .conn-models .ico { --ico: 14px; color: var(--fg-4); }
+.set-ui .conn-top:has(.conn-menu:popover-open) .conn-more { color: var(--fg); background: var(--hover); border-color: var(--line-2); }
+/* The card's ⋯ menu: a popover in the top layer, placed beside its button once it opens. */
+.set-ui .conn-menu {
+  inset: auto; margin: 0; padding: 4px; min-width: 176px;
+  color: var(--fg);
+  background: color-mix(in srgb, var(--raised) 97%, transparent);
+  border: 1px solid var(--line-2); border-radius: var(--r3);
+  box-shadow: var(--sh-3), var(--sh-lip);
+  backdrop-filter: blur(16px);
+}
+.set-ui .conn-menu:popover-open { display: grid; gap: 1px; }
+.set-ui .conn-menu:not([data-placed]) { visibility: hidden; }
+.set-ui .conn-menu button {
+  display: flex; align-items: center; gap: 10px; min-height: 32px; padding: 0 10px;
+  font-size: var(--fz-sm); color: var(--fg-2); text-align: left; border-radius: var(--r1);
+}
+.set-ui .conn-menu button .ico { --ico: 16px; color: var(--fg-3); }
+.set-ui .conn-menu button:is(:hover, :focus-visible) { color: var(--fg); background: var(--hover); outline: none; }
+.set-ui .conn-menu button:is(:hover, :focus-visible) .ico { color: currentColor; }
+.set-ui .conn-menu button small { margin-left: auto; padding-left: 16px; font: 11px var(--mono); color: var(--fg-4); }
+.set-ui .conn-menu hr { height: 1px; margin: 3px 6px; border: 0; background: var(--line-2); }
+.set-ui .conn-menu .danger, .set-ui .conn-menu .danger .ico { color: var(--err); }
+.set-ui .conn-menu .danger:is(:hover, :focus-visible) { color: var(--err); background: var(--err-dim); }
 
 /* ── Rows with one action ───────────────────────────────────── */
 .set-ui .s-row { display: flex; align-items: center; gap: 14px; padding: 12px 12px 12px 14px; }
@@ -216,7 +257,16 @@
   .set-nav button { flex: none; height: 32px; padding: 0 10px; font-size: var(--fz-xs); }
   .set-nav small, .set-nav .ico { display: none; }
   .set-col { padding: 18px 14px 40px; }
-  .set-ui .conn-row { grid-template-columns: 40px minmax(0, 1fr) auto; gap: 10px; }
+  /* The status drops under the address; testing keeps only its icon. */
+  .set-ui .conn-top { grid-template-columns: auto minmax(0, 1fr) auto; grid-template-areas: "av name acts" "av meta acts" "av st acts"; gap: 3px 12px; padding: 14px 10px 14px 12px; }
+  .set-ui .conn-top > .vtile.connection-avatar { align-self: start; width: 32px; height: 32px; margin-top: 1px; }
+  .set-ui .conn-top > .st { justify-self: start; max-width: 100%; margin-top: 3px; white-space: normal; }
+  .set-ui .conn-acts { align-self: start; }
+  .set-ui .conn-acts .conn-test { width: 30px; padding: 0; justify-content: center; }
+  .set-ui .conn-acts .conn-test span { display: none; }
+  .set-ui .conn-name { flex-wrap: wrap; row-gap: 4px; }
+  .set-ui .conn-meters { grid-template-columns: repeat(auto-fill, minmax(86px, 1fr)); gap: 14px 12px; padding: 12px 12px 14px; }
+  .set-ui .conn-models { min-height: 44px; padding-left: 12px; }
   .set-ui .s-row { flex-wrap: wrap; }
   .set-ui .sm-lines { padding-left: 12px; }
   .set-ui .md-id { flex-direction: column; gap: 2px; }

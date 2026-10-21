@@ -162,20 +162,27 @@ test("native connection settings: explicit protocol, saved selection, key input,
     await page.locator("#setupKey").fill("synthetic-native-only");
     await page.locator("#gate label").filter({ hasText: "不保存" }).click();
     await page.locator("#gate").getByRole("button", { name: "保存", exact: true }).click();
-    await page.waitForFunction(() => document.querySelector(".conn-row .st")?.dataset.s === "ok");
-    assert.equal(await page.getByRole("combobox", { name: "接口协议", exact: true }).inputValue(), "gemini-native-v1");
+    await page.waitForFunction(() => document.querySelector(".conn-card .st")?.dataset.s === "ok");
+    assert.match(await page.locator(".conn-card .conn-name .type").textContent(), /Gemini 原生/);
     assert.ok(t.requests.every(r => r.method === "GET"));
-    await page.getByRole("combobox", { name: "接口协议", exact: true }).selectOption("nai-official-v1");
-    assert.equal(await page.getByRole("combobox", { name: "接口协议", exact: true }).inputValue(), "gemini-native-v1");
-    assert.ok(t.requests.every(r => !r.path.includes("/user/subscription")));
     for (const width of [320, 390, 768, 1440]) {
       await page.setViewportSize({ width, height: 900 });
       assert.ok(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth + 1));
-      assert.ok(await page.getByRole("combobox", { name: "接口协议", exact: true }).isVisible());
+      assert.ok(await page.locator(".conn-card .conn-meta").isVisible());
       await page.screenshot({ path: `.local/native-protocols/settings-${width}.png` });
     }
-    await page.getByRole("combobox", { name: "接口协议", exact: true }).selectOption("openai-images-v1");
-    await page.waitForFunction(() => services.connections.configuration.connections[Object.keys(services.connections.configuration.connections)[0]].profileId === "openai-images-v1" && document.querySelector(".conn-row .st")?.dataset.s === "ok");
+    // The protocol is changed in the connection form; NovelAI official still needs its own connection.
+    await page.getByRole("button", { name: "更多操作", exact: true }).click();
+    await page.getByRole("menuitem", { name: "编辑连接…", exact: true }).click();
+    const form = page.locator("dialog[open]:has(#connectionTitle)"), protocol = form.getByRole("combobox", { name: "接口协议", exact: true });
+    assert.equal(await protocol.inputValue(), "gemini-native-v1");
+    await protocol.selectOption("nai-official-v1");
+    assert.equal(await protocol.inputValue(), "gemini-native-v1");
+    assert.match(await form.locator(".modal-error").textContent(), /单独添加 NovelAI 官方连接/);
+    assert.ok(t.requests.every(r => !r.path.includes("/user/subscription")));
+    await protocol.selectOption("openai-images-v1");
+    await form.getByRole("button", { name: "保存", exact: true }).click();
+    await page.waitForFunction(() => services.connections.configuration.connections[Object.keys(services.connections.configuration.connections)[0]].profileId === "openai-images-v1" && document.querySelector(".conn-card .st")?.dataset.s === "ok");
     assert.ok(t.requests.some(r => r.path === "/google/v1/models"));
     assert.ok(t.requests.every(r => r.method === "GET"));
     assert.deepEqual(t.errors, []);

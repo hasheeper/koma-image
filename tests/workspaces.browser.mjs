@@ -359,6 +359,13 @@ test("M5 chat UI: ordered response, exact context, consumption, version/branch s
       "1/2",
     );
     await p.evaluate(() => chat.setModel("gemini-3.1-flash-lite-image"));
+    // The composer's context chip says how many pictures fall past the cap.
+    assert.equal(
+      await p
+        .locator(".context-button")
+        .evaluate((button) => getComputedStyle(button, "::after").content),
+      '"−1"',
+    );
     await p.getByRole("button", { name: "上下文", exact: true }).click();
     assert.equal(
       await p.locator(".context-tile[data-dropped=true]").count(),

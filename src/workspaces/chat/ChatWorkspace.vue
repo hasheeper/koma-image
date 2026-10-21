@@ -609,7 +609,6 @@ onDeactivated(() => {
               <AppIcon name="i-layers" /><span>{{
                 view.context.turnIds.length
               }}</span
-              ><span class="context-divider"></span
               ><AppIcon name="i-image" /><span>{{
                 view.context.imageIds.length
               }}</span>
@@ -626,46 +625,44 @@ onDeactivated(() => {
                 class="param-summary"
                 >{{ summary }}</span
               ></button
-            ><button
-              class="model-chip"
-              type="button"
-              :aria-label="`模型：${view.model?.name || '未配置连接'}`"
-              @click="openPop(modelPop, $event)"
-            >
-              <ModelIcon
-                class="model-chip-icon"
-                :family="view.model?.provider"
-              /><span class="model-chip-name">{{
-                view.model?.name || "未配置连接"
-              }}</span
-              ><AppIcon class="model-chip-caret" name="i-chevron" /></button
-            ><span
-              v-if="view.quote && view.quote.cost > 0 && !view.busy"
-              class="quote-cost mono"
-              >{{ quoteLabel(view.quote) }}</span
-            ><span class="send-slot"
+            ><span class="composer-end"
+              ><span
+                v-if="view.quote && view.quote.cost > 0 && !view.busy"
+                class="quote-cost"
+                >{{ quoteLabel(view.quote) }}</span
               ><button
-                class="btn btn-primary btn-go chat-send"
-                type="submit"
-                aria-label="发送绘图请求"
-                :hidden="!!view.busy"
-                :disabled="
-                  !view.ready ||
-                  !!view.busy ||
-                  !!view.uploading ||
-                  !c.prompt.trim()
-                "
-                :title="`发送（Enter）${view.quote ? ' · ' + quoteLabel(view.quote) : ''}`"
-              >
-                <AppIcon name="i-send" /></button
-              ><button
-                class="btn chat-stop"
+                class="model-chip"
                 type="button"
-                aria-label="停止生成"
-                :hidden="!view.busy"
-                @click="stop"
+                :aria-label="`模型：${view.model?.name || '未配置连接'}`"
+                @click="openPop(modelPop, $event)"
               >
-                <AppIcon name="i-stop" /></button
+                <span class="model-chip-name">{{
+                  view.model?.name || "未配置连接"
+                }}</span
+                ><AppIcon class="model-chip-caret" name="i-chevron" /></button
+              ><span class="send-slot"
+                ><button
+                  class="btn btn-primary chat-send"
+                  type="submit"
+                  aria-label="发送绘图请求"
+                  :hidden="!!view.busy"
+                  :disabled="
+                    !view.ready ||
+                    !!view.busy ||
+                    !!view.uploading ||
+                    !c.prompt.trim()
+                  "
+                  :title="`发送（Enter）${view.quote ? ' · ' + quoteLabel(view.quote) : ''}`"
+                >
+                  <AppIcon name="i-send" /></button
+                ><button
+                  class="btn chat-stop"
+                  type="button"
+                  aria-label="停止生成"
+                  :hidden="!view.busy"
+                  @click="stop"
+                >
+                  <AppIcon name="i-stop" /></button></span
             ></span>
           </div>
           <span class="sr-only" role="status">{{
