@@ -1179,3 +1179,61 @@ test('ASK floating assistant: icon, normal and expanded windows fit four widths 
     assert.deepEqual(errors, []);
   } finally { await context.close(); }
 });
+
+test('ASK launcher: workspace anchors follow the image rail, remember each manual position and reset to the current anchor', async () => {
+  const { page, context, requests, errors } = await open('/#/image', { ready: '.switcher', ask: askSettings() });
+  try {
+    await bind(page);
+    await addImage(page, 'synthetic launcher placement');
+    const launcher = page.locator('#askLauncher');
+    const anchored = () => page.waitForFunction(() => {
+      const icon = document.querySelector('#askLauncher'), r = icon.getBoundingClientRect();
+      const bar = document.querySelector('.topbar').getBoundingClientRect();
+      const right = icon.dataset.workspace === 'image' && innerWidth > 860
+        ? document.querySelector('#gallery').getBoundingClientRect().left - 8
+        : innerWidth - (innerWidth <= 480 ? 12 : 20);
+      return Math.abs(r.right - right) < 1 && Math.abs(r.top - bar.height - 12) < 1;
+    });
+    for (const width of [1440, 768, 390, 320]) {
+      await page.setViewportSize({ width, height: 900 });
+      for (const workspace of ['image', 'chat', 'tags']) {
+        await route(page, `#/${workspace}`);
+        await page.locator(`[data-workspace-root="${workspace}"]`).waitFor();
+        await anchored();
+        await page.screenshot({ path: `.local/ask/window/anchor-${workspace}-${width}.png` });
+      }
+    }
+    await page.setViewportSize({ width: 1440, height: 900 });
+    await route(page, '#/image');
+    await page.locator('#histToggle').click();
+    await page.waitForFunction(() => document.querySelector('#gallery').offsetWidth === 52);
+    await anchored();
+    const folded = await launcher.boundingBox();
+    await page.locator('#histToggle').click();
+    await page.waitForFunction(() => document.querySelector('#gallery').offsetWidth === 132);
+    await anchored();
+    const expanded = await launcher.boundingBox();
+    assert.ok(folded.x > expanded.x, 'the default icon stays beside the history rail');
+    await launcher.focus();
+    await launcher.press('Alt+ArrowLeft');
+    await launcher.press('Alt+ArrowDown');
+    const manual = await launcher.boundingBox();
+    assert.equal(Math.round(expanded.x - manual.x), 16);
+    assert.equal(Math.round(manual.y - expanded.y), 16);
+    for (const workspace of ['chat', 'tags']) {
+      await route(page, `#/${workspace}`);
+      await page.locator(`[data-workspace-root="${workspace}"]`).waitFor();
+      await anchored();
+    }
+    await route(page, '#/image');
+    await page.waitForFunction(({ x, y }) => {
+      const r = document.querySelector('#askLauncher').getBoundingClientRect();
+      return Math.abs(r.x - x) < 1 && Math.abs(r.y - y) < 1;
+    }, manual);
+    await launcher.focus();
+    await launcher.press('Alt+Home');
+    await anchored();
+    assert.deepEqual(generation(requests), []);
+    assert.deepEqual(errors, []);
+  } finally { await context.close(); }
+});

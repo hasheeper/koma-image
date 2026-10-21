@@ -10,7 +10,7 @@ import AskComposer from "./AskComposer.vue";
 import DraftCard from "./DraftCard.vue";
 
 const ask = useAsk();
-const { router } = useShell();
+const { router, image } = useShell();
 const root = shallowRef<HTMLElement | null>(null),
   handle = shallowRef<HTMLElement | null>(null),
   launcher = shallowRef<HTMLButtonElement | null>(null),
@@ -33,7 +33,7 @@ onMounted(() => {
   if (root.value && handle.value && launcher.value)
     place = installAskWindow(root.value, handle.value, launcher.value, controller.signal);
 });
-watch([ask.visible, ask.inline, expanded], () => void nextTick(place), { flush: "post" });
+watch([ask.visible, ask.inline, expanded, () => router.route.value.workspace, () => image.historyOpen], () => void nextTick(place), { flush: "post" });
 const spent = computed(() => {
   const u = ask.usage.value,
     total = u.input + u.output;
@@ -74,6 +74,7 @@ onBeforeUnmount(() => { controller.abort(); ask.attach(null); });
     id="askLauncher"
     ref="launcher"
     class="ask-launcher"
+    :data-workspace="router.route.value.workspace"
     :class="{ 'is-thinking': ask.running.value }"
     type="button"
     aria-label="打开 Koma ASK"
@@ -127,7 +128,10 @@ onBeforeUnmount(() => { controller.abort(); ask.attach(null); });
   </Transition>
 </template>
 <style scoped>
-.ask-launcher { position: fixed; top: var(--ask-top, auto); left: var(--ask-left, auto); right: 20px; bottom: calc(96px + env(safe-area-inset-bottom)); z-index: var(--z-drawer); display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 3px; width: 52px; height: 56px; color: var(--a); background: var(--chrome); border: 1px solid var(--a-line); border-radius: 19px; box-shadow: var(--sh-2), 0 0 0 4px var(--a-dim); touch-action: none; user-select: none; cursor: grab; transition-property: background-color; }
+.ask-launcher { position: fixed; top: var(--ask-top, calc(var(--bar-h) + 12px)); left: var(--ask-left, auto); right: 20px; z-index: var(--z-drawer); display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 3px; width: 52px; height: 56px; color: var(--a); background: var(--chrome); border: 1px solid var(--a-line); border-radius: 19px; box-shadow: var(--sh-2), 0 0 0 4px var(--a-dim); touch-action: none; user-select: none; cursor: grab; transition-property: background-color; }
+@media (min-width: 861px) {
+  .ask-launcher[data-workspace="image"] { right: calc(var(--hist) + 8px); }
+}
 .ask-launcher :deep(.ask-mark) { width: 25px; height: 25px; }
 .ask-launcher-label { font: var(--fw-semibold) 8px/1 var(--sans); letter-spacing: .12em; }
 .ask-launcher:hover { background: var(--raised); }

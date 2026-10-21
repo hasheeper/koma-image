@@ -6,18 +6,33 @@ export function installAskWindow(
   signal: AbortSignal,
 ) {
   let frame = 0;
-  const position = (node: HTMLElement, x: number, y: number) => {
+  const launcherPositions = new Map<string, { x: number; y: number }>();
+  const workspace = () => launcher.dataset.workspace ?? '';
+  const position = (node: HTMLElement, x: number, y: number, remember = false) => {
     const viewport = window.visualViewport;
     const left = viewport?.offsetLeft ?? 0, top = viewport?.offsetTop ?? 0;
     const width = viewport?.width ?? innerWidth, height = viewport?.height ?? innerHeight;
-    node.style.setProperty('--ask-left', `${Math.max(left + 8, Math.min(left + width - node.offsetWidth - 8, x))}px`);
-    node.style.setProperty('--ask-top', `${Math.max(top + 8, Math.min(top + height - node.offsetHeight - 8, y))}px`);
+    x = Math.max(left + 8, Math.min(left + width - node.offsetWidth - 8, x));
+    y = Math.max(top + 8, Math.min(top + height - node.offsetHeight - 8, y));
+    node.style.setProperty('--ask-left', `${x}px`);
+    node.style.setProperty('--ask-top', `${y}px`);
+    if (node === launcher && remember) launcherPositions.set(workspace(), { x, y });
   };
   function layout() {
     frame = 0;
     root.style.setProperty('--ask-available-height', `${window.visualViewport?.height ?? innerHeight}px`);
     for (const node of [root, launcher]) {
       if (!node.getClientRects().length || (node === root && root.classList.contains('ask-inline'))) continue;
+      if (node === launcher) {
+        const saved = launcherPositions.get(workspace());
+        if (saved) {
+          position(node, saved.x, saved.y);
+          continue;
+        }
+        // Untouched icons follow their workspace anchor, including rail folding.
+        node.style.removeProperty('--ask-left');
+        node.style.removeProperty('--ask-top');
+      }
       // offset coordinates exclude the enter/leave transform.
       position(node, node.offsetLeft, node.offsetTop);
     }
@@ -44,7 +59,7 @@ export function installAskWindow(
       if (!moved && Math.hypot(dx, dy) < 5) return;
       moved = true;
       node.dataset.dragging = '';
-      position(node, start.left + dx, start.top + dy);
+      position(node, start.left + dx, start.top + dy, true);
     }, { signal });
     const finish = () => {
       if (!start) return;
@@ -64,13 +79,14 @@ export function installAskWindow(
       if (!enabled() || !event.altKey || event.ctrlKey || event.metaKey) return;
       if (event.key === 'Home') {
         event.preventDefault();
+        if (node === launcher) launcherPositions.delete(workspace());
         node.style.removeProperty('--ask-left');
         node.style.removeProperty('--ask-top');
         schedule();
       } else if (['ArrowLeft', 'ArrowRight', 'ArrowUp', 'ArrowDown'].includes(event.key)) {
         event.preventDefault();
         const rect = node.getBoundingClientRect(), delta = event.shiftKey ? 4 : 16;
-        position(node, rect.left + (event.key === 'ArrowLeft' ? -delta : event.key === 'ArrowRight' ? delta : 0), rect.top + (event.key === 'ArrowUp' ? -delta : event.key === 'ArrowDown' ? delta : 0));
+        position(node, rect.left + (event.key === 'ArrowLeft' ? -delta : event.key === 'ArrowRight' ? delta : 0), rect.top + (event.key === 'ArrowUp' ? -delta : event.key === 'ArrowDown' ? delta : 0), true);
       }
     }, { signal });
   }
