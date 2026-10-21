@@ -83,7 +83,7 @@ export function createVision() {
   return {
     async image(picture: Picture, spec: VisionSpec, region: Region | undefined, context: VisionContext) {
       allowed(context);
-      if (spec === "crop" && !context.viewed.has(picture.id)) throw new Error("裁切前请先用 glance 或 look 查看该图全图");
+      if (spec === "crop" && !context.viewed.has(picture.id)) throw new Error(`裁切 ${picture.label} 前请先用 glance 或 look 查看该图全图（拼图不计入单图查看）`);
       if (spec === "crop" && !region) throw new Error("crop 需要百分比 region");
       if (spec !== "crop" && region) throw new Error("只有 crop 接受 region");
       const key = `${identity(picture)}:${spec}:${region?.join(",") ?? ""}`;

@@ -130,6 +130,7 @@ onBeforeUnmount(() => cancelAnimationFrame(frame));
               <span class="ask-tool-text">{{ rowText(row) }}</span>
               <span v-if="row.state !== 'run'" class="ask-tool-object">{{ row.object }}</span>
               <span v-if="row.stat" class="ask-tool-stat">{{ row.stat }}</span>
+              <span v-if="row.reason" class="ask-tool-reason">{{ row.reason }}</span>
             </div>
           </div>
           <div v-else-if="item.kind === 'pick'" class="ask-pick" role="group" aria-label="选择要分析的图片">
@@ -210,6 +211,8 @@ onBeforeUnmount(() => cancelAnimationFrame(frame));
 .ask-tool-object { min-width: 0; overflow: hidden; color: var(--fg-2); font-weight: var(--fw-medium); text-overflow: ellipsis; white-space: nowrap; }
 .ask-tool-stat { flex: none; margin-left: 2px; color: var(--fg-4); font: var(--fw-regular) 11.5px/1 var(--mono); font-variant-numeric: tabular-nums; }
 .ask-tool[data-state="error"] .ico { color: var(--err); }
+.ask-tool[data-state="error"] { flex-wrap: wrap; row-gap: 0; }
+.ask-tool-reason { flex-basis: 100%; min-width: 0; padding: 0 0 4px 21px; color: var(--fg-3); font-size: var(--fz-xs); line-height: 1.5; overflow-wrap: anywhere; white-space: pre-wrap; }
 .ask-tool[data-state="done"] .ask-tool-text { animation: ask-fade var(--t2) cubic-bezier(.4, 0, .2, 1) both; }
 .ask-tool[data-state="run"] .ask-tool-text { color: transparent; background: linear-gradient(90deg, var(--fg-3) 0%, var(--fg) 50%, var(--fg-3) 100%) 100% 0 / 250% 100%; background-clip: text; animation: ask-sheen 2.4s ease-in-out infinite; }
 .ask-note { margin: 30px 0 16px; color: var(--fg-4); font-size: var(--fz-sm); }

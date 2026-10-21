@@ -138,6 +138,22 @@ test("runner: a final tool ends the turn after its result; aborting stops mid-st
   assert.deepEqual(held.session.messages, []);
 });
 
+test("runner: thrown, reported and unknown tool failures retain their reasons for the UI and model", async () => {
+  const tools = new Map(createTools());
+  const entry = (name, run) => ({ tool: { name, description: "", schema: {} }, verb: "查看", object: () => "#h2", run });
+  tools.set("throwing", entry("throwing", () => { throw new Error("裁切 #h2 前请先查看全图"); }));
+  tools.set("reported", entry("reported", () => ({ error: true, content: [{ type: "text", text: "本轮视觉预算已达上限" }] })));
+  const model = script([call("a", "throwing"), call("b", "reported"), call("c", "missing"), call("d"), done("tool")], [{ type: "text", text: "依据已有信息回答。" }, done()]);
+  const { options } = setup(model, { tools });
+  const ends = (await drain(run(options))).filter(e => e.type === "tool-end");
+  const reasons = ["裁切 #h2 前请先查看全图", "本轮视觉预算已达上限", "没有名为 missing 的工具。"];
+  assert.deepEqual(ends.slice(0, 3).map(e => e.reason), reasons);
+  assert.ok(ends.slice(0, 3).every(e => !e.ok));
+  assert.equal(ends[3].ok, true);
+  assert.equal(ends[3].reason, undefined);
+  assert.deepEqual(model.requests[1].messages.at(-1).content.slice(0, 3).map(r => r.content[0].text), reasons);
+});
+
 test("budget: local token estimate counts wide characters, tools, results and images", () => {
   assert.equal(approxTokens("abcd"), 1);
   assert.equal(approxTokens("红眼睛"), 3);

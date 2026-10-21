@@ -19,6 +19,7 @@ export type RunEvent =
       readonly id: string;
       readonly ok: boolean;
       readonly stat: string;
+      readonly reason?: string;
       readonly picks?: readonly string[];
       readonly draft?: Draft;
     }
@@ -112,7 +113,8 @@ export async function* run(options: RunOptions): AsyncGenerator<RunEvent, void> 
           result = failure(call.id, error instanceof Error ? error.message : "工具执行失败");
         }
       results.push(result);
-      yield { type: "tool-end", id: call.id, ok: !result.error, stat, ...(picks ? { picks } : {}), ...(draft ? { draft } : {}) };
+      const reason = result.error ? result.content.filter(b => b.type === "text").map(b => b.text).join("\n").trim() || "工具执行失败" : undefined;
+      yield { type: "tool-end", id: call.id, ok: !result.error, stat, ...(reason ? { reason } : {}), ...(picks ? { picks } : {}), ...(draft ? { draft } : {}) };
     }
     turn.push({ role: "user", content: results });
     if (final) {

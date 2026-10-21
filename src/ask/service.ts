@@ -34,6 +34,7 @@ export interface ToolRow {
   readonly verb: string;
   readonly object: string;
   readonly stat: string;
+  readonly reason?: string;
   readonly state: "run" | "done" | "error" | "stopped";
 }
 export type AskItem =
@@ -457,6 +458,7 @@ export function createAsk(deps: {
             if (row) {
               row.state = event.ok ? "done" : "error";
               row.stat = event.stat;
+              row.reason = event.reason;
             }
             if (event.picks?.length) working.items.push({ kind: "pick", ids: event.picks });
             commit();

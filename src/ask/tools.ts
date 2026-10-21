@@ -133,7 +133,7 @@ function visualContext(context: ToolContext) {
   return { vision: context.vision, visual: context.visual };
 }
 const viewImage: ToolEntry = {
-  tool: { name: "view_image", description: "按需看图：glance 长边384px、look 768px；crop先看全图，百分比区域自动四边扩25%。累计预算4次/1.5MP/400KB。", schema: schema({
+  tool: { name: "view_image", description: "按需看图：glance 长边384px、look 768px。crop 前必须成功用本工具的 glance 或 look 查看同一 ID 的全图；view_sheet 拼图不满足该前置条件。百分比裁切区域自动四边扩25%。累计预算4次/1.5MP/400KB。", schema: schema({
     id: idField, spec: { type: "string", enum: ["glance", "look", "crop"] },
     region: { type: "array", items: { type: "number", minimum: 0, maximum: 100 }, minItems: 4, maxItems: 4 },
   }, ["id", "spec"]) },
@@ -152,7 +152,7 @@ const viewImage: ToolEntry = {
   },
 };
 const viewSheet: ToolEntry = {
-  tool: { name: "view_sheet", description: "本地拼合2–6张图并标注ID。整张拼图长边默认768px，glance为384px；计作1次视觉调用。", schema: schema({ ids: { type: "array", items: idField, minItems: 2, maxItems: 6, uniqueItems: true }, spec: { type: "string", enum: ["glance", "look"] } }, ["ids"]) },
+  tool: { name: "view_sheet", description: "本地拼合2–6张图并标注ID。整张拼图长边默认768px，glance为384px；计作1次视觉调用。拼图不计入单图查看，之后裁切某图仍须先用 view_image 的 glance 或 look 查看该图。", schema: schema({ ids: { type: "array", items: idField, minItems: 2, maxItems: 6, uniqueItems: true }, spec: { type: "string", enum: ["glance", "look"] } }, ["ids"]) },
   verb: "对比", object: (input) => Array.isArray(input.ids) ? input.ids.join(" ↔ ") : "拼图",
   async run(input, context) {
     const { vision, visual } = visualContext(context);

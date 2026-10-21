@@ -600,6 +600,48 @@ test('ASK A1 S2: explicit two-picture selection, parameter diff, contact sheet, 
  }finally{await context.close();}
 });
 
+test('ASK A1 crop failure: sheet does not unlock crop, the reason stays visible and later full-image views succeed', async () => {
+  const {page,context,requests,errors,llm,calls}=await open('/#/image',{ready:'.switcher',ask:askSettings()});
+  try {
+    await bind(page); await addScene(page); await addScene(page,1);
+    await page.locator('#askLauncher').click();
+    llm.push(toolReply('first-look','view_image',{id:'#h1',spec:'look'}),textReply('已查看 #h1 全图。'));
+    await page.locator('#askPrompt').fill('先查看 #h1'); await page.locator('#askPrompt').press('Enter');
+    await page.waitForFunction(()=>!ask.running.value);
+    llm.push(
+      toolReply('sheet','view_sheet',{ids:['#h1','#h2']}),
+      toolReply('diff','diff_meta',{a:'#h1',b:'#h2'}),
+      toolReply('needs-full','view_image',{id:'#h2',spec:'crop',region:[25,15,50,30]}),
+      toolReply('crop-first','view_image',{id:'#h1',spec:'crop',region:[25,15,50,30]}),
+      toolReply('look-second','view_image',{id:'#h2',spec:'look'}),
+      textReply('已补看 #h2 全图，继续依据实际返回的图片分析。'),
+    );
+    await page.locator('#askPrompt').fill('对比 #h1 和 #h2 的细节'); await page.locator('#askPrompt').press('Enter');
+    await page.waitForFunction(()=>!ask.running.value);
+    const comparison=drawer(page).locator('.ask-turn').nth(1), rows=comparison.locator('.ask-tool');
+    assert.deepEqual(await rows.evaluateAll(nodes=>nodes.map(n=>n.dataset.state)),['done','done','error','done','done']);
+    const reason='裁切 #h2 前请先用 glance 或 look 查看该图全图（拼图不计入单图查看）';
+    assert.equal(await comparison.locator('.ask-tool-reason').textContent(),reason);
+    assert.equal(await comparison.locator('.ask-tool-reason').isVisible(),true);
+    assert.equal(calls[5].body.messages.find(m=>m.tool_call_id==='needs-full').content,reason,'the UI and model receive the same cause');
+    assert.equal(imageBlocks(calls.at(-1).body).length,4,'the rejected crop adds no pixels');
+    await comparison.screenshot({path:'.local/ask/a1/crop-failure-reason.png'});
+    llm.push(toolReply('bad-region','view_image',{id:'#h2',spec:'crop',region:[90,0,20,20]}),textReply('裁切坐标超出图片，基于已有全图回答。'));
+    await page.locator('#askPrompt').fill('再查看 #h2 的局部'); await page.locator('#askPrompt').press('Enter');
+    await page.waitForFunction(()=>!ask.running.value);
+    const invalid=drawer(page).locator('.ask-turn').nth(2).locator('.ask-tool-reason');
+    assert.match(await invalid.textContent(),/裁切区域须为图内的 0–100 百分比/);
+    for(const width of [320,390,768,1440]) {
+      await page.setViewportSize({width,height:900});
+      await invalid.scrollIntoViewIfNeeded();
+      assert.ok(await invalid.evaluate(el=>el.scrollWidth<=el.clientWidth+1));
+      await drawer(page).screenshot({path:`.local/ask/a1/tool-error-${width}.png`});
+    }
+    assert.equal(calls.length,10,'there are only the explicitly scripted tool rounds');
+    assert.deepEqual(generation(requests),[]); assert.deepEqual(errors,[]);
+  } finally {await context.close();}
+});
+
 test('ASK A1 vision: real resize/crop/cache, four-call and pixel/byte ceilings, disposal, zero model requests',async()=>{
  const {page,context,requests,errors,calls}=await open('/#/image',{ready:'.switcher',ask:askSettings()});
  try{
