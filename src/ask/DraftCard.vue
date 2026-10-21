@@ -33,7 +33,7 @@ function apply(event: MouseEvent) {
         <div class="draft-title"><strong>{{ plan.title }}</strong><small>{{ count }} 处 · {{ plan.workspace === 'image' ? '应用后不会生成' : '应用后不会发送' }}</small></div>
         <div class="draft-actions">
           <button class="btn btn-quiet btn-sm" type="button" :disabled="ask.writingDraft.value" @click="ask.ignoreDraft()">忽略<kbd>Esc</kbd></button>
-          <button class="btn btn-primary btn-sm ask-draft-apply" type="button" :data-fingerprint="plan.fingerprint" :disabled="!plan.changes.length || ask.writingDraft.value || ask.running.value" :aria-disabled="!plan.changes.length || ask.writingDraft.value || ask.running.value" @click="apply">{{ ask.writingDraft.value ? '写入中…' : ask.draftApplyLabel.value }}<kbd>Tab</kbd></button>
+          <button class="btn btn-primary btn-sm ask-draft-apply" type="button" :data-fingerprint="plan.fingerprint" :disabled="(!plan.changes.length && !plan.branch) || ask.writingDraft.value || ask.running.value" :aria-disabled="(!plan.changes.length && !plan.branch) || ask.writingDraft.value || ask.running.value" @click="apply">{{ ask.writingDraft.value ? '写入中…' : ask.draftApplyLabel.value }}<kbd>Tab</kbd></button>
         </div>
       </header>
       <p v-if="plan.aligned" class="draft-aligned">已按当前内容对齐，请核对后应用</p>
@@ -41,12 +41,14 @@ function apply(event: MouseEvent) {
         <li v-for="(step, index) in plan.steps" :key="step.id" class="draft-step" :class="{ off: !step.enabled, invalid: !!step.issue, parameter: step.kind === 'parameter', cur: step.id === currentStep, changed: step.before !== step.after }" :data-step="step.id">
           <div class="draft-step-head">
             <span class="draft-number">{{ index + 1 }}</span><span class="draft-label">{{ step.label }}</span>
-            <button type="button" :disabled="!!step.issue || ask.writingDraft.value" :aria-label="`${step.enabled ? '撤回' : '恢复'} ${step.label}`" @click="ask.toggleDraftStep(step.id)">{{ step.enabled ? '撤回' : '恢复' }}</button>
+            <span v-if="step.locked" class="draft-lock">起点</span>
+            <button v-else type="button" :disabled="!!step.issue || ask.writingDraft.value" :aria-label="`${step.enabled ? '撤回' : '恢复'} ${step.label}`" @click="ask.toggleDraftStep(step.id)">{{ step.enabled ? '撤回' : '恢复' }}</button>
           </div>
           <p v-if="step.issue" class="draft-issue">{{ step.issue }}</p>
           <div v-if="step.kind === 'parameter'" class="draft-values" :class="{ changed: step.before !== step.after }">
             <del v-if="step.before !== step.after">{{ step.displayBefore ?? (step.before || '随机') }}</del><strong>{{ step.displayAfter ?? (step.after || '随机') }}</strong>
           </div>
+          <div v-else-if="step.kind === 'branch'" class="draft-slice">{{ step.after }}</div>
           <template v-else-if="step.kind === 'rewrite'">
             <div class="draft-tabs" role="group" :aria-label="`${step.label} 对照`">
               <button type="button" :aria-pressed="!originals.has(step.id)" @click="original(step.id, false)">新稿</button>
@@ -54,7 +56,7 @@ function apply(event: MouseEvent) {
             </div>
             <div class="draft-slice rewrite">
               <template v-if="originals.has(step.id)">{{ step.before || '（空）' }}</template>
-              <template v-else><span v-for="(part, n) in keptParts(step.before, step.after)" :key="n" :class="{ keep: part.kept }">{{ part.text }}</span><span v-if="!step.after">（清空）</span></template>
+              <template v-else><span v-for="(part, n) in keptParts(step.before, step.after)" :key="n" :class="{ keep: part.kept }">{{ part.text }}</span><span v-if="!step.after">（清空）</span><span v-if="plan.branch" class="draft-cursor" aria-hidden="true"></span></template>
             </div>
           </template>
           <div v-else class="draft-slice patch" :class="{ insertion: !step.before }"><span class="dim">{{ step.prefix }}</span><del v-if="step.before">{{ step.before }}</del><ins v-if="step.after">{{ step.after }}</ins><span class="dim">{{ step.suffix }}</span></div>
@@ -84,6 +86,9 @@ function apply(event: MouseEvent) {
 .draft-step.invalid { color: var(--fg-3); }
 .draft-step-head { display: flex; align-items: center; gap: 6px; min-height: 30px; margin-bottom: 5px; font-size: var(--fz-xs); }
 .draft-number { display: grid; flex: none; place-items: center; width: 32px; height: 32px; color: var(--fg-3); font-family: var(--mono); background: var(--hover); border-radius: 8px; }
+.draft-lock { margin-left: auto; color: var(--fg-3); font-size: var(--fz-2xs); }
+.draft-cursor { display: inline-block; width: 2px; height: 1em; margin-left: 3px; vertical-align: text-bottom; background: var(--a); animation: draft-caret 1s steps(1) infinite; }
+@keyframes draft-caret { 50% { opacity: 0; } }
 .draft-label { min-width: 0; overflow-wrap: anywhere; }
 .draft-step-head > button { flex: none; margin-left: auto; padding: 4px; color: var(--fg-3); font-size: var(--fz-2xs); border-radius: 5px; }
 .draft-step-head > button:hover { color: var(--fg); background: var(--hover); }
@@ -119,5 +124,6 @@ function apply(event: MouseEvent) {
 }
 @media (prefers-reduced-motion: reduce) {
   .draft-step { transition: none; }
+  .draft-cursor { animation: none; }
 }
 </style>

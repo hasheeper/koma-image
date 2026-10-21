@@ -1,3 +1,4 @@
+import { chatDraftKey } from "../../domain/conversation.ts";
 import type { Drawing } from "../../services/drawing.ts";
 import type { Chat } from "../../services/chat.ts";
 import type { AppRouter } from "../../app/router.ts";
@@ -6,16 +7,23 @@ import type { DraftPlan } from "./types.ts";
 
 /** The only ASK module with write ports. Called exclusively by user actions. */
 export function createDraftWriter(drawing: Drawing, chat: Chat, router: AppRouter) {
+  let receipt: { plan: DraftPlan; key: string } | null = null;
   function matches(plan: DraftPlan, side: "before" | "after") {
+    if (plan.branch) return chatDraftKey(chat.snapshot().current) === (side === "before" ? plan.branch.key : receipt?.plan === plan ? receipt.key : "");
     const state = plan.workspace === "image" ? drawing.snapshot().form : { composer: chat.snapshot().current.prompt };
     if (plan.workspace === "chat" && chat.snapshot().current.id !== plan.conversationId) return false;
     return plan.changes.every((c) => (state as Record<string, unknown>)[c.field] === c[side]);
   }
   async function write(plan: DraftPlan, undo = false) {
-    if (!plan.changes.length || !matches(plan, undo ? "after" : "before")) throw new Error("内容已变化，请先核对当前草稿");
+    if ((!plan.changes.length && !plan.branch) || !matches(plan, undo ? "after" : "before")) throw new Error("内容已变化，请先核对当前草稿");
     if (router.route.value.overlay) throw new Error("请先关闭当前面板");
     router.switchWorkspace(plan.workspace);
     if (router.route.value.workspace !== plan.workspace) throw new Error("未能切换到目标工作区");
+    if (plan.branch) {
+      const key = await chat.writeBranchDraft(undo ? plan.branch.before : plan.branch.after, undo ? receipt!.key : plan.branch.key);
+      receipt = undo ? null : { plan, key };
+      return;
+    }
     const values = Object.fromEntries(plan.changes.map((c) => [c.field, c[undo ? "before" : "after"]]));
     const expected = Object.fromEntries(plan.changes.map((c) => [c.field, c[undo ? "after" : "before"]]));
     if (plan.workspace === "image") await drawing.writeDraft(values as Partial<DrawingForm>, expected);

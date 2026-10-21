@@ -29,7 +29,7 @@ test('draft parser: hash locks send snapshot, copies state and source; no mixed 
   assert.throws(() => draft(base, [patch('rewrite', '', 'x'), patch('rewrite', '', 'y', 'chat.composer')]), /一个工作区/);
   assert.throws(() => draft(base, [patch('replace', '', 'x')]), /anchor/);
   assert.throws(() => draft(base, [restore(['url'])], '', library({})), /字段/);
-  assert.throws(() => draft(base, [{ kind: 'chat_distill_branch' }]), /此阶段/);
+  assert.throws(() => draft(base, [{ kind: 'chat_distill_branch' }]), /分支草稿/);
   const reserved = plan(draft(base, [patch('rewrite', '', 'x', 'image.char.0.prompt')]));
   assert.equal(reserved.steps[0].issue, '目标不存在'); assert.deepEqual(reserved.changes, []);
 });

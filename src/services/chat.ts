@@ -619,6 +619,24 @@ export function createChat(services: ApplicationServices, ui: Ui) {
         save(); emit(); throw error;
       }
     },
+    async writeBranchDraft(next: conversation.ChatSelection, expected: string) {
+      if (!mutable() || busy || conversation.chatDraftKey(current) !== expected) throw new Error("会话或上下文已变化，草稿未写入");
+      if (next.mainId && !assets.assets.has(next.mainId)) throw new Error("分支底图已不可用");
+      const owner = current, before = conversation.chatSelection(owner);
+      cancelQuote();
+      const turn = owner.turns.find((t) => t.id === next.headId);
+      if (turn && next.mainId) conversation.selectSource(owner, turn, next.mainId);
+      else owner.selectionRevision += 1;
+      Object.assign(owner, structuredClone(next));
+      const applied = conversation.chatDraftKey(owner);
+      emit();
+      try { await flush(); }
+      catch (error) {
+        if (conversation.chatDraftKey(owner) === applied) { Object.assign(owner, before); owner.selectionRevision += 1; }
+        save(); emit(); throw error;
+      }
+      return applied;
+    },
     setModel(id: string) {
       if (!mutable()) return;
       const m = models.find((m) => m.id === id);

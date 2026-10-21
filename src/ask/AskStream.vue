@@ -25,7 +25,7 @@ const Parts: FunctionalComponent<{ parts: readonly Inline[] }> = (props) =>
   );
 Parts.props = ["parts"];
 
-const icons: Record<string, string> = { get_state: "i-layers", search_history: "i-search", get_meta: "i-info", diff_meta: "i-layers", view_image: "i-image", view_sheet: "i-layers", search_tags: "i-search", propose_draft: "i-edit" };
+const icons: Record<string, string> = { get_state: "i-layers", search_history: "i-search", get_meta: "i-info", diff_meta: "i-layers", view_image: "i-image", view_sheet: "i-layers", search_tags: "i-search", propose_draft: "i-edit", get_chat_context: "i-layers" };
 const rowText = (row: ToolRow) =>
   row.state === "run"
     ? `正在${row.verb} ${row.object}`

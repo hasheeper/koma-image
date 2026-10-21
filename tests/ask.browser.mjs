@@ -245,7 +245,7 @@ test("ASK drawer: Ctrl+J toggles, a scripted tool turn streams and is announced 
     const [first, second] = calls;
     assert.equal(first.headers.authorization, "Bearer synthetic-chat");
     assert.equal(first.body.model, "reasoning-a");
-    assert.deepEqual(first.body.tools.map((t) => t.function.name), ["get_state", "search_history", "get_meta", "diff_meta", "view_image", "view_sheet", "search_tags", "propose_draft"]);
+    assert.deepEqual(first.body.tools.map((t) => t.function.name), ["get_state", "search_history", "get_meta", "diff_meta", "view_image", "view_sheet", "search_tags", "get_chat_context", "propose_draft"]);
     assert.match(first.body.messages[0].content, /你是 Koma ASK[\s\S]*<user_preferences>\n先说结论\n<\/user_preferences>/);
     const question = first.body.messages.at(-1).content;
     // Text-only user turns flatten to one string: the locked state, then the question.
@@ -952,4 +952,42 @@ test('ASK A2: failed persistence rolls back the draft; later manual edits surviv
     assert.equal(await page.locator('.ask-draft-apply').isDisabled(),true);
     assert.equal(generation(requests).length,0);assert.deepEqual(errors,[]);
   }finally{await context.close();}
+});
+
+async function seedAskChat(page) {
+  await page.evaluate(async()=>{
+    const d=await import('/src/domain/conversation.ts');
+    const canvas=new OffscreenCanvas(64,64),g=canvas.getContext('2d');
+    const assets=[];
+    for(let i=0;i<3;i++){g.fillStyle=['#4b638b','#866152','#746085'][i];g.fillRect(0,0,64,64);assets.push((await chat.assets.add(await canvas.convertToBlob({type:'image/png'}),`synthetic${i}`,{width:64,height:64})).id);}
+    chat.mutate(c=>{for(let i=0;i<3;i++){const {turn,version}=d.beginTurn(c,d.contextSnapshot(c),`第 ${i+1} 轮描述`,{});d.completeVersion(c,turn,version,[{type:'image',assetId:assets[i]}],null,c.selectionRevision);}c.prompt='原来的下一轮';});
+    await chat.flush();
+  });
+}
+test('ASK A3 S6: read locked CHAT context, review branch/skip/composer, apply with zero sends and undo restores one action',async()=>{
+ const {page,context,llm,calls,requests,errors}=await open('/#/chat',{ready:'#chatPrompt',ask:askSettings()});
+ try{
+  await bind(page);await seedAskChat(page);
+  const before=await page.evaluate(()=>chat.snapshot().current);
+  llm.push({body:openai(tool('ctx','get_chat_context'),end('tool_calls'))});
+  llm.push({body:r=>{
+   const first=r.messages.find(m=>m.role==='user'&&typeof m.content==='string'&&m.content.includes('<workspace_state>'));
+   const base_hash=JSON.parse(first.content.match(/<workspace_state>\n([\s\S]*?)\n<\/workspace_state>/)[1]).base_hash;
+   return openai(text('从第一轮继续，保留原图并提纯描述。'),tool('draft','propose_draft',{base_hash,title:'提纯并准备新分支',steps:[{kind:'chat_distill_branch',source:'#c1.1',exclude:['#c2.1','#c3.1'],text:'保留轮廓和蓝色背景，增强清晰度'}]}),end('tool_calls'));
+  }});
+  await page.evaluate(()=>ask.show());await page.locator('#askPrompt').fill('为什么越改越糊？从第一轮整理新分支');await page.locator('#askPrompt').press('Enter');
+  await page.locator('.ask-draft[data-status="pending"]').waitFor();
+  assert.deepEqual(await page.evaluate(()=>chat.snapshot().current),before);
+  assert.match(calls[1].body.messages.at(-1).content,/actual_text/);assert.equal(await page.locator('[data-step="0:source"] button').count(),0);
+  await page.locator('[data-step="0:exclude"] button').click();await page.locator('[data-step="0:exclude"] button').click();
+  for(const width of [320,390,768,1440]){await page.setViewportSize({width,height:900});assert.ok(await page.locator('.ask-draft').evaluate(el=>el.scrollWidth<=el.clientWidth+1));await page.screenshot({path:`.local/ask/a3/branch-${width}.png`});}
+  await applyDraft(page);const after=await page.evaluate(()=>chat.snapshot().current);
+  assert.equal(after.turns.length,3);assert.equal(after.headId,before.turns[0].id);assert.equal(after.skipTurnIds.length,2);assert.equal(after.prompt,'保留轮廓和蓝色背景，增强清晰度');
+  await page.keyboard.press('Control+z');await page.locator('.ask-draft[data-status="pending"]').waitFor();
+  const undone=await page.evaluate(()=>chat.snapshot().current);for(const key of ['headId','mainId','skipTurnIds','prompt'])assert.deepEqual(undone[key],before[key]);
+  assert.equal(await page.locator('.ask-draft-apply').isDisabled(),false);
+  await page.evaluate(()=>chat.mutate(c=>{c.baseFollows=!c.baseFollows;},true));
+  assert.equal(await page.locator('.ask-draft-apply').isDisabled(),true);assert.match(await page.locator('.draft-issue').first().textContent(),/上下文已变化/);
+  assert.equal(generation(requests).length,0);assert.deepEqual(errors,[]);
+ }finally{await context.close();}
 });

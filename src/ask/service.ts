@@ -1,3 +1,4 @@
+import { chatSnapshot, chatContext, chatPictures } from "./chat-context.ts";
 import { computed, nextTick, shallowRef } from "vue";
 import type { ShallowRef } from "vue";
 import type { ApplicationServices } from "../services/application.ts";
@@ -149,7 +150,7 @@ export function createAsk(deps: {
   const layers = new Set<() => boolean>();
   function readDraftState(): DraftState {
     const d = drawing.snapshot(), c = chat.snapshot().current;
-    return { form: { ...d.form }, composer: c.prompt, conversationId: c.id, models: [...d.models], samplers: [...d.samplers], samplersByModel: Object.fromEntries(d.models.map((m) => [m.id, drawing.samplersFor(m.id)])) };
+    return { form: { ...d.form }, composer: c.prompt, conversationId: c.id, chat: chatSnapshot(chat.snapshot()), models: [...d.models], samplers: [...d.samplers], samplersByModel: Object.fromEntries(d.models.map((m) => [m.id, drawing.samplersFor(m.id)])) };
   }
   const draftPlan = computed(() => {
     void draftRevision.value;
@@ -179,7 +180,7 @@ export function createAsk(deps: {
     if (!draft.value || draftStatus.value !== "pending" || writingDraft.value || controller || disposed) return;
     const plan = validateDraft(draft.value, readDraftState(), { off: draftOff.value, category: tagCategory });
     if (plan.fingerprint !== fingerprint) { draftRevision.value++; notice.value = "内容已变化，请核对更新后的草稿再应用"; return; }
-    if (!plan.changes.length) return;
+    if (!plan.changes.length && !plan.branch) return;
     writingDraft.value = true; notice.value = "";
     try {
       await writer.apply(plan);
@@ -196,6 +197,7 @@ export function createAsk(deps: {
     writingDraft.value = true; notice.value = "";
     try {
       await writer.undo(plan);
+      if (plan.branch && draft.value) draft.value = { ...draft.value, base: readDraftState() };
       appliedPlan.value = null; draftStatus.value = "pending";
       push({ type: "note", id: ++sequence, text: `已撤销草稿 ${plan.title}`, action: true }); say("已撤销草稿，表单已恢复");
       await focusWritten(plan);
@@ -268,7 +270,7 @@ export function createAsk(deps: {
   syncDrawing();
   const stops = [
     drawing.subscribe(syncDrawing),
-    chat.subscribe(() => { draftRevision.value++; }),
+    chat.subscribe(() => { draftRevision.value++; libraryRevision.value++; }),
     preferences.subscribe((key) => {
       if (!key || key === names.ask) settings.value = readSettings();
       if (!key || key === names.askAdult) adult.value = readAdult();
@@ -336,7 +338,8 @@ export function createAsk(deps: {
     // The snapshot is fixed for the whole turn; get_state appends newer ones.
     const digest = digestNow(turnAnchor);
     const snapshot = drawing.snapshot(),
-      library = snapshotPictures(snapshot.history, snapshot.favorites, ids),
+      library = [...snapshotPictures(snapshot.history, snapshot.favorites, ids), ...chatPictures(chat.snapshot(), chat)],
+      turnChatContext = chatContext(chat.snapshot()),
       turnViewed = new Set(viewed),
       draftBase = readDraftState();
     const user: AskMessage = {
@@ -387,6 +390,7 @@ export function createAsk(deps: {
           vision,
           visual: { signal: abort.signal, metadataOnly, budget: turn.budget.vision, viewed: turnViewed },
           tags: localTags,
+          chatContext: turnChatContext,
           draftBase,
           question,
           state: () => ({
@@ -588,11 +592,22 @@ export function createAsk(deps: {
     },
     labelFor(id: string) { return ids.label(id); },
     pictureInfo(label: string) {
+      if (label.startsWith("#c")) {
+        const picture = chatPictures(chat.snapshot(), chat).find((p) => p.label === label);
+        const source = chatSnapshot(chat.snapshot()).sources.find((s) => s.label === label);
+        const asset = source?.assetId ? chat.assets.assets.get(source.assetId) : null;
+        return picture && asset ? { label, url: asset.url, width: asset.width, height: asset.height } : null;
+      }
       const id = ids.resolve(label), d = drawing.snapshot();
       const item = [...d.history, ...d.favorites].find((r) => r.id === id);
       return item ? { label, url: drawing.url(item, true), width: item.size.width, height: item.size.height } : null;
     },
     locate(label: string) {
+      if (label.startsWith("#c")) {
+        router.switchWorkspace("chat");
+        if (window.matchMedia("(max-width: 860px)").matches) open.value = false;
+        return;
+      }
       const id = ids.resolve(label), d = drawing.snapshot();
       const item = [...d.history, ...d.favorites].find((r) => r.id === id);
       if (!item) { notice.value = `${label} 已不在本页历史或收藏中`; return; }

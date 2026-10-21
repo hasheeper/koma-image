@@ -22,7 +22,8 @@ export function parseDraft(input: Readonly<Record<string, unknown>>, base: Draft
   const title = text(input.title, 120).trim();
   if (!title || input.base_hash !== stateHash(base)) throw new Error("草稿 base_hash 与本轮快照不符，请使用本轮原始值");
   if (!Array.isArray(input.steps) || !input.steps.length || input.steps.length > 12) throw new Error("草稿需要 1–12 个步骤");
-  const steps = input.steps.map((raw) => {
+  const rawSteps = input.steps;
+  const steps = rawSteps.map((raw) => {
     const step = record(raw);
     if (step.kind === "prompt_patch") {
       const target = text(step.target, 80), mode = text(step.mode, 20);
@@ -31,6 +32,13 @@ export function parseDraft(input: Readonly<Record<string, unknown>>, base: Draft
       const anchor = step.anchor === undefined ? "" : text(step.anchor);
       if (!["append", "rewrite"].includes(mode) && !anchor.trim()) throw new Error("局部修改需要非空 anchor");
       return { kind: "prompt_patch" as const, target: target as TextTarget, mode: mode as TextMode, anchor, text: text(step.text) };
+    }
+    if (step.kind === "chat_distill_branch") {
+      if (rawSteps.length !== 1 || !base.chat) throw new Error("分支草稿需要当前会话快照，且必须独立提交");
+      const source = text(step.source, 30);
+      if (!base.chat.sources.some((s) => s.label === source && s.assetId)) throw new Error("分支起点不在当前分支或没有已完成图片");
+      if (!Array.isArray(step.exclude) || step.exclude.some((id) => !base.chat!.sources.some((s) => s.label === id))) throw new Error("排除轮次不在本轮分支快照中");
+      return { kind: "chat_distill_branch" as const, source, exclude: [...new Set(step.exclude as string[])], text: text(step.text) };
     }
     if (step.kind !== "restore_partial") throw new Error("此阶段不支持该草稿类型");
     const source = text(step.source, 30), image = library.find((p) => p.aliases.includes(source));
@@ -46,7 +54,7 @@ export function parseDraft(input: Readonly<Record<string, unknown>>, base: Draft
     if (p.batchTotal === undefined && p.batchCount === undefined) delete values.batchCount;
     return { kind: "restore_partial" as const, source, fields: [...new Set(step.fields as RestoreKey[])], values };
   });
-  const workspaces = new Set(steps.map((s) => s.kind === "prompt_patch" && s.target.startsWith("chat.") ? "chat" : "image"));
+  const workspaces = new Set(steps.map((s) => (s.kind === "chat_distill_branch" || s.kind === "prompt_patch" && s.target.startsWith("chat.")) ? "chat" : "image"));
   if (workspaces.size !== 1) throw new Error("一份草稿只能写入一个工作区");
   return { title, baseHash: stateHash(base), question, steps, base: structuredClone(base) };
 }
@@ -125,6 +133,7 @@ export function keptParts(before: string, after: string) {
 const labels: Partial<Record<Field, string>> = { prompt: "Prompt", negative: "Negative", composer: "对话输入框", width: "宽", height: "高", steps: "步数", scale: "Scale", cfg: "CFG", sampler: "采样器", seed: "Seed", model: "模型", batchCount: "批次" };
 
 export function validateDraft(draft: Draft, now: DraftState, options: ValidateOptions): DraftPlan {
+  if (draft.steps[0].kind === "chat_distill_branch") return validateBranch(draft, now, options);
   const workspace: "image" | "chat" = draft.steps[0].kind === "prompt_patch" && draft.steps[0].target.startsWith("chat.") ? "chat" : "image";
   const initial = { ...now.form, composer: now.composer }, working = { ...initial };
   const checked: CheckedStep[] = [];
@@ -153,6 +162,7 @@ export function validateDraft(draft: Draft, now: DraftState, options: ValidateOp
   };
   draft.steps.forEach((step, i) => {
     if (step.kind === "prompt_patch") return checkText(String(i), step.target, step.mode, step.anchor, step.text);
+    if (step.kind !== "restore_partial") return;
     for (const key of step.fields) {
       const id = `${i}:${key}`, field = key === "negative_prompt" ? "negative" : key;
       const label = `${labels[field]} · ${step.source}`, value = step.values[key];
@@ -188,5 +198,27 @@ export function validateDraft(draft: Draft, now: DraftState, options: ValidateOp
   }
   const changes = (Object.keys(working) as Field[]).filter((field) => working[field] !== initial[field]).map((field) => ({ field, before: initial[field], after: working[field] }));
   const plan = { title: draft.title, workspace, conversationId: draft.base.conversationId, steps: checked, changes, aligned };
+  return { ...plan, fingerprint: hash(canonical(plan)) };
+}
+
+function validateBranch(draft: Draft, now: DraftState, options: ValidateOptions): DraftPlan {
+  const step = draft.steps[0];
+  if (step.kind !== "chat_distill_branch" || !draft.base.chat) throw new Error("分支草稿无效");
+  const base = draft.base.chat, source = base.sources.find((s) => s.label === step.source)!;
+  const issue = now.conversationId !== draft.base.conversationId ? "当前对话已切换" : now.chat?.key !== base.key ? "会话或上下文已变化，请重新提议" : "";
+  const exclude = options.off.has("0:exclude") ? [] : step.exclude;
+  const before = base.selection, after = { ...before, headId: source.turnId, mainId: source.assetId,
+    skipTurnIds: [...new Set([...before.skipTurnIds, ...base.sources.filter((s) => exclude.includes(s.label)).map((s) => s.turnId)])],
+    prompt: options.off.has("0:text") ? before.prompt : step.text };
+  const artistIssue = artistProblem(before.prompt, after.prompt, draft.question, options.category);
+  const steps: CheckedStep[] = [
+    { id: "0:source", label: `从 ${step.source} 准备新分支`, kind: "branch", locked: true, enabled: true, issue, aligned: false, before: "当前起点", after: step.source },
+    { id: "0:exclude", label: "排除历史文字", kind: "branch", enabled: !options.off.has("0:exclude"), issue, aligned: false, before: "保留现有勾选", after: step.exclude.join("、") || "无额外排除" },
+    { id: "0:text", label: "填入描述，等你发送", kind: "rewrite", enabled: !options.off.has("0:text"), issue: issue || artistIssue, aligned: false, before: before.prompt, after: step.text },
+  ];
+  if (artistIssue) after.prompt = before.prompt;
+  const branch = !issue && canonical(before) !== canonical(after) ? { before, after, key: base.key } : undefined;
+  const plan = { title: draft.title, workspace: "chat" as const, conversationId: draft.base.conversationId, steps,
+    changes: branch && before.prompt !== after.prompt ? [{ field: "composer" as const, before: before.prompt, after: after.prompt }] : [], aligned: !!issue, ...(branch ? { branch } : {}) };
   return { ...plan, fingerprint: hash(canonical(plan)) };
 }

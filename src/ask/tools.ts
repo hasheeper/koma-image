@@ -32,6 +32,7 @@ export interface ToolContext {
   readonly tags?: (query: string, limit: number) => readonly TagItem[];
   readonly draftBase?: DraftState;
   readonly question?: string;
+  readonly chatContext?: unknown;
 }
 export interface ToolEntry {
   readonly tool: AskTool;
@@ -71,7 +72,7 @@ const string = (input: Readonly<Record<string, unknown>>, key: string, optional 
   return value.trim();
 };
 const picture = (id: string, context: ToolContext) => {
-  if (!/^#(?:h|f)\d+$/.test(id)) throw new Error("请使用本页图片 ID，如 #h1 或 #f1");
+  if (!/^#(?:(?:h|f)\d+|c\d+\.\d+)$/.test(id)) throw new Error("请使用本页图片 ID，如 #h1 或 #f1");
   const found = context.library?.find((p) => p.aliases.includes(id));
   if (!found) throw new Error(`${id} 不在本轮图片快照中，可能已移除；新图请在下一轮查看`);
   return found;
@@ -162,6 +163,14 @@ const viewSheet: ToolEntry = {
     return { content: [{ type: "text", text: dataBlock(canonical({ ids: items.map((i) => i.label), spec: "sheet", bytes: result.bytes, pixels: result.pixels })) }, result.image], stat: `${items.length} 张 · ${Math.ceil(result.bytes / 1024)} KB` };
   },
 };
+const readChat: ToolEntry = {
+  tool: { name: "get_chat_context", description: "读取本轮锁定的当前 CHAT 分支：文字勾选、底图、图片数量限制、已有额度与实际发送文字。不包含其他分支；不请求报价或发送。", schema: schema({}) },
+  verb: "读取", object: () => "对话上下文",
+  run(_input, context) {
+    if (!context.chatContext) throw new Error("当前会话尚未就绪");
+    return reply(context.chatContext, "当前分支");
+  },
+};
 const searchTags: ToolEntry = {
   tool: { name: "search_tags", description: "查询本页词典已加载的本地缓存，不联网；未命中表示缓存无词条，不代表标签不存在。", schema: schema({ query: { type: "string", maxLength: 300 }, lang: { type: "string", enum: ["zh", "en"] }, limit: { type: "integer", minimum: 1, maximum: 20 } }, ["query"]) },
   verb: "检索", object: () => "本地词典",
@@ -175,5 +184,5 @@ const searchTags: ToolEntry = {
 };
 /** Only read ports enter these tools; no generating or form-writing service. */
 export function createTools(): ToolRegistry {
-  return new Map([getState, searchHistory, readMeta, diffMeta, viewImage, viewSheet, searchTags, proposeDraft].map((entry) => [entry.tool.name, entry]));
+  return new Map([getState, searchHistory, readMeta, diffMeta, viewImage, viewSheet, searchTags, readChat, proposeDraft].map((entry) => [entry.tool.name, entry]));
 }

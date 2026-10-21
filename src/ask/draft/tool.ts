@@ -18,6 +18,10 @@ export const proposeDraft: ToolEntry = {
           { type: "object", additionalProperties: false, required: ["kind", "source", "fields"], properties: {
             kind: { const: "restore_partial" }, source: { type: "string", description: "本轮图片 ID，如 #h1" }, fields: { type: "array", minItems: 1, uniqueItems: true, items: { enum: [...restoreKeys] } },
           } },
+          { type: "object", additionalProperties: false, required: ["kind", "source", "exclude", "text"], properties: {
+            kind: { const: "chat_distill_branch" }, source: { type: "string", description: "当前分支的已完成图片 ID，如 #c2.1" },
+            exclude: { type: "array", items: { type: "string" }, description: "从 get_chat_context 读取的当前分支轮次 ID；仅排除其文字" }, text: { type: "string", maxLength: 24000 },
+          } },
         ] } },
       },
     },

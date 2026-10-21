@@ -366,3 +366,13 @@ export function selectSource(conversation: ConversationRecord, turn: Conversatio
   conversation.mainId = assetId;
   conversation.selectionRevision += 1;
 }
+
+export type ChatSelection = Pick<ConversationRecord, "headId" | "mainId" | "skipTurnIds" | "baseFollows" | "prompt">;
+export function chatSelection(c: ConversationRecord): ChatSelection {
+  return { headId: c.headId, mainId: c.mainId, skipTurnIds: [...c.skipTurnIds], baseFollows: c.baseFollows, prompt: c.prompt };
+}
+/** Includes context/version changes and generation completions, excludes cosmetic titles. */
+export function chatDraftKey(c: ConversationRecord): string {
+  return JSON.stringify([c.id, chatSelection(c), c.selectionRevision, c.keepIds, c.attachments, c.settings,
+    c.turns.map((t) => [t.id, t.parentId, t.prompt, t.selectedVersion, t.versions.map((v) => [v.id, v.status, v.blocks.filter((b) => b.type === "image").map((b) => b.assetId)])])]);
+}

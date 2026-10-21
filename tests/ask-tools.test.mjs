@@ -62,7 +62,7 @@ test("ASK snapshot and tools: metadata is immutable, aliases resolve, diffs/sear
   assert.equal(library[0].params.prompt,"blue sky, {clouds}");
   const context={signal:new AbortController().signal,metadataOnly:false,library,state:()=>({text:"",images:2})};
   const tools=createTools();
-  assert.equal(tools.size,8);
+  assert.equal(tools.size,9);
   const a=await tools.get("get_meta").run({id:"#f1"},context);
   assert.equal(parse(a).id,"#h2");
   const b=await tools.get("get_meta").run({id:"#h1"},context);
