@@ -18,6 +18,7 @@ export type RunEvent =
       readonly id: string;
       readonly ok: boolean;
       readonly stat: string;
+      readonly picks?: readonly string[];
     }
   | { readonly type: "usage"; readonly usage: AskUsage }
   | { readonly type: "done"; readonly reason: "end" | "final" | "length" };
@@ -89,7 +90,8 @@ export async function* run(options: RunOptions): AsyncGenerator<RunEvent, void> 
         object: entry ? entry.object(call.input) : call.name,
       };
       let result: AskResult,
-        stat = "";
+        stat = "",
+        picks: readonly string[] | undefined;
       if (++turn.budget.toolCalls > LIMITS.toolCalls)
         result = failure(call.id, `本轮工具调用已达上限（${LIMITS.toolCalls} 次），请直接基于已有信息回答。`);
       else if (!entry) result = failure(call.id, `没有名为 ${call.name} 的工具。`);
@@ -98,13 +100,14 @@ export async function* run(options: RunOptions): AsyncGenerator<RunEvent, void> 
           const outcome = await entry.run(call.input, context);
           result = { type: "result", id: call.id, content: outcome.content, ...(outcome.error ? { error: true } : {}) };
           stat = outcome.stat ?? "";
+          picks = outcome.picks;
           final ||= !!entry.final && !outcome.error;
         } catch (error) {
           signal.throwIfAborted();
           result = failure(call.id, error instanceof Error ? error.message : "工具执行失败");
         }
       results.push(result);
-      yield { type: "tool-end", id: call.id, ok: !result.error, stat };
+      yield { type: "tool-end", id: call.id, ok: !result.error, stat, ...(picks ? { picks } : {}) };
     }
     turn.push({ role: "user", content: results });
     if (final) {

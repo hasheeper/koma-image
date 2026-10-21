@@ -3,6 +3,7 @@ import { finite, object } from "../../domain/value.ts";
 import { sections } from "./segments.ts";
 import type { CategoryOf } from "./segments.ts";
 import type { Ids } from "../ids.ts";
+import { historyIndex } from "./history.ts";
 
 /** What the digest reads from a history or favorite record; never the blobs. */
 export interface DigestImage {
@@ -81,8 +82,6 @@ export function hash(text: string) {
 export const baseHash = (prompt: string, negative: string, composer: string) =>
   hash(canonical({ composer, negative, prompt }));
 
-const clip = (text: string, limit = 120) =>
-  text.length > limit ? `${text.slice(0, limit)}…` : text;
 const promptOf = (p: Readonly<Record<string, unknown>>) =>
   String(p.basePrompt ?? p.prompt ?? "");
 
@@ -110,22 +109,8 @@ export function buildDigest(input: DigestInput): Digest {
   ids.sync(input.history, input.favorites);
   const id = (image: DigestImage) =>
     ids.label(image.id) ?? `#${image.id.slice(0, 8)}`;
-  const seen = new Map<string, string>();
-  const history = input.history.map((image) => {
-    const prompt = promptOf(image.params),
-      label = id(image),
-      entry: Record<string, unknown> = { id: label, ...params(image) };
-    const favorite = ids.favorite(image.id);
-    if (favorite) entry.favorite = favorite;
-    entry.prompt =
-      prompt === form.prompt.trim()
-        ? "= form"
-        : seen.has(prompt)
-          ? `= ${seen.get(prompt)}`
-          : clip(prompt);
-    if (!seen.has(prompt)) seen.set(prompt, label);
-    return entry;
-  });
+  const anchor = [...input.history, ...input.favorites].find((image) => image.id === ids.resolve(input.anchor ?? ""));
+  const history = historyIndex(input.history.map((image) => ({ ...image, label: id(image) })), anchor ? { ...anchor, label: id(anchor) } : null);
   const current = input.current
     ? {
         id: id(input.current),
@@ -143,9 +128,10 @@ export function buildDigest(input: DigestInput): Digest {
   if (input.generation.error) generation.error = input.generation.error;
   const base = baseHash(form.prompt, form.negative, input.composer);
   const state: Record<string, unknown> = {
-    v: 1,
+    v: 2,
     workspace: input.workspace,
     anchor: input.anchor,
+    history_cursor: ids.cursor(),
     image: {
       form: {
         prompt: form.prompt,

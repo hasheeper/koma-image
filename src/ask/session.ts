@@ -1,6 +1,22 @@
-import type { AskMessage, AskRequest, AskUsage } from "./messages.ts";
+import type { AskImage, AskMessage, AskRequest, AskUsage } from "./messages.ts";
 
-/** Per-turn ceilings (doc 1 §9). Vision counters fill in with A1's tools. */
+const placeholder = (image: AskImage) => ({
+  type: "text" as const,
+  text: `[Image ${image.viewed?.ids.join(", ") ?? "unknown"} (${image.viewed?.spec ?? "view"}, ${Math.ceil((image.viewed?.bytes ?? 0) / 1024)}KB) was viewed in an earlier turn; call view_image again if re-inspection is needed]`,
+});
+export function dehydrate(messages: readonly AskMessage[]): AskMessage[] {
+  return messages.map((message) => ({ ...message, content: message.content.map((block) =>
+    block.type === "image" ? placeholder(block)
+      : block.type === "result" ? { ...block, content: block.content.map((part) => part.type === "image" ? placeholder(part) : part) }
+        : block,
+  ) }));
+}
+/** Replace pixels in old turns without changing tool ids or UI traces. */
+export function dehydrateTurns(turns: readonly (readonly AskMessage[])[], hot = 3) {
+  return turns.map((turn, i) => i < turns.length - hot ? dehydrate(turn) : turn);
+}
+
+/** Per-turn ceilings (doc 1 §9), shared by the runner and visual tools. */
 export const LIMITS = Object.freeze({
   toolCalls: 6,
   /** Six tool rounds, the answer, and one spare for a model that ignores the cap. */
@@ -28,13 +44,13 @@ export interface Turn {
  * channel refused leaves nothing behind that would trip the next one.
  */
 export function createSession() {
-  let committed: readonly AskMessage[] = [],
+  let committed: readonly (readonly AskMessage[])[] = [],
     open: object | null = null,
     turns = 0;
   const usage = { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 };
   return {
     get messages() {
-      return committed;
+      return committed.flat();
     },
     get turns() {
       return turns;
@@ -46,10 +62,10 @@ export function createSession() {
     get busy() {
       return open !== null;
     },
-    begin(user: AskMessage): Turn {
+    begin(user: AskMessage, options: { metadataOnly?: boolean } = {}): Turn {
       if (open) throw new Error("上一轮尚未结束");
       const token = {},
-        base = committed,
+        base = dehydrateTurns(committed, options.metadataOnly ? 0 : 2).flat(),
         pending: AskMessage[] = [user],
         budget: Budget = {
           toolCalls: 0,
@@ -77,7 +93,7 @@ export function createSession() {
         },
         commit() {
           close();
-          committed = [...base, ...pending];
+          committed = dehydrateTurns([...committed, pending]);
           turns++;
         },
         rollback: close,

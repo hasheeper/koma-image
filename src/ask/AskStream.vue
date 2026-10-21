@@ -3,6 +3,7 @@ import { computed, h, onBeforeUnmount, shallowRef, watch } from "vue";
 import type { FunctionalComponent } from "vue";
 import { useAsk } from "../app/ask";
 import AppIcon from "../shared/AppIcon.vue";
+import AskReference from "./AskReference.vue";
 import { blocks, inline } from "./format.ts";
 import type { Inline } from "./format.ts";
 import type { AskEntry, AskTurnView, RetryMode, ToolRow } from "./service.ts";
@@ -20,11 +21,11 @@ const Parts: FunctionalComponent<{ parts: readonly Inline[] }> = (props) =>
   props.parts.map((p) =>
     p.t === "text"
       ? p.v
-      : h(p.t === "id" ? "span" : p.t, p.t === "id" ? { class: "ask-id" } : null, p.v),
+      : p.t === "id" ? h(AskReference, { label: p.v }) : h(p.t, null, p.v),
   );
 Parts.props = ["parts"];
 
-const icons: Record<string, string> = { get_state: "i-layers" };
+const icons: Record<string, string> = { get_state: "i-layers", search_history: "i-search", get_meta: "i-info", diff_meta: "i-layers", view_image: "i-image", view_sheet: "i-layers", search_tags: "i-search" };
 const rowText = (row: ToolRow) =>
   row.state === "run"
     ? `正在${row.verb} ${row.object}`
@@ -111,7 +112,7 @@ onBeforeUnmount(() => cancelAnimationFrame(frame));
       <p v-if="entry.type === 'note'" class="ask-note">{{ entry.text }}</p>
       <section
         v-else
-        v-memo="[entry, ask.adult.value, ask.codecActive.value]"
+        v-memo="[entry, ask.adult.value, ask.codecActive.value, ask.libraryRevision.value]"
         class="ask-turn"
         :data-status="entry.turn.status"
         :aria-busy="entry.turn === ask.live.value || undefined"
@@ -130,6 +131,11 @@ onBeforeUnmount(() => cancelAnimationFrame(frame));
               <span v-if="row.state !== 'run'" class="ask-tool-object">{{ row.object }}</span>
               <span v-if="row.stat" class="ask-tool-stat">{{ row.stat }}</span>
             </div>
+          </div>
+          <div v-else-if="item.kind === 'pick'" class="ask-pick" role="group" aria-label="选择要分析的图片">
+            <button v-for="id in item.ids" :key="id" type="button" :disabled="!ask.pictureInfo(id)" :aria-label="`选择 ${id} 继续提问`" @click="ask.pick(id)">
+              <img v-if="ask.pictureInfo(id)" :src="ask.pictureInfo(id)!.url" alt="" /><span>{{ id }}</span>
+            </button>
           </div>
           <template v-for="(block, j) in blocks(item.kind === 'text' ? item.text : '')" v-else :key="`${i}.${j}`">
             <p v-if="block.t === 'p'" :class="{ 'ask-lead': j === 0 && i === leadOf(entry.turn) }">
@@ -193,6 +199,11 @@ onBeforeUnmount(() => cancelAnimationFrame(frame));
 .ask-stream :deep(.ask-id) { font-family: var(--mono); font-size: var(--fz-sm); color: var(--a); }
 .ask-stream :deep(strong) { font-weight: var(--fw-semibold); }
 .ask-tools { display: flex; flex-direction: column; }
+.ask-pick { display: flex; gap: 10px; overflow-x: auto; }
+.ask-pick button { display: flex; flex: none; flex-direction: column; gap: 5px; align-items: center; padding: 2px; color: var(--a); font: var(--fw-regular) var(--fz-xs)/1.4 var(--mono); border: 1px solid transparent; border-radius: 9px; }
+.ask-pick button:hover, .ask-pick button:focus-visible { border-color: var(--a); }
+.ask-pick button:disabled { color: var(--fg-4); }
+.ask-pick img { width: 64px; height: 86px; object-fit: cover; border-radius: 7px; }
 .ask-tool { display: flex; align-items: center; gap: 9px; min-height: 26px; color: var(--fg-4); font-size: var(--fz-sm); }
 .ask-tool .ico { flex: none; width: 15px; height: 15px; }
 .ask-tool-object { min-width: 0; overflow: hidden; color: var(--fg-3); text-overflow: ellipsis; white-space: nowrap; }

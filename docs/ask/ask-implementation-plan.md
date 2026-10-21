@@ -1,6 +1,6 @@
 # Koma ASK：决策与实施规划（文档 4）
 
-日期：2026-10-21。状态：规划定稿；A0.1（协议与设置）与 A0.2（会话与抽屉）已实现并通过模拟验证，见 [A0 实施记录](ask-a0.md)；A1 起未开发。
+日期：2026-10-21。状态：A0.1（协议与设置）与 A0.2（会话与抽屉）已实现并通过模拟验证，见 [A0 实施记录](ask-a0.md)；A1 只读工具、视觉与批准后的入口已实现并通过合成图片／模拟服务验证，见 [A1 实施记录](ask-a1.md)。真实图片黄金样例与供应商实测待办；A2 起未开发。
 
 本文记录用户在文档 1–3 之后确认的决策，并把 A0–A4 落到当前仓库的模块、测试与退出标准。
 
@@ -178,6 +178,8 @@ src/ask/
   digest/               L0 组装、模式 A／B、冷区聚类、Prompt 分区
   tools.ts              工具注册，只接收只读视图
   vision.ts             缩放、裁切、拼图与缓存
+  library.ts            本轮图片快照、参数与 Prompt 差异（A1 新增）
+  AskReference.vue      ID 预览与点击定位（A1 新增）
   draft/
     validate.ts         锚点匹配、hash 校验、目标存在性、画师串拦截
     apply.ts            唯一写入入口
@@ -186,6 +188,7 @@ src/ask/
   canonical.ts          固定键序序列化
   settings.ts           ASK 设置的读取与校验（koma.ask.v1）
 src/app/ask.ts          注入键与 useAsk()（A0.2 新增）
+src/services/tag-memory.ts 本页已加载词典的有界内存索引（A1 新增）
 src/overlays/settings/AskSection.vue
 ```
 
@@ -261,6 +264,8 @@ ASK 对话不持久化（文档 1 D10）；连接配置沿用 `koma.routing.v1`�
 
 ### A1 只读工具与视觉
 
+实施状态：功能与模拟验证已完成，见 [A1 记录](ask-a1.md)。用户已批准桌面／手机截图方案，并选择本轮先用合成图片；真实图片黄金样例仍单列待办，不以脚本回复替代质量验收。
+
 - 工具：`get_state`、`search_history`、`get_meta`、`diff_meta`、`view_image`、`view_sheet`、`search_tags`；外部文本包在 `<data>` 中。
 - `vision.ts`：glance／look／crop（先全图、百分比坐标、25% 扩边、768px 以内）、sheet 复用 `comparison.ts`、按 `id + 规格 + 区域` 缓存；单轮 4 次视觉、1.5MP、400KB 预算，超出时返回错误。
 - 模式 A 同心圆、模式 B 衰减、冷区聚类。`historyLimit` 默认 25，聚类先实现简化版，阈值留待真实数据。
@@ -323,7 +328,7 @@ ASK 对话不持久化（文档 1 D10）；连接配置沿用 `koma.routing.v1`�
 2. ⌘K 行内模式与 Tag 补全、输入法的按键分配（A4）。
 3. CHAT 跨分支提问时摘要是否附带其他分支概要（A3）。
 4. 画师知识库的数据来源、格式与许可（v2，单独立项）。
-5. 绘图工作区中 ASK 入口与 ID 展示的具体位置（A1，先出截图方案）。
+5. 绘图工作区入口与 ID 位置已由 A1 桌面／手机截图确认并落地，见 [A1 记录](ask-a1.md)。
 6. 本地代理推理转发的环境变量命名（A4）。
 
 ## 10. 第 0 步记录
@@ -332,3 +337,4 @@ ASK 对话不持久化（文档 1 D10）；连接配置沿用 `koma.routing.v1`�
 - 新建 `codex/ask-plan` 分支，纳入文档 1–3 与原型，新增本文，并同步更新 `AGENTS.md`、`docs/implementation-plan.md` 与 `README.md`。未写实现代码，未推送或部署。
 - A0.1 在 `codex/ask-a0` 分支实施，记录见 [ask-a0.md](ask-a0.md)。
 - A0.2 在同一分支继续实施，记录见 [ask-a0.md](ask-a0.md) 的 A0.2 部分；与规划的差异（抽屉从顶栏下沿开始、暂只有快捷键入口、`get_state` 提前）已登记在该记录中。
+- A0 在完成停止回滚修正与模拟检查后提交为 `468d876`。A1 在独立 `codex/ask-a1` 分支实施，记录见 [ask-a1.md](ask-a1.md)；本轮按用户选择使用合成图片，入口按用户批准的截图接入。

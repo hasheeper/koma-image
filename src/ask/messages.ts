@@ -16,6 +16,8 @@ export interface AskImage {
   readonly mime: "image/png" | "image/jpeg" | "image/webp";
   /** Base64 without the data: prefix. */
   readonly data: string;
+  /** Local provenance; adapters omit it. Used when old images become text. */
+  readonly viewed?: { readonly ids: readonly string[]; readonly spec: string; readonly bytes: number };
 }
 export interface AskCall {
   readonly type: "call";

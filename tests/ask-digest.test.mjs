@@ -72,8 +72,9 @@ test("digest: same workbench, same bytes; no binary data; base hash tracks only 
   const state = JSON.parse(first.json);
   assert.deepEqual(Object.keys(state), Object.keys(state).sort());
   assert.equal(first.json.includes("blob"), false);
-  assert.deepEqual(state.image.history.map((h) => h.id), ["#h3", "#h2", "#h1"]);
-  assert.deepEqual(state.image.history.map((h) => h.prompt), ["1girl, red eyes", "= form", "= #h3"]);
+  assert.equal(state.image.history.mode, "B");
+  assert.deepEqual(state.image.history.hot.map((h) => h.id), ["#h3", "#h2", "#h1"]);
+  assert.deepEqual(state.image.history.hot.map((h) => h.prompt), ["1girl, red eyes", form.prompt, "1girl, red eyes"]);
   assert.equal(state.image.current.id, "#h3");
   assert.equal(state.image.form.seed, "random");
   assert.deepEqual(state.image.form.characters, []);

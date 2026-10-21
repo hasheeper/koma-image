@@ -18,6 +18,8 @@ import { imageFileName, samplerName } from "../../domain/drawing";
 import AppIcon from "../../shared/AppIcon.vue";
 import EmptyStage from "./EmptyStage.vue";
 import WaveHost from "./WaveHost.vue";
+import { useAsk, AskMark } from "../../app/ask";
+const ask = useAsk();
 const { drawing, view } = useDrawing(),
   { narrow, image: shell } = useShell(),
   ui = useUi();
@@ -222,6 +224,10 @@ function save() {
 const seed = computed(() =>
   params.value.isComparison ? params.value.seedStart : params.value.seed,
 );
+const askId = computed(() => { void ask.libraryRevision.value; return current.value ? ask.labelFor(current.value.id) : null; });
+function openAsk() {
+  if (askId.value) ask.show({ anchor: askId.value });
+}
 </script>
 <template>
   <section class="stage">
@@ -258,6 +264,7 @@ const seed = computed(() =>
           >
             <AppIcon name="i-retry" />重试
           </button>
+          <button class="btn btn-quiet btn-sm ask-why" type="button" @click="ask.show({ question: '为什么这次生成失败？' })"><AskMark />Ask Why</button>
         </div>
       </div>
       <div class="layer center" data-layer="image">
@@ -279,6 +286,7 @@ const seed = computed(() =>
       id="resultPanel"
       aria-label="图片信息"
     >
+      <button class="btn btn-quiet btn-sm result-ask" type="button" :disabled="!current" aria-label="Ask 这张图" @click="openAsk"><AskMark />Ask</button>
       <div class="result-copy">
         <strong class="result-title" id="resultModel">{{
           params.modelName || params.model || "结果"
@@ -295,6 +303,7 @@ const seed = computed(() =>
           tabindex="0"
           @wheel="scrollParams"
         >
+          <button v-if="askId" class="result-param result-ask-id" type="button" title="复制图片 ID" @click="copy(askId, '图片 ID')">{{ askId }}</button>
           <button
             class="result-param result-seed"
             id="resultSeed"
@@ -423,3 +432,14 @@ const seed = computed(() =>
       </button></div
   ></Teleport>
 </template>
+<style scoped>
+.result-panel { position: relative; }
+.result-copy { padding-right: 90px; }
+.result-ask { position: absolute; top: 10px; right: 12px; gap: 6px; color: var(--a); font-weight: var(--fw-semibold); }
+.result-ask :deep(svg), .ask-why :deep(svg) { width: 16px; height: 16px; }
+.result-ask-id { color: var(--a); }
+.ask-why { margin-top: 8px; color: var(--a); }
+@media (max-width: 860px) {
+  .result-ask { top: 5px; min-height: 40px; }
+}
+</style>

@@ -15,7 +15,10 @@ import type { AskMessage, AskUsage, ProviderErrorKind } from "./provider.ts";
 import { approxTokens, createSession, estimateRequest } from "./session.ts";
 import { run } from "./runner.ts";
 import { createTools } from "./tools.ts";
-import { chatLabel, createIds } from "./ids.ts";
+import { chatLabel, createIds, idPattern } from "./ids.ts";
+import { snapshotPictures } from "./library.ts";
+import { createVision } from "./vision.ts";
+import { localTags, tagCategory } from "../services/tag-memory.ts";
 import { baseHash, buildDigest, stateBlock } from "./digest/index.ts";
 import type { Digest } from "./digest/index.ts";
 import { systemCore, systemPreferences } from "./prompts/index.ts";
@@ -31,7 +34,8 @@ export interface ToolRow {
 }
 export type AskItem =
   | { readonly kind: "text"; readonly text: string }
-  | { readonly kind: "tools"; readonly rows: readonly ToolRow[] };
+  | { readonly kind: "tools"; readonly rows: readonly ToolRow[] }
+  | { readonly kind: "pick"; readonly ids: readonly string[] };
 export interface AskTurnView {
   readonly id: number;
   readonly question: string;
@@ -50,12 +54,12 @@ export type RetryMode = "plain" | "metadata" | "codec";
 const MAX_OUTPUT = 4096;
 type Mutable<T> = { -readonly [K in keyof T]: T[K] };
 type WorkingTurn = Mutable<Omit<AskTurnView, "items">> & {
-  items: ({ kind: "text"; text: string } | { kind: "tools"; rows: Mutable<ToolRow>[] })[];
+  items: ({ kind: "text"; text: string } | { kind: "tools"; rows: Mutable<ToolRow>[] } | { kind: "pick"; ids: readonly string[] })[];
 };
 const freezeTurn = (w: WorkingTurn): AskTurnView => ({
   ...w,
   items: w.items.map((i) =>
-    i.kind === "text" ? { ...i } : { kind: "tools" as const, rows: i.rows.map((r) => ({ ...r })) },
+    i.kind !== "tools" ? { ...i } : { kind: "tools" as const, rows: i.rows.map((r) => ({ ...r })) },
   ),
 });
 
@@ -75,6 +79,8 @@ export function createAsk(deps: {
   const { preferences, connections } = services;
   const session = createSession(),
     ids = createIds(),
+    vision = createVision(),
+    viewed = new Set<string>(),
     tools = createTools(),
     toolList = [...tools.values()].map((entry) => entry.tool);
   const readSettings = () => readAskSettings(preferences.get(names.ask, null)),
@@ -94,7 +100,8 @@ export function createAsk(deps: {
     routing = shallowRef(connections.configuration),
     sessionCodec = shallowRef(false),
     preferencePaused = shallowRef(false),
-    stateRevision = shallowRef(0);
+    stateRevision = shallowRef(0),
+    libraryRevision = shallowRef(0);
   const editorOpen = computed(() => router.route.value.overlay === "editor"),
     visible = computed(() => open.value && !editorOpen.value),
     running = computed(() => live.value !== null),
@@ -169,6 +176,7 @@ export function createAsk(deps: {
             }
           : null,
       ids,
+      category: tagCategory,
     });
   }
   const currentHash = () => {
@@ -179,6 +187,7 @@ export function createAsk(deps: {
   function syncDrawing() {
     const d = drawing.snapshot();
     ids.sync(d.history, d.favorites);
+    libraryRevision.value++;
     current.value = d.current ? ids.label(d.current.id) : null;
     if (!visible.value || stateTimer) return;
     stateTimer = setTimeout(() => {
@@ -249,11 +258,14 @@ export function createAsk(deps: {
     }
     notice.value = "";
     const config = settings.value,
-      turnAnchor = options.anchor !== undefined ? options.anchor : anchor.value ?? current.value,
+      turnAnchor = options.anchor !== undefined ? options.anchor : [...question.matchAll(idPattern)][0]?.[0] ?? anchor.value,
       metadataOnly = !!options.metadataOnly || !config.images,
       codec = codecFor({ adult: adult.value, enabled: codecActive.value, words: config.words });
     // The snapshot is fixed for the whole turn; get_state appends newer ones.
     const digest = digestNow(turnAnchor);
+    const snapshot = drawing.snapshot(),
+      library = snapshotPictures(snapshot.history, snapshot.favorites, ids),
+      turnViewed = new Set(viewed);
     const user: AskMessage = {
       role: "user",
       content: [
@@ -261,7 +273,7 @@ export function createAsk(deps: {
         { type: "text", text: question },
       ],
     };
-    const turn = session.begin(user),
+    const turn = session.begin(user, { metadataOnly }),
       abort = new AbortController(),
       pacer = createPacer();
     abort.signal.addEventListener("abort", pacer.cancel, { once: true });
@@ -298,6 +310,10 @@ export function createAsk(deps: {
         context: {
           signal: abort.signal,
           metadataOnly,
+          library,
+          vision,
+          visual: { signal: abort.signal, metadataOnly, budget: turn.budget.vision, viewed: turnViewed },
+          tags: localTags,
           state: () => ({
             text: stateBlock(digestNow(turnAnchor)),
             images: drawing.snapshot().history.length,
@@ -334,6 +350,7 @@ export function createAsk(deps: {
               row.state = event.ok ? "done" : "error";
               row.stat = event.stat;
             }
+            if (event.picks?.length) working.items.push({ kind: "pick", ids: event.picks });
             commit();
           }, PACE.toolMin);
         } else if (event.type === "usage") usage.value = session.usage;
@@ -342,6 +359,7 @@ export function createAsk(deps: {
       await pacer.settled();
       abort.signal.throwIfAborted();
       turn.commit();
+      for (const id of turnViewed) viewed.add(id);
       working.status = "done";
       const reply = working.items.flatMap((i) => (i.kind === "text" ? [i.text.trim()] : [])).filter(Boolean).join("\n\n");
       say(reply);
@@ -431,6 +449,7 @@ export function createAsk(deps: {
     adult: adult as Readonly<ShallowRef<boolean>>,
     preferencePaused: preferencePaused as Readonly<ShallowRef<boolean>>,
     ready,
+    libraryRevision: libraryRevision as Readonly<ShallowRef<number>>,
     codecActive,
     estimate,
     setInput(text: string) {
@@ -438,9 +457,10 @@ export function createAsk(deps: {
       if (notice.value) notice.value = "";
     },
     /** For workspaces (A1 entries): open with an image already referenced. */
-    show(options: { anchor?: string } = {}) {
+    show(options: { anchor?: string; question?: string } = {}) {
       if (editorOpen.value) return;
       if (options.anchor !== undefined) anchor.value = options.anchor;
+      if (options.question) input.value = input.value.trim() ? `${input.value}\n${options.question}` : options.question;
       open.value = true;
     },
     hide() {
@@ -451,6 +471,25 @@ export function createAsk(deps: {
     },
     clearAnchor() {
       anchor.value = null;
+    },
+    labelFor(id: string) { return ids.label(id); },
+    pictureInfo(label: string) {
+      const id = ids.resolve(label), d = drawing.snapshot();
+      const item = [...d.history, ...d.favorites].find((r) => r.id === id);
+      return item ? { label, url: drawing.url(item, true), width: item.size.width, height: item.size.height } : null;
+    },
+    locate(label: string) {
+      const id = ids.resolve(label), d = drawing.snapshot();
+      const item = [...d.history, ...d.favorites].find((r) => r.id === id);
+      if (!item) { notice.value = `${label} 已不在本页历史或收藏中`; return; }
+      router.switchWorkspace("image");
+      drawing.show(item, true);
+      if (window.matchMedia("(max-width: 860px)").matches) open.value = false;
+    },
+    pick(label: string) {
+      if (!this.pictureInfo(label)) return;
+      anchor.value = label;
+      if (!input.value.trim()) input.value = `请分析 ${label}`;
     },
     togglePreference() {
       preferencePaused.value = !preferencePaused.value;
@@ -477,6 +516,8 @@ export function createAsk(deps: {
       window.removeEventListener("keydown", onKey);
       for (const stopListening of stops) stopListening();
       layers.clear();
+      vision.dispose();
+      viewed.clear();
       root = null;
     },
   };

@@ -10,7 +10,7 @@ function comparisonColumns(total: number): number {
 }
 
 async function drawBlobContained(
-  ctx: CanvasRenderingContext2D,
+  ctx: CanvasRenderingContext2D | OffscreenCanvasRenderingContext2D,
   blob: Blob,
   x: number,
   y: number,
@@ -58,6 +58,34 @@ async function drawBlobContained(
   } finally {
     release();
   }
+}
+
+/** ASK contact sheets reuse the comparison grid/contain renderer, with no original output. */
+export async function makeContactSheet(
+  items: readonly { blob: Blob; label: string }[],
+  edge: number,
+  signal: AbortSignal,
+) {
+  if (items.length < 2 || items.length > 6) throw new Error("拼图需要 2–6 张图片");
+  const columns = comparisonColumns(items.length), rows = Math.ceil(items.length / columns);
+  const width = edge, height = Math.round(edge * rows / columns);
+  const canvas = new OffscreenCanvas(width, height), ctx = canvas.getContext("2d", { alpha: false });
+  if (!ctx) throw new Error("当前浏览器不支持 Canvas 合成");
+  const cellWidth = width / columns, cellHeight = height / rows;
+  const mono = getComputedStyle(document.documentElement).getPropertyValue("--mono").trim();
+  ctx.fillStyle = "#141416";
+  ctx.fillRect(0, 0, width, height);
+  for (let i = 0; i < items.length; i++) {
+    signal.throwIfAborted();
+    const x = (i % columns) * cellWidth, y = Math.floor(i / columns) * cellHeight;
+    await drawBlobContained(ctx, items[i].blob, x + 4, y + 4, cellWidth - 8, cellHeight - 28);
+    ctx.fillStyle = "#f2f1f4";
+    ctx.font = `14px ${mono}`;
+    ctx.textBaseline = "bottom";
+    ctx.fillText(items[i].label, x + 8, y + cellHeight - 4, cellWidth - 16);
+  }
+  signal.throwIfAborted();
+  return canvas;
 }
 
 function canvasBlob(canvas: HTMLCanvasElement): Promise<Blob> {

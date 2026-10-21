@@ -1,6 +1,7 @@
 import { CATEGORIES, hasHan, rankTags } from "../domain/tags.ts";
 import type { TagItem } from "../domain/tags.ts";
 import { object } from "../domain/value.ts";
+import { rememberTags } from "./tag-memory.ts";
 interface Options {
   signal?: AbortSignal;
   categories?: number[];
@@ -96,6 +97,7 @@ export function createTagSearch(
         };
       })
       .filter((r: TagItem) => r.name);
+    rememberTags(items);
     if (!official) remember(translatedCache, url.href, items);
     return items.slice(offset, offset + limit);
   }

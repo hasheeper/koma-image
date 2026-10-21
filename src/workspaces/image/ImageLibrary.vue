@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed, shallowRef, nextTick } from "vue";
+import { computed, shallowRef, nextTick, watch } from "vue";
 import { useShell } from "../../app/shell";
 import { useDrawing } from "../../app/drawing";
 import type { ImageRecord } from "../../domain/drawing";
@@ -8,6 +8,8 @@ import { names } from "../../storage/names";
 import AppIcon from "../../shared/AppIcon.vue";
 import WaveHost from "./WaveHost.vue";
 import { stripBar } from "./library-strip";
+import { useAsk } from "../../app/ask";
+const ask = useAsk(), comparing = shallowRef(false), selected = shallowRef<readonly string[]>([]);
 const { image, narrow } = useShell(),
   { drawing, view } = useDrawing();
 const tabs = ["history", "favorites"] as const,
@@ -17,6 +19,25 @@ const tabs = ["history", "favorites"] as const,
 const pending = computed(() =>
   image.library === "history" ? view.value.pending : null,
 );
+function askLabel(id: string) { void ask.libraryRevision.value; return ask.labelFor(id); }
+function choose(id: string) {
+  if (selected.value.includes(id)) selected.value = selected.value.filter((value) => value !== id);
+  else if (selected.value.length < 2) selected.value = [...selected.value, id];
+}
+function toggleCompare() {
+  comparing.value = !comparing.value;
+  if (!comparing.value) selected.value = [];
+}
+function askDiff() {
+  const labels = selected.value.map(askLabel).filter((v): v is string => !!v);
+  if (labels.length !== 2) return;
+  ask.show({ anchor: labels[0], question: `对比 ${labels[0]} 与 ${labels[1]}，哪些参数和画面发生了变化？` });
+  if (narrow.value) image.menuOpen = false;
+}
+watch(() => [view.value.history, view.value.favorites], () => {
+  const alive = new Set([...view.value.history, ...view.value.favorites].map((r) => r.id));
+  selected.value = selected.value.filter((id) => alive.has(id));
+});
 const focus = computed(() =>
   pending.value && !view.value.browsing
     ? -1
@@ -98,7 +119,7 @@ function tileKey(e: KeyboardEvent) {
         End: buttons.length - 1,
       } as Record<string, number>
     )[e.key];
-  if (next !== undefined && buttons[next]) {
+  if (at >= 0 && next !== undefined && buttons[next]) {
     e.preventDefault();
     buttons[next].focus();
   }
@@ -186,9 +207,8 @@ async function preview(item: ImageRecord, e: Event) {
       >
         <WaveHost small style="position: absolute; inset: 0" />
       </button>
+      <div v-for="(item, index) in items" :key="item.id" class="library-item">
       <button
-        v-for="(item, index) in items"
-        :key="item.id"
         class="tile"
         type="button"
         :data-id="item.id"
@@ -212,6 +232,7 @@ async function preview(item: ImageRecord, e: Event) {
         @pointerenter="preview(item, $event)"
         @focus="preview(item, $event)"
       >
+        <span v-if="image.historyOpen || narrow" class="library-ask-id">{{ askLabel(item.id) }}</span>
         <img :src="drawing.url(item, true)" alt="" decoding="async" /><span
           v-if="image.library === 'history' && has(item.id)"
           class="tile-favorite"
@@ -227,6 +248,10 @@ async function preview(item: ImageRecord, e: Event) {
           >×</span
         >
       </button>
+      <button v-if="comparing && (image.historyOpen || narrow)" class="library-pick" type="button" :aria-label="`选择 ${askLabel(item.id)} 对比`" :aria-pressed="selected.includes(item.id)" :disabled="selected.length === 2 && !selected.includes(item.id)" @click="choose(item.id)">
+        <span>{{ selected.includes(item.id) ? selected.indexOf(item.id) + 1 : '' }}</span>
+      </button>
+      </div>
       <div
         v-if="!image.historyOpen && !narrow && (items.length || pending)"
         class="library-tail"
@@ -289,6 +314,10 @@ async function preview(item: ImageRecord, e: Event) {
         }}</span>
       </p>
     </div>
+    <div v-if="comparing && (image.historyOpen || narrow)" class="library-diff" role="group" aria-label="图片对比选择">
+      <span>已选 {{ selected.length }} 张 · <button type="button" @click="selected = []">清空</button></span>
+      <button class="btn btn-quiet btn-sm" type="button" :disabled="selected.length !== 2" @click="askDiff">Ask Diff</button>
+    </div>
     <footer class="library-foot">
       <button
         id="histToggle"
@@ -313,6 +342,32 @@ async function preview(item: ImageRecord, e: Event) {
       >
         <AppIcon name="i-trash" />
       </button>
+      <button v-if="image.historyOpen || narrow" class="library-compare" type="button" :aria-pressed="comparing" @click="toggleCompare">{{ comparing ? '完成' : '对比' }}</button>
     </footer>
   </aside>
 </template>
+<style scoped>
+.library-item { position: relative; flex: none; min-width: 0; }
+.library-item > .tile { display: block; }
+.library-ask-id { position: absolute; top: 5px; left: 5px; z-index: 1; padding: 2px 5px; color: var(--fg); font: var(--fw-regular) var(--fz-2xs)/1.4 var(--mono); background: rgba(0, 0, 0, .65); border-radius: 5px; pointer-events: none; }
+.library-pick { position: absolute; right: 0; bottom: 0; display: grid; place-items: center; width: 44px; height: 44px; }
+.library-pick span { display: grid; place-items: center; width: 24px; height: 24px; color: var(--a-ink); font-size: var(--fz-xs); background: var(--sunken); border: 1px solid var(--fg-3); border-radius: 50%; }
+.library-pick[aria-pressed="true"] span { background: var(--a); border-color: var(--a); }
+.library-pick:disabled { opacity: .35; }
+.library-diff { display: grid; flex: none; gap: 7px; justify-items: center; margin: 6px 8px; padding: 9px 6px; font-size: var(--fz-xs); background: var(--raised); border: 1px solid var(--line-2); border-radius: 10px; }
+.library-diff > span { color: var(--fg-3); }
+.library-diff .btn { min-height: 30px; padding: 0 8px; }
+.library-compare { flex: none; padding: 4px; color: var(--fg-3); font-size: var(--fz-2xs); white-space: nowrap; border-radius: 5px; }
+.library-compare[aria-pressed="true"] { color: var(--a); }
+@media (min-width: 861px) {
+  :global(body[data-hist="off"]) .library-item { display: contents; }
+}
+@media (max-width: 860px) {
+  .gallery .library-foot:has(.library-compare) { display: flex; }
+  .gallery .library-foot .library-fold { display: none; }
+  .gallery .library-foot .library-clear { flex: none; width: 44px; height: 44px; padding: 0; justify-content: center; }
+  .library-diff { display: flex; justify-content: center; margin: 6px 0; }
+  .library-compare { min-width: 44px; min-height: 44px; }
+  .library-ask-id { font-size: var(--fz-xs); }
+}
+</style>
