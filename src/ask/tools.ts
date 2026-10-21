@@ -81,7 +81,7 @@ const reply = (value: unknown, stat: string, picks?: readonly string[]): ToolOut
   content: [{ type: "text", text: dataBlock(canonical(value)) }], stat, ...(picks ? { picks } : {}),
 });
 const schema = (properties: Record<string, unknown>, required: string[] = []) => ({ type: "object", properties, required, additionalProperties: false });
-const idField = { type: "string", description: "图片 ID，如 #h12、#f3" };
+const idField = { type: "string", description: "图片 ID，如 #h12、#f3、当前 CHAT 分支的 #c2.1" };
 const changedFields = ["prompt", "negative", "model", "seed", "steps", "scale", "cfg", "sampler", "width", "height", "strength", "noise"];
 const readMeta: ToolEntry = {
   tool: { name: "get_meta", description: "读取图片完整参数，不发送图片。", schema: schema({ id: idField }, ["id"]) },

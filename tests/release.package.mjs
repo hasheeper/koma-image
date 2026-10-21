@@ -43,6 +43,9 @@ test("M7 release: allowlisted archive, checksums, dependency-free extracted serv
       await readFile(join(root, ".env.example"), "utf8"),
       /^KOMA_GATEWAY_URL=\nKOMA_GATEWAY_KEY=\n/,
     );
+    for (const protocol of ["OPENAI", "ANTHROPIC"])
+      for (const field of ["URL", "KEY"])
+        assert.match(await readFile(join(root, ".env.example"), "utf8"), new RegExp(`^KOMA_ASK_${protocol}_${field}=$`, "m"));
     assert.equal(
       JSON.parse(await readFile(join(root, "package.json"), "utf8"))
         .dependencies,

@@ -23,7 +23,7 @@
 | OpenAI Chat 兼容 · ASK | 仅供 ASK 推理，不出现在图像模型中 | 含版本路径的接口地址（如 `…/v1`、`…/v1beta/openai`）；只填根地址时补 `/v1` |
 | Anthropic Messages · ASK | 仅供 ASK 推理，不出现在图像模型中 | 服务根地址或以 `/v1` 结尾的地址，保留服务前缀 |
 
-原生接口没有预报价时显示“费用未知”，不套用标准网关的积分或免费额度。NAI 官方重绘／放大尚未开放。浏览器直连需服务允许 CORS；环境变量本地代理本轮仍只支持标准网关。完整范围与联调边界见[原生图像协议](docs/native-image-protocols.md)。
+原生接口没有预报价时显示“费用未知”，不套用标准网关的积分或免费额度。NAI 官方重绘／放大尚未开放。浏览器直连需服务允许 CORS；环境变量本地代理支持标准网关和两种 ASK 推理协议。完整范围与联调边界见[原生图像协议](docs/native-image-protocols.md)。
 
 OpenAI／Gemini 的模型列表仅用于获取 ID，不按名称提前筛选，也不自动遍历分页。自定义 ID 可在「设置 → 模型 → 指定 ID」中匹配；实际请求会发送选中的上游 ID。
 
@@ -55,11 +55,11 @@ npm run preview
 
 ```sh
 npm run build
-# 可选：复制并编辑 .env.example 为 .env，填写 KOMA_GATEWAY_URL 与 KOMA_GATEWAY_KEY
+# 可选：复制并编辑 .env.example 为 .env，配置图像网关或 ASK 推理连接
 npm start
 ```
 
-打开 http://127.0.0.1:3218。两项环境变量都为空时使用浏览器配置模式；都填写后启用同源本地代理。Key 保留在服务端，网页只显示只读状态。服务只监听本机回环地址。
+打开 http://127.0.0.1:3218。所有连接变量为空时使用浏览器配置模式；任何一组 URL／Key 成对填写后启用同源本地代理。图像网关使用 `KOMA_GATEWAY_URL`／`KOMA_GATEWAY_KEY`；ASK 使用 `KOMA_ASK_OPENAI_URL`／`KOMA_ASK_OPENAI_KEY` 或 `KOMA_ASK_ANTHROPIC_URL`／`KOMA_ASK_ANTHROPIC_KEY`，三组独立可选。Key 保留在服务端，连接地址和 Key 在网页中只读；ASK 模型仍在「设置 → ASK」选择。服务只监听本机回环地址。
 
 ```sh
 npm run package
@@ -133,7 +133,7 @@ docs/         规范、实施记录与发布说明
 - [M7 本地代理与发布验收](docs/release-acceptance.md)
 - [P3 NovelAI 官方连接](docs/novelai-official.md)：[P3.0 连接管理](docs/shared-settings-tags.md#p30-连接管理)、[P3.1 Profile 泛化](docs/gateway-data-scheduler.md#p31-profile-泛化)
 - [原生图像协议接入](docs/native-image-protocols.md)：OpenAI Images、Gemini 原生、NAI 官方基础适配及实测边界
-- [Koma ASK 决策与实施规划](docs/ask/ask-implementation-plan.md)：A0 推理协议、设置、会话与抽屉见 [A0 记录](docs/ask/ask-a0.md)；A1 只读工具、视觉与 Ask／Ask Diff／Ask Why 入口已实现并通过合成图片和模拟服务验证，见 [A1 记录](docs/ask/ask-a1.md)。也可用 ⌘J／Ctrl+J 打开。A2 草稿审阅、确认应用与撤销已实现并通过模拟验证，见 [A2 记录](docs/ask/ask-a2.md)。真实图片诊断与供应商实测待办，A3 起未实现；设计见 `docs/ask/` 下文档 1–3
+- [Koma ASK 决策与实施规划](docs/ask/ask-implementation-plan.md)：A0–A4 已实现并通过合成图片／模拟服务验证。推理协议、设置、会话与抽屉见 [A0](docs/ask/ask-a0.md)，只读工具与视觉入口见 [A1](docs/ask/ask-a1.md)，草稿审阅、确认应用与撤销见 [A2](docs/ask/ask-a2.md)，当前 CHAT 分支摘要与提纯草稿见 [A3](docs/ask/ask-a3.md)，本地推理代理与行内模式见 [A4](docs/ask/ask-a4.md)。⌘J／Ctrl+J 打开抽屉，Prompt／Negative／CHAT 输入框中 ⌘K／Ctrl+K 打开行内模式。真实图片诊断质量与供应商实测待办；设计见 `docs/ask/` 下文档 1–3
 - [发布包使用、更新与回退](docs/release-guide.md)
 - [第三方资源](docs/third-party-assets.md)
 - [协作约定](AGENTS.md)

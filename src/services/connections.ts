@@ -30,28 +30,26 @@ export function createConnections(
   // Credential material stays inside this service, never in Vue/configuration/cache keys.
   // M3's vault will supply unlocked material here and clear it on lock.
   const keys = new Map<string, { value: string; revision: string }>();
-  const managed: Connection | undefined = local
-    ? Object.freeze({
-        id: LOCAL_CONNECTION_ID,
-        name: "本地网关",
-        baseUrl: local.baseUrl,
-        profileId: STANDARD_PROFILE_ID,
-        credentialRef: "local-server",
-        revision: "local-runtime-v1",
-      })
-    : undefined;
+  const managed: Connection[] = local ? [
+    ...(local.image !== false ? [{ id: LOCAL_CONNECTION_ID, name: "本地网关", baseUrl: local.baseUrl, profileId: STANDARD_PROFILE_ID, credentialRef: "local-server", revision: "local-runtime-v1" }] : []),
+    ...(local.reasoning ?? []).map((profileId) => {
+      const protocol = profileId === "openai-chat-v1" ? "openai" : "anthropic";
+      return { id: `local-ask-${protocol}`, name: `本地 ASK · ${protocol === "openai" ? "OpenAI Chat" : "Anthropic Messages"}`, baseUrl: `${local.baseUrl}/ask/${protocol}`, profileId, credentialRef: `local-ask-${protocol}-server`, revision: "local-runtime-v1" };
+    }),
+  ].map((c) => Object.freeze(c)) : [];
+  const managedConnections = () => Object.fromEntries(managed.map((c) => [c.id, c]));
   const listeners = new Set<(kind: "configuration" | "keys") => void>();
   const emit = (kind: "configuration" | "keys" = "keys") =>
     listeners.forEach((fn) => fn(kind));
   function reload() {
     configurationEpoch++;
     try {
-      if (managed) {
+      if (local) {
         routing = {
           version: 1,
-          connections: { [managed.id]: managed },
+          connections: managedConnections(),
           links: {
-            [managed.id]: validateModelLinks(
+            [LOCAL_CONNECTION_ID]: validateModelLinks(
               JSON.parse(storage.getItem(names.localModels) || "{}"),
             ),
           },
@@ -63,8 +61,8 @@ export function createConnections(
       }
     } catch {
       // Corrupt settings must not leave a stale address/key context usable.
-      routing = managed
-        ? { version: 1, connections: { [managed.id]: managed }, links: {} }
+      routing = local
+        ? { version: 1, connections: managedConnections(), links: {} }
         : emptyRouting();
     }
     for (const ref of keys.keys())
@@ -78,7 +76,7 @@ export function createConnections(
     local: Boolean(local),
     hasCredential(credentialRef: string) {
       return (
-        managed?.credentialRef === credentialRef || keys.has(credentialRef)
+        managed.some((c) => c.credentialRef === credentialRef) || keys.has(credentialRef)
       );
     },
     reload,
@@ -91,18 +89,16 @@ export function createConnections(
     },
     async save(value: unknown) {
       const next = validateRouting(value);
-      if (managed) {
+      if (local) {
         if (
-          Object.keys(next.connections).length !== 1 ||
-          (Object.keys(managed) as (keyof Connection)[]).some(
-            (key) => next.connections[managed.id]?.[key] !== managed[key],
-          )
+          Object.keys(next.connections).length !== managed.length ||
+          managed.some((c) => (Object.keys(c) as (keyof Connection)[]).some((key) => next.connections[c.id]?.[key] !== c[key]))
         )
           throw new Error("本地连接由服务端环境变量管理");
         await write(() =>
           storage.setItem(
             names.localModels,
-            JSON.stringify(next.links[managed.id] || {}),
+            JSON.stringify(next.links[LOCAL_CONNECTION_ID] || {}),
           ),
         );
         reload();
@@ -115,7 +111,7 @@ export function createConnections(
       reload();
     },
     supplyKey(credentialRef: string, value: string) {
-      if (managed) throw new Error("本地 Key 由服务端环境变量管理");
+      if (local) throw new Error("本地 Key 由服务端环境变量管理");
       if (
         !Object.values(routing.connections).some(
           (c) => c.credentialRef === credentialRef,
@@ -144,14 +140,14 @@ export function createConnections(
         : undefined;
       if (!c) throw new Error("请先配置连接 URL 与 Key");
       const credential = keys.get(c.credentialRef);
-      if (!credential && !managed) throw new Error("请先配置或解锁 API Key");
+      if (!credential && !local) throw new Error("请先配置或解锁 API Key");
       const epoch = configurationEpoch;
       const connection = freeze(structuredClone(c)),
         snapshot = freeze(structuredClone(routing));
       const assertCurrent = () => {
         if (
           epoch !== configurationEpoch ||
-          (!managed &&
+          (!local &&
             keys.get(c.credentialRef)?.revision !== credential?.revision)
         )
           throw new Error("连接或 Key 已改变，请重新操作");

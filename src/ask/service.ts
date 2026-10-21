@@ -1,5 +1,5 @@
 import { chatSnapshot, chatContext, chatPictures } from "./chat-context.ts";
-import { computed, nextTick, shallowRef } from "vue";
+import { computed, nextTick, shallowRef, watch } from "vue";
 import type { ShallowRef } from "vue";
 import type { ApplicationServices } from "../services/application.ts";
 import type { AppRouter } from "../app/router.ts";
@@ -91,6 +91,19 @@ export function createAsk(deps: {
   const readSettings = () => readAskSettings(preferences.get(names.ask, null)),
     readAdult = () => preferences.get<unknown>(names.askAdult, false) === true;
 
+  const inline = shallowRef<{ target: "image.prompt" | "image.negative" | "chat.composer"; text: string } | null>(null);
+  let inlineElement: HTMLTextAreaElement | null = null;
+  let inlineFrame = 0;
+  function placeInline() {
+    cancelAnimationFrame(inlineFrame);
+    inlineFrame = requestAnimationFrame(() => {
+      inlineFrame = 0;
+      if (!inlineElement || !root || !inline.value || !visible.value) return;
+      const r = inlineElement.getBoundingClientRect(), width = Math.min(480, innerWidth - 16), height = Math.min(560, innerHeight - 96);
+      root.style.setProperty("--ask-inline-left", `${Math.max(8, Math.min(innerWidth - width - 8, r.left))}px`);
+      root.style.setProperty("--ask-inline-top", `${Math.max(8, Math.min(innerHeight - height - 8, r.bottom + 8))}px`);
+    });
+  }
   const open = shallowRef(false),
     entries = shallowRef<readonly AskEntry[]>([]),
     live = shallowRef<AskTurnView | null>(null),
@@ -123,7 +136,7 @@ export function createAsk(deps: {
         ) ?? null,
     ),
     ready = computed<"local" | "connection" | "model" | "ok">(() =>
-      connections.local
+      connections.local && !reasoningConnections(routing.value).length
         ? "local"
         : !connection.value
           ? "connection"
@@ -148,6 +161,19 @@ export function createAsk(deps: {
     disposed = false,
     stateTimer: ReturnType<typeof setTimeout> | undefined;
   const layers = new Set<() => boolean>();
+  const inlineObserver = new ResizeObserver(placeInline);
+  const stopInline = watch([visible, inline], () => {
+    inlineObserver.disconnect();
+    window.removeEventListener("scroll", placeInline, true);
+    window.removeEventListener("resize", placeInline);
+    cancelAnimationFrame(inlineFrame);
+    if (visible.value && inline.value) {
+      if (inlineElement) inlineObserver.observe(inlineElement);
+      window.addEventListener("scroll", placeInline, true);
+      window.addEventListener("resize", placeInline);
+      void nextTick(placeInline);
+    }
+  });
   function readDraftState(): DraftState {
     const d = drawing.snapshot(), c = chat.snapshot().current;
     return { form: { ...d.form }, composer: c.prompt, conversationId: c.id, chat: chatSnapshot(chat.snapshot()), models: [...d.models], samplers: [...d.samplers], samplersByModel: Object.fromEntries(d.models.map((m) => [m.id, drawing.samplersFor(m.id)])) };
@@ -214,7 +240,7 @@ export function createAsk(deps: {
       c = chat.snapshot(),
       workspace = router.route.value.workspace,
       conversation = c.current;
-    return buildDigest({
+    const digest = buildDigest({
       workspace,
       anchor: anchorLabel,
       form: d.form,
@@ -249,6 +275,7 @@ export function createAsk(deps: {
       ids,
       category: tagCategory,
     });
+    return inline.value ? { ...digest, json: JSON.stringify({ ...JSON.parse(digest.json), inline_selection: inline.value }) } : digest;
   }
   const currentHash = () => {
     const d = drawing.snapshot();
@@ -317,7 +344,7 @@ export function createAsk(deps: {
     if (ready.value !== "ok") {
       notice.value =
         ready.value === "local"
-          ? "本地模式暂不支持 ASK"
+          ? "请在服务端配置 ASK 推理连接后重启"
           : ready.value === "connection"
             ? "请先在设置 → ASK 选择连接"
             : "请先在设置 → ASK 填写模型 ID";
@@ -502,6 +529,16 @@ export function createAsk(deps: {
     const body = !active || active === document.body;
     const typing = active instanceof HTMLElement && (active.matches("input,textarea,select") || active.isContentEditable);
     if (event.defaultPrevented || modal() || editorOpen.value) return;
+    if ((event.metaKey || event.ctrlKey) && !event.shiftKey && !event.altKey && event.key.toLowerCase() === "k") {
+      if (!(active instanceof HTMLTextAreaElement) || !["prompt", "negative", "chatPrompt"].includes(active.id) || controller || writingDraft.value) return;
+      event.preventDefault();
+      if (draft.value && draftStatus.value === "pending") { inline.value = null; open.value = true; notice.value = "请先应用或忽略当前草稿"; return; }
+      inlineElement = active;
+      inline.value = { target: active.id === "chatPrompt" ? "chat.composer" : active.id === "negative" ? "image.negative" : "image.prompt", text: (active.value.slice(active.selectionStart, active.selectionEnd) || active.value).slice(0, 24000) };
+      open.value = true;
+      void nextTick(() => { placeInline(); document.getElementById("askPrompt")?.focus(); });
+      return;
+    }
     if (event.key === "Tab" && !event.shiftKey && !event.altKey && !event.metaKey && !event.ctrlKey && visible.value && (inside || body) && !typing && window.getSelection()?.isCollapsed !== false) {
       const button = root?.querySelector<HTMLButtonElement>(".ask-draft-apply");
       if (button && !button.disabled) { event.preventDefault(); void applyDraft(button.dataset.fingerprint ?? ""); }
@@ -522,6 +559,7 @@ export function createAsk(deps: {
       // v1 has no ASK inside the editor (doc 1 D9); modals keep their own keys.
       if (editorOpen.value || modal()) return;
       event.preventDefault();
+      inline.value = null;
       open.value = !open.value;
       return;
     }
@@ -533,6 +571,8 @@ export function createAsk(deps: {
   window.addEventListener("keydown", onKey);
 
   return {
+    inline,
+    expand() { inline.value = null; },
     visible,
     running,
     entries: entries as Readonly<ShallowRef<readonly AskEntry[]>>,
@@ -577,6 +617,7 @@ export function createAsk(deps: {
     /** For workspaces (A1 entries): open with an image already referenced. */
     show(options: { anchor?: string; question?: string } = {}) {
       if (editorOpen.value) return;
+      inline.value = null;
       if (options.anchor !== undefined) anchor.value = options.anchor;
       if (options.question) input.value = input.value.trim() ? `${input.value}\n${options.question}` : options.question;
       open.value = true;
@@ -585,6 +626,7 @@ export function createAsk(deps: {
       open.value = false;
     },
     toggle() {
+      inline.value = null;
       if (!editorOpen.value) open.value = !open.value;
     },
     clearAnchor() {
@@ -640,6 +682,12 @@ export function createAsk(deps: {
     },
     dispose() {
       disposed = true;
+      stopInline();
+      inlineObserver.disconnect();
+      cancelAnimationFrame(inlineFrame);
+      window.removeEventListener("scroll", placeInline, true);
+      window.removeEventListener("resize", placeInline);
+      inlineElement = null;
       stop();
       clearTimeout(stateTimer);
       window.removeEventListener("keydown", onKey);

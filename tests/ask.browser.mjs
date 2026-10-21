@@ -6,6 +6,8 @@ import { chromium } from "playwright";
 
 let server, browser, origin;
 before(async () => {
+  await mkdir(".local/ask/a4", { recursive: true });
+  await mkdir(".local/ask/a3", { recursive: true });
   await mkdir(".local/ask/a2", { recursive: true });
   await mkdir(".local/ask/a1", { recursive: true });
   server = await createServer({ server: { host: "127.0.0.1", port: 0, open: false } });
@@ -989,5 +991,66 @@ test('ASK A3 S6: read locked CHAT context, review branch/skip/composer, apply wi
   await page.evaluate(()=>chat.mutate(c=>{c.baseFollows=!c.baseFollows;},true));
   assert.equal(await page.locator('.ask-draft-apply').isDisabled(),true);assert.match(await page.locator('.draft-issue').first().textContent(),/上下文已变化/);
   assert.equal(generation(requests).length,0);assert.deepEqual(errors,[]);
+ }finally{await context.close();}
+});
+
+test('ASK A4 inline: selected text, four widths, confirmation, undo, expand and native focus guards',async()=>{
+ const {page,context,llm,calls,requests,errors}=await open('/#/image',{ready:'.switcher',ask:askSettings()});
+ try{
+  await bind(page);await page.evaluate(()=>drawing.patch({prompt:'adult woman, red eyes, blue hair'}));
+  const initial=await form(page),source=page.locator('#prompt');
+  await source.focus();await source.evaluate(el=>el.setSelectionRange(13,21));
+  await source.dispatchEvent('keydown',{key:'k',ctrlKey:true,isComposing:true});assert.equal(await drawer(page).isVisible(),false);
+  await source.press('Control+k');await page.locator('#askDrawer.ask-inline').waitFor();
+  await page.waitForFunction(()=>document.activeElement?.id==='askPrompt');
+  assert.equal(calls.length,0);assert.deepEqual(await page.evaluate(()=>ask.inline.value),{target:'image.prompt',text:'red eyes'});
+  llm.push(proposal([patchStep('replace','red eyes','blue eyes')]));
+  await page.locator('#askPrompt').fill('把选中的眼睛颜色改成蓝色');await page.locator('#askPrompt').press('Enter');await page.locator('.ask-draft[data-status="pending"]').waitFor();
+  const dynamic=calls[0].body.messages.at(-1).content;
+  assert.match(dynamic,/"inline_selection":\{"target":"image.prompt","text":"red eyes"\}/);assert.deepEqual(await form(page),initial);
+  for(const width of [320,390,768,1440]){
+   await page.setViewportSize({width,height:900});await page.waitForTimeout(80);
+   await page.waitForFunction(()=>{
+    const source=document.querySelector('#prompt').getBoundingClientRect(),panel=document.querySelector('#askDrawer').getBoundingClientRect();
+    const left=Math.max(8,Math.min(innerWidth-panel.width-8,source.left)),top=Math.max(8,Math.min(innerHeight-panel.height-8,source.bottom+8));
+    return Math.abs(panel.left-left)<1&&Math.abs(panel.top-top)<1;
+   });
+   assert.ok(await drawer(page).evaluate(el=>{const r=el.getBoundingClientRect();return r.left>=0&&r.right<=innerWidth+1&&r.top>=0&&r.bottom<=innerHeight+1&&el.scrollWidth<=el.clientWidth+1;}),`inline bounds ${width}`);
+   await page.screenshot({path:`.local/ask/a4/inline-${width}.png`,fullPage:true});
+  }
+  await source.focus();await source.press('Tab');assert.deepEqual(await form(page),initial);
+  await page.locator('#askPrompt').fill('保留这条未发送的问题');
+  await drawer(page).getByRole('button',{name:'展开',exact:true}).click();
+  assert.equal(await drawer(page).getAttribute('class').then(c=>c.includes('ask-inline')),false);
+  assert.equal(await page.locator('#askPrompt').inputValue(),'保留这条未发送的问题');assert.equal(await page.locator('.ask-draft[data-status="pending"]').count(),1);
+  await applyDraft(page);assert.match((await form(page)).prompt,/blue eyes/);
+  await source.focus();await source.press('Control+z');await page.locator('.ask-draft[data-status="pending"]').waitFor();assert.deepEqual(await form(page),initial);
+  await page.locator('#askPrompt').focus();await page.keyboard.press('Escape');assert.equal(await page.locator('.ask-draft').count(),0);assert.equal(await drawer(page).isVisible(),true);
+  await page.keyboard.press('Escape');await drawer(page).waitFor({state:'hidden'});assert.equal(await source.evaluate(el=>document.activeElement===el),true);
+  await source.press('Meta+k');await page.locator('#askDrawer.ask-inline').waitFor();await page.keyboard.press('Escape');await drawer(page).waitFor({state:'hidden'});
+  await route(page,'#/image/settings/ask');await page.locator('#askModel').focus();await page.locator('#askModel').press('Control+k');assert.equal(await drawer(page).isVisible(),false);
+  assert.deepEqual(generation(requests),[]);assert.deepEqual(errors,[]);
+ }finally{await context.close();}
+});
+
+test('ASK A4 inline: autocomplete retains Tab/Esc and IME; K dismisses suggestions without selecting, supports Negative and CHAT',async()=>{
+ const {page,context,requests,errors}=await open('/#/image',{ready:'.switcher',ask:askSettings()});
+ try{
+  await bind(page);
+  await context.route('https://tagsuggest.zeabur.app/**',r=>r.fulfill({json:{results:[{name:'blue_hair',cn_name:'蓝发',category:0,count:100}]}}));
+  await page.evaluate(async()=>{const p=document.body.__vue_app__._instance.provides;const {servicesKey}=await import('/src/app/services.ts');const s=p[servicesKey];await s.preferences.set('koma.prefs.v1',{...s.preferences.get('koma.prefs.v1',{}),tagSuggest:true});});
+  const source=page.locator('#prompt');await source.fill('blue');await page.locator('.tag-suggest:not([hidden]) .tag-suggest-option').waitFor();
+  await source.press('Tab');assert.match(await source.inputValue(),/blue hair/);assert.equal(await drawer(page).isVisible(),false);
+  await source.fill('blue');await page.locator('.tag-suggest:not([hidden]) .tag-suggest-option').waitFor();await source.press('Escape');assert.equal(await source.getAttribute('aria-expanded'),'false');assert.equal(await source.inputValue(),'blue');
+  await source.fill('blu');await source.dispatchEvent('compositionstart');await source.dispatchEvent('keydown',{key:'k',metaKey:true,isComposing:true});assert.equal(await drawer(page).isVisible(),false);await source.dispatchEvent('compositionend');
+  await source.fill('blue');await page.locator('.tag-suggest:not([hidden]) .tag-suggest-option').waitFor();await source.press('Control+k');await page.locator('#askDrawer.ask-inline').waitFor();
+  assert.equal(await source.getAttribute('aria-expanded'),'false');assert.equal(await source.inputValue(),'blue');
+  await page.keyboard.press('Escape');await drawer(page).waitFor({state:'hidden'});
+  await page.locator('#tab-negative').click();await page.locator('#negative').fill('low quality');await page.locator('#negative').press('Control+k');await page.locator('#askDrawer.ask-inline').waitFor();assert.equal(await page.evaluate(()=>ask.inline.value.target),'image.negative');
+  await page.keyboard.press('Escape');await drawer(page).waitFor({state:'hidden'});
+  await route(page,'#/chat');await page.locator('#chatPrompt').fill('保留当前风格');await page.locator('#chatPrompt').press('Control+k');await page.locator('#askDrawer.ask-inline').waitFor();
+  assert.deepEqual(await page.evaluate(()=>ask.inline.value),{target:'chat.composer',text:'保留当前风格'});
+  await page.locator('#askPrompt').press('Control+k');assert.equal(await page.evaluate(()=>ask.inline.value.target),'chat.composer');
+  assert.deepEqual(generation(requests),[]);assert.deepEqual(errors,[]);
  }finally{await context.close();}
 });

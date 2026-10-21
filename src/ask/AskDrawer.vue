@@ -24,14 +24,11 @@ let returnFocus: HTMLElement | null = null;
 watch(root, (element) => ask.attach(element));
 // Non-modal: focus moves in on open and goes back where it came from on close.
 watch(
-  ask.visible,
-  async (visible) => {
+  [ask.visible, ask.inline],
+  async ([visible]) => {
     const active = document.activeElement;
     if (visible) {
-      returnFocus =
-        active instanceof HTMLElement && active !== document.body && !root.value?.contains(active)
-          ? active
-          : null;
+      if (active instanceof HTMLElement && active !== document.body && !root.value?.contains(active)) returnFocus = active;
       await nextTick();
       composer.value?.focus();
     } else if (active instanceof HTMLElement && root.value?.contains(active)) {
@@ -51,12 +48,14 @@ onBeforeUnmount(() => ask.attach(null));
       id="askDrawer"
       ref="root"
       class="ask"
+      :class="{ 'ask-inline': !!ask.inline.value }"
       aria-label="Koma ASK"
     >
       <header class="ask-head">
         <AskMark :thinking="ask.running.value" />
         <span class="ask-brand">Koma</span><span class="ask-tag">ASK</span>
         <span class="ask-space"></span>
+        <button v-if="ask.inline.value" class="btn btn-quiet btn-xs" type="button" @click="ask.expand()">展开</button>
         <span v-if="spent" class="ask-spent" :title="spent.title">{{ spent.label }} tokens</span>
         <button class="ibtn" type="button" aria-label="ASK 设置" @click="ask.openSettings()">
           <AppIcon name="i-settings" />
@@ -93,6 +92,10 @@ onBeforeUnmount(() => ask.attach(null));
   .ask-head { padding-left: 20px; }
   .ask-bottom { padding: 0 8px calc(8px + env(safe-area-inset-bottom)); }
   .ask-enter-from, .ask-leave-to { transform: translateY(24px); }
+}
+.ask.ask-inline { inset: auto; top: var(--ask-inline-top, 80px); left: var(--ask-inline-left, 8px); width: min(480px, calc(100vw - 16px)); height: min(560px, calc(100dvh - 96px)); border: 1px solid var(--line-2); border-radius: 20px; box-shadow: var(--sh-2); }
+@media (max-width: 400px) {
+  .ask-inline .ask-brand, .ask-inline .ask-spent { display: none; }
 }
 @media (prefers-reduced-motion: reduce) {
   .ask-enter-active, .ask-leave-active { transition: opacity var(--t1) linear; }

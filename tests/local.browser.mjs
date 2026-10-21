@@ -238,9 +238,9 @@ test("M7 production local settings: readonly credentials, isolated model prefere
         await p.screenshot({ path: `.local/m7/${section}-${width}.png` });
       }
     }
-    // ASK needs reasoning forwarding, which the local proxy gains only in A4.
+    // This fixture deliberately has no server-side reasoning credentials.
     await route(p, "#/image/settings/ask");
-    await p.locator("#settingsPanel").getByText("本地模式暂不支持 ASK", { exact: true }).waitFor();
+    await p.locator("#settingsPanel").getByText("请在服务端配置 ASK 推理连接后重启", { exact: true }).waitFor();
     assert.equal(await p.locator("#askConnection, #askAdult").count(), 0);
     await route(p, "#/image/settings/models");
     await p
@@ -405,4 +405,59 @@ test("M7 production local execution: native/Studio/tool routes, fresh max_cost, 
   } finally {
     await t.close();
   }
+});
+
+test('ASK A4 production local: both inference protocols stream tools and drafts through subpath proxy, readonly secrets and zero generation',async()=>{
+ const calls=[],browserRequests=[],errors=[];
+ const secrets={openai:'synthetic-local-openai-only',anthropic:'synthetic-local-anthropic-only'};
+ const rounds=new Map();
+ const upstream=http.createServer(async(req,res)=>{
+  const chunks=[];for await(const chunk of req)chunks.push(chunk);
+  const url=new URL(req.url,'http://localhost'),payload=chunks.length?JSON.parse(Buffer.concat(chunks).toString()):null;
+  calls.push({path:url.pathname,headers:req.headers,payload,query:url.search});
+  if(url.pathname==='/v1/models')return res.writeHead(200,{'Content-Type':'application/json'}).end(JSON.stringify({data:[{id:'local-test-model'}]}));
+  if(!['/v1/chat/completions','/v1/messages'].includes(url.pathname))return res.writeHead(404).end();
+  const n=(rounds.get(url.pathname)||0)+1;rounds.set(url.pathname,n);
+  const all=payload.messages.map(m=>typeof m.content==='string'?m.content:(m.content??[]).filter(b=>b.type==='text').map(b=>b.text).join('\n')).join('\n');
+  const state=JSON.parse(all.match(/<workspace_state>\n([\s\S]*?)\n<\/workspace_state>/)[1]);
+  const name=n%2?'get_state':'propose_draft',input=n%2?{}:{base_hash:state.base_hash,title:'本地草稿',steps:[{kind:'prompt_patch',target:'image.prompt',mode:'replace',anchor:'red eyes',text:'blue eyes'}]};
+  res.writeHead(200,{'Content-Type':'text/event-stream'});
+  if(url.pathname.endsWith('/chat/completions')){
+   res.write(`data: ${JSON.stringify({choices:[{index:0,delta:{tool_calls:[{index:0,id:`call_${n}`,type:'function',function:{name,arguments:JSON.stringify(input)}}]}}]})}\n\n`);
+   res.end(`data: ${JSON.stringify({choices:[{index:0,delta:{},finish_reason:'tool_calls'}]})}\n\ndata: [DONE]\n\n`);
+  }else{
+   const events=[{type:'message_start',message:{id:`m_${n}`,role:'assistant',usage:{input_tokens:100,output_tokens:0}}},{type:'content_block_start',index:0,content_block:{type:'tool_use',id:`call_${n}`,name,input:{}}},{type:'content_block_delta',index:0,delta:{type:'input_json_delta',partial_json:JSON.stringify(input)}},{type:'content_block_stop',index:0},{type:'message_delta',delta:{stop_reason:'tool_use'},usage:{output_tokens:20}},{type:'message_stop'}];
+   for(const e of events)res.write(`event: ${e.type}\ndata: ${JSON.stringify(e)}\n\n`);res.end();
+  }
+ });
+ const upstreamUrl=await listen(upstream);
+ const local=createLocalServer({env:{KOMA_BASE_PATH:'/app/',KOMA_ASK_OPENAI_URL:upstreamUrl+'/v1',KOMA_ASK_OPENAI_KEY:secrets.openai,KOMA_ASK_ANTHROPIC_URL:upstreamUrl,KOMA_ASK_ANTHROPIC_KEY:secrets.anthropic}});
+ const origin=await listen(local),context=await browser.newContext({viewport:{width:1440,height:900},reducedMotion:'reduce'}),p=await context.newPage();p.setDefaultTimeout(12000);
+ p.on('pageerror',e=>errors.push(e.message));p.on('request',r=>browserRequests.push({url:r.url(),headers:r.headers(),body:r.postData()}));
+ await context.addInitScript(()=>localStorage.setItem('koma.prefs.v1',JSON.stringify({tagSuggest:false})));
+ await context.route('https://tagsuggest.zeabur.app/**',r=>r.fulfill({json:{results:[]}}));
+ try{
+  await p.goto(origin+'/app/#/image/settings/ask');await p.locator('#askConnection').waitFor();
+  assert.equal(await p.locator('#askConnection option').count(),3);
+  for(const protocol of ['openai','anthropic']){
+   await route(p,'#/image/settings/ask');await p.locator('#askConnection').selectOption(`local-ask-${protocol}`);
+   await p.getByRole('button',{name:'获取',exact:true}).click();await p.waitForFunction(()=>document.querySelectorAll('#askModelIds option').length===1);
+   await p.locator('#askModel').fill('local-test-model');await p.locator('#askModel').blur();await p.waitForFunction(()=>JSON.parse(localStorage.getItem('koma.ask.v1')).model==='local-test-model');
+   await route(p,'#/image');await p.locator('#settingsPanel').waitFor({state:'hidden'});await p.locator('#prompt').fill('red eyes');
+   await p.locator('#prompt').press('Control+k');await p.locator('#askDrawer.ask-inline').waitFor();await p.locator('#askPrompt').fill('读取当前状态，把红眼睛改为蓝色');await p.locator('#askPrompt').press('Enter');
+   await p.locator('.ask-draft[data-status="pending"]').waitFor();assert.equal(await p.locator('#prompt').inputValue(),'red eyes');
+   await p.locator('.ask-draft-apply').click();await p.locator('.ask-draft[data-status="applied"]').waitFor();assert.equal(await p.locator('#prompt').inputValue(),'blue eyes');
+   await p.getByRole('button',{name:'撤销',exact:true}).click();await p.locator('.ask-draft[data-status="pending"]').waitFor();assert.equal(await p.locator('#prompt').inputValue(),'red eyes');
+   await p.locator('#askPrompt').focus();await p.keyboard.press('Escape');await p.keyboard.press('Escape');await p.locator('#askDrawer').waitFor({state:'hidden'});
+  }
+  assert.equal(rounds.get('/v1/chat/completions'),2);assert.equal(rounds.get('/v1/messages'),2);
+  assert.ok(calls.every(c=>['/v1/models','/v1/chat/completions','/v1/messages'].includes(c.path)));
+  assert.equal(calls.find(c=>c.path==='/v1/chat/completions').headers.authorization,`Bearer ${secrets.openai}`);
+  const a=calls.find(c=>c.path==='/v1/messages');assert.equal(a.headers['x-api-key'],secrets.anthropic);assert.equal(a.headers['anthropic-dangerous-direct-browser-access'],undefined);assert.ok(calls.every(c=>!c.headers['x-koma-local-token']));
+  const stored=await p.evaluate(()=>JSON.stringify({local:{...localStorage},session:{...sessionStorage}}));const html=await p.content();
+  for(const secret of [...Object.values(secrets),upstreamUrl])for(const text of [stored,html,JSON.stringify(browserRequests)])assert.equal(text.includes(secret),false);
+  assert.equal(await p.evaluate(()=>localStorage.getItem('koma.routing.v1')),null);assert.ok(browserRequests.every(r=>new URL(r.url).origin===origin));
+  const proxied=browserRequests.filter(r=>new URL(r.url).pathname.startsWith('/app/api/'));assert.ok(proxied.length>=6);assert.ok(proxied.every(r=>r.headers['x-koma-local-token']&&!r.headers.authorization&&!r.headers['x-api-key']));
+  assert.deepEqual(errors,[]);
+ }finally{await context.close();await close(local);await close(upstream);}
 });

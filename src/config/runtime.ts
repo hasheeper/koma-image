@@ -4,6 +4,8 @@ import { object } from "../domain/value.ts";
 export interface LocalGateway {
   readonly baseUrl: string;
   readonly token: string;
+  readonly image?: boolean;
+  readonly reasoning?: readonly string[];
 }
 /** Only the local server supplies this marker. Static builds do not probe a server. */
 export function readRuntime(document: Document): LocalGateway | undefined {
@@ -20,5 +22,7 @@ export function readRuntime(document: Document): LocalGateway | undefined {
   return Object.freeze({
     baseUrl: apiBase(document.baseURI).href.replace(/\/$/, ""),
     token: value.token,
+    image: value.image !== false,
+    reasoning: Array.isArray(value.reasoning) ? [...new Set(value.reasoning.filter((p): p is string => p === "openai-chat-v1" || p === "anthropic-messages-v1"))] : [],
   });
 }

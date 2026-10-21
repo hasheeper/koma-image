@@ -104,10 +104,10 @@ async function addWord() {
 </script>
 <template>
   <div class="ask-sections">
-    <section v-if="local" class="sp-sec" aria-label="ASK">
+    <section v-if="local && !sources.length" class="sp-sec" aria-label="ASK">
       <div class="sp-sec-head"><h3>ASK</h3></div>
       <div class="sp-group">
-        <div class="sp-empty">本地模式暂不支持 ASK</div>
+        <div class="sp-empty">请在服务端配置 ASK 推理连接后重启</div>
       </div>
     </section>
     <template v-else>

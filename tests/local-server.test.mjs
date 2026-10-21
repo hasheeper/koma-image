@@ -375,3 +375,58 @@ test("local runtime: isolated model preferences and backup, readonly connection,
   );
   connections.dispose();
 });
+
+const askEnv={KOMA_ASK_OPENAI_URL:'https://reasoning.example.test/compat/v1',KOMA_ASK_OPENAI_KEY:'synthetic-reasoning-only-secret',KOMA_ASK_ANTHROPIC_URL:'https://messages.example.test/prefix',KOMA_ASK_ANTHROPIC_KEY:'synthetic-messages-only-secret'};
+test('ASK local: independent optional pairs, fixed routes for both reasoning profiles, runtime has no secrets and no image connection required',async()=>{
+ for(const prefix of ['KOMA_ASK_OPENAI','KOMA_ASK_ANTHROPIC'])assert.throws(()=>createLocalServer({env:{[`${prefix}_KEY`]:'test'}}),/同时配置/);
+ const calls=[];
+ const t=await open({env:{...askEnv,KOMA_BASE_PATH:'/app/'},fetcher:async(url,init)=>{calls.push({url:new URL(url),...init});return new Response('data: {"text":"模拟输出"}\n\n',{headers:{'Content-Type':'text/event-stream','Set-Cookie':'never'}});}});
+ try{
+  const marker=JSON.parse(t.html.match(/id="koma-runtime"[^>]*>(.*?)<\/script>/)[1]);assert.equal(marker.image,false);assert.deepEqual(marker.reasoning,['openai-chat-v1','anthropic-messages-v1']);
+  for(const value of Object.values(askEnv))assert.equal(t.html.includes(value),false);
+  const payload='{"model":"arbitrary-id","messages":[],"stream":true}';
+  for(const path of ['ask/openai/chat/completions','ask/anthropic/v1/messages']){
+   const response=await fetch(t.url+'api/'+path,{method:'POST',headers:{...t.headers,Authorization:'Bearer client-key',Cookie:'client-cookie'},body:payload});
+   assert.equal(response.status,200);assert.equal(response.headers.get('set-cookie'),null);assert.equal(await response.text(),'data: {"text":"模拟输出"}\n\n');
+  }
+  assert.equal(calls[0].url.href,'https://reasoning.example.test/compat/v1/chat/completions');assert.equal(calls[0].headers.Authorization,`Bearer ${askEnv.KOMA_ASK_OPENAI_KEY}`);
+  assert.equal(calls[1].url.pathname,'/prefix/v1/messages');assert.equal(calls[1].headers['x-api-key'],askEnv.KOMA_ASK_ANTHROPIC_KEY);assert.equal(calls[1].headers['anthropic-version'],'2023-06-01');assert.equal(calls[1].headers['anthropic-dangerous-direct-browser-access'],undefined);
+  for(const c of calls){assert.equal(c.body.toString(),payload);assert.equal(c.headers.Cookie,undefined);assert.equal(c.headers['X-Koma-Local-Token'],undefined);}
+  assert.equal((await fetch(t.url+'api/ask/openai/chat/completions?target=elsewhere',{method:'POST',headers:t.headers,body:'{}'})).status,400);
+  for(const [path,status] of [['ask/openai/images/generations',404],['v1/image/models',503]])assert.equal((await fetch(t.url+'api/'+path,{headers:t.headers})).status,status);
+ }finally{await t.close();}
+});
+test('ASK local: SSE streams before completion, redacts secret echoes across byte boundaries and preserves Unicode',async()=>{
+ let source;const encoder=new TextEncoder();
+ const t=await open({env:askEnv,fetcher:async()=>new Response(new ReadableStream({start(c){source=c;c.enqueue(encoder.encode('data: '+ 'x'.repeat(200)+'\n\n'));}}),{headers:{'Content-Type':'text/event-stream'}})});
+ try{
+  const response=await fetch(t.url+'api/ask/openai/chat/completions',{method:'POST',headers:t.headers,body:'{}'}),reader=response.body.getReader();
+  const first=await reader.read();assert.ok(first.value.length>50,'response delivered while upstream is open');
+  const rest='data: '+JSON.stringify({error:`${askEnv.KOMA_ASK_OPENAI_KEY} ${askEnv.KOMA_ASK_ANTHROPIC_URL} 中文 🌙🙂`})+'\n\n';
+  for(const byte of encoder.encode(rest))source.enqueue(Uint8Array.of(byte));source.close();
+  const chunks=[first.value];while(true){const next=await reader.read();if(next.done)break;chunks.push(next.value);}
+  const output=Buffer.concat(chunks).toString();assert.match(output,/中文 🌙🙂/);assert.doesNotMatch(output,/synthetic-reasoning-only-secret|messages.example.test/);assert.match(output,/已隐藏/);
+ }finally{await t.close();}
+});
+test('ASK local: closing a streamed response cancels upstream, errors redact both credentials and catalogs allow only the fixed query',{timeout:10000},async()=>{
+ let cancelled,mode='stream';const ended=new Promise(r=>cancelled=r);const calls=[];
+ const t=await open({env:askEnv,fetcher:async(url,{signal})=>{
+  calls.push(new URL(url));
+  if(mode==='error')return Response.json({error:{message:Object.values(askEnv).join(' ')}},{status:429});
+  if(mode==='catalog')return Response.json({data:[{id:'m'}]});
+  return new Response(new ReadableStream({start(c){c.enqueue(new TextEncoder().encode('data: '+ 'x'.repeat(200)+'\n\n'));},cancel(){cancelled();}}),{headers:{'Content-Type':'text/event-stream'}});
+ }});
+ try{
+  const abort=new AbortController();const response=await fetch(t.url+'api/ask/openai/chat/completions',{method:'POST',headers:t.headers,body:'{}',signal:abort.signal});await response.body.getReader().read();abort.abort();await ended;
+  mode='error';const error=await fetch(t.url+'api/ask/anthropic/v1/messages',{method:'POST',headers:t.headers,body:'{}'});assert.equal(error.status,429);const detail=await error.text();for(const v of Object.values(askEnv))assert.equal(detail.includes(v),false);
+  mode='catalog';assert.equal((await fetch(t.url+'api/ask/anthropic/v1/models?limit=1000',{headers:t.headers})).status,200);assert.equal(calls.at(-1).search,'?limit=1000');
+  assert.equal((await fetch(t.url+'api/ask/anthropic/v1/models?limit=1001',{headers:t.headers})).status,400);
+ }finally{await t.close();}
+});
+test('ASK local connections: two managed reasoning profiles remain readonly, isolated and never return credentials',async()=>{
+ const memory=new Map(),storage={getItem:k=>memory.get(k)??null,setItem:(k,v)=>memory.set(k,v)};
+ const c=createConnections(storage,async f=>f(),{baseUrl:'http://127.0.0.1:3218/api',token:'b'.repeat(64),image:false,reasoning:['openai-chat-v1','anthropic-messages-v1']});c.reload();
+ const routing=c.configuration;assert.equal(Object.keys(routing.connections).length,2);assert.equal(c.hasCredential('local-ask-openai-server'),true);
+ assert.throws(()=>c.context('local-ask-openai').key(),/不向浏览器/);await c.save(routing);assert.equal(memory.has(names.routing),false);
+ const changed=structuredClone(routing);delete changed.connections['local-ask-openai'];await assert.rejects(c.save(changed),/服务端/);c.dispose();
+});

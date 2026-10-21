@@ -58,6 +58,7 @@ defineExpose({
 </script>
 <template>
   <div class="ask-dock">
+    <p v-if="ask.inline.value" class="ask-inline-target">{{ ask.inline.value.target === 'chat.composer' ? '对话输入框' : ask.inline.value.target === 'image.negative' ? 'Negative' : 'Prompt' }} · {{ ask.inline.value.text.length }} 字</p>
     <div v-if="ask.settings.value.preference" ref="preferenceWrap" class="ask-pref">
       <button
         class="ask-pref-chip"
@@ -144,6 +145,7 @@ defineExpose({
   </div>
 </template>
 <style scoped>
+.ask-inline-target { padding: 0 10px 6px; color: var(--fg-3); font-size: var(--fz-xs); }
 .ask-dock { position: relative; display: flex; flex-direction: column; gap: var(--sp-2); }
 .ask-pref { position: relative; align-self: flex-start; }
 .ask-pref-chip { height: 26px; padding: 0 10px; color: var(--fg-3); font-size: var(--fz-xs); background: var(--raised); border: 1px solid var(--line); border-radius: 999px; transition: color var(--t1) var(--e), background var(--t1) var(--e); }

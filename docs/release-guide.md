@@ -10,11 +10,17 @@
 npm start
 ```
 
-打开 http://127.0.0.1:3218。未设置环境变量时，在网页「设置 → 连接」中选择协议并填写 URL 和 Key，浏览器直接访问所填服务。标准网关不允许跨域时，可使用下面的本地代理模式；OpenAI Images、Gemini 原生和 NovelAI 官方目前仅支持浏览器直连。
+打开 http://127.0.0.1:3218。未设置环境变量时，在网页「设置 → 连接」中选择协议并填写 URL 和 Key，浏览器直接访问所填服务。标准网关或 ASK 推理服务不允许跨域时，可使用下面的本地代理模式；OpenAI Images、Gemini 原生和 NovelAI 官方目前仅支持浏览器直连。
 
 ## 本地代理
 
-本地代理仅支持 Koma 标准网关协议。将 `.env.example` 复制为 `.env`，在本机填写 `KOMA_GATEWAY_URL` 和 `KOMA_GATEWAY_KEY`，两项必须同时设置。URL 使用 HTTPS 或本机 HTTP，可包含接口前的路径前缀；不要附加 `/v1`、查询参数或 Key。不要提交或分享 `.env`。
+本地代理支持 Koma 标准网关、OpenAI Chat 和 Anthropic Messages。将 `.env.example` 复制为 `.env`，按需填写下表。每组 URL／Key 必须同时设置，三组独立可选；可只配置 ASK。所有组都留空时使用浏览器配置模式。URL 使用 HTTPS 或本机 HTTP，不附带查询参数或 Key。不要提交或分享 `.env`。
+
+| 用途 | 环境变量 | URL 规则 |
+| --- | --- | --- |
+| 图像标准网关 | `KOMA_GATEWAY_URL`、`KOMA_GATEWAY_KEY` | 服务根地址，可带服务前缀，不附加 `/v1` |
+| ASK OpenAI Chat | `KOMA_ASK_OPENAI_URL`、`KOMA_ASK_OPENAI_KEY` | 含版本路径的接口地址；只填根地址时补 `/v1` |
+| ASK Anthropic Messages | `KOMA_ASK_ANTHROPIC_URL`、`KOMA_ASK_ANTHROPIC_KEY` | 服务根地址或 `/v1` 地址；版本前缀只拼接一次 |
 
 ```sh
 cp .env.example .env
@@ -22,7 +28,7 @@ cp .env.example .env
 npm start
 ```
 
-也可从进程环境注入同名变量。服务仅监听 `127.0.0.1`，不作为公网代理使用；网页只访问本机固定的协议路径。Key 在服务端添加，网页中的地址和 Key 显示为只读；模型来源仍可编辑。修改环境变量后重启服务并刷新页面。
+也可从进程环境注入同名变量。服务仅监听 `127.0.0.1`，不作为公网代理使用；网页只访问本机固定的协议路径。Key 在服务端添加，网页中的地址和 Key 显示为只读；图像模型来源仍可编辑，ASK 模型在「设置 → ASK」选择或手动填写。ASK 转发支持流式输出和停止，不自动重试。修改环境变量后重启服务并刷新页面。
 
 可选 `KOMA_PORT` 默认 `3218`。可选 `KOMA_BASE_PATH` 默认 `/`；例如 `/app/`，此时打开 http://127.0.0.1:3218/app/。保持访问端口和主机名稳定，否则浏览器视为另一站点，已有图片和偏好不会自动出现。
 
