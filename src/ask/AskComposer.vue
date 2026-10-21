@@ -153,13 +153,13 @@ defineExpose({
 .ask-pref-chip[data-paused] { color: var(--fg-4); text-decoration: line-through; }
 .ask-pref-pop { position: absolute; bottom: calc(100% + 6px); left: 0; z-index: 1; display: flex; flex-direction: column; align-items: flex-start; gap: var(--sp-2); width: min(360px, calc(100vw - 32px)); padding: var(--sp-3); color: var(--fg-2); font-size: var(--fz-sm); line-height: 1.6; background: var(--ask-glass, var(--raised)); backdrop-filter: blur(20px) saturate(1.4); border: 1px solid var(--line-2); border-radius: var(--r3); box-shadow: var(--sh-2); }
 .ask-pref-pop p { white-space: pre-wrap; overflow-wrap: anywhere; }
-.ask-composer { padding: 11px 8px 8px 16px; background: var(--ask-layer, var(--raised)); border: 1px solid var(--line-2); border-radius: 20px; box-shadow: var(--sh-lip), 0 10px 32px -18px rgba(0, 0, 0, .7); }
-.ask-composer textarea { display: block; width: 100%; min-height: 26px; max-height: 30dvh; padding: 0 4px 4px; color: var(--fg); font: var(--fw-regular) var(--fz-md)/1.6 var(--sans); background: transparent; border: 0; box-shadow: none; resize: none; }
+.ask-composer { padding: 8px 8px 6px 12px; background: var(--ask-layer, var(--raised)); border: 1px solid var(--line-2); border-radius: 20px; box-shadow: var(--sh-lip), 0 10px 32px -18px rgba(0, 0, 0, .7); }
+.ask-composer textarea { display: block; width: 100%; min-height: 24px; max-height: 30dvh; padding: 0 4px 2px; color: var(--fg); font: var(--fw-regular) var(--fz-md)/1.5 var(--sans); background: transparent; border: 0; box-shadow: none; resize: none; }
 .ask-composer textarea:focus { outline: none; box-shadow: none; }
 .ask-composer textarea::placeholder { color: var(--fg-3); }
 .ask-notice { color: var(--err); font-size: var(--fz-xs); overflow-wrap: anywhere; }
 .ask-notice:not(:empty) { margin: 0 11px 6px; }
-.ask-cbar { display: flex; flex-wrap: wrap; align-items: center; gap: 0 6px; margin-top: 4px; padding-left: 6px; color: var(--fg-3); font-size: var(--fz-sm); }
+.ask-cbar { display: flex; flex-wrap: wrap; align-items: center; gap: 0 6px; margin-top: 2px; padding-left: 6px; color: var(--fg-3); font-size: var(--fz-sm); }
 .ask-capsule { display: inline-flex; align-items: center; gap: 2px; height: 28px; padding: 0 4px 0 6px; }
 .ask-capsule-id { font-family: var(--mono); color: var(--a); }
 .ask-capsule-clear { display: grid; place-items: center; width: 22px; height: 22px; color: var(--fg-4); border-radius: 50%; }

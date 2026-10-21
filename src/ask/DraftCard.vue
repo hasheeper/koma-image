@@ -70,7 +70,7 @@ function apply(event: MouseEvent) {
   </section>
 </template>
 <style scoped>
-.ask-draft { display: flex; flex: 0 1 auto; flex-direction: column; min-height: 0; max-height: min(43dvh, 380px); margin-bottom: 10px; overflow: hidden; color: var(--fg-2); background: var(--ask-layer, var(--raised)); border: 1px solid var(--line-2); border-radius: 16px; }
+.ask-draft { display: flex; flex: 0 1 auto; flex-direction: column; min-height: 0; max-height: min(30dvh, 240px); margin-bottom: 10px; overflow: hidden; color: var(--fg-2); background: var(--ask-layer, var(--raised)); border: 1px solid var(--line-2); border-radius: 16px; }
 .draft-head { display: flex; flex: none; flex-wrap: wrap; align-items: center; gap: 8px; padding: 12px; }
 .draft-head > .ico { flex: none; color: var(--a); }
 .draft-title { flex: 1; min-width: 100px; overflow-wrap: anywhere; }

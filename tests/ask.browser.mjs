@@ -1327,7 +1327,7 @@ test('ASK island: text, error, stop and responsive morphs retain anchors without
         await islandMode(page, state);
         await page.waitForFunction(state => {
           const el = document.querySelector('#askIsland'), r = el.getBoundingClientRect();
-          const size = { idle: [40, 40], run: [304, 40], done: [236, 40], exp: [420, Math.min(520, innerHeight - 16)], ready: [372, el.querySelector('.ask-ready').offsetHeight] }[state];
+          const size = { idle: [40, 40], run: [304, 40], done: [236, 40], exp: [420, Math.min(660, innerHeight - 16)], ready: [372, el.querySelector('.ask-ready').offsetHeight] }[state];
           return r.width === Math.min(size[0], innerWidth - 16) && Math.abs(r.height - size[1]) < 1 && r.left >= 7 && r.right <= innerWidth - 7 && r.top >= 7 && r.bottom <= innerHeight - 7 && el.scrollWidth <= el.clientWidth + 1;
         }, state);
         const visual = await page.locator('#askIsland').evaluate(el => {

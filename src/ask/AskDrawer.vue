@@ -46,7 +46,7 @@ const summary = computed(() => {
 });
 const dimensions = computed(() => ({
   "--ask-width": `${mode.value === "idle" ? 40 : mode.value === "run" ? 304 : mode.value === "ready" ? 372 : mode.value === "done" ? 236 : expanded.value ? 760 : 420}px`,
-  "--ask-height": mode.value === "exp" ? expanded.value ? "calc(var(--ask-available-height, 100dvh) - 32px)" : "520px" : mode.value === "ready" ? "var(--ask-ready-height, 160px)" : "40px",
+  "--ask-height": mode.value === "exp" ? expanded.value ? "calc(var(--ask-available-height, 100dvh) - 32px)" : "660px" : mode.value === "ready" ? "var(--ask-ready-height, 160px)" : "40px",
 }));
 function dismiss() {
   dismissedTurn.value = latest.value?.id ?? 0;
