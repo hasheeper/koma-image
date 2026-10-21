@@ -130,6 +130,7 @@ docs/         规范、实施记录与发布说明
 - [M7 本地代理与发布验收](docs/release-acceptance.md)
 - [P3 NovelAI 官方连接](docs/novelai-official.md)：[P3.0 连接管理](docs/shared-settings-tags.md#p30-连接管理)、[P3.1 Profile 泛化](docs/gateway-data-scheduler.md#p31-profile-泛化)
 - [原生图像协议接入](docs/native-image-protocols.md)：OpenAI Images、Gemini 原生、NAI 官方基础适配及实测边界
+- [Koma ASK 决策与实施规划](docs/ask/ask-implementation-plan.md)：只读诊断子产品，规划定稿、未开发；设计见 `docs/ask/` 下文档 1–3
 - [发布包使用、更新与回退](docs/release-guide.md)
 - [第三方资源](docs/third-party-assets.md)
 - [协作约定](AGENTS.md)
