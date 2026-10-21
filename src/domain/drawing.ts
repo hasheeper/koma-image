@@ -1,3 +1,4 @@
+import { resolveModel } from "./catalog.ts";
 import type { CatalogModel } from "./catalog.ts";
 import type { FavoriteRecord } from "../storage/records.ts";
 import type { ImagePayload } from "../gateway/routes.ts";
@@ -203,7 +204,7 @@ export function drawingPayload(p: DrawingParams): ImagePayload {
     transform_mode: "off",
   };
 }
-export function reuseFields(item: ImageRecord) {
+export function reuseFields(item: Pick<ImageRecord, "params">) {
   const p = item.params;
   return {
     prompt: p.basePrompt ?? p.prompt ?? "",
@@ -246,3 +247,64 @@ export const samplerName = (id: unknown) => {
     )[value] || value.replace(/^k_/, "").replaceAll("_", " ")
   );
 };
+
+/** Shared by image import and ASK parameter review; preserves existing normalization. */
+export function prepareDrawingFields(fields: Record<string, unknown>, models: CatalogModel[], samplers: string[]) {
+  const changes: Partial<DrawingForm> = {};
+  const applied: string[] = [];
+  for (const [key, value] of Object.entries(fields)) {
+    if (value === undefined) continue;
+    const target = key === "negative_prompt" ? "negative" : key;
+    if (key === "model") {
+      const resolved = resolveModel(models, String(value));
+      if (resolved) {
+        changes.model = resolved.id;
+        applied.push(key);
+      }
+      continue;
+    }
+    if (key === "sampler" && !samplers.includes(String(value))) continue;
+    if (["prompt", "negative", "sampler", "seed"].includes(target)) {
+      Object.assign(changes, { [target]: String(value ?? "") });
+      applied.push(key);
+    }
+    if (
+      ["width", "height", "steps", "scale", "cfg", "batchCount"].includes(
+        target,
+      ) &&
+      Number.isFinite(Number(value))
+    ) {
+      const range = (
+        {
+          steps: [1, 50, 1],
+          scale: [0, 20, 0.5],
+          cfg: [0, 30, 0.5],
+        } as Record<string, number[]>
+      )[target];
+      const numeric = range
+        ? Math.max(
+            range[0],
+            Math.min(
+              range[1],
+              Math.round(Number(value) / range[2]) * range[2],
+            ),
+          )
+        : Number(value);
+      Object.assign(changes, { [target]: numeric });
+      applied.push(key);
+    }
+  }
+  return { changes, applied };
+}
+
+/** Roll back a failed form write without normalizing a later manual choice. */
+export function rollbackDrawingEdit(before: DrawingForm, written: DrawingForm, current: DrawingForm, fields: readonly (keyof DrawingForm)[]): DrawingForm {
+  const coupled: readonly (keyof DrawingForm)[] = ["model", "sampler", "width", "height"];
+  const groupEdited = coupled.some((key) => current[key] !== written[key]);
+  const restored = { ...current };
+  for (const key of fields) {
+    if (current[key] !== written[key] || (groupEdited && coupled.includes(key))) continue;
+    Object.assign(restored, { [key]: before[key] });
+  }
+  return restored;
+}

@@ -6,6 +6,7 @@ import { chromium } from "playwright";
 
 let server, browser, origin;
 before(async () => {
+  await mkdir(".local/ask/a2", { recursive: true });
   await mkdir(".local/ask/a1", { recursive: true });
   server = await createServer({ server: { host: "127.0.0.1", port: 0, open: false } });
   await server.listen();
@@ -16,22 +17,23 @@ after(async () => { await browser?.close(); await server?.close(); });
 
 const hosts = { image: "gateway.example.test", chat: "chat.example.test", claude: "claude.example.test" };
 const reasoning = /^\/v1\/(?:chat\/completions|messages)$/;
-async function open(hash, { ready = "#settingsPanel[open]", ask = null } = {}) {
+async function open(hash, { ready = "#settingsPanel[open]", ask = null, standard = false } = {}) {
   const context = await browser.newContext({ viewport: { width: 1440, height: 900 }, reducedMotion: "reduce" });
   const page = await context.newPage(), requests = [], errors = [], llm = [], calls = [];
   page.setDefaultTimeout(12000);
   page.on("pageerror", (error) => errors.push(error.message));
-  await context.addInitScript(({ hosts, ask }) => {
+  await context.addInitScript(({ hosts, ask, standard }) => {
     if (!/^https?:/.test(location.protocol) || localStorage.getItem("koma.routing.v1")) return;
     const c = (id, name, baseUrl, profileId) => ({ id, name, baseUrl, profileId, credentialRef: `${id}-key`, revision: "rev1" });
     localStorage.setItem("koma.routing.v1", JSON.stringify({ version: 1, links: {}, connections: {
-      image: c("image", "图像连接", `https://${hosts.image}/service`, "openai-images-v1"),
+      image: c("image", "图像连接", `https://${hosts.image}/service`, standard ? "koma-standard-v1" : "openai-images-v1"),
       chat: c("chat", "推理 Chat", `https://${hosts.chat}/v1`, "openai-chat-v1"),
       claude: c("claude", "推理 Messages", `https://${hosts.claude}`, "anthropic-messages-v1"),
     } }));
     if (ask) localStorage.setItem("koma.ask.v1", JSON.stringify(ask));
     sessionStorage.setItem("koma.session.keys", JSON.stringify({ "image-key": "synthetic-image", "chat-key": "synthetic-chat", "claude-key": "synthetic-claude" }));
-  }, { hosts, ask });
+      localStorage.setItem("koma.prefs.v1", JSON.stringify({ tagSuggest: false }));
+  }, { hosts, ask, standard });
   await context.route("**/*", async (route) => {
     const request = route.request(), url = new URL(request.url());
     if (url.origin === origin) return route.continue();
@@ -40,6 +42,15 @@ async function open(hash, { ready = "#settingsPanel[open]", ask = null } = {}) {
       return route.abort();
     }
     requests.push({ host: url.hostname, path: url.pathname, method: request.method(), headers: request.headers() });
+    if (standard && url.hostname === hosts.image) {
+      if (url.pathname.endsWith("/image/models")) return route.fulfill({ json: {
+        studio_features: { version: 2, max_cost: true }, valid_samplers: ["k_euler_ancestral", "k_euler"],
+        models: { "nai-diffusion-5-full": { name: "NAI V5", provider: "novelai", max_resolution: 2200000, quota_group: "novelai" }, "nai-diffusion-4-5-full": { name: "NAI V4.5", provider: "novelai", max_resolution: 1048576, quota_group: "novelai" } },
+      } });
+      if (url.pathname.endsWith("/media/quota")) return route.fulfill({json:{credits:{remaining:100},images:{novelai:{used:0,remaining:100,limit:100}}}});
+      if (url.pathname.endsWith("/token_stats_data")) return route.fulfill({json:{temp_limits:{is_temp:false}}});
+      if (url.pathname.endsWith("/estimate")) return route.fulfill({json:{cost:1}});
+    }
     if (request.method() === "GET" && url.pathname.endsWith("/v1/models"))
       return route.fulfill({ json: { data: url.hostname === hosts.image ? [{ id: "gpt-image-1.5" }] : [{ id: "reasoning-b" }, { id: "reasoning-a" }] } });
     if (request.method() === "POST" && url.hostname !== hosts.image && reasoning.test(url.pathname)) {
@@ -48,7 +59,7 @@ async function open(hash, { ready = "#settingsPanel[open]", ask = null } = {}) {
       calls.push({ host: url.hostname, path: url.pathname, headers: request.headers(), raw: request.postData(), body: JSON.parse(request.postData()) });
       if (reply.delay) await new Promise((done) => setTimeout(done, reply.delay));
       try {
-        await route.fulfill({ status: reply.status ?? 200, contentType: reply.type ?? "text/event-stream", body: reply.body });
+        await route.fulfill({ status: reply.status ?? 200, contentType: reply.type ?? "text/event-stream", body: typeof reply.body === "function" ? reply.body(calls.at(-1).body) : reply.body });
       } catch {
         // The page aborted the request first.
       }
@@ -234,7 +245,7 @@ test("ASK drawer: Ctrl+J toggles, a scripted tool turn streams and is announced 
     const [first, second] = calls;
     assert.equal(first.headers.authorization, "Bearer synthetic-chat");
     assert.equal(first.body.model, "reasoning-a");
-    assert.deepEqual(first.body.tools.map((t) => t.function.name), ["get_state", "search_history", "get_meta", "diff_meta", "view_image", "view_sheet", "search_tags"]);
+    assert.deepEqual(first.body.tools.map((t) => t.function.name), ["get_state", "search_history", "get_meta", "diff_meta", "view_image", "view_sheet", "search_tags", "propose_draft"]);
     assert.match(first.body.messages[0].content, /你是 Koma ASK[\s\S]*<user_preferences>\n先说结论\n<\/user_preferences>/);
     const question = first.body.messages.at(-1).content;
     // Text-only user turns flatten to one string: the locked state, then the question.
@@ -732,4 +743,213 @@ test('ASK A1 entries: four viewports, collapsed history, touch selection and Ask
   assert.equal(calls.length,0);
   assert.deepEqual(generation(requests),[]);assert.deepEqual(errors,[]);
  }finally{await context.close();}
+});
+
+// A2 exercises the actual provider → tool → preview → user confirmation path.
+const patchStep = (mode, anchor, text, target = 'image.prompt') => ({kind:'prompt_patch',target,mode,anchor,text});
+const proposal = (steps, title = '调整提示词') => ({body: request => {
+  const content=request.messages.at(-1).content;
+  const state=JSON.parse(content.match(/<workspace_state>\n([\s\S]*?)\n<\/workspace_state>/)[1]);
+  return openai(text('保留已有特征，只调整指定部分。'),tool('draft_1','propose_draft',{base_hash:state.base_hash,title,steps}),end('tool_calls'));
+}});
+async function askDraft(page,llm,steps,question='把红眼睛改为蓝眼睛',title) {
+  llm.push(proposal(steps,title));
+  await page.evaluate(()=>ask.show());
+  await page.locator('#askPrompt').fill(question);
+  await page.locator('#askPrompt').press('Enter');
+  await page.locator('.ask-draft[data-status="pending"]').waitFor();
+}
+const form = page => page.evaluate(()=>({...drawing.snapshot().form}));
+const applyDraft = async page => {await page.locator('.ask-draft-apply').click();await page.locator('.ask-draft[data-status="applied"]').waitFor();};
+
+test('ASK A2: confirmation, step withdrawal, four-width draft previews, apply and single-action undo preserve original tags',async()=>{
+  const {page,context,llm,calls,requests,errors}=await open('/#/image',{ready:'.switcher',ask:askSettings()});
+  try {
+    await bind(page);await addImage(page,'adult woman, red eyes, large breasts, nude');
+    const prompt='adult woman, red eyes, large breasts, nude';
+    await page.evaluate(prompt=>drawing.patch({prompt,negative:'low quality'}),prompt);
+    const initial=await form(page);
+    await askDraft(page,llm,[patchStep('replace','red eyes','blue eyes'),patchStep('append','',', soft lighting')]);
+    assert.deepEqual(await form(page),initial);assert.equal(calls.length,1);
+    const steps=page.locator('.draft-step');
+    await steps.nth(1).getByRole('button',{name:'撤回 Prompt',exact:true}).click();
+    assert.equal(await steps.nth(1).getAttribute('class').then(c=>c.includes('off')),true);
+    await steps.nth(0).getByRole('button',{name:'撤回 Prompt',exact:true}).click();
+    assert.equal(await page.locator('.ask-draft-apply').isDisabled(),true);
+    await steps.nth(0).getByRole('button',{name:'恢复 Prompt',exact:true}).click();
+    await steps.nth(1).getByRole('button',{name:'恢复 Prompt',exact:true}).click();
+    for(const width of [320,390,768,1440]) {
+      await page.setViewportSize({width,height:900});
+      await page.waitForTimeout(80);
+      assert.ok(await drawer(page).evaluate(el=>el.scrollWidth<=el.clientWidth+1),`drawer overflow ${width}`);
+      assert.ok(await page.locator('.ask-draft').evaluate(el=>el.scrollWidth<=el.clientWidth+1),`draft overflow ${width}`);
+      assert.ok(await page.locator('.ask-draft-apply').isVisible());
+      await page.screenshot({path:`.local/ask/a2/patch-${width}.png`,fullPage:true});
+    }
+    await applyDraft(page);
+    assert.equal((await form(page)).prompt,'adult woman, blue eyes, large breasts, nude, soft lighting');
+    await page.waitForFunction(()=>document.activeElement?.id==='prompt');
+    assert.match(await drawer(page).locator('[aria-live="polite"]').textContent(),/已应用草稿/);
+    await page.keyboard.press('Control+z');
+    await page.locator('.ask-draft[data-status="pending"]').waitFor();
+    assert.deepEqual(await form(page),initial);
+    await applyDraft(page);
+    await page.evaluate(()=>drawing.patch({negative:'manual negative'}));
+    await page.getByRole('button',{name:'撤销',exact:true}).click();
+    await page.locator('.ask-draft[data-status="pending"]').waitFor();
+    assert.equal((await form(page)).negative,'manual negative');assert.equal((await form(page)).prompt,prompt);
+    await applyDraft(page);
+    await page.evaluate(()=>drawing.patch({prompt:'later manual prompt'}));
+    assert.equal(await page.getByRole('button',{name:'撤销',exact:true}).isDisabled(),true);
+    assert.equal(generation(requests).length,0);assert.deepEqual(errors,[]);
+  }finally{await context.close();}
+});
+
+test('ASK A2: rewrite compares original, underlines local kept tags and renders model HTML as text',async()=>{
+  const {page,context,llm,requests,errors}=await open('/#/image',{ready:'.switcher',ask:askSettings()});
+  try {
+    await bind(page);
+    const prompt='adult woman, nude, large breasts, blue eyes';
+    await page.evaluate(prompt=>drawing.patch({prompt}),prompt);
+    await askDraft(page,llm,[patchStep('rewrite','','BLUE EYES, adult woman, nude, large breasts, <img src=x onerror=alert(1)>')],'保留原有特征，整理顺序');
+    assert.deepEqual(await page.locator('.draft-slice .keep').allTextContents(),['BLUE EYES','adult woman','nude','large breasts']);
+    assert.equal(await page.locator('.draft-slice img').count(),0);
+    await page.getByRole('button',{name:'原文',exact:true}).click();assert.equal(await page.locator('.draft-slice').textContent(),prompt);
+    await page.getByRole('button',{name:'新稿',exact:true}).click();
+    for(const width of [320,390,768,1440]){await page.setViewportSize({width,height:900});await page.screenshot({path:`.local/ask/a2/rewrite-${width}.png`});}
+    assert.equal((await form(page)).prompt,prompt);
+    await applyDraft(page);assert.match((await form(page)).prompt,/nude, large breasts/);
+    assert.equal(generation(requests).length,0);assert.deepEqual(errors,[]);
+  }finally{await context.close();}
+});
+
+test('ASK A2: changes while thinking realign unique anchors; stale preview fingerprint and stale rewrite refuse writes',async()=>{
+  const {page,context,llm,requests,errors}=await open('/#/image',{ready:'.switcher',ask:askSettings()});
+  try {
+    await bind(page);await page.evaluate(()=>drawing.patch({prompt:'red eyes, user tags'}));
+    llm.push({...proposal([patchStep('replace','red eyes','blue eyes'),patchStep('rewrite','','replacement','image.negative')]),delay:250});
+    await page.evaluate(()=>ask.show());await page.locator('#askPrompt').fill('调整眼睛');await page.locator('#askPrompt').press('Enter');
+    await page.waitForFunction(()=>ask.running.value);
+    await page.evaluate(()=>drawing.patch({prompt:'user prefix, red eyes, user tags',negative:'manual negative'}));
+    await page.locator('.ask-draft').waitFor();
+    assert.match(await page.locator('.draft-aligned').textContent(),/按当前内容对齐/);
+    assert.match(await page.locator('.ask-note').last().textContent(),/外部修改/);
+    assert.match(await page.locator('.draft-step.invalid').textContent(),/原文已变化/);
+    const fingerprint=await page.locator('.ask-draft-apply').getAttribute('data-fingerprint');
+    await page.evaluate(async fp=>{await drawing.patch({prompt:'new prefix, red eyes, user tags'});await ask.applyDraft(fp);},fingerprint);
+    assert.match((await form(page)).prompt,/red eyes/);assert.match(await page.locator('.ask-notice').textContent(),/核对/);
+    await applyDraft(page);assert.equal((await form(page)).prompt,'new prefix, blue eyes, user tags');assert.equal((await form(page)).negative,'manual negative');
+    await page.getByRole('button',{name:'撤销',exact:true}).click();await page.locator('.ask-draft[data-status="pending"]').waitFor();
+    await page.evaluate(()=>drawing.patch({prompt:'anchor removed'}));
+    assert.equal(await page.locator('.ask-draft-apply').isDisabled(),true);
+    llm.push(proposal([patchStep('append','',', new detail')]));
+    await page.getByRole('button',{name:'基于当前内容重新提议',exact:true}).click();
+    await page.waitForFunction(()=>!ask.running.value&&ask.draftPlan.value?.steps[0]?.after===', new detail');
+    assert.equal(await page.locator('.draft-step.invalid').count(),0);
+    assert.equal(generation(requests).length,0);assert.deepEqual(errors,[]);
+  }finally{await context.close();}
+});
+
+test('ASK A2: Tab focus/selection/IME guards, Esc draft layer and stopped pacing never publish a draft',async()=>{
+  const {page,context,llm,requests,errors}=await open('/#/image',{ready:'.switcher',ask:askSettings()});
+  try {
+    await bind(page);await page.evaluate(()=>drawing.patch({prompt:'red eyes'}));
+    await askDraft(page,llm,[patchStep('replace','red eyes','blue eyes')]);
+    await page.locator('#askPrompt').focus();await page.keyboard.press('Tab');assert.equal((await form(page)).prompt,'red eyes');
+    await page.locator('#prompt').focus();await page.keyboard.press('Tab');assert.equal((await form(page)).prompt,'red eyes');
+    await page.evaluate(()=>{document.activeElement.blur();window.dispatchEvent(new KeyboardEvent('keydown',{key:'Tab',isComposing:true,bubbles:true,cancelable:true}));});
+    assert.equal((await form(page)).prompt,'red eyes');
+    await page.evaluate(()=>{const range=document.createRange();range.selectNodeContents(document.querySelector('.draft-slice'));getSelection().removeAllRanges();getSelection().addRange(range);window.dispatchEvent(new KeyboardEvent('keydown',{key:'Tab',bubbles:true,cancelable:true}));});
+    assert.equal((await form(page)).prompt,'red eyes');
+    await page.evaluate(()=>getSelection().removeAllRanges());await page.keyboard.press('Tab');
+    await page.locator('.ask-draft[data-status="applied"]').waitFor();assert.equal((await form(page)).prompt,'blue eyes');
+    await page.keyboard.press('Control+z');await page.locator('.ask-draft[data-status="pending"]').waitFor();
+    await page.locator('#askPrompt').focus();await page.keyboard.press('Escape');await page.locator('.ask-draft').waitFor({state:'hidden'});assert.equal(await drawer(page).isVisible(),true);
+    llm.push(proposal([patchStep('append','',', new detail')]));await page.locator('#askPrompt').fill('追加细节');await page.locator('#askPrompt').press('Enter');
+    await page.waitForFunction(()=>ask.live.value?.items.some(i=>i.kind==='tools'));
+    await page.keyboard.press('Escape');await page.waitForFunction(()=>!ask.running.value);
+    assert.equal(await page.locator('.ask-draft').count(),0);assert.equal((await form(page)).prompt,'red eyes');
+    assert.equal(generation(requests).length,0);assert.deepEqual(errors,[]);
+  }finally{await context.close();}
+});
+
+test('ASK A2: cross-workspace application reveals destination, chat composer stays unsent and undo preserves identity',async()=>{
+  const {page,context,llm,requests,errors}=await open('/#/image',{ready:'.switcher',ask:askSettings()});
+  try {
+    await bind(page);await page.evaluate(()=>drawing.patch({prompt:'red eyes'}));
+    await askDraft(page,llm,[patchStep('replace','red eyes','blue eyes')]);
+    await route(page,'#/chat');await page.waitForFunction(()=>location.hash==='#/chat');
+    assert.match(await page.locator('.ask-draft-apply').textContent(),/切回绘图并应用/);
+    await applyDraft(page);assert.equal(await page.evaluate(()=>location.hash),'#/image');
+    await page.evaluate(()=>chat.setPrompt('original chat text'));
+    await askDraft(page,llm,[patchStep('rewrite','','composed description','chat.composer')],'整理对话输入');
+    assert.match(await page.locator('.ask-draft-apply').textContent(),/切回对话并应用/);
+    await applyDraft(page);assert.equal(await page.evaluate(()=>location.hash),'#/chat');
+    await page.waitForFunction(()=>document.activeElement?.id==='chatPrompt');
+    assert.equal(await page.locator('#chatPrompt').inputValue(),'composed description');
+    await page.keyboard.press('Control+z');await page.locator('.ask-draft[data-status="pending"]').waitFor();
+    assert.equal(await page.locator('#chatPrompt').inputValue(),'original chat text');
+    assert.equal(generation(requests).length,0);assert.deepEqual(errors,[]);
+  }finally{await context.close();}
+});
+
+test('ASK A2: restore checklist reuses import rules; apply/undo issue zero quotes or quota calls; manual edit resumes quote',async()=>{
+  const {page,context,llm,requests,errors}=await open('/#/image',{ready:'.switcher',ask:askSettings(),standard:true});
+  try {
+    await bind(page);await page.waitForFunction(()=>drawing.snapshot().models.length===2);
+    await page.evaluate(async()=>{
+      await drawing.patch({prompt:'adult woman, nude',model:'nai-diffusion-5-full',scale:5,seed:'42',width:832,height:1216});
+      const c=new OffscreenCanvas(256,384);c.getContext('2d').fillRect(0,0,256,384);
+      await drawing.addExternal(await c.convertToBlob({type:'image/png'}),{width:256,height:384},{basePrompt:'adult woman, nude',model:'nai-diffusion-4-5-full',width:512,height:512,scale:7.3,seed:0,sampler:'k_euler',steps:99},null);
+    });
+    await page.waitForFunction(()=>drawing.snapshot().quote.status==='ready');await page.waitForTimeout(150);
+    const initial=await form(page),start=requests.length;
+    await askDraft(page,llm,[{kind:'restore_partial',source:'#h1',fields:['model','sampler','width','height','scale','seed','steps']}],'恢复 #h1 参数','从 #h1 恢复');
+    assert.deepEqual(await form(page),initial);
+    assert.match(await page.locator('[data-step="0:scale"]').textContent(),/7.5/);
+    await page.locator('[data-step="0:steps"] button').click();
+    for(const width of [320,390,768,1440]){await page.setViewportSize({width,height:900});assert.ok(await page.locator('.ask-draft').evaluate(el=>el.scrollWidth<=el.clientWidth+1));await page.screenshot({path:`.local/ask/a2/restore-${width}.png`});}
+    await applyDraft(page);let current=await form(page);
+    assert.equal(current.model,'nai-diffusion-4-5-full');assert.equal(current.scale,7.5);assert.equal(current.seed,'0');assert.equal(current.steps,initial.steps);assert.equal(current.width,512);assert.equal(current.sampler,'k_euler');
+    await page.waitForTimeout(700);assert.equal(generation(requests.slice(start)).length,0,JSON.stringify(generation(requests.slice(start))));
+    await page.getByRole('button',{name:'撤销',exact:true}).click();await page.locator('.ask-draft[data-status="pending"]').waitFor();
+    assert.deepEqual(await form(page),initial);await page.waitForTimeout(700);assert.equal(generation(requests.slice(start)).length,0,JSON.stringify(generation(requests.slice(start))));
+    await page.locator('#prompt').fill('manual edit resumes quotation');
+    await page.waitForFunction(()=>drawing.snapshot().quote.status==='ready');
+    assert.ok(requests.slice(start).some(r=>r.path.endsWith('/estimate')));
+    assert.deepEqual(errors,[]);
+  }finally{await context.close();}
+});
+
+test('ASK A2: failed persistence rolls back the draft; later manual edits survive; chat identity blocks stale writes',{timeout:45000},async()=>{
+  const {page,context,llm,requests,errors}=await open('/#/image',{ready:'.switcher',ask:askSettings()});
+  try {
+    await bind(page);
+    await page.evaluate(()=>{
+      const p=document.body.__vue_app__._context.provides;
+      window.services=p[Object.getOwnPropertySymbols(p).find(k=>k.description==='application-services')];
+    });
+    await page.evaluate(()=>drawing.patch({prompt:'red eyes'}));
+    await askDraft(page,llm,[patchStep('replace','red eyes','blue eyes')]);
+    await page.evaluate(()=>{window.savedSet=services.preferences.set;window.savedWrite=services.data.write;services.preferences.set=async()=>{throw new Error('synthetic persistence failure');};});
+    await page.locator('.ask-draft-apply').click();
+    await page.waitForFunction(()=>!ask.writingDraft.value&&ask.notice.value.includes('synthetic persistence failure'));
+    assert.equal((await form(page)).prompt,'red eyes');assert.equal(await page.locator('.ask-draft').getAttribute('data-status'),'pending');
+    // An edit arriving while the write is unresolved must survive its rejection.
+    await page.evaluate(()=>{services.preferences.set=()=>new Promise((resolve,reject)=>{window.rejectDraftWrite=reject;});});
+    await page.locator('.ask-draft-apply').click();await page.waitForFunction(()=>ask.writingDraft.value&&window.rejectDraftWrite);
+    await page.evaluate(async()=>{const reject=window.rejectDraftWrite;services.preferences.set=window.savedSet;await drawing.patch({prompt:'later manual text'});reject(new Error('synthetic late failure'));});
+    await page.waitForFunction(()=>!ask.writingDraft.value);assert.equal((await form(page)).prompt,'later manual text');
+    await page.evaluate(()=>ask.ignoreDraft());
+    await route(page,'#/chat');await page.locator('#chatPrompt').waitFor();
+    await page.evaluate(()=>chat.setPrompt('old conversation text'));await page.evaluate(()=>chat.flush());
+    await askDraft(page,llm,[patchStep('rewrite','','new composer text','chat.composer')],'整理输入框');
+    await page.evaluate(()=>{services.data.write=async()=>{throw new Error('synthetic chat failure');};});
+    await page.locator('.ask-draft-apply').click();await page.waitForFunction(()=>!ask.writingDraft.value&&ask.notice.value.includes('synthetic chat failure'));
+    assert.equal(await page.locator('#chatPrompt').inputValue(),'old conversation text');
+    await page.evaluate(()=>{services.data.write=window.savedWrite;chat.addConversation();});
+    await page.waitForFunction(()=>ask.draftPlan.value.steps[0].issue==='当前对话已切换');
+    assert.equal(await page.locator('.ask-draft-apply').isDisabled(),true);
+    assert.equal(generation(requests).length,0);assert.deepEqual(errors,[]);
+  }finally{await context.close();}
 });

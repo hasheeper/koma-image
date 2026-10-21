@@ -4,13 +4,14 @@ import { sections } from "./segments.ts";
 import type { CategoryOf } from "./segments.ts";
 import type { Ids } from "../ids.ts";
 import { historyIndex } from "./history.ts";
+import type { Fields } from "../../storage/records.ts";
 
 /** What the digest reads from a history or favorite record; never the blobs. */
 export interface DigestImage {
   readonly id: string;
   readonly createdAt: number;
   readonly favoritedAt?: number;
-  readonly params: Readonly<Record<string, unknown>>;
+  readonly params: Readonly<Fields>;
   readonly size: { readonly width: number; readonly height: number };
 }
 export interface DigestForm {

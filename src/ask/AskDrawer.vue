@@ -5,6 +5,7 @@ import AppIcon from "../shared/AppIcon.vue";
 import AskMark from "./AskMark.vue";
 import AskStream from "./AskStream.vue";
 import AskComposer from "./AskComposer.vue";
+import DraftCard from "./DraftCard.vue";
 
 const ask = useAsk();
 const root = shallowRef<HTMLElement | null>(null),
@@ -66,6 +67,7 @@ onBeforeUnmount(() => ask.attach(null));
       </header>
       <AskStream />
       <div class="ask-bottom">
+        <DraftCard />
         <AskComposer ref="composer" />
       </div>
       <div class="sr-only" role="status" aria-live="polite">
@@ -82,7 +84,8 @@ onBeforeUnmount(() => ask.attach(null));
 .ask-tag { color: var(--fg-4); font: var(--fw-semibold) var(--fz-2xs)/1 var(--sans); letter-spacing: .14em; }
 .ask-space { flex: 1; }
 .ask-spent { margin-right: 4px; color: var(--fg-4); font: var(--fw-regular) var(--fz-2xs)/1 var(--mono); }
-.ask-bottom { flex: none; padding: 0 14px 14px; }
+.ask-bottom { display: flex; flex: 0 1 auto; flex-direction: column; min-height: 0; max-height: calc(100% - 108px); padding: 0 14px 14px; }
+.ask-bottom :deep(.ask-dock) { flex: none; }
 .ask-enter-active, .ask-leave-active { transition: opacity var(--t2) var(--e), transform var(--t3) var(--e-out); }
 .ask-enter-from, .ask-leave-to { opacity: 0; transform: translateX(16px); }
 @media (max-width: 860px) {

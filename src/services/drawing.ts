@@ -7,6 +7,8 @@ import {
   drawingPayload,
   reuseFields,
   sizeProblem,
+  prepareDrawingFields,
+  rollbackDrawingEdit,
 } from "../domain/drawing.ts";
 import type { DrawingForm, ImageRecord } from "../domain/drawing.ts";
 import type { CatalogModel } from "../domain/catalog.ts";
@@ -71,7 +73,8 @@ export function createDrawing(
     catalogLoading = false,
     catalogError = "",
     disposed = false,
-    revision = 0;
+    revision = 0,
+    draftQuotePaused = false;
   let preview:
     | ReturnType<typeof createQuotePreview<ReturnType<typeof drawingPayload>>>
     | undefined;
@@ -163,7 +166,7 @@ export function createDrawing(
     emit();
   }
   function scheduleQuote() {
-    if (disposed) return;
+    if (disposed || draftQuotePaused) return;
     if (busy) {
       preview?.pause();
       quote = { status: "loading", quote: quote.quote };
@@ -181,7 +184,7 @@ export function createDrawing(
   }
   function scheduleReset() {
     clearTimeout(resetTimer);
-    if (disposed) return;
+    if (disposed || draftQuotePaused) return;
     const seconds = policy().resetSeconds;
     if (policy().serialDisabled && seconds != null && seconds > 0)
       resetTimer = setTimeout(
@@ -279,7 +282,7 @@ export function createDrawing(
         },
       );
       scheduleQuote();
-      void refreshQuota(true);
+      if (!draftQuotePaused) void refreshQuota(true);
     } else preview = undefined;
     emit();
   }
@@ -520,6 +523,7 @@ export function createDrawing(
     }
   }
   async function patch(values: Partial<DrawingForm>) {
+    draftQuotePaused = false;
     form = { ...form, ...values };
     trim();
     if (values.model !== undefined) bindModel();
@@ -535,50 +539,7 @@ export function createDrawing(
     }
   }
   function apply(fields: Record<string, unknown>) {
-    const changes: Partial<DrawingForm> = {};
-    const applied: string[] = [];
-    for (const [key, value] of Object.entries(fields)) {
-      if (value === undefined) continue;
-      const target = key === "negative_prompt" ? "negative" : key;
-      if (key === "model") {
-        const resolved = resolveModel(models, String(value));
-        if (resolved) {
-          changes.model = resolved.id;
-          applied.push(key);
-        }
-        continue;
-      }
-      if (key === "sampler" && !samplers.includes(String(value))) continue;
-      if (["prompt", "negative", "sampler", "seed"].includes(target)) {
-        Object.assign(changes, { [target]: String(value ?? "") });
-        applied.push(key);
-      }
-      if (
-        ["width", "height", "steps", "scale", "cfg", "batchCount"].includes(
-          target,
-        ) &&
-        Number.isFinite(Number(value))
-      ) {
-        const range = (
-          {
-            steps: [1, 50, 1],
-            scale: [0, 20, 0.5],
-            cfg: [0, 30, 0.5],
-          } as Record<string, number[]>
-        )[target];
-        const numeric = range
-          ? Math.max(
-              range[0],
-              Math.min(
-                range[1],
-                Math.round(Number(value) / range[2]) * range[2],
-              ),
-            )
-          : Number(value);
-        Object.assign(changes, { [target]: numeric });
-        applied.push(key);
-      }
-    }
+    const { changes, applied } = prepareDrawingFields(fields, models, samplers);
     void patch(changes);
     return applied;
   }
@@ -898,6 +859,37 @@ export function createDrawing(
       return record;
     },
     patch,
+    samplersFor(modelId: string) {
+      const selected = resolveModel(models, modelId);
+      return [...(selected ? connectionSamplers.get(selected.connection) ?? [DEFAULTS.sampler] : samplers)];
+    },
+    /** User-confirmed ASK writes invalidate the quote without scheduling network work. */
+    async writeDraft(values: Partial<DrawingForm>, expected: Record<string, unknown>) {
+      if (disposed || services.data.phase !== "ready") throw new Error("数据尚未就绪，草稿未写入");
+      if (Object.entries(expected).some(([key, value]) => form[key as keyof DrawingForm] !== value)) throw new Error("表单已变化，草稿未写入");
+      const targetModel = resolveModel(models, values.model ?? form.model);
+      if (values.model !== undefined && !targetModel) throw new Error("目标模型已不可用");
+      const allowedSamplers = targetModel ? connectionSamplers.get(targetModel.connection) ?? [DEFAULTS.sampler] : samplers;
+      if ((values.model !== undefined || values.sampler !== undefined) && !allowedSamplers.includes(values.sampler ?? form.sampler)) throw new Error("目标模型不支持此采样器，草稿未写入");
+      const before = form;
+      draftQuotePaused = true;
+      clearTimeout(resetTimer);
+      form = { ...form, ...values };
+      if (values.model !== undefined) bindModel();
+      else preview?.update(null);
+      const written = { ...form };
+      emit();
+      try {
+        await services.preferences.set(names.preferences, { ...object(services.preferences.get(names.preferences, {})), ...form });
+      } catch (error) {
+        // Model, sampler and size must remain a valid group after a manual edit.
+        const previousModel = form.model;
+        form = rollbackDrawingEdit(before, written, form, Object.keys(values) as (keyof DrawingForm)[]);
+        if (form.model !== previousModel) bindModel();
+        emit();
+        throw error;
+      }
+    },
     apply,
     run,
     cancel: () => taskAbort?.abort(new DOMException("已取消", "AbortError")),

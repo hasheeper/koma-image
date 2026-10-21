@@ -5,6 +5,8 @@ import { canonical } from "./canonical.ts";
 import { dataBlock } from "./prompts/index.ts";
 import type { Vision, VisionContext, Region } from "./vision.ts";
 import type { TagItem } from "../domain/tags.ts";
+import { proposeDraft } from "./draft/tool.ts";
+import type { Draft, DraftState } from "./draft/types.ts";
 
 export interface ToolOutcome {
   readonly content: readonly (AskText | AskImage)[];
@@ -12,6 +14,7 @@ export interface ToolOutcome {
   /** Short mono readout on the trace row, e.g. `3 处变化` or `42 KB`. */
   readonly stat?: string;
   readonly picks?: readonly string[];
+  readonly draft?: Draft;
 }
 /**
  * Everything a tool may touch. Getters only: no store, no service, nothing
@@ -27,6 +30,8 @@ export interface ToolContext {
   readonly vision?: Vision;
   readonly visual?: VisionContext;
   readonly tags?: (query: string, limit: number) => readonly TagItem[];
+  readonly draftBase?: DraftState;
+  readonly question?: string;
 }
 export interface ToolEntry {
   readonly tool: AskTool;
@@ -170,5 +175,5 @@ const searchTags: ToolEntry = {
 };
 /** Only read ports enter these tools; no generating or form-writing service. */
 export function createTools(): ToolRegistry {
-  return new Map([getState, searchHistory, readMeta, diffMeta, viewImage, viewSheet, searchTags].map((entry) => [entry.tool.name, entry]));
+  return new Map([getState, searchHistory, readMeta, diffMeta, viewImage, viewSheet, searchTags, proposeDraft].map((entry) => [entry.tool.name, entry]));
 }

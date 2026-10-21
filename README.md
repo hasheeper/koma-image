@@ -133,7 +133,7 @@ docs/         规范、实施记录与发布说明
 - [M7 本地代理与发布验收](docs/release-acceptance.md)
 - [P3 NovelAI 官方连接](docs/novelai-official.md)：[P3.0 连接管理](docs/shared-settings-tags.md#p30-连接管理)、[P3.1 Profile 泛化](docs/gateway-data-scheduler.md#p31-profile-泛化)
 - [原生图像协议接入](docs/native-image-protocols.md)：OpenAI Images、Gemini 原生、NAI 官方基础适配及实测边界
-- [Koma ASK 决策与实施规划](docs/ask/ask-implementation-plan.md)：A0 推理协议、设置、会话与抽屉见 [A0 记录](docs/ask/ask-a0.md)；A1 只读工具、视觉与 Ask／Ask Diff／Ask Why 入口已实现并通过合成图片和模拟服务验证，见 [A1 记录](docs/ask/ask-a1.md)。也可用 ⌘J／Ctrl+J 打开。真实图片诊断与供应商实测待办，A2 起未实现；设计见 `docs/ask/` 下文档 1–3
+- [Koma ASK 决策与实施规划](docs/ask/ask-implementation-plan.md)：A0 推理协议、设置、会话与抽屉见 [A0 记录](docs/ask/ask-a0.md)；A1 只读工具、视觉与 Ask／Ask Diff／Ask Why 入口已实现并通过合成图片和模拟服务验证，见 [A1 记录](docs/ask/ask-a1.md)。也可用 ⌘J／Ctrl+J 打开。A2 草稿审阅、确认应用与撤销已实现并通过模拟验证，见 [A2 记录](docs/ask/ask-a2.md)。真实图片诊断与供应商实测待办，A3 起未实现；设计见 `docs/ask/` 下文档 1–3
 - [发布包使用、更新与回退](docs/release-guide.md)
 - [第三方资源](docs/third-party-assets.md)
 - [协作约定](AGENTS.md)

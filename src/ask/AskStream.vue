@@ -25,7 +25,7 @@ const Parts: FunctionalComponent<{ parts: readonly Inline[] }> = (props) =>
   );
 Parts.props = ["parts"];
 
-const icons: Record<string, string> = { get_state: "i-layers", search_history: "i-search", get_meta: "i-info", diff_meta: "i-layers", view_image: "i-image", view_sheet: "i-layers", search_tags: "i-search" };
+const icons: Record<string, string> = { get_state: "i-layers", search_history: "i-search", get_meta: "i-info", diff_meta: "i-layers", view_image: "i-image", view_sheet: "i-layers", search_tags: "i-search", propose_draft: "i-edit" };
 const rowText = (row: ToolRow) =>
   row.state === "run"
     ? `正在${row.verb} ${row.object}`
@@ -109,7 +109,7 @@ onBeforeUnmount(() => cancelAnimationFrame(frame));
       </button>
     </div>
     <template v-for="entry in all" :key="entry.id">
-      <p v-if="entry.type === 'note'" class="ask-note">{{ entry.text }}</p>
+      <p v-if="entry.type === 'note'" :class="entry.action ? 'ask-action' : 'ask-note'">{{ entry.text }}</p>
       <section
         v-else
         v-memo="[entry, ask.adult.value, ask.codecActive.value, ask.libraryRevision.value]"
@@ -199,6 +199,7 @@ onBeforeUnmount(() => cancelAnimationFrame(frame));
 .ask-stream :deep(.ask-id) { font-family: var(--mono); font-size: var(--fz-sm); color: var(--a); }
 .ask-stream :deep(strong) { font-weight: var(--fw-semibold); }
 .ask-tools { display: flex; flex-direction: column; }
+.ask-action { margin-top: 16px; color: var(--fg-3); font-size: var(--fz-sm); }
 .ask-pick { display: flex; gap: 10px; overflow-x: auto; }
 .ask-pick button { display: flex; flex: none; flex-direction: column; gap: 5px; align-items: center; padding: 2px; color: var(--a); font: var(--fw-regular) var(--fz-xs)/1.4 var(--mono); border: 1px solid transparent; border-radius: 9px; }
 .ask-pick button:hover, .ask-pick button:focus-visible { border-color: var(--a); }

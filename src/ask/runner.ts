@@ -3,6 +3,7 @@ import type { AskBlock, AskCall, AskEvent, AskRequest, AskResult, AskUsage } fro
 import { LIMITS } from "./session.ts";
 import type { Turn } from "./session.ts";
 import type { ToolContext, ToolRegistry } from "./tools.ts";
+import type { Draft } from "./draft/types.ts";
 
 export type RunEvent =
   | { readonly type: "text"; readonly text: string }
@@ -19,6 +20,7 @@ export type RunEvent =
       readonly ok: boolean;
       readonly stat: string;
       readonly picks?: readonly string[];
+      readonly draft?: Draft;
     }
   | { readonly type: "usage"; readonly usage: AskUsage }
   | { readonly type: "done"; readonly reason: "end" | "final" | "length" };
@@ -91,8 +93,10 @@ export async function* run(options: RunOptions): AsyncGenerator<RunEvent, void> 
       };
       let result: AskResult,
         stat = "",
-        picks: readonly string[] | undefined;
-      if (++turn.budget.toolCalls > LIMITS.toolCalls)
+        picks: readonly string[] | undefined,
+        draft: Draft | undefined;
+      if (final) result = failure(call.id, "本轮草稿已提交，后续工具未执行。");
+      else if (++turn.budget.toolCalls > LIMITS.toolCalls)
         result = failure(call.id, `本轮工具调用已达上限（${LIMITS.toolCalls} 次），请直接基于已有信息回答。`);
       else if (!entry) result = failure(call.id, `没有名为 ${call.name} 的工具。`);
       else
@@ -101,13 +105,14 @@ export async function* run(options: RunOptions): AsyncGenerator<RunEvent, void> 
           result = { type: "result", id: call.id, content: outcome.content, ...(outcome.error ? { error: true } : {}) };
           stat = outcome.stat ?? "";
           picks = outcome.picks;
+          draft = outcome.draft;
           final ||= !!entry.final && !outcome.error;
         } catch (error) {
           signal.throwIfAborted();
           result = failure(call.id, error instanceof Error ? error.message : "工具执行失败");
         }
       results.push(result);
-      yield { type: "tool-end", id: call.id, ok: !result.error, stat, ...(picks ? { picks } : {}) };
+      yield { type: "tool-end", id: call.id, ok: !result.error, stat, ...(picks ? { picks } : {}), ...(draft ? { draft } : {}) };
     }
     turn.push({ role: "user", content: results });
     if (final) {

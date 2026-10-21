@@ -605,6 +605,20 @@ export function createChat(services: ApplicationServices, ui: Ui) {
       current.prompt = text;
       changed();
     },
+    /** Plain composer drafts only; branch/context operations belong to ASK A3. */
+    async writeDraft(text: string, conversationId: string, expected: string) {
+      if (!mutable() || current.id !== conversationId || current.prompt !== expected) throw new Error("对话已变化，草稿未写入");
+      const owner = current;
+      cancelQuote();
+      owner.prompt = text;
+      save();
+      emit();
+      try { await flush(); }
+      catch (error) {
+        if (owner.prompt === text) owner.prompt = expected;
+        save(); emit(); throw error;
+      }
+    },
     setModel(id: string) {
       if (!mutable()) return;
       const m = models.find((m) => m.id === id);

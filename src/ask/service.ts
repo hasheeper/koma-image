@@ -1,4 +1,4 @@
-import { computed, shallowRef } from "vue";
+import { computed, nextTick, shallowRef } from "vue";
 import type { ShallowRef } from "vue";
 import type { ApplicationServices } from "../services/application.ts";
 import type { AppRouter } from "../app/router.ts";
@@ -23,6 +23,9 @@ import { baseHash, buildDigest, stateBlock } from "./digest/index.ts";
 import type { Digest } from "./digest/index.ts";
 import { systemCore, systemPreferences } from "./prompts/index.ts";
 import { createPacer, PACE } from "./pacer.ts";
+import { createDraftWriter } from "./draft/apply.ts";
+import { validateDraft } from "./draft/validate.ts";
+import type { Draft, DraftPlan, DraftState } from "./draft/types.ts";
 
 export interface ToolRow {
   readonly id: string;
@@ -48,7 +51,7 @@ export interface AskTurnView {
 }
 export type AskEntry =
   | { readonly type: "turn"; readonly id: number; readonly turn: AskTurnView }
-  | { readonly type: "note"; readonly id: number; readonly text: string };
+  | { readonly type: "note"; readonly id: number; readonly text: string; readonly action?: boolean };
 export type RetryMode = "plain" | "metadata" | "codec";
 
 const MAX_OUTPUT = 4096;
@@ -78,6 +81,7 @@ export function createAsk(deps: {
   const { services, router, drawing, chat } = deps;
   const { preferences, connections } = services;
   const session = createSession(),
+    writer = createDraftWriter(drawing, chat, router),
     ids = createIds(),
     vision = createVision(),
     viewed = new Set<string>(),
@@ -101,7 +105,13 @@ export function createAsk(deps: {
     sessionCodec = shallowRef(false),
     preferencePaused = shallowRef(false),
     stateRevision = shallowRef(0),
-    libraryRevision = shallowRef(0);
+    libraryRevision = shallowRef(0),
+    draftRevision = shallowRef(0),
+    draft = shallowRef<Draft | null>(null),
+    draftOff = shallowRef<ReadonlySet<string>>(new Set()),
+    draftStatus = shallowRef<"pending" | "applied">("pending"),
+    appliedPlan = shallowRef<DraftPlan | null>(null),
+    writingDraft = shallowRef(false);
   const editorOpen = computed(() => router.route.value.overlay === "editor"),
     visible = computed(() => open.value && !editorOpen.value),
     running = computed(() => live.value !== null),
@@ -137,6 +147,65 @@ export function createAsk(deps: {
     disposed = false,
     stateTimer: ReturnType<typeof setTimeout> | undefined;
   const layers = new Set<() => boolean>();
+  function readDraftState(): DraftState {
+    const d = drawing.snapshot(), c = chat.snapshot().current;
+    return { form: { ...d.form }, composer: c.prompt, conversationId: c.id, models: [...d.models], samplers: [...d.samplers], samplersByModel: Object.fromEntries(d.models.map((m) => [m.id, drawing.samplersFor(m.id)])) };
+  }
+  const draftPlan = computed(() => {
+    void draftRevision.value;
+    return draft.value ? draftStatus.value === "applied" ? appliedPlan.value : validateDraft(draft.value, readDraftState(), { off: draftOff.value, category: tagCategory }) : null;
+  });
+  const canUndoDraft = computed(() => {
+    void draftRevision.value;
+    return !!appliedPlan.value && writer.canUndo(appliedPlan.value);
+  });
+  const draftApplyLabel = computed(() => {
+    const workspace = draftPlan.value?.workspace;
+    return workspace && router.route.value.workspace !== workspace ? `切回${workspace === "image" ? "绘图" : "对话"}并应用` : "应用";
+  });
+  async function focusWritten(plan: DraftPlan) {
+    await nextTick();
+    const field = plan.changes.some((c) => c.field === "prompt") ? "prompt" : plan.changes.some((c) => c.field === "negative") ? "negative" : plan.workspace === "chat" ? "chatPrompt" : null;
+    if (!field) return;
+    if (field === "prompt" || field === "negative") document.getElementById(`tab-${field}`)?.click();
+    await nextTick();
+    const element = document.getElementById(field);
+    if (element instanceof HTMLTextAreaElement) {
+      element.focus({ preventScroll: true });
+      element.setSelectionRange(element.value.length, element.value.length);
+    }
+  }
+  async function applyDraft(fingerprint: string) {
+    if (!draft.value || draftStatus.value !== "pending" || writingDraft.value || controller || disposed) return;
+    const plan = validateDraft(draft.value, readDraftState(), { off: draftOff.value, category: tagCategory });
+    if (plan.fingerprint !== fingerprint) { draftRevision.value++; notice.value = "内容已变化，请核对更新后的草稿再应用"; return; }
+    if (!plan.changes.length) return;
+    writingDraft.value = true; notice.value = "";
+    try {
+      await writer.apply(plan);
+      appliedPlan.value = plan; draftStatus.value = "applied";
+      const text = `已应用草稿 ${plan.title} · ${plan.changes.length} 项 · ${plan.workspace === "image" ? "未生成" : "未发送"}`;
+      push({ type: "note", id: ++sequence, text, action: true }); say(text);
+      await focusWritten(plan);
+    } catch (error) { notice.value = message(error); }
+    finally { writingDraft.value = false; draftRevision.value++; }
+  }
+  async function undoDraft() {
+    const plan = appliedPlan.value;
+    if (!plan || writingDraft.value || controller || disposed) return;
+    writingDraft.value = true; notice.value = "";
+    try {
+      await writer.undo(plan);
+      appliedPlan.value = null; draftStatus.value = "pending";
+      push({ type: "note", id: ++sequence, text: `已撤销草稿 ${plan.title}`, action: true }); say("已撤销草稿，表单已恢复");
+      await focusWritten(plan);
+    } catch (error) { notice.value = message(error); }
+    finally { writingDraft.value = false; draftRevision.value++; }
+  }
+  function ignoreDraft() {
+    if (!draft.value || draftStatus.value !== "pending" || writingDraft.value) return;
+    draft.value = null; draftOff.value = new Set(); notice.value = ""; say("已忽略草稿，内容未修改");
+  }
 
   function digestNow(anchorLabel: string | null): Digest {
     const d = drawing.snapshot(),
@@ -188,6 +257,7 @@ export function createAsk(deps: {
     const d = drawing.snapshot();
     ids.sync(d.history, d.favorites);
     libraryRevision.value++;
+    draftRevision.value++;
     current.value = d.current ? ids.label(d.current.id) : null;
     if (!visible.value || stateTimer) return;
     stateTimer = setTimeout(() => {
@@ -198,6 +268,7 @@ export function createAsk(deps: {
   syncDrawing();
   const stops = [
     drawing.subscribe(syncDrawing),
+    chat.subscribe(() => { draftRevision.value++; }),
     preferences.subscribe((key) => {
       if (!key || key === names.ask) settings.value = readSettings();
       if (!key || key === names.askAdult) adult.value = readAdult();
@@ -239,7 +310,8 @@ export function createAsk(deps: {
     options: { metadataOnly?: boolean; anchor?: string | null } = {},
   ) {
     const question = text.trim();
-    if (!question || controller || disposed) return;
+    if (!question || controller || disposed || writingDraft.value) return;
+    if (draft.value && draftStatus.value === "pending") { notice.value = "请先应用或忽略当前草稿"; return; }
     if (ready.value !== "ok") {
       notice.value =
         ready.value === "local"
@@ -265,7 +337,8 @@ export function createAsk(deps: {
     const digest = digestNow(turnAnchor);
     const snapshot = drawing.snapshot(),
       library = snapshotPictures(snapshot.history, snapshot.favorites, ids),
-      turnViewed = new Set(viewed);
+      turnViewed = new Set(viewed),
+      draftBase = readDraftState();
     const user: AskMessage = {
       role: "user",
       content: [
@@ -289,7 +362,7 @@ export function createAsk(deps: {
       truncated: false,
       metadataOnly,
     };
-    let frame = 0;
+    let frame = 0, proposed: Draft | undefined;
     const commit = () => {
       cancelAnimationFrame(frame);
       frame = 0;
@@ -314,6 +387,8 @@ export function createAsk(deps: {
           vision,
           visual: { signal: abort.signal, metadataOnly, budget: turn.budget.vision, viewed: turnViewed },
           tags: localTags,
+          draftBase,
+          question,
           state: () => ({
             text: stateBlock(digestNow(turnAnchor)),
             images: drawing.snapshot().history.length,
@@ -343,6 +418,7 @@ export function createAsk(deps: {
             commit();
           }, gap);
         } else if (event.type === "tool-end") {
+          if (event.draft) proposed = event.draft;
           last = "end";
           pacer.push(() => {
             const row = rows.get(event.id);
@@ -356,13 +432,15 @@ export function createAsk(deps: {
         } else if (event.type === "usage") usage.value = session.usage;
         else if (event.type === "done") working.truncated = event.reason === "length";
       }
+      if (proposed) pacer.push(() => {}, PACE.beforeDraft);
       await pacer.settled();
       abort.signal.throwIfAborted();
       turn.commit();
       for (const id of turnViewed) viewed.add(id);
+      if (proposed) { draft.value = proposed; draftOff.value = new Set(); draftStatus.value = "pending"; appliedPlan.value = null; }
       working.status = "done";
       const reply = working.items.flatMap((i) => (i.kind === "text" ? [i.text.trim()] : [])).filter(Boolean).join("\n\n");
-      say(reply);
+      say([reply, proposed ? "草稿已就绪，等待确认" : ""].filter(Boolean).join("\n"));
       settle(working);
       if (currentHash() !== digest.baseHash)
         push({ type: "note", id: ++sequence, text: "提示词已在外部修改" });
@@ -396,7 +474,7 @@ export function createAsk(deps: {
   /** Only the user's click retries; nothing here runs on its own. */
   function retry(id: number, mode: RetryMode) {
     const entry = entries.value.find((e) => e.type === "turn" && e.id === id);
-    if (!entry || entry.type !== "turn" || controller) return;
+    if (!entry || entry.type !== "turn" || controller || writingDraft.value || (draft.value && draftStatus.value === "pending")) return;
     if (mode === "codec") {
       if (!adult.value) return;
       sessionCodec.value = true;
@@ -407,12 +485,30 @@ export function createAsk(deps: {
   /** Esc: popovers, then the draft (A2), then the running turn, then the drawer. */
   function escape() {
     for (const layer of [...layers].reverse()) if (layer()) return;
-    if (controller) stop();
+    if (writingDraft.value) return;
+    if (draft.value && draftStatus.value === "pending") ignoreDraft();
+    else if (controller) stop();
     else open.value = false;
   }
   function onKey(event: KeyboardEvent) {
     if (event.isComposing || event.keyCode === 229) return;
     const modal = () => document.querySelector("dialog:modal") !== null;
+    const active = document.activeElement;
+    const inside = !!root?.contains(active);
+    const body = !active || active === document.body;
+    const typing = active instanceof HTMLElement && (active.matches("input,textarea,select") || active.isContentEditable);
+    if (event.defaultPrevented || modal() || editorOpen.value) return;
+    if (event.key === "Tab" && !event.shiftKey && !event.altKey && !event.metaKey && !event.ctrlKey && visible.value && (inside || body) && !typing && window.getSelection()?.isCollapsed !== false) {
+      const button = root?.querySelector<HTMLButtonElement>(".ask-draft-apply");
+      if (button && !button.disabled) { event.preventDefault(); void applyDraft(button.dataset.fingerprint ?? ""); }
+      return;
+    }
+    if ((event.metaKey || event.ctrlKey) && !event.shiftKey && !event.altKey && event.key.toLowerCase() === "z" && canUndoDraft.value) {
+      const field = active?.id === "chatPrompt" ? "composer" : active?.id;
+      const target = appliedPlan.value?.changes.some((c) => c.field === field);
+      if ((inside && !typing) || body || target) { event.preventDefault(); void undoDraft(); }
+      return;
+    }
     if (
       (event.metaKey || event.ctrlKey) &&
       !event.altKey &&
@@ -426,8 +522,6 @@ export function createAsk(deps: {
       return;
     }
     if (event.key !== "Escape" || event.defaultPrevented || !visible.value || modal()) return;
-    const active = document.activeElement;
-    const inside = root?.contains(event.target as Node) ?? false;
     if (!inside && active && active !== document.body) return;
     event.preventDefault();
     escape();
@@ -449,6 +543,26 @@ export function createAsk(deps: {
     adult: adult as Readonly<ShallowRef<boolean>>,
     preferencePaused: preferencePaused as Readonly<ShallowRef<boolean>>,
     ready,
+    draftPlan,
+    draftStatus,
+    writingDraft,
+    draftApplyLabel,
+    canUndoDraft,
+    applyDraft,
+    undoDraft,
+    ignoreDraft,
+    toggleDraftStep(id: string) {
+      if (writingDraft.value || draftStatus.value !== "pending") return;
+      const next = new Set(draftOff.value);
+      if (next.has(id)) next.delete(id); else next.add(id);
+      draftOff.value = next;
+    },
+    reproposeDraft() {
+      if (!draft.value || writingDraft.value || controller) return;
+      const question = draft.value.question;
+      ignoreDraft();
+      void send(`基于当前内容重新提议。\n${question}`);
+    },
     libraryRevision: libraryRevision as Readonly<ShallowRef<number>>,
     codecActive,
     estimate,
