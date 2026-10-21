@@ -6,8 +6,8 @@ const square = (x: number, y: number, size: number, opacity: number, ring: numbe
   style: `--o:${opacity};--r:${ring}`,
 });
 const squares = [
-  square(2, 2, 3, .24, 2, "c1"), square(15, 2, 3, .24, 2, "c2"),
-  square(15, 15, 3, .24, 2, "c3"), square(2, 15, 3, .24, 2, "c4"),
+  square(2, 2, 3, .24, 2, "corner c1"), square(15, 2, 3, .24, 2, "corner c2"),
+  square(15, 15, 3, .24, 2, "corner c3"), square(2, 15, 3, .24, 2, "corner c4"),
   square(8, 1, 4, .5, 1, "edge"), square(15, 8, 4, .5, 1, "edge"),
   square(8, 15, 4, .5, 1, "edge"), square(1, 8, 4, .5, 1, "edge"),
   square(6, 6, 8, 1, 0, "core"),

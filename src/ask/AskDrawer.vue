@@ -95,7 +95,7 @@ watch(mode, async () => {
 onBeforeUnmount(() => { clearTimeout(doneTimer); controller.abort(); ask.attach(null); });
 </script>
 <template>
-  <aside v-show="router.route.value.overlay !== 'editor'" id="askIsland" ref="root" class="ask-island" :class="{ 'ask-inline': !!ask.inline.value && ask.visible.value }" :data-mode="mode" :data-workspace="router.route.value.workspace" :data-context-open="chat.contextOpen || undefined" :style="dimensions" aria-label="Koma ASK" aria-describedby="askMoveHint">
+  <aside v-show="router.route.value.overlay !== 'editor'" id="askIsland" ref="root" class="ask-island" :class="{ 'ask-inline': !!ask.inline.value && ask.visible.value }" :data-mode="mode" :data-workspace="router.route.value.workspace" :data-context-open="chat.contextOpen || undefined" :data-quiet="router.route.value.workspace === 'image' && image.state === 'busy' || undefined" :style="dimensions" aria-label="Koma ASK" aria-describedby="askMoveHint">
     <button v-show="mode === 'idle'" id="askLauncher" class="ask-layer ask-launcher ask-open" :inert="mode !== 'idle'" data-ask-grip type="button" aria-label="打开 Koma ASK" aria-controls="askDrawer" aria-expanded="false" title="Koma ASK · 可拖动 · ⌘J / Ctrl+J" @click="ask.show()"><AskMark interactive /></button>
     <div v-show="mode === 'run'" class="ask-layer ask-run" :inert="mode !== 'run'">
       <button class="ask-open ask-run-grip" data-ask-grip type="button" aria-label="展开 ASK 对话" @click="ask.show()"><AskMark thinking /><span :key="activity.key" class="ask-activity" :title="`${activity.verb} ${activity.object} ${activity.stat}`"><span class="ask-verb">{{ activity.verb }}</span><span v-if="activity.object" class="ask-object">{{ activity.object }}</span><span v-if="activity.stat" class="ask-stat">{{ activity.stat }}</span></span></button>
@@ -138,20 +138,35 @@ onBeforeUnmount(() => { clearTimeout(doneTimer); controller.abort(); ask.attach(
 .ask-island { --ask-glass: rgba(22, 22, 25, .88); --ask-layer: rgba(255, 255, 255, .035); --ask-field: rgba(0, 0, 0, .16); --ask-hover: rgba(255, 255, 255, .055); position: fixed; top: var(--ask-top, calc(var(--bar-h) + 12px)); right: var(--ask-right, 20px); z-index: var(--z-drawer); width: min(var(--ask-width), calc(100vw - 16px)); height: min(var(--ask-height), calc(var(--ask-available-height, 100dvh) - 16px)); overflow: hidden; color: var(--fg); background: var(--ask-glass); border-radius: 20px; box-shadow: inset 0 1px 0 rgba(255, 255, 255, .06), 0 0 0 1px var(--line-2), 0 10px 32px rgba(0, 0, 0, .45); backdrop-filter: blur(20px) saturate(1.4); transition-property: width, height, border-radius, box-shadow, transform; transition-duration: .52s, .52s, .52s, .3s, .25s; transition-timing-function: cubic-bezier(.32, .72, 0, 1); }
 @media (min-width: 861px) { .ask-island[data-workspace="image"] { right: var(--ask-right, calc(var(--hist) + 8px)); } }
 @media (min-width: 861px) { .ask-island[data-workspace="chat"][data-context-open] { right: var(--ask-right, calc(var(--context-w) + 8px)); } }
-.ask-island[data-mode="idle"]:hover { box-shadow: inset 0 1px 0 rgba(255, 255, 255, .08), 0 0 0 1px color-mix(in srgb, var(--a) 38%, transparent), 0 0 18px color-mix(in srgb, var(--a) 12%, transparent), 0 10px 32px rgba(0, 0, 0, .45); }
+.ask-island { --ask-idle-k: 1; --ask-idle-amp: 1; --ask-idle-ease: cubic-bezier(.45, .05, .55, .95); --ask-idle-beat-ease: cubic-bezier(.4, 0, .2, 1); }
+.ask-island[data-quiet] { --ask-idle-k: 1.8; --ask-idle-amp: .35; }
+.ask-island[data-mode="idle"]:hover { box-shadow: inset 0 1px 0 rgba(255, 255, 255, .08), 0 0 0 1px color-mix(in srgb, var(--a) 40%, transparent), 0 0 20px color-mix(in srgb, var(--a) 14%, transparent), 0 10px 32px rgba(0, 0, 0, .45); }
 .ask-island[data-mode="idle"]:has(.ask-launcher:active):not([data-dragging]) { transform: scale(.94); }
 .ask-island[data-mode="run"] { box-shadow: inset 0 1px 0 rgba(255, 255, 255, .06), 0 0 0 1px color-mix(in srgb, var(--a) 24%, transparent), 0 10px 32px rgba(0, 0, 0, .45); }
 .ask-island[data-mode="ready"] { animation: ask-ready-ping .9s var(--e) both; }
 .ask-island[data-mode="exp"] { border-radius: 18px; }
 .ask-island:not([data-mode="idle"]) { transition-property: width, height, border-radius, box-shadow; }
 .ask-layer { width: 100%; transform-origin: top right; animation: ask-layer-in .4s cubic-bezier(.32, .72, 0, 1) .1s both; }
-.ask-launcher { display: grid; place-items: center; height: 100%; color: var(--a); animation: none; }
+.ask-launcher { position: relative; display: grid; place-items: center; height: 100%; color: var(--a); border-radius: inherit; animation: none; }
+.ask-launcher::before, .ask-launcher::after { position: absolute; content: ""; pointer-events: none; }
+.ask-launcher::before { inset: 6px; background: radial-gradient(circle, color-mix(in srgb, var(--a) 55%, transparent) 0%, transparent 70%); border-radius: 50%; opacity: 0; transform: scale(.7); transition: opacity .6s var(--ask-idle-beat-ease), transform .6s cubic-bezier(.32, .72, 0, 1); animation: ask-idle-halo calc(5s * var(--ask-idle-k)) var(--ask-idle-ease) infinite; }
+/* Keep the breathing outline inside the morphing surface's clipped boundary. */
+.ask-launcher::after { inset: 1px; border-radius: inherit; box-shadow: 0 0 0 1px color-mix(in srgb, var(--a) 30%, transparent); opacity: 0; animation: ask-idle-ring calc(5s * var(--ask-idle-k)) var(--ask-idle-ease) infinite; }
+.ask-launcher :deep(.ask-mark) { position: relative; }
+.ask-launcher :deep(.interactive rect) { transition: transform .4s cubic-bezier(.32, .72, 0, 1), opacity .4s var(--ask-idle-beat-ease); }
+.ask-launcher :deep(.interactive .core) { animation: ask-idle-core calc(5s * var(--ask-idle-k)) var(--ask-idle-ease) infinite; }
+.ask-launcher :deep(.interactive .edge) { animation: ask-idle-beat calc(9s * var(--ask-idle-k)) var(--ask-idle-beat-ease) calc(1.2s * var(--ask-idle-k)) infinite; }
+.ask-launcher :deep(.interactive .corner) { animation: ask-idle-corner calc(9s * var(--ask-idle-k)) var(--ask-idle-beat-ease) calc(1.42s * var(--ask-idle-k)) infinite; }
+.ask-launcher:hover::before { animation: none; opacity: .42; transform: scale(1.05); }
+.ask-launcher:hover::after { animation: none; opacity: 0; }
 .ask-launcher:hover :deep(.interactive .c1) { transform: translate(-.5px, -.5px); }
 .ask-launcher:hover :deep(.interactive .c2) { transform: translate(.5px, -.5px); }
 .ask-launcher:hover :deep(.interactive .c3) { transform: translate(.5px, .5px); }
 .ask-launcher:hover :deep(.interactive .c4) { transform: translate(-.5px, .5px); }
-.ask-launcher:hover :deep(.interactive .edge) { opacity: .7; }
-.ask-launcher:hover :deep(.interactive .core) { filter: brightness(1.12); }
+.ask-launcher:hover :deep(.interactive .edge) { animation: none; opacity: .78; }
+.ask-launcher:hover :deep(.interactive .corner) { animation: none; opacity: .5; }
+.ask-launcher:hover :deep(.interactive .core) { animation: ask-idle-awake 1.6s var(--ask-idle-ease) infinite; }
+.ask-island[data-paused] .ask-launcher::before, .ask-island[data-paused] .ask-launcher::after, .ask-island[data-paused] :deep(.ask-mark rect), .ask-island[data-paused] .ask-launcher :deep(.interactive rect) { animation-play-state: paused; }
 [data-ask-grip] { touch-action: none; user-select: none; cursor: grab; }
 .ask-island[data-dragging] [data-ask-grip] { cursor: grabbing; }
 .ask-run, .ask-done { display: flex; align-items: center; gap: 10px; height: 100%; padding: 0 8px 0 10px; }
@@ -208,6 +223,12 @@ onBeforeUnmount(() => { clearTimeout(doneTimer); controller.abort(); ask.attach(
 }
 @media (max-width: 400px) { .ask-spent { display: none; } }
 @keyframes ask-layer-in { from { opacity: 0; filter: blur(6px); transform: scale(.97); } to { opacity: 1; filter: none; transform: none; } }
+@keyframes ask-idle-halo { 0%, 100% { opacity: calc(.05 * var(--ask-idle-amp)); transform: scale(.7); } 50% { opacity: calc(.32 * var(--ask-idle-amp)); transform: scale(1); } }
+@keyframes ask-idle-ring { 0%, 100% { opacity: 0; } 50% { opacity: calc(.6 * var(--ask-idle-amp)); } }
+@keyframes ask-idle-core { 0%, 100% { opacity: .82; } 50% { opacity: 1; } }
+@keyframes ask-idle-beat { 0%, 100% { opacity: .5; } 3% { opacity: calc(.5 + .45 * var(--ask-idle-amp)); } 9% { opacity: .5; } }
+@keyframes ask-idle-corner { 0%, 100% { opacity: .24; } 3% { opacity: calc(.24 + .5 * var(--ask-idle-amp)); } 10% { opacity: .24; } }
+@keyframes ask-idle-awake { 0%, 100% { opacity: .9; } 50% { opacity: 1; } }
 @keyframes ask-activity-in { from { opacity: 0; transform: translateY(2px); } }
 @keyframes ask-shimmer { from { background-position: 100% 0; } to { background-position: -150% 0; } }
 @keyframes ask-ready-ping { from { box-shadow: 0 0 0 1px var(--a), 0 0 0 0 color-mix(in srgb, var(--a) 35%, transparent), 0 10px 32px rgba(0, 0, 0, .45); } to { box-shadow: 0 0 0 1px var(--line-2), 0 0 0 14px transparent, 0 10px 32px rgba(0, 0, 0, .45); } }
@@ -217,5 +238,7 @@ onBeforeUnmount(() => { clearTimeout(doneTimer); controller.abort(); ask.attach(
   .ask-island[data-mode="idle"]:has(.ask-launcher:active):not([data-dragging]) { transform: none; }
   .ask-object { color: var(--fg); background: none; }
   .ask-launcher:hover :deep(.ask-mark.interactive rect) { transform: none; }
+  .ask-launcher::before, .ask-launcher::after, .ask-launcher :deep(.ask-mark.interactive rect), .ask-launcher:hover :deep(.ask-mark.interactive rect) { animation: none; transition: none; }
+  .ask-launcher::before, .ask-launcher:hover::before { opacity: .12; transform: scale(.7); }
 }
 </style>

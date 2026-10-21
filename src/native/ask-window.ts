@@ -79,7 +79,10 @@ export function installAskWindow(root: HTMLElement, signal: AbortSignal) {
   window.addEventListener('resize', schedule, { signal });
   window.visualViewport?.addEventListener('resize', schedule, { signal });
   window.visualViewport?.addEventListener('scroll', schedule, { signal });
-  signal.addEventListener('abort', () => { observer.disconnect(); cancelAnimationFrame(frame); delete root.dataset.dragging; }, { once: true });
+  const visibility = () => root.toggleAttribute('data-paused', document.hidden);
+  document.addEventListener('visibilitychange', visibility, { signal });
+  visibility();
+  signal.addEventListener('abort', () => { observer.disconnect(); cancelAnimationFrame(frame); delete root.dataset.dragging; delete root.dataset.paused; }, { once: true });
   schedule();
   return schedule;
 }

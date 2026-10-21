@@ -1373,14 +1373,14 @@ test('ASK island: text, error, stop and responsive morphs retain anchors without
     await page.setViewportSize({ width: 1440, height: 900 });
     await page.waitForTimeout(600);
     await page.mouse.move(500, 600);
-    await page.waitForTimeout(350);
+    await page.waitForTimeout(450);
     const markGeometry = () => page.locator('#askLauncher').evaluate(el => {
       const rect = selector => { const r = el.querySelector(selector).getBoundingClientRect(); return { x: r.x + r.width / 2, y: r.y + r.height / 2, width: r.width }; };
       return { mark: rect('.ask-mark'), core: rect('.core'), corner: rect('.c4'), transform: getComputedStyle(el).transform };
     });
     const still = await markGeometry();
     await page.locator('#askLauncher').hover();
-    await page.waitForTimeout(350);
+    await page.waitForTimeout(450);
     const hover = await markGeometry();
     assert.deepEqual(hover.mark, still.mark, 'hover must not translate the SVG or button');
     assert.deepEqual(hover.core, still.core, 'only corner squares move');
