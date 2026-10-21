@@ -22,18 +22,18 @@ export function nativeCatalog(profile: GatewayProfile, raw: unknown) {
       models[model.id] = { name: model.name, provider: "novelai", editor_family: "novelai", operations: ["generate", "edit"], tools: ["img2img"], max_resolution: 4_194_304 };
     return { models, valid_samplers: ["k_euler_ancestral", "k_euler", "k_dpmpp_2m", "k_dpmpp_2m_sde", "k_dpmpp_sde", "ddim_v3"], catalog_source: "static", verification: "unverified" };
   }
-  const entries = profile.protocol === "openai-images" ? data.data : data.models;
+  // OpenAI-style lists, including both reasoning protocols, keep the ID in data[].id.
+  const listed = profile.protocol === "openai-images" || !!profile.reasoning;
+  const entries = listed ? data.data : data.models;
   if (!Array.isArray(entries)) throw new Error("模型列表不符合所选接口协议");
   for (const entry of entries) {
     const item = object(entry);
-    const rawId: unknown = profile.protocol === "openai-images" ? item.id : item.name ?? item.id;
+    const rawId: unknown = listed ? item.id : item.name ?? item.id;
     if (typeof rawId !== "string") continue;
     const id = profile.protocol === "gemini-native" ? rawId.replace(/^models\//, "") : rawId;
     if (!id.trim() || id.length > 512 || /[\x00-\x1f\x7f]/.test(id) || ["__proto__", "constructor", "prototype"].includes(id)) continue;
-    models[id] = {
-      name: typeof item.displayName === "string" ? item.displayName : id,
-      editor_family: profile.protocol === "openai-images" ? "gpt" : "gemini",
-    };
+    const name = typeof item.displayName === "string" ? item.displayName : typeof item.display_name === "string" ? item.display_name : id;
+    models[id] = profile.reasoning ? { name } : { name, editor_family: profile.protocol === "openai-images" ? "gpt" : "gemini" };
   }
   if (!Object.keys(models).length) throw new Error("连接没有返回模型 ID");
   return { models };

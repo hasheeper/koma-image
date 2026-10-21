@@ -39,7 +39,8 @@ export async function testConnection(
     if (profile.protocol && profile.protocol !== "standard") {
       try {
         const catalog = nativeCatalog(profile, data);
-        return { s: "ok", text: profile.protocol === "novelai" ? "订阅可用 · 生图尚未实测" : `可用，共 ${Object.keys(catalog.models).length} 个模型 ID` };
+        return { s: "ok", text: profile.protocol === "novelai" ? "订阅可用 · 生图尚未实测"
+          : `可用，共 ${Object.keys(catalog.models).length} 个模型 ID${profile.reasoning ? " · 推理尚未实测" : ""}` };
       } catch (error) {
         return { s: "err", text: error instanceof Error ? error.message : "接口协议不匹配" };
       }

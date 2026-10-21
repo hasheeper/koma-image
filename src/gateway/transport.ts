@@ -19,6 +19,8 @@ export function endpoint(
   // Native URLs accept either the service root or its version prefix.
   if (profile.protocol && profile.protocol !== "standard" && prefix && base.endsWith(prefix))
     base = base.slice(0, -prefix.length);
+  if (profile.transport.rootPrefix && new URL(base).pathname === "/")
+    base += profile.transport.rootPrefix;
   if (path.includes("{model}")) {
     if (!model || !/^[a-zA-Z0-9][a-zA-Z0-9._:@-]{0,511}$/.test(model))
       throw new Error("模型 ID 无效");
@@ -27,12 +29,15 @@ export function endpoint(
   const url = new URL(`${base}${prefix}${path}`);
   if (profile.protocol === "gemini-native" && path === profile.transport.paths.catalog)
     url.searchParams.set("pageSize", "1000");
+  if (profile.protocol === "anthropic-messages" && path === profile.transport.paths.catalog)
+    url.searchParams.set("limit", "1000");
   return url;
 }
 export function authHeaders(context: ConnectionContext, profile: GatewayProfile): Record<string, string> {
   return context.localToken ? { "X-Koma-Local-Token": context.localToken }
     : profile.auth.kind === "google-key" ? { "x-goog-api-key": context.key() }
-      : { Authorization: `Bearer ${context.key()}` };
+      : profile.auth.kind === "anthropic-key" ? { "x-api-key": context.key(), ...profile.auth.headers }
+        : { Authorization: `Bearer ${context.key()}` };
 }
 export function errorMessage(data: unknown, fallback = "请求失败") {
   const obj = object(data),
@@ -61,13 +66,16 @@ export function createTransport(
         native?: boolean;
         stats?: boolean;
         model?: string;
+        stream?: boolean;
       } = {},
     ) {
       context.assertCurrent();
       options.signal?.throwIfAborted();
       const url = endpoint(context.connection.baseUrl, path, profile, options.model);
       const headers: Record<string, string> = {
-        Accept: "application/json, image/png, image/jpeg, image/webp",
+        Accept: options.stream
+          ? "text/event-stream, application/json"
+          : "application/json, image/png, image/jpeg, image/webp",
       };
       const key = context.localToken ? undefined : context.key();
       if (context.localToken)

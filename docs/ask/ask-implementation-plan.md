@@ -1,6 +1,6 @@
 # Koma ASK：决策与实施规划（文档 4）
 
-日期：2026-10-21。状态：规划定稿，未开发。
+日期：2026-10-21。状态：规划定稿；A0.1（协议与设置）与 A0.2（会话与抽屉）已实现并通过模拟验证，见 [A0 实施记录](ask-a0.md)；A1 起未开发。
 
 本文记录用户在文档 1–3 之后确认的决策，并把 A0–A4 落到当前仓库的模块、测试与退出标准。
 
@@ -15,7 +15,7 @@
 - ASK 是经用户批准的新子产品，没有内部基线可复刻。`AGENTS.md`「复刻原有业务与 UI」不约束 ASK 的产品形态；字体、样式分层、严格 TS、测试、脱敏、Koma 存储命名和发布约定全部适用。
 - ASK 不调用生图、编辑、放大、报价或扣费接口，不替用户发送 CHAT 消息，不参与生成锁与串行调度，不改变现有工作区的报价、分流、额度、取消和失败行为。
 - 现有工作区只增加 ASK 入口和草稿写入路径，不顺便调整其业务或界面。
-- 每个里程碑单独分支、单独实施记录；本规划阶段不写实现代码。
+- 每个里程碑单独分支、单独实施记录。
 
 ## 2. 已确认决策
 
@@ -30,7 +30,10 @@
 
 - Profile 新增 `reasoning` 能力声明（流式、工具调用、图片输入）。现有标准网关、OpenAI Images、Gemini 原生、NAI 官方均不声明，ASK 模型选择器按能力过滤，不按名称或域名判断。
 - 不做 OpenAI `/v1/responses`，不做 Gemini 原生多轮函数调用与 `cachedContents`。Gemini 由用户新建 `openai-chat` 连接，填写其 OpenAI 兼容地址；现有 Gemini 原生连接仍只用于生图。
-- 地址规则：填写包含版本路径的接口地址（如 `…/v1`）；只填服务根地址时补 `/v1`。Gemini 兼容层等非 `/v1` 前缀按服务文档填写完整前缀。实现沿用 `endpoint()` 的显式路径表，A0 用单元测试固定。
+- 地址规则（A0.1 按两类 SDK 的 base URL 习惯落实，单元测试固定）：
+  - `openai-chat`：填写含版本路径的接口地址，原样拼接 `/chat/completions`、`/models`；只填服务根地址（路径为 `/`）时补 `/v1`。Gemini 兼容层 `…/v1beta/openai`、中转 `…/api/v1` 等按服务文档原样填写。
+  - `anthropic-messages`：填写服务根地址或以 `/v1` 结尾的地址，统一补一次 `/v1`；带服务前缀的兼容地址（如 `…/anthropic`）得到 `…/anthropic/v1/messages`。
+  - 实现沿用 `endpoint()` 的显式路径表，不按域名判断。
 - 两种协议均不声明 quote、costCeiling、quotaPolicy。ASK 显示上游 `usage` 返回的 token 用量（含缓存命中），不换算金额；无报价不等于免费。原标准网关的报价、max_cost 与额度护栏不受影响。
 - 请求结构严格按文档 3 §1.2–1.3：静态前缀冻结、动态状态追加在队尾、JSON 键序固定、同一轮内快照锁死。
 
@@ -170,6 +173,8 @@ src/ask/
   codec.ts              出站编码、入站还原
   codec-exclusions.ts   不可编码的排除表（未成年、R18G）
   ids.ts                显示 ID 映射
+  pacer.ts              诚实节拍器（界面层，A0.2 新增）
+  format.ts             回复的轻量格式解析，只产出文本节点（A0.2 新增）
   digest/               L0 组装、模式 A／B、冷区聚类、Prompt 分区
   tools.ts              工具注册，只接收只读视图
   vision.ts             缩放、裁切、拼图与缓存
@@ -177,6 +182,10 @@ src/ask/
     validate.ts         锚点匹配、hash 校验、目标存在性、画师串拦截
     apply.ts            唯一写入入口
   prompts/              L0–L2 分层，带版本号
+  messages.ts           中间消息结构与错误分类（A0.1 从 provider.ts 拆出，避免与适配器循环依赖）
+  canonical.ts          固定键序序列化
+  settings.ts           ASK 设置的读取与校验（koma.ask.v1）
+src/app/ask.ts          注入键与 useAsk()（A0.2 新增）
 src/overlays/settings/AskSection.vue
 ```
 
@@ -247,7 +256,7 @@ ASK 对话不持久化（文档 1 D10）；连接配置沿用 `koma.routing.v1`�
 - `digest/` L0：表单、Prompt 分区、当前图、生成状态、历史索引、`base_hash`。
 - 失败界面：回滚与按门控显示的重试按钮。诚实节拍器（`toolMin` 等）放在界面层。
 - 模拟 LLM：按脚本返回两种协议的 SSE，包括文本、工具调用、拦截错误与空流。
-- 测试：`tests/ask-digest.test.mjs`、`tests/ask-session.test.mjs`（回滚、预算），`tests/ask.browser.mjs`（开关、Esc 顺序、脚本化文本轮次、模拟网关零生图请求、设置弹窗压在抽屉上、编辑器打开时抽屉隐藏、四视口截图存 `.local/ask/`）。新增 `test:ask` 脚本并加入 CI。
+- 测试：`tests/ask-digest.test.mjs`、`tests/ask-session.test.mjs`（回滚、预算），`tests/ask.browser.mjs`（开关、Esc 顺序、脚本化文本轮次、模拟网关零生图请求、设置弹窗压在抽屉上、编辑器打开时抽屉隐藏、四视口截图存 `.local/ask/`）。`test:ask` 脚本与 CI 步骤已在 A0.1 提前加入，A0.2 在同一文件中扩充用例。
 - 退出：文档 1 A0 的「摘要与预算单测通过」，以及上述浏览器用例。
 
 ### A1 只读工具与视觉
@@ -321,3 +330,5 @@ ASK 对话不持久化（文档 1 D10）；连接配置沿用 `koma.routing.v1`�
 
 - 2026-10-21：`codex/composer-quiet` 上的输入框与连接摘要卡改动在 `npm run check` 和 shared／workspaces／native／local 四组浏览器测试（34 项）通过后提交为 `b37381b`。
 - 新建 `codex/ask-plan` 分支，纳入文档 1–3 与原型，新增本文，并同步更新 `AGENTS.md`、`docs/implementation-plan.md` 与 `README.md`。未写实现代码，未推送或部署。
+- A0.1 在 `codex/ask-a0` 分支实施，记录见 [ask-a0.md](ask-a0.md)。
+- A0.2 在同一分支继续实施，记录见 [ask-a0.md](ask-a0.md) 的 A0.2 部分；与规划的差异（抽屉从顶栏下沿开始、暂只有快捷键入口、`get_state` 提前）已登记在该记录中。

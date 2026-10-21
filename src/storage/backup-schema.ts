@@ -1,6 +1,7 @@
 import { names } from "./names.ts";
 import { validateRouting, validateModelLinks } from "../config/connections.ts";
 import { object } from "../domain/value.ts";
+import { readAskSettings } from "../ask/settings.ts";
 import type {
   ConversationRecord,
   FavoriteRecord,
@@ -23,7 +24,10 @@ export const backupLimits = Object.freeze({
   preferenceChars: 2 * 1024 * 1024,
   pathBytes: 1024,
 });
-/** A closed list of logical preferences. Vault/session/history/editor/handoff are absent. */
+/**
+ * A closed list of logical preferences. Vault/session/history/editor/handoff
+ * and the ASK adult confirmation are absent.
+ */
 export const backupPreferences = Object.freeze({
   drawing: names.preferences,
   routing: names.routing,
@@ -33,6 +37,7 @@ export const backupPreferences = Object.freeze({
   tagCart: names.tagCart,
   tagCategories: names.tagCategories,
   localModels: names.localModels,
+  ask: names.ask,
 });
 export type BackupPreferences = Partial<
   Record<keyof typeof backupPreferences, string>
@@ -81,7 +86,11 @@ export function readBackupPreferences(value: unknown): BackupPreferences {
       out[key] = JSON.stringify(validateRouting(JSON.parse(text)));
     else if (key === "localModels")
       out[key] = JSON.stringify(validateModelLinks(JSON.parse(text)));
-    else if (key === "currentConversation" || key === "chatRail")
+    else if (key === "ask") {
+      const value = JSON.parse(text);
+      if (!plain(value)) throw bad();
+      out[key] = JSON.stringify(readAskSettings(value));
+    } else if (key === "currentConversation" || key === "chatRail")
       out[key] = text;
     else {
       JSON.parse(text);

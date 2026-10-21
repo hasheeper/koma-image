@@ -26,6 +26,7 @@ import type { FavoriteRecord, Fields } from "../storage/records.ts";
 import type { Ui } from "../app/ui.ts";
 import type { AppRouter } from "../app/router.ts";
 import { message } from "../app/ui.ts";
+import { imageConnections } from "../config/connections.ts";
 
 export function createDrawing(
   services: ApplicationServices,
@@ -290,9 +291,7 @@ export function createDrawing(
     catalogLoading = true;
     catalogError = "";
     emit();
-    const configured = Object.values(
-        services.connections.configuration.connections,
-      ),
+    const configured = imageConnections(services.connections.configuration),
       available = configured.filter((c) =>
         services.connections.hasCredential(c.credentialRef),
       ),

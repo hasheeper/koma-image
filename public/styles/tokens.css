@@ -95,6 +95,7 @@
   /* stacking contract — keep every layer in this table */
   --z-action: 19;
   --z-sticky: 20;
+  --z-drawer: 30;   /* ASK: over workspace rails, under tips, pops and modals */
   --z-tip: 40;
   --z-pop: 80;
   --z-scrim: 90;

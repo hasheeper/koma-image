@@ -12,6 +12,8 @@ export function createPreferences(
     names.tagCategories,
     names.tagCart,
     names.tagHandoff,
+    names.ask,
+    names.askAdult,
   ]);
   const listeners = new Set<(key?: string) => void>();
   const changed = (key?: string) => {

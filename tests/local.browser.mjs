@@ -238,6 +238,10 @@ test("M7 production local settings: readonly credentials, isolated model prefere
         await p.screenshot({ path: `.local/m7/${section}-${width}.png` });
       }
     }
+    // ASK needs reasoning forwarding, which the local proxy gains only in A4.
+    await route(p, "#/image/settings/ask");
+    await p.locator("#settingsPanel").getByText("本地模式暂不支持 ASK", { exact: true }).waitFor();
+    assert.equal(await p.locator("#askConnection, #askAdult").count(), 0);
     await route(p, "#/image/settings/models");
     await p
       .getByRole("button", { name: "展开 GPT Image 2 的来源", exact: true })

@@ -20,6 +20,8 @@
 | OpenAI Images | 对话页生图与参考图修改 | 接口根地址或以 `/v1` 结尾的地址，保留服务前缀 |
 | Gemini 原生 | 对话页生图与参考图修改 | 接口根地址或以 `/v1beta` 结尾的地址，保留服务前缀 |
 | NovelAI 官方 · 基础接入 | 绘图、图生图、Anlas 查询 | 选择后固定为官方图片地址；单独填写对应 Key |
+| OpenAI Chat 兼容 · ASK | 仅供 ASK 推理，不出现在图像模型中 | 含版本路径的接口地址（如 `…/v1`、`…/v1beta/openai`）；只填根地址时补 `/v1` |
+| Anthropic Messages · ASK | 仅供 ASK 推理，不出现在图像模型中 | 服务根地址或以 `/v1` 结尾的地址，保留服务前缀 |
 
 原生接口没有预报价时显示“费用未知”，不套用标准网关的积分或免费额度。NAI 官方重绘／放大尚未开放。浏览器直连需服务允许 CORS；环境变量本地代理本轮仍只支持标准网关。完整范围与联调边界见[原生图像协议](docs/native-image-protocols.md)。
 
@@ -90,6 +92,7 @@ npm run test:shared
 npm run test:drawing
 npm run test:workspaces
 npm run test:native
+npm run test:ask
 npm run test:local
 npm run test:release
 ```
@@ -111,7 +114,7 @@ docs/         规范、实施记录与发布说明
 
 - 复刻既有业务和 UI，按已批准范围调整工作区导航、默认头像、连接配置及数据命名。
 - Vue 管理低频界面状态；高频绘制与图片资源交给原生驱动。
-- 业务通过 Gateway Profile 访问服务，初始 URL／Key 为空。用户显式选择标准网关、OpenAI Images、Gemini 原生或 NovelAI 官方协议；兼容服务不内置私有名称或地址，不按域名判断或自动回退。原标准网关的报价与额度保护保持。
+- 业务通过 Gateway Profile 访问服务，初始 URL／Key 为空。用户显式选择标准网关、OpenAI Images、Gemini 原生或 NovelAI 官方协议，ASK 另用 OpenAI Chat 兼容或 Anthropic Messages 推理协议；兼容服务不内置私有名称或地址，不按域名判断或自动回退。原标准网关的报价与额度保护保持。
 - 前端构建不包含私有地址或凭据；本地环境变量不进入 `VITE_*`，运行时连接和令牌不写入浏览器存储或备份。
 - 正式包仅使用 Koma 命名空间。旧数据迁移整条线已取消，不检测、读取或清理旧库；连接与 Key 重新配置。设置中的「备份与恢复」仅支持新版格式，不内置旧备份转换器。
 
@@ -130,7 +133,7 @@ docs/         规范、实施记录与发布说明
 - [M7 本地代理与发布验收](docs/release-acceptance.md)
 - [P3 NovelAI 官方连接](docs/novelai-official.md)：[P3.0 连接管理](docs/shared-settings-tags.md#p30-连接管理)、[P3.1 Profile 泛化](docs/gateway-data-scheduler.md#p31-profile-泛化)
 - [原生图像协议接入](docs/native-image-protocols.md)：OpenAI Images、Gemini 原生、NAI 官方基础适配及实测边界
-- [Koma ASK 决策与实施规划](docs/ask/ask-implementation-plan.md)：只读诊断子产品，规划定稿、未开发；设计见 `docs/ask/` 下文档 1–3
+- [Koma ASK 决策与实施规划](docs/ask/ask-implementation-plan.md)：只读诊断子产品；A0.1 推理协议与「设置 → ASK」、A0.2 会话与抽屉（目前用 ⌘J／Ctrl+J 打开）已实现并模拟验证，见 [A0 记录](docs/ask/ask-a0.md)，只读工具与可见入口从 A1 开始；设计见 `docs/ask/` 下文档 1–3
 - [发布包使用、更新与回退](docs/release-guide.md)
 - [第三方资源](docs/third-party-assets.md)
 - [协作约定](AGENTS.md)

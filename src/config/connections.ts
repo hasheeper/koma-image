@@ -120,3 +120,9 @@ export function validateRouting(value: unknown): Routing {
   }
   return out;
 }
+/** Image catalogs, quotes and generation only use connections whose protocol declares image work. */
+export const imageConnections = (routing: Readonly<Routing>): Connection[] =>
+  Object.values(routing.connections).filter(c => profileFor(c.profileId).image);
+/** ASK only lists connections whose protocol declares reasoning. */
+export const reasoningConnections = (routing: Readonly<Routing>): Connection[] =>
+  Object.values(routing.connections).filter(c => !!profileFor(c.profileId).reasoning);

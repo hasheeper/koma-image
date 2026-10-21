@@ -1,11 +1,11 @@
 # Koma Image 工程约定
 
-这是独立复刻工程。M1–M7 已完成单页外壳、共享服务、公共界面、绘图／对话／编辑、本地代理、只读设置、验收与发布包，并已发布到 koma-image Cloudflare Pages。已新增 OpenAI Images、Gemini 原生与 NovelAI 官方基础协议适配；供应商实测、NAI 官方重绘／放大和订阅优惠仍待核验，不能用模拟测试声称真实接入成功。推送 hasheeper/koma-image 和发布 Pages 每次需用户授权，并先通过脱敏复查。继续前阅读 docs/gateway-data-scheduler.md、docs/shared-settings-tags.md、docs/drawing-workspace.md、docs/chat-editor-workspaces.md、docs/release-acceptance.md、docs/novelai-official.md 与 docs/native-image-protocols.md 的接入约定和边界。已批准新子产品 Koma ASK（只读诊断，草稿为唯一写入出口），目前规划定稿、未开发；开工前阅读 `docs/ask/` 下文档 1–4，冲突时以 `docs/ask/ask-implementation-plan.md` 为准。
+这是独立复刻工程。M1–M7 已完成单页外壳、共享服务、公共界面、绘图／对话／编辑、本地代理、只读设置、验收与发布包，并已发布到 koma-image Cloudflare Pages。已新增 OpenAI Images、Gemini 原生与 NovelAI 官方基础协议适配；供应商实测、NAI 官方重绘／放大和订阅优惠仍待核验，不能用模拟测试声称真实接入成功。推送 hasheeper/koma-image 和发布 Pages 每次需用户授权，并先通过脱敏复查。继续前阅读 docs/gateway-data-scheduler.md、docs/shared-settings-tags.md、docs/drawing-workspace.md、docs/chat-editor-workspaces.md、docs/release-acceptance.md、docs/novelai-official.md 与 docs/native-image-protocols.md 的接入约定和边界。已批准新子产品 Koma ASK（只读诊断，草稿为唯一写入出口），A0.1 推理协议与设置、A0.2 会话与抽屉已实现并模拟验证（见 `docs/ask/ask-a0.md`），A1 起未开发，绘图工作区可见入口须先出截图方案；开工前阅读 `docs/ask/` 下文档 1–4，冲突时以 `docs/ask/ask-implementation-plan.md` 为准。
 
 - 先读 `docs/architecture.md`、`docs/business-contracts.md` 和 `docs/implementation-plan.md`。实际界面与业务基线位于内部参考工程，不能凭空设计或声称已验证。
 - 复刻原有业务与 UI，已批准的调整包括导航、默认头像、渠道脱敏、存储命名、旧数据迁移功能裁撤，以及设置分组、样式统一、结果参数单行滚动、绘图空白页居中与品牌字（Fredoka），以及界面字体改用资源圆体。不得顺便修改报价、分流、额度阈值、取消和失败行为。ASK 是批准的新产品形态，不受复刻约束，但遵守本文全部工程约定；现有工作区只增加 ASK 入口与草稿写入路径。
 - 唯一 App Shell；绘图／对话／词典用 KeepAlive，编辑为覆盖层，设置为弹窗，备份为设置子页。
-- 设置分为连接、模型、通用、安全与备份；ASK 实施时新增独立的 ASK 分组。Tag 自动补全和历史保留在通用中，沿用绘图服务的同一份偏好；安全、备份和配置导入导出合页，旧 backup 路由仍可访问。界面只保留基本信息与操作反馈，避免重复标题和大段说明。
+- 设置分为连接、模型、通用、安全与备份及独立的 ASK 分组。Tag 自动补全和历史保留在通用中，沿用绘图服务的同一份偏好；安全、备份和配置导入导出合页，旧 backup 路由仍可访问。界面只保留基本信息与操作反馈，避免重复标题和大段说明。
 - Vue 管低频状态和 DOM；原生驱动管 Canvas、指针与逐帧更新。大图片、DOM、数据库和密钥不进入深层 reactive。
 - TypeScript 迁移 T0–T5 已完成，见 `docs/typescript-migration-plan.md`。`src/` 自有逻辑使用 TS／Vue TS，类型直接来自实现，不再新增 JS 与手写配对声明；测试、服务器、工具和静态兼容脚本保留原运行方式。不放宽 strict 或以忽略诊断代替边界收窄。
 - Vue 节点不得由旧脚本包裹或搬移；高亮宿主写入模板，位置切换用 Teleport，监听器与 Observer 有对应清理。

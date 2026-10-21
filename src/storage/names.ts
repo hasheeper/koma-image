@@ -14,6 +14,8 @@ export const names = Object.freeze({
   tagCart: "koma.tag.cart.v1",
   tagCategories: "koma.tag.categories.v1",
   tagHandoff: "koma.tag.handoff.v1",
+  ask: "koma.ask.v1",
+  askAdult: "koma.ask.adult.v1",
   vault: "koma.vault.v2",
   sessionKeys: "koma.session.keys",
   sessionDerivedKey: "koma.session.dk",

@@ -24,6 +24,19 @@ test("only the new Koma envelope is accepted, with logical allowlisted preferenc
   assert.equal(backupLimits.entries, 60000); assert.equal(backupLimits.archiveBytes, 0xffffffff);
 });
 
+test("ASK settings travel as a validated logical field; the adult confirmation never does", () => {
+  const stored = { [names.ask]: JSON.stringify({ version: 1, connectionId: "connection-a", model: "reasoning-model", images: false, preference: "先说结论", words: ["see_through", "loli", "guro"], alwaysCodec: true, extra: "dropped" }),
+    [names.askAdult]: "true" };
+  const read = [];
+  const preferences = collectBackupPreferences({ getItem(key) { read.push(key); return stored[key] ?? null; } });
+  assert.deepEqual(Object.keys(preferences), ["ask"]);
+  assert.ok(!read.includes(names.askAdult));
+  assert.deepEqual(JSON.parse(preferences.ask), { version: 1, connectionId: "connection-a", model: "reasoning-model", images: false, preference: "先说结论", words: ["see through"], alwaysCodec: true });
+  const restored = validateBackupManifest({ ...manifest(), preferences: { ask: stored[names.ask], askAdult: "true" } });
+  assert.deepEqual(Object.keys(restored.preferences), ["ask"]);
+  for (const ask of ["[]", "null", "\"text\""]) assert.throws(() => validateBackupManifest({ ...manifest(), preferences: { ask } }));
+});
+
 test("manifest rejects duplicate records, missing referenced assets, and unsafe image references", () => {
   const favorite = { id: "one", image: { path: "favorites/0.png", type: "image/png" }, thumbnail: null };
   assert.throws(() => validateBackupManifest({ ...manifest(), favorites: [favorite, favorite] }));

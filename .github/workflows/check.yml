@@ -25,5 +25,6 @@ jobs:
       - run: npm run test:drawing
       - run: npm run test:workspaces
       - run: npm run test:native
+      - run: npm run test:ask
       - run: npm run test:local
       - run: npm run test:release

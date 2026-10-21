@@ -24,6 +24,7 @@ import type { Writer } from "./data-lease";
 import { AssetStore } from "./assets";
 import { consumeMedia } from "./media-response";
 import { createHandoff } from "./handoff";
+import { imageConnections } from "../config/connections.ts";
 
 export const chatOptions = (c: ConversationRecord) =>
   object(c.settings.options) as Record<string, string>;
@@ -192,8 +193,8 @@ export function createChat(services: ApplicationServices, ui: Ui) {
     cancelQuote();
     emit();
     const results = await Promise.allSettled(
-      Object.keys(services.connections.configuration.connections).map(
-        async (id) =>
+      imageConnections(services.connections.configuration).map(
+        async ({ id }) =>
           chatModels(await services.gateway(id).catalog(false, signal)),
       ),
     );

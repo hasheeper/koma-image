@@ -21,6 +21,7 @@ import type { MaskState } from "../native/mask-editor.ts";
 import { decodeImage } from "./image-response";
 import { consumeMedia } from "./media-response";
 import { dataUrl } from "./assets";
+import { imageConnections } from "../config/connections.ts";
 export const modeNames = {
   img2img: "图生图",
   inpaint: "重绘",
@@ -215,8 +216,8 @@ export function createEditor(
     catalogAbort?.abort();
     const controller = (catalogAbort = new AbortController());
     const results = await Promise.allSettled(
-      Object.keys(services.connections.configuration.connections).map(
-        async (id) => ({
+      imageConnections(services.connections.configuration).map(
+        async ({ id }) => ({
           id,
           c: await services.gateway(id).catalog(false, controller.signal),
         }),

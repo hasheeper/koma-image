@@ -19,6 +19,7 @@ import ModelsSection from "./settings/ModelsSection.vue";
 import ModelListDialog from "./settings/ModelListDialog.vue";
 import BackupSection from "./settings/BackupSection.vue";
 import GeneralSection from "./settings/GeneralSection.vue";
+import AskSection from "./settings/AskSection.vue";
 import type { SettingsSection } from "../app/routes";
 import type { Connection, Routing } from "../config/connections.ts";
 import {
@@ -68,6 +69,7 @@ const sections: { id: SettingsSection; label: string; icon: string }[] = [
   { id: "models", label: "模型", icon: "model" },
   { id: "general", label: "通用", icon: "settings" },
   { id: "security", label: "安全与备份", icon: "lock" },
+  { id: "ask", label: "ASK", icon: "info" },
 ];
 // Keep existing backup links usable within the combined settings page.
 const activeSection = computed(() =>
@@ -202,7 +204,7 @@ async function load(force = false) {
         if (token !== sequence || signal.aborted) return;
         if (results[0].status === "fulfilled") {
           raw.value = { ...raw.value, [c.id]: results[0].value };
-          statuses.value[c.id] = { s: "ok", text: gateway.profile.protocol === "novelai" ? "订阅可用 · 生图尚未实测" : "可用 · 刚刚检查" };
+          statuses.value[c.id] = { s: "ok", text: gateway.profile.protocol === "novelai" ? "订阅可用 · 生图尚未实测" : gateway.profile.reasoning ? "可用 · 推理尚未实测" : "可用 · 刚刚检查" };
         } else
           statuses.value[c.id] = { s: "err", text: message(results[0].reason) };
         if (results[1].status === "fulfilled")
@@ -655,7 +657,21 @@ async function reveal(id: string) {
                   ></span>
                 </div>
               </div>
+              <!-- Reasoning connections serve ASK only; their IDs are picked there. -->
               <button
+                v-if="profileFor(c.profileId).reasoning"
+                class="conn-models"
+                type="button"
+                @click="router.selectSection('ask')"
+              >
+                <span>ASK 模型</span
+                ><span>{{
+                  raw[c.id] ? `${catalogEntries(raw[c.id]).length} 个 ID` : "—"
+                }}</span
+                ><AppIcon name="i-chevron" />
+              </button>
+              <button
+                v-else
                 class="conn-models"
                 type="button"
                 :disabled="!raw[c.id]"
@@ -681,6 +697,7 @@ async function reveal(id: string) {
             @reload="load(true)"
           />
           <GeneralSection v-show="activeSection === 'general'" />
+          <AskSection v-show="activeSection === 'ask'" :routing="routing" />
           <div v-show="activeSection === 'security'" class="backup-sections">
             <section class="sp-sec" aria-label="安全">
               <div class="sp-sec-head"><h3>安全</h3></div>

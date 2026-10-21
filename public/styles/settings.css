@@ -75,7 +75,7 @@
 .set-ui :is(.md-group, .sp-group) > .md-ghead + * { border-radius: var(--r3) var(--r3) 0 0; }
 .set-ui :is(.md-group, .sp-group) > :last-child { border-bottom-width: 1px; border-radius: 0 0 var(--r3) var(--r3); }
 .set-ui :is(.md-group, .sp-group) > .md-ghead + :last-child,
-.set-ui :is(.md-group, .sp-group) > :only-child { border-radius: var(--r3); }
+.set-ui :is(.md-group, .sp-group) > :is(.md-row, .sm-model, .s-row, .sp-empty):only-child { border-radius: var(--r3); }
 .set-ui .md-gtitle { display: flex; align-items: baseline; gap: 8px; min-width: 0; }
 .set-ui .md-gtitle b { font-size: var(--fz-sm); font-weight: var(--fw-medium); color: var(--fg-2); white-space: nowrap; }
 .set-ui .md-chev { display: grid; place-items: center; width: 26px; height: 26px; flex: none; color: var(--fg-4); border-radius: 6px; }

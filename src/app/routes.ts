@@ -6,6 +6,7 @@ export const settingsSections = [
   "general",
   "security",
   "backup",
+  "ask",
 ] as const;
 export type SettingsSection = (typeof settingsSections)[number];
 export type OverlayId = "settings" | "editor";

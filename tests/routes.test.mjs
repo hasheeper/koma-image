@@ -20,5 +20,7 @@ test("overlay URLs preserve the workspace identity", () => {
     }
   }
   assert.equal(parseRoute("#/chat/settings/unknown").section, "connections");
+  assert.equal(parseRoute("#/image/settings/ask").section, "ask");
+  assert.equal(parseRoute(routeHash({ workspace: "chat", overlay: "settings", section: "ask" })).section, "ask");
   assert.equal(parseRoute("#/image/unknown").overlay, null);
 });

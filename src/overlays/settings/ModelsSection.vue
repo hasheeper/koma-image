@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { ref } from "vue";
+import { computed, ref } from "vue";
 import { MODELS } from "../../domain/models.ts";
 import type { ModelIdentity } from "../../domain/models.ts";
 import {
@@ -9,6 +9,7 @@ import {
   shownId,
 } from "../../domain/catalog.ts";
 import type { Routing, ModelLink } from "../../config/connections.ts";
+import { imageConnections } from "../../config/connections.ts";
 import ModelIcon from "../../shared/ModelIcon.vue";
 import ModelCapabilities from "../../shared/ModelCapabilities.vue";
 import AppIcon from "../../shared/AppIcon.vue";
@@ -21,13 +22,15 @@ const emit = defineEmits<{ change: [routing: Routing]; reload: [] }>();
 const opened = ref(new Set<string>());
 const avatar = `${import.meta.env.BASE_URL}assets/default-avatar.svg`;
 const groups = { gpt: "GPT", gemini: "Gemini", novelai: "NovelAI" };
+// Reasoning-only connections serve ASK and never appear as image model sources.
+const sources = computed(() => imageConnections(props.routing));
 const entries = (c: string) => catalogEntries(props.raw[c]);
 const link = (c: string, m: ModelIdentity) =>
   linkFor(props.routing, c, m, entries(c));
 const state = (c: string, m: ModelIdentity) =>
   sourceState(props.routing, c, m, entries(c));
 const count = (m: ModelIdentity) =>
-  Object.keys(props.routing.connections).filter((c) => state(c, m) === "on")
+  sources.value.filter((c) => state(c.id, m) === "on")
     .length;
 function spare(c: string, m: ModelIdentity) {
   const claimed = new Set(
@@ -75,10 +78,10 @@ defineExpose({
       <h3>模型</h3>
       <p>添加的来源出现在工作区的模型菜单里。</p>
     </div>
-    <div v-if="!Object.keys(routing.connections).length" class="sp-group">
+    <div v-if="!sources.length" class="sp-group">
       <div class="sp-empty">尚未配置模型来源</div>
     </div>
-    <div v-else-if="!Object.keys(raw).length" class="sp-group">
+    <div v-else-if="!sources.some((c) => raw[c.id])" class="sp-group">
       <div class="sp-empty">
         <span>{{
           Object.values(statuses).find((s) => s.s !== "ok")?.text ||
@@ -143,7 +146,7 @@ defineExpose({
           </div>
           <div v-if="opened.has(model.id)" class="sm-lines">
             <div
-              v-for="c in Object.values(routing.connections)"
+              v-for="c in sources"
               :key="c.id"
               class="sm-line"
               :data-s="state(c.id, model)"

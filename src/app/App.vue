@@ -13,6 +13,9 @@ import ConfirmSheet from "../shared/ConfirmSheet.vue";
 import ToastList from "../shared/ToastList.vue";
 import ModelLogos from "../shared/ModelLogos.vue";
 import { createUi, uiKey } from "./ui";
+import AskDrawer from "../ask/AskDrawer.vue";
+import { createAsk } from "../ask/service";
+import { askKey } from "./ask";
 
 import { useServices } from "./services";
 import { createDrawing } from "../services/drawing";
@@ -36,6 +39,9 @@ onScopeDispose(() => editor.dispose());
 onScopeDispose(() => chat.dispose());
 provide(drawingKey, drawing);
 onScopeDispose(() => drawing.dispose());
+const ask = createAsk({ services, router, drawing, chat });
+provide(askKey, ask);
+onScopeDispose(() => ask.dispose());
 usePresentation(shell, ui);
 onMounted(() => {
   if (
@@ -60,6 +66,7 @@ const workspaces = {
       :key="router.route.value.workspace"
     />
   </KeepAlive>
+  <AskDrawer />
   <SettingsOverlay />
   <EditorOverlay />
   <KeyDialog />
