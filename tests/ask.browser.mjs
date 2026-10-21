@@ -6,6 +6,7 @@ import { chromium } from "playwright";
 
 let server, browser, origin;
 before(async () => {
+  await mkdir(".local/ask/window", { recursive: true });
   await mkdir(".local/ask/a4", { recursive: true });
   await mkdir(".local/ask/a3", { recursive: true });
   await mkdir(".local/ask/a2", { recursive: true });
@@ -368,7 +369,7 @@ test("ASK drawer: Esc closes the popover, then stops the turn, then the drawer; 
   }
 });
 
-test("ASK drawer layering: settings above it, hidden with the editor, Anthropic turns, bottom panel on narrow screens", async () => {
+test("ASK drawer layering: settings above it, hidden with the editor, Anthropic turns, floating bounds on four screens", async () => {
   const { page, context, requests, errors, llm, calls } = await open("/#/image", { ready: ".switcher", ask: askSettings({ connectionId: "claude", images: false }) });
   try {
     await bind(page);
@@ -447,15 +448,14 @@ test("ASK drawer layering: settings above it, hidden with the editor, Anthropic 
         return { top: r.top, bottom: r.bottom, left: r.left, width: r.width, overflow: el.scrollWidth > el.clientWidth + 1 };
       });
       assert.equal(rect.overflow, false, `overflow at ${width}`);
-      if (width <= 860) {
-        assert.equal(Math.round(rect.bottom), 900, `bottom panel at ${width}`);
-        assert.equal(Math.round(rect.width), width);
-      } else {
-        assert.equal(Math.round(rect.width), 460);
-        assert.equal(Math.round(rect.top), 0);
-        assert.equal(Math.round(rect.bottom), 900);
-        assert.equal(Math.round(rect.left + rect.width), width);
-        assert.ok(await drawer(page).evaluate(el=>document.elementFromPoint(el.getBoundingClientRect().left+20,20)?.closest('#askDrawer')===el), 'ASK covers its top-bar area');
+      assert.ok(rect.left >= 8 && rect.left + rect.width <= width - 7, `horizontal bounds at ${width}`);
+      assert.ok(rect.top >= 8 && rect.bottom <= 893, `vertical bounds at ${width}`);
+      assert.equal(Math.round(rect.width), Math.min(460, width - 16));
+      if (width > 860) {
+        const rail = await page.locator('#gallery').boundingBox();
+        const bar = await page.locator('body > .topbar').boundingBox();
+        assert.equal(Math.round(bar.width + rail.width), width, 'workspace retains its full width');
+        assert.equal(Math.round(rail.x + rail.width), width);
       }
       await page.screenshot({ path: `.local/ask/drawer-${width}.png` });
     }
@@ -702,7 +702,7 @@ test('ASK A1 entries: four viewports, collapsed history, touch selection and Ask
    assert.equal(await page.evaluate(()=>document.documentElement.scrollWidth>innerWidth+1),false);
    await page.screenshot({path:`.local/ask/a1/entry-${width}.png`});
    await page.getByRole('button',{name:'Ask 这张图',exact:true}).click();await drawer(page).waitFor();
-   await drawer(page).getByRole('button',{name:'关闭 ASK',exact:true}).click();await drawer(page).waitFor({state:'hidden'});
+   await drawer(page).getByRole('button',{name:'收起 ASK',exact:true}).click();await drawer(page).waitFor({state:'hidden'});
   }
   await page.locator('#histToggle').click();await page.waitForTimeout(400);
   const folded=await page.locator('#tray .tile[data-id]').evaluateAll(els=>els.map(el=>el.getBoundingClientRect().height));
@@ -739,7 +739,7 @@ test('ASK A1 entries: four viewports, collapsed history, touch selection and Ask
   assert.equal(await page.getByRole('button',{name:'Ask Diff',exact:true}).isEnabled(),true);
   await page.getByRole('button',{name:'Ask Diff',exact:true}).click();await drawer(page).waitFor();
   assert.equal(calls.length,0);
-  await drawer(page).getByRole('button',{name:'关闭 ASK',exact:true}).click();
+  await drawer(page).getByRole('button',{name:'收起 ASK',exact:true}).click();
   // Isolated UI state: never submit a generation to obtain an error card.
   await page.evaluate(()=>{document.body.dataset.state='error';document.querySelector('#errBody').textContent='synthetic 503';});
   await page.getByRole('button',{name:'Ask Why',exact:true}).click();await drawer(page).waitFor();
@@ -1055,4 +1055,127 @@ test('ASK A4 inline: autocomplete retains Tab/Esc and IME; K dismisses suggestio
   await page.locator('#askPrompt').press('Control+k');assert.equal(await page.evaluate(()=>ask.inline.value.target),'chat.composer');
   assert.deepEqual(generation(requests),[]);assert.deepEqual(errors,[]);
  }finally{await context.close();}
+});
+
+test('ASK floating assistant: drag without opening or Vue updates, minimize preserves running turns, drafts and workspace layout', async () => {
+  const { page, context, requests, errors, llm, calls } = await open('/#/image', { ready: '.switcher', ask: askSettings() });
+  try {
+    await bind(page);
+    await page.locator('#prompt').fill('adult woman, red eyes');
+    await addImage(page, 'adult woman, red eyes');
+    const geometry = () => page.locator('body > .topbar, .shell, #viewport, #gallery').evaluateAll(nodes => nodes.map(node => {
+      const r = node.getBoundingClientRect();
+      return [r.x, r.y, r.width, r.height];
+    }));
+    const before = await geometry(), initialForm = await form(page);
+    const launcher = page.getByRole('button', { name: '打开 Koma ASK', exact: true });
+    await launcher.waitFor();
+    const orb = await launcher.boundingBox();
+    await page.mouse.move(orb.x + 24, orb.y + 24);
+    await page.mouse.down();
+    await page.mouse.move(orb.x - 160, orb.y - 80, { steps: 20 });
+    await page.mouse.up();
+    assert.equal(await drawer(page).isVisible(), false, 'dragging the icon does not open ASK');
+    assert.ok((await launcher.boundingBox()).x < orb.x - 100);
+    await launcher.click();
+    await page.waitForFunction(() => document.activeElement?.id === 'askPrompt');
+    await page.waitForFunction(() => getComputedStyle(document.querySelector('#askDrawer')).opacity === '1');
+    assert.equal(await launcher.isVisible(), false);
+    assert.deepEqual(await geometry(), before, 'opening ASK does not resize the workspace');
+    const node = await drawer(page).elementHandle();
+    const original = await drawer(page).boundingBox();
+    await page.evaluate(() => {
+      window.askRenders = 0;
+      const component = document.querySelector('#askDrawer').__vueParentComponent;
+      component.u = [...(component.u || []), () => window.askRenders++];
+    });
+    const handle = page.getByRole('group', { name: '移动 ASK 窗口' });
+    const grip = await handle.boundingBox();
+    await page.mouse.move(grip.x + 40, grip.y + 20);
+    await page.mouse.down();
+    await page.mouse.move(grip.x - 180, grip.y - 80, { steps: 30 });
+    await page.mouse.up();
+    assert.equal(await page.evaluate(() => window.askRenders), 0, 'pointer moves stay outside Vue updates');
+    const moved = await drawer(page).boundingBox();
+    assert.ok(moved.x < original.x - 100 && moved.y < original.y - 50);
+    await handle.focus();
+    const keyboardStart = await drawer(page).boundingBox();
+    await handle.press('Alt+ArrowRight');
+    await page.waitForFunction(x => Math.abs(document.querySelector('#askDrawer').getBoundingClientRect().x - x - 16) < 1, keyboardStart.x);
+    const normal = await drawer(page).boundingBox();
+    await drawer(page).getByRole('button', { name: '放大 ASK 窗口' }).click();
+    await page.waitForFunction(() => document.querySelector('#askDrawer').offsetWidth === 760);
+    await drawer(page).getByRole('button', { name: '还原 ASK 窗口' }).click();
+    await page.waitForFunction(({ x, y }) => {
+      const r = document.querySelector('#askDrawer').getBoundingClientRect();
+      return Math.abs(r.x - x) < 1 && Math.abs(r.y - y) < 1 && r.width === 460;
+    }, normal);
+
+    llm.push({ body: openai(text('窗口收起后也保留这轮回复。'), end()), delay: 450 });
+    await page.locator('#askPrompt').fill('解释当前图片');
+    await page.locator('#askPrompt').press('Enter');
+    await page.waitForFunction(() => ask.running.value);
+    await drawer(page).getByRole('button', { name: '收起 ASK', exact: true }).click();
+    await drawer(page).waitFor({ state: 'hidden' });
+    assert.match(await launcher.getAttribute('class'), /is-thinking/);
+    await page.waitForFunction(() => !ask.running.value);
+    assert.equal(await drawer(page).isVisible(), false, 'reply completion does not reopen the window');
+    await launcher.click();
+    await drawer(page).locator('.ask-stream').getByText('窗口收起后也保留这轮回复。', { exact: true }).waitFor();
+    llm.push(proposal([patchStep('replace', 'red eyes', 'blue eyes')]));
+    await page.locator('#askPrompt').fill('把红眼睛改成蓝色');
+    await page.locator('#askPrompt').press('Enter');
+    await page.locator('.ask-draft[data-status="pending"]').waitFor();
+    await page.locator('#askPrompt').fill('保留这条未发送的问题');
+    await drawer(page).getByRole('button', { name: '收起 ASK', exact: true }).click();
+    await launcher.waitFor();
+    assert.equal(await page.evaluate(() => document.activeElement?.id), 'askLauncher');
+    await launcher.press('Enter');
+    assert.equal(await page.locator('#askPrompt').inputValue(), '保留这条未发送的问题');
+    assert.equal(await page.locator('.ask-draft[data-status="pending"]').count(), 1);
+    assert.equal(await node.evaluate(el => el === document.querySelector('#askDrawer')), true);
+    for (const workspace of ['chat', 'tags', 'image']) {
+      await route(page, `#/${workspace}`);
+      await page.locator(`[data-workspace-root="${workspace}"]`).waitFor();
+      assert.equal(await drawer(page).isVisible(), true);
+      assert.equal(await page.locator('#askPrompt').inputValue(), '保留这条未发送的问题');
+    }
+    assert.deepEqual(await form(page), initialForm);
+    assert.deepEqual(await geometry(), before);
+    assert.equal(calls.length, 2);
+    assert.deepEqual(generation(requests), []);
+    assert.deepEqual(errors, []);
+  } finally { await context.close(); }
+});
+
+test('ASK floating assistant: icon, normal and expanded windows fit four widths and a short viewport', async () => {
+  const { page, context, requests, errors } = await open('/#/image', { ready: '.switcher', ask: askSettings() });
+  try {
+    await bind(page);
+    await addImage(page, 'synthetic window layout');
+    const launcher = page.locator('#askLauncher');
+    const bounds = async (locator, width, height) => {
+      await page.waitForFunction(({ selector, width, height }) => {
+        const el = document.querySelector(selector), r = el.getBoundingClientRect();
+        return getComputedStyle(el).opacity === '1' && r.left >= 7 && r.top >= 7 && r.right <= width - 7 && r.bottom <= height - 7 && el.scrollWidth <= el.clientWidth + 1;
+      }, { selector: await locator.getAttribute('id').then(id => `#${id}`), width, height });
+    };
+    for (const [width, height] of [[1440,900], [768,900], [390,900], [320,900], [390,520]]) {
+      await page.setViewportSize({ width, height });
+      await bounds(launcher, width, height);
+      await page.screenshot({ path: `.local/ask/window/icon-${width}-${height}.png` });
+      await launcher.click();
+      await bounds(drawer(page), width, height);
+      await page.locator('#askPrompt').fill('输入和会话会在收起后保留');
+      await page.screenshot({ path: `.local/ask/window/normal-${width}-${height}.png` });
+      await drawer(page).getByRole('button', { name: '放大 ASK 窗口' }).click();
+      await bounds(drawer(page), width, height);
+      await page.screenshot({ path: `.local/ask/window/expanded-${width}-${height}.png` });
+      await drawer(page).getByRole('button', { name: '还原 ASK 窗口' }).click();
+      await drawer(page).getByRole('button', { name: '收起 ASK', exact: true }).click();
+      await drawer(page).waitFor({ state: 'hidden' });
+    }
+    assert.deepEqual(generation(requests), []);
+    assert.deepEqual(errors, []);
+  } finally { await context.close(); }
 });

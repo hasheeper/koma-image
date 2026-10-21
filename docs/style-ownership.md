@@ -37,6 +37,7 @@ fonts/index.css
 | `src/shared/ToastList.vue` | Toast 的 scoped 外观、动画、局部底色、移动布局及减少动效下的真实计时例外 |
 | `src/shared/ConfirmSheet.vue` | 确认内容与脚注的 scoped 规则；通用 modal 框架仍由 ui 管理 |
 | `src/workspaces/image/EmptyStage.vue` | 空白页的 scoped 布局与说明；品牌子组件的字形样式用明确的 `:deep()` 保留 |
+| `src/ask/AskDrawer.vue` | ASK 悬浮图标、独立窗口、放大模式、标题栏、响应式边界与减少动态规则；不改变工作区布局 |
 
 组件私有规则已从原全局文件移出，不保留第二份副本。`ui.css` 从 G2 前的 94,293 字节减至 45,582 字节；这是职责转移，不是性能指标。
 
