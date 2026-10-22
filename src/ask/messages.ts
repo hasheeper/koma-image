@@ -56,6 +56,13 @@ export interface AskUsage {
   readonly cacheRead: number;
   readonly cacheWrite: number;
 }
+/** Missing cache counters are unknown, rather than a reported zero. */
+export interface CacheUsage {
+  readonly read: number | null;
+  readonly write: number | null;
+}
+export const reportedCount = (value: unknown): number | null =>
+  typeof value === "number" && Number.isFinite(value) && value >= 0 ? value : null;
 export type AskStop = "end" | "tool" | "length" | "refusal" | "other";
 export type AskEvent =
   | { readonly type: "text"; readonly text: string }

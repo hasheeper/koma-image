@@ -1,6 +1,7 @@
 import { sortKeys } from "../canonical.ts";
 import { object } from "../../domain/value.ts";
-import { classify, ProviderError } from "../messages.ts";
+import { classify, ProviderError, reportedCount } from "../messages.ts";
+import type { CacheUsage } from "../messages.ts";
 import type {
   AskBlock,
   AskEvent,
@@ -79,6 +80,7 @@ export function reader() {
     started = false,
     finished = false;
   const tally = { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 };
+  let cacheUsage: CacheUsage = { read: null, write: null };
   // message_start carries input counts; message_delta updates the cumulative ones.
   function record(value: unknown) {
     const u = object(value);
@@ -86,6 +88,10 @@ export function reader() {
     if (u.output_tokens !== undefined) tally.output = count(u.output_tokens);
     if (u.cache_read_input_tokens !== undefined) tally.cacheRead = count(u.cache_read_input_tokens);
     if (u.cache_creation_input_tokens !== undefined) tally.cacheWrite = count(u.cache_creation_input_tokens);
+    cacheUsage = {
+      read: u.cache_read_input_tokens === undefined ? cacheUsage.read : reportedCount(u.cache_read_input_tokens),
+      write: u.cache_creation_input_tokens === undefined ? cacheUsage.write : reportedCount(u.cache_creation_input_tokens),
+    };
   }
   const usage = (): AskUsage | null =>
     started ? { ...tally, input: tally.input + tally.cacheRead + tally.cacheWrite } : null;
@@ -94,6 +100,7 @@ export function reader() {
     return [{ type: "done", stop: stop ?? "other", usage: usage() }];
   }
   return {
+    get cacheUsage() { return cacheUsage; },
     read(event: SseEvent): AskEvent[] {
       if (finished) return [];
       let data: Record<string, unknown>;

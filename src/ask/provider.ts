@@ -5,7 +5,7 @@ import type { ConnectionContext } from "../services/connections.ts";
 import { identityCodec } from "./codec.ts";
 import type { Codec } from "./codec.ts";
 import { classify, ProviderError } from "./messages.ts";
-import type { AskBlock, AskEvent, AskRequest } from "./messages.ts";
+import type { AskBlock, AskEvent, AskRequest, AskStop, AskUsage, CacheUsage } from "./messages.ts";
 import { createSseParser } from "./adapters/sse.ts";
 import * as openaiChat from "./adapters/openai-chat.ts";
 import * as anthropicMessages from "./adapters/anthropic-messages.ts";
@@ -39,6 +39,10 @@ export function encodeRequest(request: AskRequest, codec: Codec): AskRequest {
 export const wireBody = (profile: GatewayProfile, request: AskRequest, codec: Codec = identityCodec) =>
   adapterFor(profile).body(encodeRequest(request, codec));
 
+export type ProviderTrace =
+  | { readonly type: "request"; readonly body: string }
+  | { readonly type: "response"; readonly stop: AskStop; readonly usage: AskUsage | null; readonly cache: CacheUsage };
+
 async function errorBody(response: Response) {
   const text = await response.text().catch(() => "");
   try {
@@ -55,11 +59,10 @@ export function createProvider(
 ) {
   const profile = profileFor(context.connection.profileId),
     adapter = adapterFor(profile),
-    transport = createTransport(context, profile, fetcher),
     idleMs = options.idleMs ?? 90_000;
   async function* stream(
     request: AskRequest,
-    { codec = identityCodec, signal }: { codec?: Codec; signal?: AbortSignal } = {},
+    { codec = identityCodec, signal, observe }: { codec?: Codec; signal?: AbortSignal; observe?: (event: ProviderTrace) => void } = {},
   ): AsyncGenerator<AskEvent, void, undefined> {
     const idle = new AbortController(),
       linked = signal ? AbortSignal.any([signal, idle.signal]) : idle.signal;
@@ -77,6 +80,12 @@ export function createProvider(
         : new ProviderError("network", error instanceof Error ? error.message : "");
     arm();
     try {
+      // Observe the serialized body at dispatch, after codec/protocol conversion.
+      // Headers, credentials and upstream addresses never enter the trace.
+      const transport = createTransport(context, profile, (url, init) => {
+        if (typeof init?.body === "string") observe?.({ type: "request", body: init.body });
+        return fetcher(url, init);
+      });
       let response: Response;
       try {
         response = await transport.request(profilePath(profile, "reasoning"), {
@@ -117,6 +126,7 @@ export function createProvider(
           output = true;
           return [...out, { type: "call", call: { ...event.call, input: codec.decodeDeep(event.call.input) } }];
         }
+        observe?.({ type: "response", stop: event.stop, usage: event.usage, cache: events.cacheUsage });
         if (event.stop === "refusal") throw new ProviderError("rejected", "模型拒绝了这次请求");
         if (!output) throw new ProviderError("empty");
         done = true;

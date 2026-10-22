@@ -1,6 +1,7 @@
 import { canonical, sortKeys } from "../canonical.ts";
 import { object } from "../../domain/value.ts";
-import { classify, ProviderError } from "../messages.ts";
+import { classify, ProviderError, reportedCount } from "../messages.ts";
+import type { CacheUsage } from "../messages.ts";
 import type {
   AskCall,
   AskEvent,
@@ -117,6 +118,7 @@ export function reader() {
   let stop: AskStop | null = null,
     used: AskUsage | null = null,
     finished = false;
+  let cacheUsage: CacheUsage = { read: null, write: null };
   function finish(): AskEvent[] {
     if (finished) return [];
     finished = true;
@@ -136,6 +138,7 @@ export function reader() {
     return out;
   }
   return {
+    get cacheUsage() { return cacheUsage; },
     read(event: SseEvent): AskEvent[] {
       if (finished) return [];
       if (event.data.trim() === "[DONE]") return finish();
@@ -146,7 +149,11 @@ export function reader() {
         throw new ProviderError("protocol");
       }
       if (chunk.error) throw classify(0, chunk);
-      if (chunk.usage) used = usage(chunk.usage);
+      if (chunk.usage) {
+        used = usage(chunk.usage);
+        const u = object(chunk.usage), details = object(u.prompt_tokens_details);
+        cacheUsage = { read: reportedCount(details.cached_tokens ?? u.prompt_cache_hit_tokens), write: null };
+      }
       const choice = object(Array.isArray(chunk.choices) ? chunk.choices[0] : undefined),
         delta = object(choice.delta ?? choice.message),
         out: AskEvent[] = [];

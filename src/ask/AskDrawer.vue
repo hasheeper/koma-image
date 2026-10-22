@@ -6,6 +6,7 @@ import { installAskWindow } from "../native/ask-window";
 import AppIcon from "../shared/AppIcon.vue";
 import AskMark from "./AskMark.vue";
 import AskStream from "./AskStream.vue";
+import AskDebug from "./AskDebug.vue";
 import AskComposer from "./AskComposer.vue";
 import DraftCard from "./DraftCard.vue";
 import { blocks } from "./format.ts";
@@ -17,6 +18,8 @@ const root = shallowRef<HTMLElement | null>(null),
   composer = shallowRef<InstanceType<typeof AskComposer> | null>(null),
   dismissedTurn = shallowRef(0),
   dismissedApplied = shallowRef("");
+const debugOpen = shallowRef(false), debugTurn = shallowRef<number>();
+function inspect(turn?: number) { debugTurn.value = turn; debugOpen.value = true; }
 const controller = new AbortController();
 let place = () => {};
 const latest = computed(() => [...ask.entries.value].reverse().find(e => e.type === "turn")?.turn);
@@ -121,17 +124,19 @@ onBeforeUnmount(() => { clearTimeout(doneTimer); controller.abort(); ask.attach(
         <div class="ask-handle" data-ask-grip :tabindex="ask.inline.value ? -1 : 0" role="group" aria-label="移动 ASK 窗口" aria-describedby="askMoveHint" @dblclick="!ask.inline.value && (expanded = !expanded)"><AskMark :thinking="ask.running.value" /><span class="ask-brand">Koma</span><span class="ask-tag">ASK</span></div>
         <button v-if="ask.inline.value" class="btn btn-quiet btn-xs" type="button" @click="ask.expand()">展开</button>
         <span v-if="spent" class="ask-spent" :title="spent.title">{{ spent.label }} tokens</span>
+        <button class="ibtn" type="button" aria-label="查看 ASK 调用上下文" title="调用上下文" @click="inspect()"><AppIcon name="i-parameters" /></button>
         <button v-if="!ask.inline.value" class="ibtn" type="button" :aria-label="expanded ? '还原 ASK 窗口' : '放大 ASK 窗口'" @click="expanded = !expanded"><AppIcon :name="expanded ? 'i-compare' : 'i-fit'" /></button>
         <button class="ibtn" type="button" aria-label="ASK 设置" @click="ask.openSettings()"><AppIcon name="i-settings" /></button>
         <button class="ibtn" type="button" aria-label="收起 ASK" @click="ask.hide()"><svg class="ico" viewBox="0 0 24 24" aria-hidden="true"><path d="M5 12h14" /></svg></button>
       </header>
-      <AskStream />
+      <AskStream @debug="inspect" />
       <div class="ask-bottom"><div id="askFullDraft" class="ask-full-draft"></div><AskComposer ref="composer" /></div>
     </div>
     <Teleport :to="mode === 'ready' && compactDraft ? '#askCompactDraft' : '#askFullDraft'" defer><DraftCard :compact="mode === 'ready'" @review="ask.show()" /></Teleport>
     <div class="sr-only" role="status" aria-live="polite"><span :key="ask.announce.value.id">{{ ask.announce.value.text }}</span></div>
     <span id="askMoveHint" class="sr-only">拖动图标或标题栏移动；Alt 加方向键移动，Alt 加 Home 归位。⌘J 或 Ctrl+J 展开或收起。</span>
   </aside>
+  <AskDebug v-if="debugOpen" :turn="debugTurn" @close="debugOpen = false" />
 </template>
 <style scoped>
 /* One glass material for every state; the child surfaces add only a light tint. */

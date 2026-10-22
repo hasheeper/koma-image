@@ -9,6 +9,7 @@ import type { Inline } from "./format.ts";
 import type { AskEntry, AskTurnView, RetryMode, ToolRow } from "./service.ts";
 
 const ask = useAsk();
+const emit = defineEmits<{ debug: [turn: number] }>();
 // The live turn keeps its id when it settles, so its nodes stay put.
 const all = computed<readonly AskEntry[]>(() => {
   const live = ask.live.value;
@@ -112,7 +113,7 @@ onBeforeUnmount(() => cancelAnimationFrame(frame));
       <p v-if="entry.type === 'note'" :class="entry.action ? 'ask-action' : 'ask-note'">{{ entry.text }}</p>
       <section
         v-else
-        v-memo="[entry, ask.adult.value, ask.codecActive.value, ask.libraryRevision.value]"
+        v-memo="[entry, ask.adult.value, ask.codecActive.value, ask.libraryRevision.value, ask.debug.value]"
         class="ask-turn"
         :data-status="entry.turn.status"
         :aria-busy="entry.turn === ask.live.value || undefined"
@@ -176,6 +177,7 @@ onBeforeUnmount(() => cancelAnimationFrame(frame));
             可在设置 → ASK 确认成年内容后启用词表混淆
           </p>
         </div>
+        <button v-if="ask.debug.value.calls.some(c => c.turn === entry.id)" class="ask-context-link" type="button" @click="emit('debug', entry.id)">调用上下文 · {{ ask.debug.value.calls.filter(c => c.turn === entry.id).length }} 次</button>
       </section>
     </template>
   </div>
@@ -217,6 +219,8 @@ onBeforeUnmount(() => cancelAnimationFrame(frame));
 .ask-tool[data-state="run"] .ask-tool-text { color: transparent; background: linear-gradient(90deg, var(--fg-3) 0%, var(--fg) 50%, var(--fg-3) 100%) 100% 0 / 250% 100%; background-clip: text; animation: ask-sheen 2.4s ease-in-out infinite; }
 .ask-note { margin: 30px 0 16px; color: var(--fg-4); font-size: var(--fz-sm); }
 .ask-meta { color: var(--fg-4); font-size: var(--fz-xs); }
+.ask-context-link { align-self: flex-start; color: var(--fg-3); font-size: var(--fz-xs); }
+.ask-context-link:hover { color: var(--a); }
 .ask-fail { display: flex; flex-direction: column; gap: var(--sp-2); }
 .ask-fail-text { display: flex; align-items: flex-start; gap: var(--sp-2); color: var(--fg-2); font-size: var(--fz-sm); line-height: 1.5; }
 .ask-fail-text .ico { flex: none; width: 15px; height: 15px; margin-top: 2px; color: var(--err); }

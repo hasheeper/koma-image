@@ -12,7 +12,7 @@ import { names } from "../storage/names.ts";
 import { codecFor } from "./codec.ts";
 import { readAskSettings } from "./settings.ts";
 import { createProvider, ProviderError } from "./provider.ts";
-import type { AskMessage, AskUsage, ProviderErrorKind } from "./provider.ts";
+import type { AskMessage, AskUsage, AskRequest, AskEvent, ProviderErrorKind } from "./provider.ts";
 import { approxTokens, createSession, estimateRequest } from "./session.ts";
 import { run } from "./runner.ts";
 import { createTools } from "./tools.ts";
@@ -22,7 +22,9 @@ import { createVision } from "./vision.ts";
 import { localTags, tagCategory } from "../services/tag-memory.ts";
 import { baseHash, buildDigest, stateBlock } from "./digest/index.ts";
 import type { Digest } from "./digest/index.ts";
-import { systemCore, systemPreferences } from "./prompts/index.ts";
+import { promptVersion, systemCore, systemPreferences } from "./prompts/index.ts";
+import { createCallLog } from "./debug.ts";
+import type { CallLogView } from "./debug.ts";
 import { createPacer, PACE } from "./pacer.ts";
 import { createDraftWriter } from "./draft/apply.ts";
 import { validateDraft } from "./draft/validate.ts";
@@ -91,6 +93,8 @@ export function createAsk(deps: {
     toolList = [...tools.values()].map((entry) => entry.tool);
   const readSettings = () => readAskSettings(preferences.get(names.ask, null)),
     readAdult = () => preferences.get<unknown>(names.askAdult, false) === true;
+  const debug = shallowRef<CallLogView>({ calls: [], dropped: 0 }),
+    callLog = createCallLog(view => { debug.value = view; });
 
   const inline = shallowRef<{ target: "image.prompt" | "image.negative" | "chat.composer"; text: string } | null>(null);
   let inlineElement: HTMLTextAreaElement | null = null;
@@ -406,9 +410,23 @@ export function createAsk(deps: {
     commit();
     let last: "text" | "start" | "end" | null = null;
     const rows = new Map<string, Mutable<ToolRow>>();
+    async function* tracedStream(request: AskRequest, signal: AbortSignal): AsyncGenerator<AskEvent> {
+      let call = 0;
+      try {
+        yield* provider.stream(request, { codec, signal, observe(event) {
+          if (event.type === "request") call = callLog.start({ turn: working.id, step: turn.budget.requests, question,
+            connection: config.connectionId, protocol: provider.profile.protocol === "anthropic-messages" ? "anthropic-messages" : "openai-chat",
+            model: request.model, promptVersion }, event.body);
+          else if (call) callLog.finish(call, event);
+        } });
+      } catch (error) {
+        if (call) callLog.fail(call, signal.aborted);
+        throw error;
+      }
+    }
     try {
       for await (const event of run({
-        stream: (request, signal) => provider.stream(request, { codec, signal }),
+        stream: tracedStream,
         request: { model: config.model, tools: toolList, system: system.value, maxTokens: MAX_OUTPUT },
         turn,
         tools,
@@ -575,6 +593,11 @@ export function createAsk(deps: {
   window.addEventListener("keydown", onKey);
 
   return {
+    debug: debug as Readonly<ShallowRef<CallLogView>>,
+    debugCall: callLog.get,
+    debugPrevious: callLog.previous,
+    exportDebug: callLog.export,
+    clearDebug() { if (!controller) callLog.clear(); },
     inline,
     expand() { inline.value = null; },
     visible,
@@ -698,6 +721,7 @@ export function createAsk(deps: {
       window.removeEventListener("keydown", onKey);
       for (const stopListening of stops) stopListening();
       layers.clear();
+      callLog.clear();
       vision.dispose();
       viewed.clear();
       root = null;

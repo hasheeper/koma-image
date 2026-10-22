@@ -294,3 +294,38 @@ test("failures are classified for the retry UI and carry the upstream text", asy
   }
   await assert.rejects(setup(standardProfile, fetch), (error) => error instanceof ProviderError && error.kind === "config");
 });
+
+test("dispatch observer sees the identical encoded request body and actual cache reports for both protocols", async () => {
+  for (const profile of [chat, anthropic]) {
+    const codec = createCodec(["blue coat"]), observed = [], sent = [];
+    const request = { ...turn1, messages: [user('{"prompt":"blue coat"}', "查看 blue coat")] };
+    const payload = profile === chat ? sse(
+      { choices: [{ delta: { content: "完成" }, finish_reason: "stop" }], usage: { prompt_tokens: 1600, completion_tokens: 12, prompt_tokens_details: { cached_tokens: 0 } } }, "[DONE]")
+      : named(
+        { type: "message_start", message: { usage: { input_tokens: 80, cache_read_input_tokens: 1200, cache_creation_input_tokens: 320 } } },
+        { type: "content_block_delta", index: 0, delta: { type: "text_delta", text: "完成" } },
+        { type: "message_delta", delta: { stop_reason: "end_turn" }, usage: { output_tokens: 12 } }, { type: "message_stop" });
+    const { provider } = await setup(profile, async (_url, init) => { sent.push(init.body); return stream(payload); });
+    await collect(provider.stream(request, { codec, observe: e => observed.push(e) }));
+    assert.equal(observed[0].body, sent[0]);
+    assert.equal(observed[0].body, JSON.stringify(wireBody(profile, request, codec)));
+    assert.ok(!JSON.stringify(JSON.parse(observed[0].body).messages.filter(m => m.role !== "system")).includes("blue coat"));
+    assert.ok(!JSON.stringify(observed).includes("synthetic-reasoning-key"));
+    assert.deepEqual(observed[1].cache, profile === chat ? { read: 0, write: null } : { read: 1200, write: 320 });
+    assert.equal(observed[1].usage.input, 1600);
+  }
+});
+
+test("cache reports distinguish missing, invalid and zero counters; pre-dispatch abort records no request", async () => {
+  for (const counter of [undefined, null, -1, "0", 0]) {
+    const observed = [];
+    const { provider } = await setup(chat, async () => stream(sse({ choices: [{ delta: { content: "完成" }, finish_reason: "stop" }], usage: { prompt_tokens: 100, completion_tokens: 2, prompt_tokens_details: { cached_tokens: counter } } }, "[DONE]")));
+    await collect(provider.stream(turn1, { observe: e => observed.push(e) }));
+    assert.equal(observed.at(-1).cache.read, counter === 0 ? 0 : null);
+    assert.equal(observed.at(-1).cache.write, null);
+    observed.length = 0;
+    const abort = new AbortController(); abort.abort(new DOMException("stop", "AbortError"));
+    await assert.rejects(collect(provider.stream(turn1, { signal: abort.signal, observe: e => observed.push(e) })));
+    assert.deepEqual(observed, []);
+  }
+});
