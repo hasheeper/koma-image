@@ -181,7 +181,7 @@ onBeforeUnmount(() => cancelAnimationFrame(frame));
   </div>
 </template>
 <style scoped>
-.ask-stream { flex: 1; min-height: 0; overflow: auto; overscroll-behavior: contain; padding: 4px 20px 16px; scrollbar-width: none; color: var(--fg); font: var(--fw-regular) var(--fz-md)/1.7 var(--sans); }
+.ask-stream { flex: 1; min-height: 0; overflow: auto; overscroll-behavior: contain; padding: 4px 20px 16px; scrollbar-width: none; color: var(--fg); font: var(--fw-regular) 14px/1.65 var(--sans); }
 .ask-stream::-webkit-scrollbar { display: none; }
 .ask-empty { display: flex; flex-direction: column; align-items: center; justify-content: center; gap: var(--sp-3); min-height: 100%; color: var(--fg-4); font-size: var(--fz-sm); text-align: center; }
 .ask-turn { display: flex; flex-direction: column; }
