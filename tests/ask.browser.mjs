@@ -61,6 +61,7 @@ async function open(hash, { ready = "#settingsPanel[open]", ask = null, standard
       // A scripted model: each request takes the next reply in line.
       const reply = llm.shift() ?? { body: openai(text("（脚本已用完）"), end()) };
       calls.push({ host: url.hostname, path: url.pathname, headers: request.headers(), raw: request.postData(), body: JSON.parse(request.postData()) });
+      if (reply.wait) await reply.wait;
       if (reply.delay) await new Promise((done) => setTimeout(done, reply.delay));
       try {
         await route.fulfill({ status: reply.status ?? 200, contentType: reply.type ?? "text/event-stream", body: typeof reply.body === "function" ? reply.body(calls.at(-1).body) : reply.body });
@@ -105,6 +106,51 @@ async function addImage(page, prompt) {
 const drawer = (page) => page.locator("#askDrawer");
 const route = (page, hash) => page.evaluate((hash) => (location.hash = hash), hash);
 const stored = (page, key) => page.evaluate((key) => JSON.parse(localStorage.getItem(key)), key);
+
+for (const connectionId of ["chat", "claude"]) test(`ASK prompts: ${connectionId} adult gate changes next turn; manuals append only as tool results`, async () => {
+  const { page, context, llm, calls, requests, errors } = await open("/#/image", {ready:".switcher",ask:askSettings({connectionId,images:false})});
+  let release;
+  const answer = (manual = false) => connectionId === "chat"
+    ? openai(manual ? tool("manual_1", "get_model_manual", {id:"nai5-comics"}) : text("已核对。"), end(manual ? "tool_calls" : "stop"))
+    : anthropic(
+      {type:"message_start",message:{id:"synthetic",usage:{input_tokens:50,output_tokens:0}}},
+      {type:"content_block_start",index:0,content_block:manual ? {type:"tool_use",id:"manual_1",name:"get_model_manual",input:{}} : {type:"text",text:"已核对。"}},
+      ...(manual ? [{type:"content_block_delta",index:0,delta:{type:"input_json_delta",partial_json:JSON.stringify({id:"nai5-comics"})}}] : []),
+      {type:"content_block_stop",index:0},
+      {type:"message_delta",delta:{stop_reason:manual ? "tool_use" : "end_turn"},usage:{output_tokens:10}},
+      {type:"message_stop"},
+    );
+  const system = call => connectionId === "chat" ? call.body.messages[0].content : call.body.system.map(b=>b.text).join("\n\n");
+  const setAdult = value => page.evaluate(value => {
+    localStorage.setItem("koma.ask.adult.v1",String(value));
+    window.dispatchEvent(new StorageEvent("storage",{key:"koma.ask.adult.v1"}));
+  }, value);
+  try {
+    await bind(page);await page.keyboard.press("Control+j");await drawer(page).waitFor();
+    const send = async question => {await page.locator("#askPrompt").fill(question);await page.locator("#askPrompt").press("Enter");};
+    // Hold the first HTTP response while the setting changes: the whole tool loop must stay neutral.
+    llm.push({body:answer(true),wait:new Promise(resolve=>{release=resolve;})},{body:answer()});
+    const dispatched=page.waitForRequest(request=>reasoning.test(new URL(request.url()).pathname));
+    await send("请查阅漫画手册");await dispatched;
+    await setAdult(true);await page.waitForFunction(()=>ask.adult.value===true);release();
+    await drawer(page).locator('.ask-turn[data-status="done"]').waitFor();
+    assert.equal(calls.length,2);assert.equal(system(calls[0]),system(calls[1]));
+    assert.doesNotMatch(system(calls[0]),/创作语境与题材包容/);
+    assert.doesNotMatch(calls[0].raw,/分格逐一描述地点/);
+    assert.match(calls[1].raw,/分格逐一描述地点/);
+    assert.match(await drawer(page).locator(".ask-tool").textContent(),/已查阅\s*NAI 多格漫画与画中文字/);
+
+    llm.push({body:answer()});await send("继续讨论构图");
+    await drawer(page).locator('.ask-turn[data-status="done"]').nth(1).waitFor();
+    assert.match(system(calls[2]),/创作语境与题材包容/);
+    assert.equal(system(calls[2]).split("## 创作语境与题材包容").length,2);
+    await setAdult(false);await page.waitForFunction(()=>ask.adult.value===false);
+    llm.push({body:answer()});await send("再看一下");
+    await drawer(page).locator('.ask-turn[data-status="done"]').nth(2).waitFor();
+    assert.equal(system(calls[3]),system(calls[0]));
+    assert.deepEqual(generation(requests),[]);assert.deepEqual(errors,[]);
+  } finally {release?.();await context.close();}
+});
 
 test("ASK settings: own group, reasoning connections only, adult gate off by default, word list behind it", async () => {
   const { page, context, requests, errors } = await open("/#/image/settings/ask");
@@ -249,7 +295,7 @@ test("ASK drawer: Ctrl+J toggles, a scripted tool turn streams and is announced 
     const [first, second] = calls;
     assert.equal(first.headers.authorization, "Bearer synthetic-chat");
     assert.equal(first.body.model, "reasoning-a");
-    assert.deepEqual(first.body.tools.map((t) => t.function.name), ["get_state", "search_history", "get_meta", "diff_meta", "view_image", "view_sheet", "search_tags", "get_chat_context", "propose_draft"]);
+    assert.deepEqual(first.body.tools.map((t) => t.function.name), ["get_state", "search_history", "get_meta", "diff_meta", "view_image", "view_sheet", "search_tags", "get_chat_context", "get_model_manual", "propose_draft"]);
     assert.match(first.body.messages[0].content, /你是 Koma ASK[\s\S]*<user_preferences>\n先说结论\n<\/user_preferences>/);
     const question = first.body.messages.at(-1).content;
     // Text-only user turns flatten to one string: the locked state, then the question.

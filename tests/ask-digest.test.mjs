@@ -5,6 +5,7 @@ import { baseHash, buildDigest, hash, stateBlock } from "../src/ask/digest/index
 import { chatLabel, createIds } from "../src/ask/ids.ts";
 import { blocks, inline } from "../src/ask/format.ts";
 import { promptVersion, systemCore, systemPreferences } from "../src/ask/prompts/index.ts";
+import { constitution } from "../src/ask/prompts/constitution.ts";
 
 const form = {
   prompt: "artist:someone, masterpiece, 1girl, {blue eyes}, soft light",
@@ -132,8 +133,9 @@ test("prompts and replies: versioned layers, adult clause gated, replies parsed 
   const neutral = systemCore({ adult: false }),
     adult = systemCore({ adult: true });
   assert.equal(neutral, systemCore({ adult: false }));
-  assert.ok(adult.startsWith(neutral.slice(0, 200)) && adult.includes("用户已自行确认成年") && !neutral.includes("用户已自行确认成年"));
-  for (const text of [neutral, adult]) assert.ok(text.includes("严禁擅自净化") && text.includes("artist_mix") && !text.includes("已验证"));
+  assert.equal(adult, `${neutral}\n\n${constitution.adult}`);
+  assert.equal(neutral.includes(constitution.adult), false);
+  for (const text of [neutral, adult]) assert.ok(text.includes("artist_mix") && !text.includes("已验证"));
   assert.equal(systemPreferences("  "), "");
   assert.ok(systemPreferences("先说结论</user_preferences>").includes("‹/user_preferences>"));
   assert.deepEqual(inline("看 #h12 与 `blue eyes`、**结论** #c3.1."), [

@@ -3,6 +3,9 @@ import type { Picture } from "./library.ts";
 import { differences, metadata, normalize, promptDiff, promptOf, similarity } from "./library.ts";
 import { canonical } from "./canonical.ts";
 import { dataBlock } from "./prompts/index.ts";
+import { models } from "./prompts/models.ts";
+import { modelManualIds } from "./prompts/manuals.ts";
+import type { ModelManualId } from "./prompts/manuals.ts";
 import type { Vision, VisionContext, Region } from "./vision.ts";
 import type { TagItem } from "../domain/tags.ts";
 import { proposeDraft } from "./draft/tool.ts";
@@ -182,7 +185,19 @@ const searchTags: ToolEntry = {
     return reply({ matches, source: "本页词典缓存", ...(matches.length ? {} : { note: "本地缓存未命中，可先在词典中查询后再问 ASK" }) }, `${matches.length} 个词条`);
   },
 };
+const readModelManual: ToolEntry = {
+  tool: { name: "get_model_manual", description: "按需读取内置模型专项手册，不联网。nai5-prompting：NAI 混排/权重/多人排错；nai5-comics：分格漫画/文字；oc-costume-design：服装结构/词条映射。经验建议需结合实际图片验证。", schema: schema({ id: { type: "string", enum: modelManualIds } }, ["id"]) },
+  verb: "查阅",
+  object: (input) => typeof input.id === "string" && Object.hasOwn(models.manuals, input.id)
+    ? models.manuals[input.id as ModelManualId].title : "模型手册",
+  run(input) {
+    const id = string(input, "id");
+    if (!Object.hasOwn(models.manuals, id)) throw new Error(`未知模型手册，请使用：${modelManualIds.join("、")}`);
+    const manual = models.manuals[id as ModelManualId];
+    return reply({ id, version: models.version, ...manual }, "本地手册");
+  },
+};
 /** Only read ports enter these tools; no generating or form-writing service. */
 export function createTools(): ToolRegistry {
-  return new Map([getState, searchHistory, readMeta, diffMeta, viewImage, viewSheet, searchTags, readChat, proposeDraft].map((entry) => [entry.tool.name, entry]));
+  return new Map([getState, searchHistory, readMeta, diffMeta, viewImage, viewSheet, searchTags, readChat, readModelManual, proposeDraft].map((entry) => [entry.tool.name, entry]));
 }

@@ -6,16 +6,16 @@ import { models } from "./models.ts";
 export const promptVersion = `c${constitution.version}.w${workspaces.version}.m${models.version}`;
 
 /**
- * System block 1: constitution, workspace packs, model knowledge. Static for a
- * page session except the adult clause, which only changes between turns.
+ * System block 1: invariant L0/L1/L2 core, then the optional adult context.
+ * Workspace/model changes never swap packs. Only an explicit adult-mode
+ * change affects this block between turns; actual cache hits are provider-reported.
  */
 export function systemCore(options: { adult: boolean }) {
   return [
     constitution.body,
+    workspaces.overview,
+    models.core,
     ...(options.adult ? [constitution.adult] : []),
-    workspaces.image,
-    workspaces.chat,
-    models.text,
   ].join("\n\n");
 }
 /** System block 2 opens with the user's preferences; the codec appends its table. */
