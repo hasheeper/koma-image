@@ -1,19 +1,22 @@
 import type { AskImage, AskText, AskTool } from "./messages.ts";
 import type { Picture } from "./library.ts";
-import { differences, metadata, normalize, promptDiff, promptOf, similarity } from "./library.ts";
+import { differences, metadata, promptDiff, promptOf } from "./library.ts";
 import { canonical } from "./canonical.ts";
 import { dataBlock } from "./prompts/index.ts";
 import { models } from "./prompts/models.ts";
 import { modelManualIds } from "./prompts/manuals.ts";
 import type { ModelManualId } from "./prompts/manuals.ts";
 import type { Vision, VisionContext, Region } from "./vision.ts";
-import type { TagItem } from "../domain/tags.ts";
+import { searchHistory as findHistory, changedFields } from "./search-history.ts";
+import { searchTags as findTags } from "./search-tags.ts";
+import type { TagSearch } from "./search-tags.ts";
 import { proposeDraft } from "./draft/tool.ts";
 import type { Draft, DraftState } from "./draft/types.ts";
 
 export interface ToolOutcome {
   readonly content: readonly (AskText | AskImage)[];
   readonly error?: boolean;
+  readonly reason?: string;
   /** Short mono readout on the trace row, e.g. `3 处变化` or `42 KB`. */
   readonly stat?: string;
   readonly picks?: readonly string[];
@@ -32,7 +35,8 @@ export interface ToolContext {
   readonly library?: readonly Picture[];
   readonly vision?: Vision;
   readonly visual?: VisionContext;
-  readonly tags?: (query: string, limit: number) => readonly TagItem[];
+  readonly tags?: TagSearch;
+  readonly snapshotTime?: number;
   readonly draftBase?: DraftState;
   readonly question?: string;
   readonly chatContext?: unknown;
@@ -85,7 +89,6 @@ const reply = (value: unknown, stat: string, picks?: readonly string[]): ToolOut
 });
 const schema = (properties: Record<string, unknown>, required: string[] = []) => ({ type: "object", properties, required, additionalProperties: false });
 const idField = { type: "string", description: "图片 ID，如 #h12、#f3、当前 CHAT 分支的 #c2.1" };
-const changedFields = ["prompt", "negative", "model", "seed", "steps", "scale", "cfg", "sampler", "width", "height", "strength", "noise"];
 const readMeta: ToolEntry = {
   tool: { name: "get_meta", description: "读取图片完整参数，不发送图片。", schema: schema({ id: idField }, ["id"]) },
   verb: "读取", object: (input) => String(input.id ?? "图片参数"),
@@ -104,30 +107,15 @@ const diffMeta: ToolEntry = {
   },
 };
 const searchHistory: ToolEntry = {
-  tool: { name: "search_history", description: "按提示词、变化字段或相似图片检索本轮本地图片快照；命中多张时让用户选择。", schema: schema({
+  tool: { name: "search_history", description: "本地检索本轮历史、收藏或当前 CHAT 分支图片。query 用朴素关键词，多词任一命中；不解析布尔或正则。changed_field 对比同来源前序，size 表示宽高变化；similar_to 按提示词相似度排序。默认 all、8条，最多15条；详情用 get_meta。", schema: schema({
     query: { type: "string", maxLength: 300 }, changed_field: { type: "string", enum: changedFields }, similar_to: idField,
-    min_sim: { type: "number", minimum: 0, maximum: 1 }, limit: { type: "integer", minimum: 1, maximum: 20 },
-    scope: { type: "string", enum: ["history", "favorites", "all"] },
+    limit: { type: "integer", minimum: 1, maximum: 15 },
+    scope: { type: "string", enum: ["history", "favorites", "chat", "all"] },
   }) },
-  verb: "检索", object: () => "历史与收藏",
+  verb: "检索", object: () => "图片记录",
   run(input, context) {
-    const query = normalize(string(input, "query", true)), field = string(input, "changed_field", true);
-    if (field && !changedFields.includes(field)) throw new Error("不支持的变化字段");
-    const scope = input.scope ?? "history";
-    if (!["history", "favorites", "all"].includes(String(scope))) throw new Error("无效检索范围");
-    const limit = input.limit ?? 10, threshold = input.min_sim ?? .9;
-    if (typeof limit !== "number" || !Number.isInteger(limit) || limit < 1 || limit > 20) throw new Error("limit 需为 1–20");
-    if (typeof threshold !== "number" || !Number.isFinite(threshold) || threshold < 0 || threshold > 1) throw new Error("min_sim 需为 0–1");
-    const base = input.similar_to !== undefined ? picture(string(input, "similar_to"), context) : null;
-    const all = (context.library ?? []).filter((p) => scope === "all" || p.aliases.some((id) => id.startsWith(scope === "history" ? "#h" : "#f")));
-    const hits = all.map((item, i) => ({ item, score: base ? similarity(promptOf(base), promptOf(item)) : 1,
-      changed: !!all[i + 1] && Object.hasOwn(differences(all[i + 1], item), field),
-    })).filter(({ item, score, changed }) =>
-      (!base || (base.id !== item.id && score >= threshold)) && (!field || changed) &&
-      (!query || normalize(canonical(metadata(item))).includes(query)),
-    ).sort((a, b) => b.score - a.score);
-    const found = hits.slice(0, limit).map(({ item, score }) => ({ id: item.label, similarity: Math.round(score * 1000) / 1000, ...metadata(item) }));
-    return reply({ total: hits.length, matches: found }, `${hits.length} 张`, found.length > 1 ? found.slice(0, 3).map((p) => p.id) : undefined);
+    const result = findHistory(input, context.library ?? [], context.snapshotTime ?? 0);
+    return reply(result, `${result.total_matched} 张`, result.matches.length > 1 ? result.matches.slice(0, 4).map((p) => p.id) : undefined);
   },
 };
 function visualContext(context: ToolContext) {
@@ -175,14 +163,19 @@ const readChat: ToolEntry = {
   },
 };
 const searchTags: ToolEntry = {
-  tool: { name: "search_tags", description: "查询本页词典已加载的本地缓存，不联网；未命中表示缓存无词条，不代表标签不存在。", schema: schema({ query: { type: "string", maxLength: 300 }, lang: { type: "string", enum: ["zh", "en"] }, limit: { type: "integer", minimum: 1, maximum: 20 } }, ["query"]) },
-  verb: "检索", object: () => "本地词典",
-  run(input, context) {
-    const query = string(input, "query"), limit = input.limit ?? 20;
-    if (input.lang !== undefined && input.lang !== "zh" && input.lang !== "en") throw new Error("lang 需为 zh 或 en");
-    if (typeof limit !== "number" || !Number.isInteger(limit) || limit < 1 || limit > 20) throw new Error("limit 需为 1–20");
-    const matches = context.tags?.(query, limit) ?? [];
-    return reply({ matches, source: "本页词典缓存", ...(matches.length ? {} : { note: "本地缓存未命中，可先在词典中查询后再问 ASK" }) }, `${matches.length} 个词条`);
+  tool: { name: "search_tags", description: "按需核验 NAI 词条的标准写法、分类、中文释义与帖子收录量；queries 一次1–5词，每词默认5/最多10条。复用站内中英在线词典与缓存，可能联网。未命中不代表不存在，收录量不等于模型激活强度；原数据缺失的 count/category 沿用共享服务的0值，别名未知为null。", schema: schema({
+    queries: { type: "array", minItems: 1, maxItems: 5, items: { type: "string", minLength: 1, maxLength: 300 } },
+    limit_per_query: { type: "integer", minimum: 1, maximum: 10 },
+  }, ["queries"]) },
+  verb: "核验", object: () => "词典",
+  async run(input, context) {
+    if (!context.tags) throw new Error("词典服务未就绪");
+    const result = await findTags(input, context.tags, context.signal);
+    const failed = result.results.filter((r) => r.status === "error");
+    return { ...reply(result, `${result.results.length} 个查询${failed.length ? ` · ${failed.length} 失败` : ""}`),
+      ...(failed.length ? { reason: failed.map((r) => `${r.query}：${r.error}`).join("；") } : {}),
+      ...(failed.length === result.results.length ? { error: true } : {}),
+    };
   },
 };
 const readModelManual: ToolEntry = {

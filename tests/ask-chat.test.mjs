@@ -21,11 +21,11 @@ test('ASK CHAT context: locked current branch, selected texts, image cap/drops, 
 });
 test('ASK CHAT branch: source locked, optional text/exclusions, stale context blocks every write and new source stays unsent',()=>{
  const s=fixture(),base={form:{...DEFAULTS},composer:s.current.prompt,conversationId:s.current.id,models:[],samplers:[],chat:chatSnapshot(s)};
- const d=parseDraft({title:'提纯分支',base_hash:stateHash(base),steps:[{kind:'chat_distill_branch',source:'#c1.1',exclude:['#c2.1','#c3.1'],text:'distilled'}]},base,'整理描述',[]);
+ const d=parseDraft({title:'提纯分支',base_hash:stateHash(base),steps:[{kind:'chat_distill_branch',source:'#c1.1',exclude:['#c2.1','#c3.1'],text:'distilled'}]},base,[]);
  const p=validateDraft(d,base,{off:new Set()});assert.ok(p.steps[0].locked);assert.equal(p.branch.after.headId,s.current.turns[0].id);assert.equal(p.branch.after.mainId,'image1');assert.equal(p.branch.after.prompt,'distilled');
  const off=validateDraft(d,base,{off:new Set(['0:exclude','0:text'])});assert.deepEqual(off.branch.after.skipTurnIds,[]);assert.equal(off.branch.after.prompt,'next input');
  s.current.keepIds.push('manual');const stale=validateDraft(d,{...base,chat:chatSnapshot(s)},{off:new Set()});assert.equal(stale.branch,undefined);assert.ok(stale.steps.every(s=>s.issue));
- assert.throws(()=>parseDraft({title:'x',base_hash:stateHash(base),steps:[{kind:'chat_distill_branch',source:'#c9.1',exclude:[],text:'x'}]},base,'',[]),/起点/);
+ assert.throws(()=>parseDraft({title:'x',base_hash:stateHash(base),steps:[{kind:'chat_distill_branch',source:'#c9.1',exclude:[],text:'x'}]},base,[]),/起点/);
 });
 test('ASK CHAT conflict fingerprint covers versions, generation and context, preserves cosmetic title edits',()=>{
  const s=fixture(),key=chatDraftKey(s.current);s.current.title='rename';assert.equal(chatDraftKey(s.current),key);

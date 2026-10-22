@@ -4,6 +4,8 @@
 
 本文记录用户在文档 1–3 之后确认的决策，并把 A0–A4 落到当前仓库的模块、测试与退出标准。
 
+2026-10-22 新增检索与状态感知修订：R1–R4 已完成并通过模拟验收。已删除语义分区与代码级画师拦截，历史检索与批量在线查词已接入；最新契约与验收记录见 [检索与状态感知规范](ask-retrieval-state.md)。本次单列验收，不用 A0–A4 的旧结果代替。
+
 文档优先级：本文 > 文档 3《工程边界与深水区规范》（`ask-contracts-and-decisions.md`）> 文档 2《前端 UI 方案与交互定稿》（`ask-ui-spec.md`）> 文档 1《子产品理念、开发需求与基本框架》（`ask-architecture.md`）。工程红线以 `AGENTS.md` 为准。
 
 `实际参考前端UI.txt` 是四份 HTML 原型，只作版式、结构与节奏参考；字体、颜色、按钮和动效时长按本文 §2.2 映射到站内 tokens。
@@ -121,6 +123,18 @@
 
 处理方式：L0 结构与草稿目标类型按 §3.1 定义并预留；表单缺少对应对象时，校验器返回「目标不存在」，该步作废并标注。等绘图页支持后自动生效。ASK 不顺便修改绘图业务。
 
+### 2.8 检索工具与状态感知修订
+
+采纳用户 2026-10-22 补丁，并按实际工具修订为 [ask-retrieval-state.md](ask-retrieval-state.md)。本专题的目标契约以该文为准；它及用户随后确认的简化替代文档 1、3、4 中的程序语义分区、画师程序拦截、旧检索签名与“ASK 仅查本页词典缓存”约定，其余工程优先级不变。
+
+- 从状态删除实际存在的 `image.prompt_sections`；保留完整原始 form 与根层 `base_hash`。六维理解已在静态宪章实现，不再由程序猜分区。
+- 按最新用户确认，删除代码级画师拦截及自然语言授权识别，不建立 artists.ts，取消原验收 #4。画师修改交给提示词「画风与基底配方」及用户草稿确认；只保留 `.keep` 所需的纯文本跨度解析。
+- `search_history` 增加多词 OR-Hit、稳定排序与紧凑结果，默认 scope=all、limit=8/最大15；显式补齐当前分支 chat 范围，移除公开 min_sim，保留模式 A 的 .9 阈值。变化字段比较限同来源前序，不能跨来源误比较。
+- `search_tags` 改为 queries 批量、默认每词5/最大10，使用站内固定在线词典的共享查询管线与真实字段。删除无消费者的旧 ASK 页面分类缓存；不是全量本地词库，不承诺别名、中文释义或热度均可取得。
+- 查词按任务意图使用；CHAT 自然语言创作不主动查词，明确查词/NAI 转写可用。收录量不作为固定激活强度阈值。成人语境仍仅在成人模式注入。
+- 批量查词使用 Promise.allSettled 与共享 AbortSignal，不自建限流队列或批次定时器；TagItem 不变，不增存在性标记。保留用户修改的三层提示词正文，接口细节写在工具 Schema 与专项手册。
+- `.pick` 由结构化工具结果驱动，点击仅绑定和预填；正文 ID 引用不自动成为候选选择器。Embedding/RAG 独立延期，本次不新增设置或连接。
+
 ## 3. 与现有代码的对接
 
 用户试用后新增逐次调用的只读上下文调试：实际出站请求、缓存计数与标记、本地内容比较、复制和导出。记录只在本页内存保留，不增加手动会话回滚，详见 [调用上下文调试](ask-debug.md)。
@@ -131,8 +145,8 @@
 | --- | --- |
 | 跨工作区常驻 | `src/app/App.vue`：覆盖层位于 KeepAlive 外侧持续挂载 |
 | 只读工作台快照 | `src/services/drawing.ts` 的 `snapshot()`；对话状态见 `src/services/chat.ts` |
-| Prompt 分区 | `src/domain/highlight.ts` 的 `analyze()` |
-| 画师串识别、`search_tags` | `src/services/tag-search.ts`；`src/domain/tags.ts` 的 Danbooru 分类（1 = 画师） |
+| 原文跨度与权重解析 | `src/domain/highlight.ts` 的 `analyze()`；R1 去掉 ASK 五类语义分类，仅保留 `.keep` 所需的解析 |
+| `search_tags` | 只读异步端口接 `services.tags.suggest`，复用 `tag-search.ts` 查询管线与可选 exactFirst；分类仅作核验结果，不触发草稿拦截 |
 | `view_sheet` 拼图 | `src/native/comparison.ts` |
 | `restore_partial` 核对表 | `src/workspaces/image/ImportSheet.vue`、`src/domain/drawing.ts` 的 `reuseFields()`、`src/native/image-meta.ts` |
 | CHAT 上下文与分支 | `src/domain/conversation.ts` 的 `contextSnapshot`、`branchTurns`、`ancestry`、`selectSource`；`chat.setPrompt`、`chat.mutate` |
@@ -185,20 +199,22 @@ src/ask/
   ids.ts                显示 ID 映射
   pacer.ts              诚实节拍器（界面层，A0.2 新增）
   format.ts             回复的轻量格式解析，只产出文本节点（A0.2 新增）
-  digest/               L0 组装、模式 A／B、冷区聚类、Prompt 分区
+  digest/               原始 L0、模式 A／B、冷区聚类，无语义分区
+  prompt-text.ts        `.keep` 的原文跨度与词组解析
+  search-history.ts     本轮快照的确定性本地检索
+  search-tags.ts        共享词典批量只读包装
   tools.ts              工具注册，只接收只读视图
   vision.ts             缩放、裁切、拼图与缓存
   library.ts            本轮图片快照、参数与 Prompt 差异（A1 新增）
   AskReference.vue      ID 预览与点击定位（A1 新增）
   draft/
-    validate.ts         锚点匹配、hash 校验、目标存在性、画师串拦截
+    validate.ts         锚点匹配、hash 校验、目标存在性、参数边界
     apply.ts            唯一写入入口
   prompts/              L0–L2 分层，带版本号
   messages.ts           中间消息结构与错误分类（A0.1 从 provider.ts 拆出，避免与适配器循环依赖）
   canonical.ts          固定键序序列化
   settings.ts           ASK 设置的读取与校验（koma.ask.v1）
 src/app/ask.ts          注入键与 useAsk()（A0.2 新增）
-src/services/tag-memory.ts 本页已加载词典的有界内存索引（A1 新增）
 src/overlays/settings/AskSection.vue
 ```
 
@@ -263,6 +279,8 @@ ASK 对话不持久化（文档 1 D10）；连接配置沿用 `koma.routing.v1`�
 
 ### A0.2 会话与抽屉
 
+以下为已完成的原阶段范围；其中 Prompt 分区由 §2.8 与 R1 的后续修订替代。
+
 - `service.ts`、`AskDrawer`、`AskStream`、`AskComposer`、`AskMark`：⌘J／Ctrl+J、Esc 层级（此时草稿层为空实现）、窄屏底部面板、减少动态、`aria-live` 整段播报。
 - `ids.ts`：`#hN` 按进入历史的顺序分配、本页会话内不复用；`#fN` 在收藏加载时按收藏时间升序分配、会话内不复用；`#cN.M` 为当前分支第 N 轮第 M 个版本。
 - `session.ts`：轮次事务（成功才提交）、预算计数、快照隔离；`runner.ts`：最多 6 步，草稿即停（草稿在 A2 实现）。
@@ -287,10 +305,10 @@ ASK 对话不持久化（文档 1 D10）；连接配置沿用 `koma.routing.v1`�
 
 实施状态：功能与合成样例／模拟服务验证已完成，见 [A2 记录](ask-a2.md)。支持普通 CHAT 输入框草稿；分支、上下文操作按 A3 实施。
 
-- `draft/validate.ts`：两级锚点匹配、`base_hash` 冲突、目标存在性（含 `image.char.N.*` 预留）、画师串拦截（词典分类 1，用户本轮点名的画师除外）。
+- `draft/validate.ts`：两级锚点匹配、`base_hash` 冲突、目标存在性（含 `image.char.N.*` 预留）；原代码级画师拦截已在 R1 按用户要求移除。
 - `draft/apply.ts`：唯一写入入口；自建撤销点，⌘Z 一次撤回；应用后不生成，生成按钮照常重新报价。
 - `DraftCard`：局部增改、整段改写（`.keep` 本地计算）、参数恢复三种切片；逐步撤回／恢复；完成态与「撤销」；Tab 焦点护栏；「切回绘图并应用」；轮次结束后的 `.note` 与冲突对齐。
-- 测试：验收 1、4、5；黄金样例增加「不擅自净化」（成人向与身体特征标签在草稿中保持原样）。
+- 测试：验收 1、5；黄金样例增加「不擅自净化」（成人向与身体特征标签在草稿中保持原样）。
 
 ### A3 CHAT 适配
 
@@ -311,14 +329,39 @@ ASK 对话不持久化（文档 1 D10）；连接配置沿用 `koma.routing.v1`�
 
 跨工作区摆渡、编辑器内 ASK、画师知识库评估（文档 1 §16）。
 
+### R0–R4 检索与状态感知修订（2026-10-22）
+
+这是 A0–A4 收口后的独立跟进，详细契约见 [修订规范](ask-retrieval-state.md)。已按 R1 → R2 → R3 → R4 完成实现与模拟验收。
+
+| 阶段 | 状态 | 工作与主要文件 | 退出标准 |
+| --- | --- | --- | --- |
+| R0 勘探与文档 | 已完成 | 对照十个工具、状态、校验、词典服务和 UI；修订文档 1/3/4 与专题规范 | 现状/目标分开，签名、数据来源、范围与验证边界明确；27 项旧基线单测通过 |
+| R1 状态与文本解析 | 已实现 | 摘要 v3 删除字段；prompt-text 仅供 `.keep`；删除 segments、画师拦截和授权判断 | 原文/hash 保真、锚点冲突、`.keep` 和草稿确认撤销通过 |
+| R2 历史检索 | 已实现 | 新 `search-history.ts` 纯查询模块；`library.ts`/`chat-context.ts`/`service.ts` 补来源、真实可用字段、前序与单轮时间；`tools.ts` 更新 Schema/结果/picks | 多词、下划线、操作符、Jaccard、scope、去重、稳定排序、同来源前序、size、限额与失效 ID 用例通过 |
+| R3 词典核验 | 已实现 | 新 `search-tags.ts` 只读批量包装；`tools.ts` 异步端口、`service.ts` 注入现有 tags 服务；共享服务添加可选 exactFirst 与缓存隔离；TagItem 不变，以 allSettled + signal 批量查询；不改词典 UI 默认行为 | 空缓存即可查中英文；1–5 词批量、精确候选优先、全分类、字段缺失、来源、取消、网络错误与部分失败用例通过 |
+| R4 提示词与集成收口 | 已完成 | 用户修改的三层正文保留，仅升版本及更新手册接口说明；工具结果接既有 AskStream；更新单元与浏览器检查 | `npm run check` 133 项单元、`npm run test:ask` 35 项、`npm run test:shared` 13 项通过；含两种模拟推理协议及四视口，无生成/报价/CHAT 发送请求 |
+
+工具 Schema、提示词版本和前端产物已在 R4 一起更新；完整验收记录见修订规范 §5。工作位于 `codex/` 分支，未新增运行时依赖或数据迁移。
+
+必要验收细项：
+
+- `tests/ask-digest.test.mjs`：递归确认摘要没有 prompt_sections/segments 语义切片；含权重与自然语言的原文无损、hash 与整轮快照规则不变。
+- `tests/ask-draft.test.mjs`：移除画师授权/拦截断言，保留各类文本草稿、`.keep`、冲突对齐与确认撤销回归；前端不按文本含义拒绝改动。
+- `tests/ask-retrieval.test.mjs` / `ask-tools.test.mjs`：真实只读端口联到 createTagSearch 并注入 mock fetch；历史结果紧凑且来源一致；批量查词计一次工具预算，覆盖精确词优先、缓存隔离、部分失败和取消。旧专用缓存已删除。
+- `tests/shared.test.mjs` / `shared.browser.mjs`：共享词典 UI 的分类、排序、补全、分页和缓存行为不因 ASK 包装层改变。
+- `tests/ask-prompts.test.mjs` / `ask.browser.mjs`：OpenAI Chat 与 Anthropic Messages 的状态、查询参数和结果追加；成人语境默认不注入、轮中切换下轮生效；实际请求调试正确；取消不提交迟到结果；候选点击不自动发送。
+
+不以模拟回复评定 NAI 提示词质量，不执行真实收费生成；新界面仍只验 320/390/768/1440px。Embedding/RAG、备注字段、词典全量索引和跨会话 CHAT 检索均不在这次范围。推送与部署保持单独授权。
+
 ## 7. 验收映射
+
+原验收 #4（代码级画师拦截）按用户要求取消；保留其他编号。
 
 | # | 标准 | 阶段 | 方式 |
 | --- | --- | --- | --- |
 | 1 | 用户确认前提示词框与表单不变 | A2 | 浏览器 |
 | 2 | 任意对话路径下生图类请求为零 | A0.2 起每个用例 | 浏览器（模拟网关记录） |
 | 3 | 单轮外发图片不超预算 | A1 | 单元 |
-| 4 | 涉及 `artist_mix` 的草稿操作被拦截 | A2 | 单元 |
 | 5 | 内容变化后的旧草稿不被直接应用 | A2 | 浏览器 |
 | 6 | 无原生弹窗；Esc 按层级关闭；回复完成后整段播报 | A0.2／A2 | 浏览器 |
 | 7 | 四个基础视口与短屏可用；五态容器可收起、拖动、放大与还原，20px 图标居中、透明材质统一，窄屏限制在可见范围内 | A0.2／A4 后调整 | 浏览器与截图 |

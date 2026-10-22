@@ -3,9 +3,17 @@ import type { DigestImage } from "./digest/index.ts";
 import type { Ids } from "./ids.ts";
 
 /** A turn owns these references; later history deletion cannot change its input. */
+export type PictureSource = "history" | "favorites" | "chat";
+export interface PictureOrigin {
+  readonly source: PictureSource;
+  readonly label: string;
+  /** Oldest to newest within this source, independent of retained aliases. */
+  readonly order: number;
+}
 export interface Picture extends DigestImage {
   readonly label: string;
   readonly aliases: readonly string[];
+  readonly origins: readonly PictureOrigin[];
   readonly blob: Blob;
 }
 export const promptOf = (image: DigestImage) => String(image.params.basePrompt ?? image.params.prompt ?? "");
@@ -32,14 +40,22 @@ export function snapshotPictures(
   ids: Ids,
 ): readonly Picture[] {
   ids.sync(history, favorites);
+  const historyOrder = new Map(history.map((r, i) => [r.id, history.length - i]));
+  const favoriteOrder = new Map([...favorites].sort((a, b) => a.createdAt - b.createdAt || a.id.localeCompare(b.id)).map((r, i) => [r.id, i + 1]));
   const records = new Map([...history, ...favorites].map((r) => [r.id, r]));
-  return [...records.values()].map((r) => Object.freeze({
+  return [...records.values()].map((r) => {
+    const origins: PictureOrigin[] = [];
+    if (historyOrder.has(r.id)) origins.push({ source: "history", label: ids.history(r.id)!, order: historyOrder.get(r.id)! });
+    if (favoriteOrder.has(r.id)) origins.push({ source: "favorites", label: ids.favorite(r.id)!, order: favoriteOrder.get(r.id)! });
+    return Object.freeze({
     id: r.id, createdAt: r.createdAt, favoritedAt: r.favoritedAt,
-    label: ids.label(r.id)!,
+    label: origins[0].label,
     aliases: [ids.history(r.id), ids.favorite(r.id)].filter((v): v is string => !!v),
+    origins: Object.freeze(origins.map((origin) => Object.freeze(origin))),
     params: Object.freeze(structuredClone(r.params)),
     size: Object.freeze({ ...r.size }), blob: r.blob,
-  }));
+    });
+  });
 }
 export const normalize = (text: string) => text.normalize("NFKC").toLowerCase().replaceAll("_", " ").replace(/\s+/g, " ").trim();
 /** Tag/word Jaccard; weight syntax is retained so weighting edits remain visible. */

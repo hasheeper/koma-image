@@ -19,7 +19,6 @@ import { createTools } from "./tools.ts";
 import { chatLabel, createIds, idPattern } from "./ids.ts";
 import { snapshotPictures } from "./library.ts";
 import { createVision } from "./vision.ts";
-import { localTags, tagCategory } from "../services/tag-memory.ts";
 import { baseHash, buildDigest, stateBlock } from "./digest/index.ts";
 import type { Digest } from "./digest/index.ts";
 import { promptVersion, systemCore, systemPreferences } from "./prompts/index.ts";
@@ -186,7 +185,7 @@ export function createAsk(deps: {
   }
   const draftPlan = computed(() => {
     void draftRevision.value;
-    return draft.value ? draftStatus.value === "applied" ? appliedPlan.value : validateDraft(draft.value, readDraftState(), { off: draftOff.value, category: tagCategory }) : null;
+    return draft.value ? draftStatus.value === "applied" ? appliedPlan.value : validateDraft(draft.value, readDraftState(), { off: draftOff.value }) : null;
   });
   const canUndoDraft = computed(() => {
     void draftRevision.value;
@@ -210,7 +209,7 @@ export function createAsk(deps: {
   }
   async function applyDraft(fingerprint: string) {
     if (!draft.value || draftStatus.value !== "pending" || writingDraft.value || controller || disposed) return;
-    const plan = validateDraft(draft.value, readDraftState(), { off: draftOff.value, category: tagCategory });
+    const plan = validateDraft(draft.value, readDraftState(), { off: draftOff.value });
     if (plan.fingerprint !== fingerprint) { draftRevision.value++; notice.value = "内容已变化，请核对更新后的草稿再应用"; return; }
     if (!plan.changes.length && !plan.branch) return;
     writingDraft.value = true; notice.value = "";
@@ -279,7 +278,6 @@ export function createAsk(deps: {
             }
           : null,
       ids,
-      category: tagCategory,
     });
     return inline.value ? { ...digest, json: JSON.stringify({ ...JSON.parse(digest.json), inline_selection: inline.value }) } : digest;
   }
@@ -369,7 +367,7 @@ export function createAsk(deps: {
       metadataOnly = !!options.metadataOnly || !config.images,
       codec = codecFor({ adult: adult.value, enabled: codecActive.value, words: config.words });
     // The snapshot is fixed for the whole turn; get_state appends newer ones.
-    const digest = digestNow(turnAnchor);
+    const digest = digestNow(turnAnchor), snapshotTime = Date.now();
     const snapshot = drawing.snapshot(),
       library = [...snapshotPictures(snapshot.history, snapshot.favorites, ids), ...chatPictures(chat.snapshot(), chat)],
       turnChatContext = chatContext(chat.snapshot()),
@@ -436,7 +434,8 @@ export function createAsk(deps: {
           library,
           vision,
           visual: { signal: abort.signal, metadataOnly, budget: turn.budget.vision, viewed: turnViewed },
-          tags: localTags,
+          tags: services.tags.suggest,
+          snapshotTime,
           chatContext: turnChatContext,
           draftBase,
           question,

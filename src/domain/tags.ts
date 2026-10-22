@@ -86,6 +86,7 @@ export function rankTags(
   query: string,
   categories: number[],
   limit: number,
+  exactFirst = false,
 ) {
   const allowed = new Set(categories),
     seen = new Set<string>(),
@@ -114,6 +115,7 @@ export function rankTags(
     })
     .sort(
       (a, b) =>
+        (exactFirst ? Number(b.relevance === 5) - Number(a.relevance === 5) : 0) ||
         b.item.count - a.item.count ||
         b.relevance - a.relevance ||
         a.index - b.index,

@@ -1,12 +1,12 @@
 import { CATEGORIES, hasHan, rankTags } from "../domain/tags.ts";
 import type { TagItem } from "../domain/tags.ts";
 import { object } from "../domain/value.ts";
-import { rememberTags } from "./tag-memory.ts";
 interface Options {
   signal?: AbortSignal;
   categories?: number[];
   limit?: number;
   broad?: boolean;
+  exactFirst?: boolean;
   page?: number;
   pageSize?: number;
 }
@@ -97,7 +97,6 @@ export function createTagSearch(
         };
       })
       .filter((r: TagItem) => r.name);
-    rememberTags(items);
     if (!official) remember(translatedCache, url.href, items);
     return items.slice(offset, offset + limit);
   }
@@ -114,6 +113,7 @@ export function createTagSearch(
   }
   return {
     async suggest(query: string, options: Options = {}) {
+      options.signal?.throwIfAborted();
       query = query.trim();
       if (!query) return [];
       const limit = Math.min(
@@ -121,7 +121,7 @@ export function createTagSearch(
           Math.max(1, Math.floor(options.limit ?? 12)),
         ),
         allowed = ids(options);
-      const key = `${options.broad}:${limit}:${[...allowed].sort().join(".")}:${query.toLowerCase()}`;
+      const key = `${!!options.exactFirst}:${options.broad}:${limit}:${[...allowed].sort().join(".")}:${query.toLowerCase()}`;
       if (cache.has(key)) return structuredClone(cache.get(key)!);
       const requestLimit = Math.min(
         options.broad ? 200 : 20,
@@ -134,6 +134,7 @@ export function createTagSearch(
           query,
           allowed,
           limit,
+          options.exactFirst,
         );
         if (results.length || hasHan(query))
           return remember(cache, key, results);
@@ -151,6 +152,7 @@ export function createTagSearch(
             query,
             allowed,
             limit,
+            options.exactFirst,
           ),
         );
       } catch (error) {

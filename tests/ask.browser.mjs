@@ -107,6 +107,91 @@ const drawer = (page) => page.locator("#askDrawer");
 const route = (page, hash) => page.evaluate((hash) => (location.hash = hash), hash);
 const stored = (page, key) => page.evaluate((key) => JSON.parse(localStorage.getItem(key)), key);
 
+for (const connectionId of ['chat','claude']) test(`ASK retrieval: ${connectionId} raw state, multiword history, online batch verification and picks`, async () => {
+  const {page,context,llm,calls,requests,errors}=await open('/#/image',{ready:'.switcher',ask:askSettings({connectionId,images:false})});
+  const queries=[];
+  const answer=(name,input)=>connectionId==='chat'
+    ? openai(name?tool('retrieval',name,input):text('已核验，请选择目标图片。'),end(name?'tool_calls':'stop'))
+    : anthropic(
+      {type:'message_start',message:{usage:{input_tokens:50}}},
+      {type:'content_block_start',index:0,content_block:name?{type:'tool_use',id:'retrieval',name,input:{}}:{type:'text',text:'已核验，请选择目标图片。'}},
+      ...(name?[{type:'content_block_delta',index:0,delta:{type:'input_json_delta',partial_json:JSON.stringify(input)}}]:[]),
+      {type:'content_block_stop',index:0},
+      {type:'message_delta',delta:{stop_reason:name?'tool_use':'end_turn'},usage:{output_tokens:10}},
+      {type:'message_stop'},
+    );
+  try {
+    await context.route('https://tagsuggest.zeabur.app/api/tags/suggest?*',async route=>{
+      const request=route.request(),q=new URL(request.url()).searchParams.get('q');queries.push(q);
+      assert.equal(request.headers().authorization,undefined);
+      if(q==='错误')return route.fulfill({status:503,json:{error:'synthetic unavailable'}});
+      return route.fulfill({json:{results:[
+        {name:'loose_socks_variant',cn_name:'变体',count:50000,category:0},
+        {name:'loose_socks',cn_name:'泡泡袜',count:100,category:0},
+      ]}});
+    });
+    await bind(page);
+    for(let i=0;i<4;i++)await addImage(page,`white_hair, coffee, variant ${i}`);
+    await page.locator('#prompt').fill('artist:a, {blue eyes}, Keep this sentence as written.');
+    const before=await page.locator('#prompt').inputValue();
+    await page.evaluate(()=>ask.show());
+    assert.deepEqual(queries,[],'opening ASK does not query the dictionary');
+    llm.push({body:answer('get_state',{})},{body:answer('search_history',{query:'coffee AND hair white'})},
+      {body:answer('search_tags',{queries:['loose socks','泡泡袜','错误'],limit_per_query:1})},{body:answer()});
+    await page.locator('#askPrompt').fill('查找之前的图片，并核对这几个词');await page.locator('#askPrompt').press('Enter');
+    await page.locator('.ask-turn[data-status="done"]').waitFor();
+    assert.equal(calls.length,4);assert.equal(queries.length,3);
+    assert.equal(calls[0].raw.includes('prompt_sections'),false);
+    const final=JSON.stringify(calls.at(-1).body);
+    assert.match(final,/total_matched/);assert.match(final,/matched_snippet/);
+    assert.match(final,/loose_socks/);assert.match(final,/泡泡袜/);assert.match(final,/503/);
+    const content=connectionId==='chat'?calls.at(-1).body.messages.filter(m=>m.role==='tool').map(m=>m.content):calls.at(-1).body.messages.flatMap(m=>m.content).filter(b=>b?.type==='tool_result').flatMap(b=>b.content).map(b=>b.text);
+    const tags=content.map(t=>t?.startsWith('<data>')?JSON.parse(t.slice(7,-8)):null).find(v=>v?.results);
+    assert.deepEqual(tags.results.map(r=>r.status),['ok','ok','error']);
+    assert.equal(tags.results[0].matches[0].tag,'loose_socks');
+    assert.equal(tags.results[0].matches[0].post_count,100);
+    assert.match(await drawer(page).locator('.ask-tool').last().textContent(),/3 个查询.*1 失败/);
+    const picks=drawer(page).getByRole('group',{name:'选择要分析的图片'});
+    assert.equal(await picks.getByRole('button').count(),4);
+    for(const width of [320,390,768,1440]){
+      await page.setViewportSize({width,height:900});
+      const bounds=await picks.evaluate(el=>({right:el.getBoundingClientRect().right,viewport:innerWidth}));
+      assert.ok(bounds.right<=bounds.viewport,'picks scroll within the window');
+    }
+    await page.locator('#askPrompt').fill('保留输入');
+    await picks.getByRole('button',{name:'选择 #h1 继续提问',exact:true}).click();
+    assert.equal(await page.locator('#askPrompt').inputValue(),'保留输入');assert.equal(calls.length,4);
+    assert.equal(await page.locator('#prompt').inputValue(),before);
+    const debug=await page.evaluate(()=>ask.debug.value.calls.map(c=>ask.debugCall(c.id).body));
+    assert.deepEqual(debug,calls.map(c=>c.raw));
+    assert.deepEqual(generation(requests),[]);assert.deepEqual(errors,[]);
+  } finally {await context.close();}
+});
+
+test('ASK retrieval: stopping a pending dictionary batch rolls back the turn and discards late results',async()=>{
+  const {page,context,llm,calls,requests,errors}=await open('/#/image',{ready:'.switcher',ask:askSettings()});
+  let release;const pending=new Promise(resolve=>{release=resolve;});let count=0;
+  try {
+    await bind(page);
+    await context.route('https://tagsuggest.zeabur.app/api/tags/suggest?*',async route=>{
+      count++;await pending;
+      try{await route.fulfill({json:{results:[{name:'late_word',cn_name:'迟到结果',category:0,count:1}]}});}catch{}
+    });
+    llm.push({body:openai(tool('batch','search_tags',{queries:['词一','词二','词三']}),end('tool_calls'))});
+    await page.evaluate(()=>ask.show());
+    await page.locator('#askPrompt').fill('这轮查词应该被取消');await page.locator('#askPrompt').press('Enter');
+    await page.waitForFunction(()=>document.querySelector('.ask-tool[data-state="run"]')?.textContent.includes('词典'));
+    await page.waitForTimeout(50);assert.equal(count,3);
+    await page.evaluate(()=>ask.stop());await page.locator('.ask-turn[data-status="stopped"]').waitFor();
+    release();
+    llm.push({body:openai(text('下一轮正常。'),end())});
+    await page.locator('#askPrompt').fill('下一轮');await page.locator('#askPrompt').press('Enter');
+    await page.locator('.ask-turn[data-status="done"]').waitFor();
+    assert.equal(calls.length,2);assert.doesNotMatch(calls[1].raw,/这轮查词应该被取消|late_word|迟到结果/);
+    assert.deepEqual(generation(requests),[]);assert.deepEqual(errors,[]);
+  } finally {release();await context.close();}
+});
+
 for (const connectionId of ["chat", "claude"]) test(`ASK prompts: ${connectionId} adult gate changes next turn; manuals append only as tool results`, async () => {
   const { page, context, llm, calls, requests, errors } = await open("/#/image", {ready:".switcher",ask:askSettings({connectionId,images:false})});
   let release;

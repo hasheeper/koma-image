@@ -6,7 +6,6 @@ import { createIds } from "../src/ask/ids.ts";
 import { differences, snapshotPictures, similarity, metadata } from "../src/ask/library.ts";
 import { historyIndex, cluster } from "../src/ask/digest/history.ts";
 import { createSession } from "../src/ask/session.ts";
-import { localTags, rememberTags, tagCategory } from "../src/services/tag-memory.ts";
 
 const image = (n, prompt = "landscape, blue sky", extra = {}) => ({
   id: `i${n}`, label: `#h${n}`, createdAt: n, blob: new Blob(["synthetic"]),
@@ -71,7 +70,7 @@ test("ASK snapshot and tools: metadata is immutable, aliases resolve, diffs/sear
   assert.deepEqual(diff.changes.scale,{before:5,after:7});
   assert.deepEqual(diff.prompt_diff.added,["{clouds}"]);
   const found=await tools.get("search_history").run({query:"blue sky"},context);
-  assert.equal(parse(found).total,2);assert.deepEqual(found.picks,["#h2","#h1"]);
+  assert.equal(parse(found).total_matched,2);assert.deepEqual(found.picks,["#h2","#h1"]);
   assert.equal(parse(await tools.get("search_history").run({changed_field:"scale"},context)).matches[0].id,"#h2");
   assert.throws(()=>tools.get("get_meta").run({id:"https://example.test"},context));
   assert.throws(()=>tools.get("search_history").run({limit:NaN},context));
@@ -94,15 +93,6 @@ test("ASK metadata retains generation/batch/edit parameters and effective prompt
   assert.equal(meta.seedStart,null);assert.equal(meta.strength,.4);assert.equal(meta.cache,false);
   assert.equal("via" in meta,false);assert.equal("init_image" in meta,false);
   assert.deepEqual(differences(record,{...record,params:{...record.params,optimize:false}}),{optimize:{before:true,after:false}});
-});
-test("ASK tags: queries only page memory, caps results and keeps artist classification", () => {
-  rememberTags([{name:"audit_artist",cnName:"样例画师",count:10,category:1},...Array.from({length:25},(_,i)=>({name:`audit_light_${i}`,cnName:"样例光",count:i,category:0}))]);
-  assert.equal(tagCategory("audit artist"),1);
-  assert.equal(localTags("audit_light",40).length,20);
-  assert.equal(localTags("样例画师")[0].category,1);
-  assert.deepEqual(localTags("not_in_memory"),[]);
-  const result=createTools().get("search_tags").run({query:"not_in_memory"},{tags:localTags});
-  assert.match(parse(result).note,/未命中/);
 });
 test("ASK dehydration: only 3 hot turns retain pixels; metadata-only removes all historical images without changing committed history", () => {
   const session=createSession();

@@ -1,7 +1,5 @@
 import { canonical } from "../canonical.ts";
 import { finite, object } from "../../domain/value.ts";
-import { sections } from "./segments.ts";
-import type { CategoryOf } from "./segments.ts";
 import type { Ids } from "../ids.ts";
 import { historyIndex } from "./history.ts";
 import type { Fields } from "../../storage/records.ts";
@@ -55,7 +53,6 @@ export interface DigestInput {
   readonly composer: string;
   readonly chat: DigestChat | null;
   readonly ids: Ids;
-  readonly category?: CategoryOf;
 }
 export interface Digest {
   /** Sorted-key JSON; the same workbench always gives the same bytes. */
@@ -129,7 +126,7 @@ export function buildDigest(input: DigestInput): Digest {
   if (input.generation.error) generation.error = input.generation.error;
   const base = baseHash(form.prompt, form.negative, input.composer);
   const state: Record<string, unknown> = {
-    v: 2,
+    v: 3,
     workspace: input.workspace,
     anchor: input.anchor,
     history_cursor: ids.cursor(),
@@ -149,7 +146,6 @@ export function buildDigest(input: DigestInput): Digest {
         characters: [],
         vibes: [],
       },
-      prompt_sections: sections(form.prompt, input.category),
       current,
       generation,
       history,

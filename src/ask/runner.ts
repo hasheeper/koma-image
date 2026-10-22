@@ -94,6 +94,7 @@ export async function* run(options: RunOptions): AsyncGenerator<RunEvent, void> 
       };
       let result: AskResult,
         stat = "",
+        toolReason: string | undefined,
         picks: readonly string[] | undefined,
         draft: Draft | undefined;
       if (final) result = failure(call.id, "本轮草稿已提交，后续工具未执行。");
@@ -104,7 +105,9 @@ export async function* run(options: RunOptions): AsyncGenerator<RunEvent, void> 
         try {
           const outcome = await entry.run(call.input, context);
           result = { type: "result", id: call.id, content: outcome.content, ...(outcome.error ? { error: true } : {}) };
+          signal.throwIfAborted();
           stat = outcome.stat ?? "";
+          toolReason = outcome.reason;
           picks = outcome.picks;
           draft = outcome.draft;
           final ||= !!entry.final && !outcome.error;
@@ -113,7 +116,7 @@ export async function* run(options: RunOptions): AsyncGenerator<RunEvent, void> 
           result = failure(call.id, error instanceof Error ? error.message : "工具执行失败");
         }
       results.push(result);
-      const reason = result.error ? result.content.filter(b => b.type === "text").map(b => b.text).join("\n").trim() || "工具执行失败" : undefined;
+      const reason = toolReason ?? (result.error ? result.content.filter(b => b.type === "text").map(b => b.text).join("\n").trim() || "工具执行失败" : undefined);
       yield { type: "tool-end", id: call.id, ok: !result.error, stat, ...(reason ? { reason } : {}), ...(picks ? { picks } : {}), ...(draft ? { draft } : {}) };
     }
     turn.push({ role: "user", content: results });

@@ -27,9 +27,10 @@ export function chatContext(state: ReturnType<Chat["snapshot"]>) {
   };
 }
 export function chatPictures(state: ReturnType<Chat["snapshot"]>, chat: Chat): Picture[] {
-  return chatSnapshot(state).sources.flatMap((s) => {
+  return chatSnapshot(state).sources.flatMap((s, i) => {
     const asset = s.assetId ? chat.assets.assets.get(s.assetId) : null;
     return asset ? [{ id: `chat:${state.current.id}:${s.turnId}`, label: s.label, aliases: [s.label], createdAt: 0,
+      origins: [{ source: "chat" as const, label: s.label, order: i + 1 }],
       params: { basePrompt: s.prompt }, size: { width: asset.width, height: asset.height }, blob: asset.blob }] : [];
   });
 }

@@ -29,7 +29,7 @@ export const proposeDraft: ToolEntry = {
   verb: "整理", object: () => "草稿", final: true,
   run(input, context) {
     if (!context.draftBase) throw new Error("本轮草稿快照不可用");
-    const draft = parseDraft(input, context.draftBase, context.question ?? "", context.library ?? []);
+    const draft = parseDraft(input, context.draftBase, context.library ?? [], context.question);
     return { content: [{ type: "text", text: "草稿已交给用户核对；尚未应用，未生成或发送。" }], stat: `${draft.steps.length} 步待确认`, draft };
   },
 };

@@ -2,7 +2,6 @@ import type { ChatDraftSnapshot } from "../chat-context.ts";
 import type { ChatSelection } from "../../domain/conversation.ts";
 import type { DrawingForm } from "../../domain/drawing.ts";
 import type { CatalogModel } from "../../domain/catalog.ts";
-import type { CategoryOf } from "../digest/segments.ts";
 
 export type TextTarget = "image.prompt" | "image.negative" | "chat.composer" | `image.char.${number}.${"prompt" | "negative"}`;
 export type TextMode = "replace" | "before" | "after" | "append" | "rewrite";
@@ -40,6 +39,7 @@ export interface DraftState {
 export interface Draft {
   readonly title: string;
   readonly baseHash: string;
+  /** Original request, reused by the explicit “重新提议” action. */
   readonly question: string;
   readonly steps: readonly (TextStep | RestoreStep | BranchStep)[];
   readonly base: DraftState;
@@ -71,4 +71,4 @@ export interface DraftPlan {
   readonly aligned: boolean;
   readonly fingerprint: string;
 }
-export interface ValidateOptions { readonly off: ReadonlySet<string>; readonly category?: CategoryOf }
+export interface ValidateOptions { readonly off: ReadonlySet<string> }

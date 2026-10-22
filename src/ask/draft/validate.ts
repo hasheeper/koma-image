@@ -1,10 +1,8 @@
 import { prepareDrawingFields, reuseFields, samplerName, sizeProblem } from "../../domain/drawing.ts";
-import { analyze } from "../../domain/highlight.ts";
 import { resolveModel } from "../../domain/catalog.ts";
 import { canonical } from "../canonical.ts";
 import { baseHash, hash } from "../digest/index.ts";
-import { segments } from "../digest/segments.ts";
-import type { CategoryOf } from "../digest/segments.ts";
+import { promptParts } from "../prompt-text.ts";
 import type { Picture } from "../library.ts";
 import { restoreKeys } from "./types.ts";
 import type { CheckedStep, Draft, DraftPlan, DraftState, Field, RestoreKey, TextMode, TextTarget, ValidateOptions } from "./types.ts";
@@ -18,7 +16,7 @@ const text = (value: unknown, max = 24000) => {
   return value;
 };
 export const stateHash = (s: DraftState) => baseHash(s.form.prompt, s.form.negative, s.composer);
-export function parseDraft(input: Readonly<Record<string, unknown>>, base: DraftState, question: string, library: readonly Picture[]): Draft {
+export function parseDraft(input: Readonly<Record<string, unknown>>, base: DraftState, library: readonly Picture[], question = ""): Draft {
   const title = text(input.title, 120).trim();
   if (!title || input.base_hash !== stateHash(base)) throw new Error("草稿 base_hash 与本轮快照不符，请使用本轮原始值");
   if (!Array.isArray(input.steps) || !input.steps.length || input.steps.length > 12) throw new Error("草稿需要 1–12 个步骤");
@@ -88,37 +86,8 @@ export function matchAnchor(value: string, anchor: string) {
   return matches.length === 1 ? { start: source.starts[matches[0]], end: source.ends[matches[0] + needle.length - 1], aligned: true } : null;
 }
 const escapeRegex = (value: string) => value.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
-const name = (value: string) => value.normalize("NFKC").toLowerCase().replace(/^artist\s*:\s*/, "").replaceAll("_", " ").replace(/\s+/g, " ").trim();
-function namedForChange(question: string, artist: string) {
-  const n = name(artist);
-  return question.split(/[。！？!?;；\n]/).some((clause) => {
-    const q = name(clause);
-    return new RegExp(`(^|[^a-z0-9])${escapeRegex(n)}($|[^a-z0-9])`).test(q) &&
-      /修改|改成|改为|调整|替换|删除|移除|增加|加入|提高|降低|change|adjust|replace|remove|delete|add|increase|decrease/i.test(q) &&
-      !/不要|别改|不改|不动|勿|保留|don't|do not|keep|without/i.test(q);
-  });
-}
-export function artistProblem(before: string, after: string, question: string, category?: CategoryOf) {
-  const signatures = (value: string) => {
-    const result = new Map<string, string[]>();
-    let offset = 0;
-    const tokens = analyze(value).map((t) => { const start = offset; offset += t.text.length; return { ...t, start, end: offset }; });
-    for (const s of segments(value, category).filter((s) => s.kind === "artist_mix")) {
-      const key = name(s.tag), values = result.get(key) ?? [];
-      const weights = tokens.filter((t) => !t.syntax && t.start < s.end && t.end > s.start && value.slice(Math.max(t.start, s.start), Math.min(t.end, s.end)).trim()).map((t) => t.weight);
-      values.push(`${canonical(weights)}:${s.text.replace(/\s+/g, " ").toLowerCase()}`);
-      result.set(key, values);
-    }
-    return result;
-  };
-  const a = signatures(before), b = signatures(after);
-  const protectedOrder = (value: string) => segments(value, category).filter((s) => s.kind === "artist_mix" && !namedForChange(question, s.tag)).map((s) => name(s.tag));
-  return canonical(protectedOrder(before)) !== canonical(protectedOrder(after)) || [...new Set([...a.keys(), ...b.keys()])].some((artist) =>
-    canonical(a.get(artist) ?? []) !== canonical(b.get(artist) ?? []) && !namedForChange(question, artist),
-  ) ? "画师串受保护；本轮未明确点名修改该画师" : "";
-}
 export function keptParts(before: string, after: string) {
-  const tags = [...new Set(segments(before).map((s) => s.tag))].sort((a, b) => b.length - a.length);
+  const tags = [...new Set(promptParts(before).map((s) => s.tag))].sort((a, b) => b.length - a.length);
   if (!tags.length) return [{ text: after, kept: false }];
   const re = new RegExp(`(?<![\\p{L}\\p{N}_])(?:${tags.map((t) => escapeRegex(t).replace(/[ _]+/g, "[ _]+")).join("|")})(?![\\p{L}\\p{N}_])`, "giu");
   const parts: { text: string; kept: boolean }[] = [];
@@ -154,7 +123,7 @@ export function validateDraft(draft: Draft, now: DraftState, options: ValidateOp
       if (mode === "after") start = end;
     }
     const after = before.slice(0, start) + replacement + before.slice(end);
-    issue ||= after.length > 24000 ? "结果超过 24000 字" : artistProblem(before, after, draft.question, options.category);
+    if (after.length > 24000) issue ||= "结果超过 24000 字";
     const enabled = !options.off.has(id);
     checked.push({ id, label: label ?? labels[field ?? "prompt"] ?? target, kind: mode === "rewrite" ? "rewrite" : "patch", enabled, issue, aligned: moved || initial[field ?? "prompt"] !== original, before: mode === "rewrite" ? before : before.slice(start, end), after: mode === "rewrite" ? after : replacement, prefix: mode === "rewrite" ? "" : before.slice(Math.max(0, start - 60), start), suffix: mode === "rewrite" ? "" : before.slice(end, end + 60) });
     aligned ||= moved;
@@ -210,13 +179,11 @@ function validateBranch(draft: Draft, now: DraftState, options: ValidateOptions)
   const before = base.selection, after = { ...before, headId: source.turnId, mainId: source.assetId,
     skipTurnIds: [...new Set([...before.skipTurnIds, ...base.sources.filter((s) => exclude.includes(s.label)).map((s) => s.turnId)])],
     prompt: options.off.has("0:text") ? before.prompt : step.text };
-  const artistIssue = artistProblem(before.prompt, after.prompt, draft.question, options.category);
   const steps: CheckedStep[] = [
     { id: "0:source", label: `从 ${step.source} 准备新分支`, kind: "branch", locked: true, enabled: true, issue, aligned: false, before: "当前起点", after: step.source },
     { id: "0:exclude", label: "排除历史文字", kind: "branch", enabled: !options.off.has("0:exclude"), issue, aligned: false, before: "保留现有勾选", after: step.exclude.join("、") || "无额外排除" },
-    { id: "0:text", label: "填入描述，等你发送", kind: "rewrite", enabled: !options.off.has("0:text"), issue: issue || artistIssue, aligned: false, before: before.prompt, after: step.text },
+    { id: "0:text", label: "填入描述，等你发送", kind: "rewrite", enabled: !options.off.has("0:text"), issue, aligned: false, before: before.prompt, after: step.text },
   ];
-  if (artistIssue) after.prompt = before.prompt;
   const branch = !issue && canonical(before) !== canonical(after) ? { before, after, key: base.key } : undefined;
   const plan = { title: draft.title, workspace: "chat" as const, conversationId: draft.base.conversationId, steps,
     changes: branch && before.prompt !== after.prompt ? [{ field: "composer" as const, before: before.prompt, after: after.prompt }] : [], aligned: !!issue, ...(branch ? { branch } : {}) };

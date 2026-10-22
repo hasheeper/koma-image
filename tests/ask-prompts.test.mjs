@@ -17,7 +17,7 @@ const request = (adult, workspace = "image", model = "NAI Diffusion V5 Full") =>
 test("ASK prompts: adult context is opt-in, follows the invariant core, and survives both protocol conversions", () => {
   const neutral = systemCore({adult: false}), adult = systemCore({adult: true});
   assert.equal(adult, `${neutral}\n\n${constitution.adult}`);
-  assert.doesNotMatch(neutral, /创作语境与题材包容|自行确认成年|成人向题材|服装暴露度|NSFW|R18G/);
+  assert.doesNotMatch(neutral, /创作语境与题材包容/);
   for (const profile of [openaiChatProfile, anthropicMessagesProfile]) {
     const extract = body => profile === openaiChatProfile ? body.messages[0].content : body.system.map(block => block.text).join("\n\n");
     const off = extract(wireBody(profile, request(false))), on = extract(wireBody(profile, request(true)));

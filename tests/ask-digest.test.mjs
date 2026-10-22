@@ -1,6 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { segments, sections } from "../src/ask/digest/segments.ts";
+import { promptParts } from "../src/ask/prompt-text.ts";
 import { baseHash, buildDigest, hash, stateBlock } from "../src/ask/digest/index.ts";
 import { chatLabel, createIds } from "../src/ask/ids.ts";
 import { blocks, inline } from "../src/ask/format.ts";
@@ -46,23 +46,15 @@ function input(over = {}) {
   };
 }
 
-test("digest: prompt pieces keep their source offsets, weights and a kind", () => {
-  const text = "artist:foo, masterpiece, best quality, 1girl, {blue eyes}, 1.3::light blue hair::, soft light, from above, simple background, a girl standing in the rain under a red umbrella.";
-  const parts = segments(text);
-  assert.deepEqual(parts.map((s) => s.kind), ["artist_mix", "style_tags", "style_tags", "subject", "subject", "subject", "modifier", "modifier", "modifier", "freeform"]);
-  for (const s of parts) assert.equal(text.slice(s.start, s.end), s.text);
-  assert.equal(parts[4].tag, "blue eyes");
-  assert.equal(parts[4].weight, 1.05);
-  assert.equal(parts[5].tag, "light blue hair");
-  assert.equal(parts[5].weight, 1.3);
-  assert.deepEqual(segments("一个女孩站在雨中撑着红伞，蓝色眼睛").map((s) => s.kind), ["freeform", "subject"]);
-  assert.equal(segments("foo bar", (tag) => (tag === "foo_bar" ? 1 : 0))[0].kind, "artist_mix");
-  assert.deepEqual(sections("artist:a, artist:b, 1girl, smile, soft light"), [
-    { kind: "artist_mix", text: "artist:a, artist:b" },
-    { kind: "subject", text: "1girl, smile" },
-    { kind: "modifier", text: "soft light" },
-  ]);
-  assert.deepEqual(segments(" , ,\n"), []);
+test("prompt text: original spans and unweighted words for keep rendering, without semantic classes", () => {
+  const text = "artist:foo, {blue eyes}, 1.3::light blue hair::, 一个女孩站在雨中。";
+  const parts = promptParts(text);
+  assert.deepEqual(parts.map(p => p.tag), ["artist:foo", "blue eyes", "light blue hair", "一个女孩站在雨中。"]);
+  for (const part of parts) {
+    assert.equal(text.slice(part.start, part.end), part.text);
+    assert.equal('kind' in part, false);
+  }
+  assert.deepEqual(promptParts(" , ,\n"), []);
 });
 
 test("digest: same workbench, same bytes; no binary data; base hash tracks only draft targets", () => {
@@ -79,7 +71,10 @@ test("digest: same workbench, same bytes; no binary data; base hash tracks only 
   assert.equal(state.image.current.id, "#h3");
   assert.equal(state.image.form.seed, "random");
   assert.deepEqual(state.image.form.characters, []);
-  assert.equal(state.image.prompt_sections[0].kind, "artist_mix");
+  assert.equal(state.v, 3);
+  assert.equal(state.image.form.prompt, form.prompt);
+  assert.equal(state.image.form.negative, form.negative);
+  assert.doesNotMatch(first.json, /"(?:prompt_sections|segments)"\s*:/);
   assert.equal(state.chat, undefined);
   assert.equal(first.cursor, 3);
   const reseeded = buildDigest(input({ ids, form: { ...form, seed: "42" } }));
@@ -135,7 +130,7 @@ test("prompts and replies: versioned layers, adult clause gated, replies parsed 
   assert.equal(neutral, systemCore({ adult: false }));
   assert.equal(adult, `${neutral}\n\n${constitution.adult}`);
   assert.equal(neutral.includes(constitution.adult), false);
-  for (const text of [neutral, adult]) assert.ok(text.includes("artist_mix") && !text.includes("已验证"));
+  for (const text of [neutral, adult]) assert.ok(text.includes("六维语义理解") && !text.includes("已验证"));
   assert.equal(systemPreferences("  "), "");
   assert.ok(systemPreferences("先说结论</user_preferences>").includes("‹/user_preferences>"));
   assert.deepEqual(inline("看 #h12 与 `blue eyes`、**结论** #c3.1."), [
