@@ -39,7 +39,7 @@ onScopeDispose(() => editor.dispose());
 onScopeDispose(() => chat.dispose());
 provide(drawingKey, drawing);
 onScopeDispose(() => drawing.dispose());
-const ask = createAsk({ services, router, drawing, chat });
+const ask = createAsk({ services, router, drawing, chat, ui });
 provide(askKey, ask);
 onScopeDispose(() => ask.dispose());
 usePresentation(shell, ui);

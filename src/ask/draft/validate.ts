@@ -2,7 +2,6 @@ import { prepareDrawingFields, reuseFields, samplerName, sizeProblem } from "../
 import { resolveModel } from "../../domain/catalog.ts";
 import { canonical } from "../canonical.ts";
 import { baseHash, hash } from "../digest/index.ts";
-import { promptParts } from "../prompt-text.ts";
 import type { Picture } from "../library.ts";
 import { restoreKeys } from "./types.ts";
 import type { CheckedStep, Draft, DraftPlan, DraftState, Field, RestoreKey, TextMode, TextTarget, ValidateOptions } from "./types.ts";
@@ -17,7 +16,8 @@ const text = (value: unknown, max = 24000) => {
 };
 export const stateHash = (s: DraftState) => baseHash(s.form.prompt, s.form.negative, s.composer);
 export function parseDraft(input: Readonly<Record<string, unknown>>, base: DraftState, library: readonly Picture[], question = ""): Draft {
-  const title = text(input.title, 120).trim();
+  // Keep in-flight responses and earlier tool turns using `title` readable.
+  const title = text(input.draft_title ?? input.title, 120).trim();
   if (!title || input.base_hash !== stateHash(base)) throw new Error("草稿 base_hash 与本轮快照不符，请使用本轮原始值");
   if (!Array.isArray(input.steps) || !input.steps.length || input.steps.length > 12) throw new Error("草稿需要 1–12 个步骤");
   const rawSteps = input.steps;
@@ -40,6 +40,7 @@ export function parseDraft(input: Readonly<Record<string, unknown>>, base: Draft
     }
     if (step.kind !== "restore_partial") throw new Error("此阶段不支持该草稿类型");
     const source = text(step.source, 30), image = library.find((p) => p.aliases.includes(source));
+    if (source.startsWith("#a")) throw new Error("附件参数仅供参考");
     if (!image) throw new Error("恢复来源不在本轮图片快照中");
     if (!Array.isArray(step.fields) || !step.fields.length || step.fields.some((k) => !restoreKeys.includes(k as RestoreKey))) throw new Error("恢复字段无效");
     const values: Record<string, unknown> = reuseFields(image);
@@ -84,20 +85,6 @@ export function matchAnchor(value: string, anchor: string) {
   if (!needle) return null;
   const matches = occurrences(source.text, needle);
   return matches.length === 1 ? { start: source.starts[matches[0]], end: source.ends[matches[0] + needle.length - 1], aligned: true } : null;
-}
-const escapeRegex = (value: string) => value.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
-export function keptParts(before: string, after: string) {
-  const tags = [...new Set(promptParts(before).map((s) => s.tag))].sort((a, b) => b.length - a.length);
-  if (!tags.length) return [{ text: after, kept: false }];
-  const re = new RegExp(`(?<![\\p{L}\\p{N}_])(?:${tags.map((t) => escapeRegex(t).replace(/[ _]+/g, "[ _]+")).join("|")})(?![\\p{L}\\p{N}_])`, "giu");
-  const parts: { text: string; kept: boolean }[] = [];
-  let cursor = 0;
-  for (const match of after.matchAll(re)) {
-    if (match.index > cursor) parts.push({ text: after.slice(cursor, match.index), kept: false });
-    parts.push({ text: match[0], kept: true }); cursor = match.index + match[0].length;
-  }
-  if (cursor < after.length) parts.push({ text: after.slice(cursor), kept: false });
-  return parts;
 }
 const labels: Partial<Record<Field, string>> = { prompt: "Prompt", negative: "Negative", composer: "对话输入框", width: "宽", height: "高", steps: "步数", scale: "Scale", cfg: "CFG", sampler: "采样器", seed: "Seed", model: "模型", batchCount: "批次" };
 

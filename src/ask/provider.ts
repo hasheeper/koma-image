@@ -62,7 +62,7 @@ export function createProvider(
     idleMs = options.idleMs ?? 90_000;
   async function* stream(
     request: AskRequest,
-    { codec = identityCodec, signal, observe }: { codec?: Codec; signal?: AbortSignal; observe?: (event: ProviderTrace) => void } = {},
+    { codec = identityCodec, signal, observe, allowEmpty = false }: { codec?: Codec; signal?: AbortSignal; observe?: (event: ProviderTrace) => void; allowEmpty?: boolean } = {},
   ): AsyncGenerator<AskEvent, void, undefined> {
     const idle = new AbortController(),
       linked = signal ? AbortSignal.any([signal, idle.signal]) : idle.signal;
@@ -128,7 +128,9 @@ export function createProvider(
         }
         observe?.({ type: "response", stop: event.stop, usage: event.usage, cache: events.cacheUsage });
         if (event.stop === "refusal") throw new ProviderError("rejected", "模型拒绝了这次请求");
-        if (!output) throw new ProviderError("empty");
+        // Only the runner's post-tool continuation may accept a completed
+        // empty response. Still emit usage; incomplete streams remain errors.
+        if (!output && !allowEmpty) throw new ProviderError("empty");
         done = true;
         return [...out, event];
       }

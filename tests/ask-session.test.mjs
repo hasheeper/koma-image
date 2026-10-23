@@ -154,6 +154,75 @@ test("runner: thrown, reported and unknown tool failures retain their reasons fo
   assert.deepEqual(model.requests[1].messages.at(-1).content.slice(0, 3).map(r => r.content[0].text), reasons);
 });
 
+test("runner: a silent final draft gets one prose-only completion, never a second tool execution", async () => {
+  let writes = 0;
+  const tools = new Map(createTools());
+  tools.set("propose_draft", { ...tools.get("propose_draft"), run: () => {
+    writes++;
+    return { content: [{ type: "text", text: "草稿待确认" }], draft: { title: "新角色" } };
+  } });
+  const model = script([call("d1", "propose_draft"), done("tool")], [{ type: "text", text: "已按新角色改写，草稿请核对。" }, done()]);
+  const { options, turn, session } = setup(model, { tools });
+  const events = await drain(run(options));
+  assert.equal(writes, 1);
+  assert.equal(model.requests.length, 2);
+  assert.equal(model.requests[0].toolChoice, undefined);
+  assert.equal(model.requests[1].toolChoice, "none");
+  assert.deepEqual(model.requests[1].tools, model.requests[0].tools, "past calls retain their tool definitions");
+  assert.equal(model.requests[1].messages.at(-2).content[0].id, "d1");
+  assert.match(model.requests[1].messages.at(-1).content[0].text, /尚未应用/);
+  assert.equal(events.filter(e => e.draft).length, 1);
+  assert.deepEqual(events.at(-1), { type: "done", reason: "final" });
+  turn.commit();
+  assert.deepEqual(session.usage, { input: 200, output: 20, cacheRead: 160, cacheWrite: 0 });
+});
+
+test("runner: completed blank post-tool endings request prose once; repeated silence cannot succeed", async () => {
+  for (const empty of [[{ type: "text", text: " \n" }, done()], [done()]]) {
+    const model = script([call("r1"), done("tool")], empty, [{ type: "text", text: "已读取表单，尚未看图。" }, done()]);
+    const { options, turn } = setup(model);
+    const events = await drain(run(options));
+    assert.equal(model.requests.length, 3);
+    assert.equal(model.requests[2].toolChoice, "none");
+    assert.ok(turn.messages().every(m => m.content.length > 0));
+    assert.ok(turn.messages().filter(m => m.role === "assistant").every(m => m.content.some(b => b.type !== "text" || b.text.trim())));
+    assert.equal(events.at(-1).reason, "end");
+  }
+  const silent = setup(script([call("r1"), done("tool")], [done()], [done()]));
+  await assert.rejects(drain(run(silent.options)), e => e.kind === "empty");
+  assert.equal(silent.turn.budget.requests, 3);
+  silent.turn.rollback();
+  assert.deepEqual(silent.session.messages, []);
+});
+
+test("runner: prose completion failures and aborts keep transaction semantics; unexpected tools never run", async () => {
+  const tools = new Map(createTools());
+  tools.set("finish", { tool: { name: "finish", description: "", schema: {} }, verb: "整理", object: () => "草稿", final: true, run: () => ({ content: [] }) });
+  const rejected = setup(script([call("f", "finish"), done("tool")], ["fail"]), { tools });
+  await assert.rejects(drain(run(rejected.options)), e => e.kind === "rejected");
+  assert.equal(rejected.turn.budget.requests, 2);
+  rejected.turn.rollback();
+  assert.deepEqual(rejected.session.messages, []);
+  const extra = setup(script([call("f", "finish"), done("tool")], [call("again"), done("tool")]), { tools });
+  await assert.rejects(drain(run(extra.options)), /补充说明时仍调用工具/);
+  assert.deepEqual(extra.states, []);
+  const held = setup(script([call("f", "finish"), done("tool")], ["hold"]), { tools });
+  const pending = drain(run(held.options));
+  setTimeout(() => held.controller.abort(new DOMException("已停止", "AbortError")), 10);
+  await assert.rejects(pending, e => e.name === "AbortError");
+  held.turn.rollback();
+  assert.deepEqual(held.session.messages, []);
+});
+
+test("state tool: initial text is read by default; latest is explicit and invalid scopes never read", () => {
+  const entry = createTools().get("get_state"), scopes = [];
+  const context = { state: scope => { scopes.push(scope); return { text: scope, images: 4 }; } };
+  assert.equal(entry.run({}, context).content[0].text, "initial");
+  assert.equal(entry.run({ scope: "latest" }, context).content[0].text, "latest");
+  assert.throws(() => entry.run({ scope: "wrong" }, context), /scope/);
+  assert.deepEqual(scopes, ["initial", "latest"]);
+});
+
 test("budget: local token estimate counts wide characters, tools, results and images", () => {
   assert.equal(approxTokens("abcd"), 1);
   assert.equal(approxTokens("红眼睛"), 3);
@@ -198,4 +267,43 @@ test("pacer: cancelling interrupts a pending dwell and discards queued output", 
   pacer.cancel();
   await pacer.settled();
   assert.deepEqual(output, ["start"]);
+});
+
+test("session: truncate and fork keep the committed prefix as last sent; viewed images follow the turns", () => {
+  const page = { input: 0, output: 0 };
+  const session = createSession((u) => { page.input += u.input; page.output += u.output; });
+  const image = (id) => ({ type: "image", mime: "image/webp", data: `PIXELS-${id}`, viewed: { ids: [id], spec: "glance", bytes: 2048 } });
+  let last;
+  for (const [n, seen] of [[1, ["#h1"]], [2, ["#h1"]], [3, ["#h2"]], [4, ["#h3"]], [5, ["#h4"]]]) {
+    const turn = session.begin(user(`q${n}`));
+    last = turn.messages();
+    turn.push({ role: "assistant", content: [{ type: "text", text: `a${n}` }] });
+    turn.push({ role: "user", content: [{ type: "result", id: `r${n}`, content: seen.map(image) }] });
+    turn.record(usage);
+    turn.commit({ viewed: seen.filter((id) => !session.viewed().has(id)) });
+  }
+  assert.deepEqual([...session.viewed()], ["#h1", "#h2", "#h3", "#h4"]);
+  const pixels = (messages) => JSON.stringify(messages).match(/PIXELS-#h\d/g) ?? [];
+  assert.deepEqual(pixels(last), ["PIXELS-#h2", "PIXELS-#h3"], "the last request kept pixels for its two latest turns");
+
+  const fork = session.fork(2);
+  assert.equal(fork.turns, 2);
+  assert.equal(fork.messages[0], session.messages[0], "message objects are shared, not copied");
+  assert.deepEqual([...fork.viewed()], ["#h1"]);
+  assert.deepEqual(fork.usage, { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 }, "a fork's own usage starts at zero");
+  const branched = fork.begin(user("q3'"));
+  assert.deepEqual(branched.messages().slice(0, 6), last.slice(0, 6), "a fork's first request repeats the source's last-sent prefix");
+  branched.record(usage);
+  branched.rollback();
+  assert.deepEqual(page, { input: 600, output: 60 }, "every conversation adds to the page total");
+  assert.equal(session.turns, 5, "forking leaves the source alone");
+
+  session.truncate(3);
+  assert.equal(session.turns, 3);
+  assert.deepEqual([...session.viewed()], ["#h1", "#h2"], "viewed is recomputed from the turns left");
+  const edited = session.begin(user("q4'"));
+  assert.deepEqual(edited.messages().slice(0, 9), last.slice(0, 9), "the truncated history is the prefix the last request sent");
+  assert.throws(() => session.truncate(1), /运行中不能截断/);
+  assert.throws(() => session.fork(1), /运行中不能分支/);
+  edited.rollback();
 });

@@ -418,9 +418,15 @@ test('ASK A4 production local: both inference protocols stream tools and drafts 
   if(url.pathname==='/v1/models')return res.writeHead(200,{'Content-Type':'application/json'}).end(JSON.stringify({data:[{id:'local-test-model'}]}));
   if(!['/v1/chat/completions','/v1/messages'].includes(url.pathname))return res.writeHead(404).end();
   const n=(rounds.get(url.pathname)||0)+1;rounds.set(url.pathname,n);
+  if(payload.tool_choice==='none'||payload.tool_choice?.type==='none'){
+   res.writeHead(200,{'Content-Type':'text/event-stream'});
+   if(url.pathname.endsWith('/chat/completions'))res.end(`data: ${JSON.stringify({choices:[{index:0,delta:{content:'已将红眼睛改为蓝色，草稿请核对。'},finish_reason:'stop'}]})}\n\ndata: [DONE]\n\n`);
+   else for(const e of [{type:'message_start',message:{usage:{input_tokens:100}}},{type:'content_block_start',index:0,content_block:{type:'text',text:'已将红眼睛改为蓝色，草稿请核对。'}},{type:'content_block_stop',index:0},{type:'message_delta',delta:{stop_reason:'end_turn'},usage:{output_tokens:20}},{type:'message_stop'}])res.write(`event: ${e.type}\ndata: ${JSON.stringify(e)}\n\n`);
+   return res.end();
+  }
   const all=payload.messages.map(m=>typeof m.content==='string'?m.content:(m.content??[]).filter(b=>b.type==='text').map(b=>b.text).join('\n')).join('\n');
   const state=JSON.parse(all.match(/<workspace_state>\n([\s\S]*?)\n<\/workspace_state>/)[1]);
-  const name=n%2?'get_state':'propose_draft',input=n%2?{}:{base_hash:state.base_hash,title:'本地草稿',steps:[{kind:'prompt_patch',target:'image.prompt',mode:'replace',anchor:'red eyes',text:'blue eyes'}]};
+  const name=n%2?'get_state':'propose_draft',input=n%2?{}:{base_hash:state.base_hash,draft_title:'本地草稿',steps:[{kind:'prompt_patch',target:'image.prompt',mode:'replace',anchor:'red eyes',text:'blue eyes'}]};
   res.writeHead(200,{'Content-Type':'text/event-stream'});
   if(url.pathname.endsWith('/chat/completions')){
    res.write(`data: ${JSON.stringify({choices:[{index:0,delta:{tool_calls:[{index:0,id:`call_${n}`,type:'function',function:{name,arguments:JSON.stringify(input)}}]}}]})}\n\n`);
@@ -446,11 +452,24 @@ test('ASK A4 production local: both inference protocols stream tools and drafts 
    await route(p,'#/image');await p.locator('#settingsPanel').waitFor({state:'hidden'});await p.locator('#prompt').fill('red eyes');
    await p.locator('#prompt').press('Control+k');await p.locator('#askDrawer.ask-inline').waitFor();await p.locator('#askPrompt').fill('读取当前状态，把红眼睛改为蓝色');await p.locator('#askPrompt').press('Enter');
    await p.locator('.ask-draft[data-status="pending"]').waitFor();assert.equal(await p.locator('#prompt').inputValue(),'red eyes');
-   await p.locator('.ask-draft-apply').click();await p.locator('.ask-draft[data-status="applied"]').waitFor();assert.equal(await p.locator('#prompt').inputValue(),'blue eyes');
-   await p.getByRole('button',{name:'撤销',exact:true}).click();await p.locator('.ask-draft[data-status="pending"]').waitFor();assert.equal(await p.locator('#prompt').inputValue(),'red eyes');
-   await p.locator('#askPrompt').focus();await p.keyboard.press('Escape');await p.keyboard.press('Escape');await p.locator('#askDrawer').waitFor({state:'hidden'});
+   await p.locator('.ask-draft-apply').click();
+   const checkpoint=p.locator('.ask-checkpoint').last();
+   await checkpoint.getByRole('button',{name:'回退',exact:true}).waitFor();
+   assert.equal(await checkpoint.getAttribute('data-state'),'applied');
+   assert.equal(await p.locator('#prompt').inputValue(),'blue eyes');
+   await p.locator('.ask-draft').waitFor({state:'detached'});
+   await checkpoint.getByRole('button',{name:'回退',exact:true}).click();
+   await checkpoint.getByRole('button',{name:'恢复',exact:true}).waitFor();
+   assert.equal(await checkpoint.getAttribute('data-state'),'reverted');
+   assert.equal(await p.locator('#prompt').inputValue(),'red eyes');
+   assert.equal(await p.locator('.ask-draft').count(),0,'W3 rollback keeps its checkpoint and does not reopen the old card');
+   await p.locator('#askPrompt').focus();await p.keyboard.press('Escape');await p.locator('#askDrawer').waitFor({state:'hidden'});
   }
-  assert.equal(rounds.get('/v1/chat/completions'),2);assert.equal(rounds.get('/v1/messages'),2);
+  assert.equal(rounds.get('/v1/chat/completions'),3);assert.equal(rounds.get('/v1/messages'),3);
+  for(const path of ['/v1/chat/completions','/v1/messages']){
+   const last=calls.filter(c=>c.path===path).at(-1).payload;
+   assert.deepEqual(last.tool_choice,path.endsWith('/messages')?{type:'none'}:'none');
+  }
   assert.ok(calls.every(c=>['/v1/models','/v1/chat/completions','/v1/messages'].includes(c.path)));
   assert.equal(calls.find(c=>c.path==='/v1/chat/completions').headers.authorization,`Bearer ${secrets.openai}`);
   const a=calls.find(c=>c.path==='/v1/messages');assert.equal(a.headers['x-api-key'],secrets.anthropic);assert.equal(a.headers['anthropic-dangerous-direct-browser-access'],undefined);assert.ok(calls.every(c=>!c.headers['x-koma-local-token']));

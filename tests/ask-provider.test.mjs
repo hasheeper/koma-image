@@ -8,6 +8,8 @@ import { anthropicMessagesProfile as anthropic, openaiChatProfile as chat, stand
 import { imageConnections, reasoningConnections } from "../src/config/connections.ts";
 import { createProvider, wireBody, ProviderError } from "../src/ask/provider.ts";
 import { createCodec } from "../src/ask/codec.ts";
+import { modelId, readAskSettings } from "../src/ask/settings.ts";
+import { createTools } from "../src/ask/tools.ts";
 
 const encoder = new TextEncoder();
 const stream = (chunks, { status = 200, type = "text/event-stream", hold = false, onCancel } = {}) =>
@@ -44,6 +46,69 @@ const step = [
   { role: "user", content: [{ type: "result", id: "call_1", content: [{ type: "text", text: '{"steps":28}' }, { type: "image", mime: "image/png", data: "AAAA" }] }] },
 ];
 const turn2 = (state) => ({ ...turn1, messages: [...turn1.messages, ...step, { role: "assistant", content: [{ type: "text", text: "步数偏低。" }] }, user(state, "改成 32 呢？")] });
+
+test("ASK prose completion: both protocols disable new tools while retaining declarations and answered calls", () => {
+  const request = { ...turn1, messages: [...turn1.messages, ...step], toolChoice: "none" };
+  const oai = wireBody(chat, request), claude = wireBody(anthropic, request);
+  assert.equal(oai.tool_choice, "none");
+  assert.deepEqual(claude.tool_choice, { type: "none" });
+  assert.equal(oai.tools.length, tools.length);
+  assert.equal(claude.tools.length, tools.length);
+  assert.ok(oai.messages.some(m => m.role === "tool" && m.tool_call_id === "call_1"));
+  assert.ok(claude.messages.some(m => m.content.some(b => b.type === "tool_result" && b.tool_use_id === "call_1")));
+});
+
+test("ASK model IDs: preserve internal spaces, case and relay suffixes through settings and both wire formats", () => {
+  for (const id of ["Claude Sonnet 4.5 (Thinking)", "claude-opus-4-6 [1M]", "vendor/Claude  Opus:thinking-预算", "gemini-4"]) {
+    const settings = readAskSettings({ model: `  ${id}  ` });
+    assert.equal(settings.model, id);
+    assert.equal(readAskSettings(JSON.parse(JSON.stringify(settings))).model, id);
+    for (const profile of [chat, anthropic])
+      assert.equal(wireBody(profile, { ...turn1, model: settings.model }).model, id);
+  }
+  for (const id of ["bad\nmodel", "bad\tmodel", "bad\u0000model", "bad\u007fmodel", "bad\u2028model", "bad\u2029model", "m".repeat(201)])
+    assert.equal(modelId(id), "");
+  assert.equal(modelId("   "), "");
+  assert.equal(modelId("m".repeat(200)), "m".repeat(200));
+});
+
+test("ASK tool schemas: full registry avoids uniqueItems rejected by Gemini relays, including nested draft variants", () => {
+  const request = { ...turn1, tools: [...createTools().values()].map((entry) => entry.tool) };
+  for (const profile of [chat, anthropic]) {
+    const payload = wireBody(profile, request);
+    const definitions = payload.tools.map((t) => t.function ?? { ...t, parameters: t.input_schema });
+    assert.equal(definitions.length, 10);
+    assert.doesNotMatch(JSON.stringify(definitions), /"uniqueItems"\s*:/);
+    const sheet = definitions.find((t) => t.name === "view_sheet").parameters;
+    assert.equal(sheet.properties.ids.minItems, 2);
+    assert.equal(sheet.properties.ids.maxItems, 6);
+    const draft = definitions.find((t) => t.name === "propose_draft").parameters;
+    assert.equal(draft.properties.steps.items.anyOf.length, 3);
+    assert.equal(draft.properties.steps.items.anyOf[1].properties.fields.minItems, 1);
+    assert.deepEqual(draft.required, ["base_hash", "draft_title", "steps"]);
+    assert.equal(JSON.stringify(wireBody(profile, request)), JSON.stringify(payload));
+  }
+});
+
+test("ASK tool schemas: required properties survive a relay recursively stripping title metadata", () => {
+  // Reproduce the reported required[1] mismatch when a relay treats every
+  // `title` key as schema metadata, even inside the properties dictionary.
+  const stripTitles = (value) => Array.isArray(value) ? value.map(stripTitles)
+    : value && typeof value === "object"
+      ? Object.fromEntries(Object.entries(value).filter(([key]) => key !== "title").map(([key, item]) => [key, stripTitles(item)]))
+      : value;
+  function validate(schema, path) {
+    for (const [index, name] of (schema.required ?? []).entries())
+      assert.ok(Object.hasOwn(schema.properties ?? {}, name), `${path}.required[${index}]: property is not defined (${name})`);
+    if (schema.enum) assert.equal(schema.type, "string", `${path}: enum needs a string type`);
+    assert.equal("const" in schema, false, `${path}: use a typed singleton enum`);
+    for (const [name, value] of Object.entries(schema.properties ?? {})) validate(value, `${path}.${name}`);
+    if (schema.items) validate(schema.items, `${path}.items`);
+    for (const [index, value] of (schema.anyOf ?? []).entries()) validate(value, `${path}.anyOf[${index}]`);
+  }
+  const payload = wireBody(chat, { ...turn1, tools: [...createTools().values()].map((entry) => entry.tool) });
+  for (const tool of payload.tools) validate(stripTitles(tool.function.parameters), tool.function.name);
+});
 
 test("reasoning profiles: registry, address rules, auth headers and capability filters", async () => {
   assert.deepEqual(connectionProfiles.filter((p) => p.reasoning).map((p) => p.id), ["openai-chat-v1", "anthropic-messages-v1"]);
@@ -328,4 +393,14 @@ test("cache reports distinguish missing, invalid and zero counters; pre-dispatch
     await assert.rejects(collect(provider.stream(turn1, { signal: abort.signal, observe: e => observed.push(e) })));
     assert.deepEqual(observed, []);
   }
+});
+
+test('ASK empty completion: explicit post-tool option preserves usage; incomplete streams still fail', async () => {
+  const empty = () => stream(sse({choices:[{delta:{},finish_reason:'stop'}],usage:{prompt_tokens:55,completion_tokens:0}},'[DONE]'));
+  const {provider} = await setup(chat, empty);
+  await assert.rejects(collect(provider.stream(turn1)), e=>e.kind==='empty');
+  const events=await collect(provider.stream(turn1,{allowEmpty:true}));
+  assert.equal(events.length,1);assert.equal(events[0].type,'done');assert.equal(events[0].usage.input,55);
+  const {provider:broken}=await setup(chat,()=>stream([]));
+  await assert.rejects(collect(broken.stream(turn1,{allowEmpty:true})),e=>e.kind==='empty');
 });

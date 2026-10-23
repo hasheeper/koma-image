@@ -1,6 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { cropRect, fitSize, chargeVision } from "../src/ask/vision.ts";
+import { cropRect, fitSize, chargeVision, createVision } from "../src/ask/vision.ts";
 import { createTools } from "../src/ask/tools.ts";
 import { createIds } from "../src/ask/ids.ts";
 import { differences, snapshotPictures, similarity, metadata } from "../src/ask/library.ts";
@@ -43,14 +43,10 @@ test("ASK history: anchor rings, same-prompt parameter differences and 90% neigh
   assert.deepEqual(index.cold[0].ids,["#h4"]);
   assert.equal(similarity("BLUE_SKY", "blue sky"),1);
 });
-test("ASK history: 3 hot, 12 warm and consecutive cold clusters retaining changes", () => {
+test("ASK history: no-anchor index is only a count and latest ID; explicit-anchor cold clustering stays available", () => {
   const items=Array.from({length:25},(_,i)=>image(25-i));
   const index=historyIndex(items,null);
-  assert.equal(index.mode,"B");
-  assert.equal(index.hot.length,3);assert.equal(index.warm.length,12);
-  assert.equal(index.cold.length,1);assert.equal(index.cold[0].count,10);
-  assert.deepEqual(index.cold[0].changes.seed,{min:1,max:10});
-  assert.deepEqual(index.warm[0].changes.seed,{before:21,after:22});
+  assert.deepEqual(index,{mode:"B",count:25,latest_id:"#h25"});
   assert.equal(cluster([image(1,"a"),image(2,"b"),image(3,"a")]).length,3);
 });
 test("ASK snapshot and tools: metadata is immutable, aliases resolve, diffs/search are read-only and data is wrapped", async () => {
@@ -79,6 +75,17 @@ test("ASK snapshot and tools: metadata is immutable, aliases resolve, diffs/sear
 test("ASK metadata-only rejects every visual tool before decoding or fetching", async () => {
   const tools=createTools(), context={metadataOnly:true,signal:new AbortController().signal,state:()=>({text:"",images:0})};
   for(const name of ["view_image","view_sheet"])await assert.rejects(tools.get(name).run({},context),/仅发送元数据/);
+});
+test("ASK sheet: duplicate IDs and aliases of the same picture are rejected locally without decoding", async () => {
+  const ids = createIds(), record = image(1);
+  const library = snapshotPictures([record], [{ ...record, favoritedAt: 2 }], ids);
+  const vision = createVision();
+  const context = { signal: new AbortController().signal, metadataOnly: false, library, vision, visual: { signal: new AbortController().signal, viewed: new Set(), budget: { calls: 0, pixels: 0, bytes: 0 } } };
+  try {
+    for (const ids of [["#h1", "#h1"], ["#h1", "#f1"]])
+      await assert.rejects(createTools().get("view_sheet").run({ ids }, context), /2–6 张不同图片/);
+    assert.deepEqual(context.visual.budget, { calls: 0, pixels: 0, bytes: 0 });
+  } finally { vision.dispose(); }
 });
 test("ASK metadata retains generation/batch/edit parameters and effective prompt, excludes routing and binary inputs", () => {
   const record=image(1,"clouds",{

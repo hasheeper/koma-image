@@ -34,38 +34,54 @@ export interface Turn {
   push(message: AskMessage): void;
   readonly budget: Budget;
   record(usage: AskUsage | null): void;
-  commit(): void;
+  /** `viewed`: images this turn saw whole, for later crops. */
+  commit(meta?: { viewed?: Iterable<string> }): void;
   rollback(): void;
 }
+interface Committed { readonly messages: readonly AskMessage[]; readonly viewed: readonly string[] }
 
 /**
- * One page session in memory; never persisted (doc 1 D10). A turn is a
+ * One conversation in memory; never persisted (doc 1 D10). A turn is a
  * transaction: its messages join the history only on commit, so a turn the
  * channel refused leaves nothing behind that would trip the next one.
+ * `total` also receives every billed usage, for the page-wide count.
  */
-export function createSession() {
-  let committed: readonly (readonly AskMessage[])[] = [],
-    open: object | null = null,
-    turns = 0;
+export function createSession(total?: (usage: AskUsage) => void, from: readonly Committed[] = []) {
+  let committed = from,
+    open: object | null = null;
   const usage = { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 };
   return {
     get messages() {
-      return committed.flat();
+      return committed.flatMap((t) => t.messages);
     },
     get turns() {
-      return turns;
+      return committed.length;
     },
-    /** Tokens billed this session, failed turns included. */
+    /** Tokens billed in this conversation, failed turns included. */
     get usage(): AskUsage {
       return { ...usage };
     },
     get busy() {
       return open !== null;
     },
+    /** Images seen whole in the remaining committed turns. */
+    viewed(): Set<string> {
+      return new Set(committed.flatMap((t) => t.viewed));
+    },
+    /** Keep the first `count` turns as they are; their bytes stay a cacheable prefix. */
+    truncate(count: number) {
+      if (open) throw new Error("运行中不能截断对话");
+      committed = committed.slice(0, Math.max(0, count));
+    },
+    /** A new conversation sharing the first `count` turns; its usage starts at zero. */
+    fork(count: number) {
+      if (open) throw new Error("运行中不能分支对话");
+      return createSession(total, committed.slice(0, Math.max(0, count)));
+    },
     begin(user: AskMessage, options: { metadataOnly?: boolean } = {}): Turn {
       if (open) throw new Error("上一轮尚未结束");
       const token = {},
-        base = dehydrateTurns(committed, options.metadataOnly ? 0 : 2).flat(),
+        base = dehydrateTurns(committed.map((t) => t.messages), options.metadataOnly ? 0 : 2).flat(),
         pending: AskMessage[] = [user],
         budget: Budget = {
           toolCalls: 0,
@@ -90,11 +106,12 @@ export function createSession() {
           usage.output += value.output;
           usage.cacheRead += value.cacheRead;
           usage.cacheWrite += value.cacheWrite;
+          total?.(value);
         },
-        commit() {
+        commit(meta = {}) {
           close();
-          committed = dehydrateTurns([...committed, pending]);
-          turns++;
+          const turns = dehydrateTurns([...committed.map((t) => t.messages), pending]);
+          committed = [...committed, { messages: pending, viewed: [...(meta.viewed ?? [])] }].map((t, i) => ({ ...t, messages: turns[i] }));
         },
         rollback: close,
       };
@@ -110,16 +127,17 @@ export function approxTokens(text: string) {
   return Math.ceil(wide + (text.length - wide) / 4);
 }
 const IMAGE_TOKENS = 1000;
+const imageTokens = (image: AskImage) => image.size ? Math.ceil(image.size.width * image.size.height / 750) : IMAGE_TOKENS;
 export function estimateRequest(request: Omit<AskRequest, "maxTokens" | "model">) {
   let total = approxTokens(JSON.stringify(request.tools)) + approxTokens(request.system.join("\n"));
   for (const message of request.messages)
     for (const block of message.content) {
       if (block.type === "text") total += approxTokens(block.text);
-      else if (block.type === "image") total += IMAGE_TOKENS;
+      else if (block.type === "image") total += imageTokens(block);
       else if (block.type === "call") total += approxTokens(JSON.stringify(block.input)) + 8;
       else
         for (const part of block.content)
-          total += part.type === "text" ? approxTokens(part.text) : IMAGE_TOKENS;
+          total += part.type === "text" ? approxTokens(part.text) : imageTokens(part);
     }
   return total;
 }

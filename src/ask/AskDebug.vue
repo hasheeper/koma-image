@@ -8,7 +8,9 @@ import { inspectCall } from "./debug.ts";
 
 const props = defineProps<{ turn?: number }>(), emit = defineEmits<{ close: [] }>(), ask = useAsk();
 const dialog = shallowRef<HTMLDialogElement | null>(null), selected = shallowRef(0), filter = shallowRef(props.turn), json = shallowRef(false), notice = shallowRef("");
-const calls = computed(() => ask.debug.value.calls.filter(c => filter.value === undefined || c.turn === filter.value));
+// This conversation's calls; exporting all keeps every conversation.
+const mine = computed(() => ask.debug.value.calls.filter(c => c.conversation === ask.conversationId.value));
+const calls = computed(() => mine.value.filter(c => filter.value === undefined || c.turn === filter.value));
 watch(calls, list => { if (!list.some(c => c.id === selected.value)) selected.value = list.at(-1)?.id ?? 0; }, { immediate: true });
 watch(selected, () => { notice.value = ""; });
 const record = computed(() => { void ask.debug.value; return ask.debugCall(selected.value); });
@@ -45,7 +47,7 @@ onBeforeUnmount(() => dialog.value?.close());
         <header class="debug-head">
           <h2 id="askDebugTitle">调用上下文</h2>
           <button v-if="filter !== undefined" class="btn btn-quiet btn-xs" type="button" @click="filter = undefined">查看全部</button>
-          <span class="debug-count">{{ ask.debug.value.calls.length }} 次记录</span>
+          <span class="debug-count">{{ mine.length }} 次记录</span>
           <button class="ibtn" type="button" aria-label="关闭调用上下文" autofocus @click="emit('close')"><AppIcon name="i-close" /></button>
         </header>
         <div class="debug-toolbar">

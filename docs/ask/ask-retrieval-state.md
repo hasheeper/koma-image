@@ -51,13 +51,13 @@
 
 “提示词 L0”指静态宪章；“状态摘要 L0”指每轮 user 消息中的 `<workspace_state>`。六维指导属于前者，原始表单属于后者。不得为了瘦身把动态表单移进 System。
 
-摘要版本已由 `v:2` 升为 `v:3`：
+R1 曾将摘要从 `v:2` 升为 `v:3`；2026-10-23 按用户实机反馈升为 `v:4`，当前契约如下：
 
 - 删除 `image.prompt_sections`，不换名输出 `segments` 或另一份全文切片。
-- `image.form.prompt/negative` 原样保留；模型、尺寸、参数、current、generation、history、favorites 与 CHAT 摘要仍保留，不能把整个 form 缩成两个字符串。
+- 无锚点时 `image.form.text_included=false`，省略 prompt/negative，保留模型、尺寸、参数与预留数组。`image.current` 仅含 ID，history 仅 mode/count/latest_id，favorites 仅 count；不预载历史文本、差异或聚类。显式历史／收藏锚点保留模式 A 与表单原文；附件或 CHAT ID 不隐式展开 IMAGE 原稿。
 - 根层 `base_hash` 继续由 prompt、negative、CHAT composer 计算，算法与草稿确认语义不变；不另加 form 内 hash。
 - `characters`、`vibes` 保留当前空数组预留；六维是模型理解方式，不新增六类 JSON 字段。
-- 初始快照在整轮冻结。`get_state` 只在工具结果追加新状态；它不能使刚生成的图片进入本轮 library，也不能替换草稿使用的初始 hash。
+- 初始快照在整轮冻结。`get_state` 默认 scope=initial，按需补齐本轮表单原文；scope=latest 才读取外部新改动。结果只追加在队尾，历史索引仍不展开；不能使新图进入本轮 library，也不能替换草稿使用的初始 hash。
 
 ### 2.2 画师判断交给提示词与用户
 
@@ -149,6 +149,7 @@ interface SearchTagsArgs {
 }
 
 interface TagsSearchResult {
+  note?: string; // 存在失败项时说明未核验，不把故障当作未收录
   results: Array<{
     query: string;
     status: "ok" | "no_match" | "error";
@@ -187,6 +188,7 @@ rankTags 默认按收录量优先，精确词可能被高热度近似词挤出�
 - 保留共享服务每来源 8 秒超时及既有英文回退；不增加 ASK 层自动重试。共享 get 目前可能对 TypeError 重取一次，不能将其描述成“所有查词只有一次网络请求”。不新增 20 秒或其他批次定时器；逐项保留共享服务返回的成功、失败与超时结果。
 - 传递轮次 AbortSignal；suggest 进入缓存前、批量 await 后均检查取消；透传同一轮次 signal。用户停止时取消在途查询、回滚当前轮，不把取消变成 no_match。
 - 区分 no_match、网络/429/超时/格式错误；部分成功保留有效结果并逐项标错，全失败标记工具失败并展示原因。结果以 canonical JSON 包 `<data>`，词典文本不能关闭包裹或成为指令。
+- 英文回退也失败时区分“中英词典未命中”与“主源失败”，分别给出两个来源的结果；读取响应体期间仍保留超时、取消与网络错误，JSON 语法或结构不符才报格式异常。失败结果附 note，提示模型保留有效结果、基于已有知识继续，不因服务故障连续换近义词重查；失败不等于词条不存在。
 - 草稿校验不依赖词典查询，始终同步；应用前仍检查内容冲突。
 
 ## 5. 接入与验收边界

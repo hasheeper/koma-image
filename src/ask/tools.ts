@@ -30,8 +30,8 @@ export interface ToolContext {
   readonly signal: AbortSignal;
   /** Set by「仅发元数据重试」: visual tools answer with an error this turn. */
   readonly metadataOnly: boolean;
-  /** A fresh workbench snapshot as a `<workspace_state>` block. */
-  readonly state: () => { readonly text: string; readonly images: number };
+  /** Full form text on demand; the initial snapshot is the draft base. */
+  readonly state: (scope: "initial" | "latest") => { readonly text: string; readonly images: number };
   readonly library?: readonly Picture[];
   readonly vision?: Vision;
   readonly visual?: VisionContext;
@@ -46,7 +46,7 @@ export interface ToolEntry {
   /** Trace row wording: 正在{verb} {object} → 已{verb} {object}. */
   readonly verb: string;
   object(input: Readonly<Record<string, unknown>>): string;
-  /** Ends the turn after it runs (propose_draft, A2). */
+  /** Ends tool execution after it runs; missing prose is completed separately. */
   readonly final?: boolean;
   run(
     input: Readonly<Record<string, unknown>>,
@@ -59,13 +59,15 @@ const getState: ToolEntry = {
   tool: {
     name: "get_state",
     description:
-      "读取工作台的最新状态（与消息末尾 <workspace_state> 同一格式）。仅当需要确认本轮开始后的变化时调用。",
-    schema: { type: "object", properties: {}, additionalProperties: false },
+      "按需读取表单原文。scope 默认 initial：本轮初始 Prompt/Negative 与草稿基底；仅需确认外部最新改动时用 latest。历史保持原索引，不扩张本轮可访问图片集合。",
+    schema: { type: "object", properties: { scope: { type: "string", enum: ["initial", "latest"] } }, additionalProperties: false },
   },
   verb: "读取",
   object: () => "工作台",
-  run(_input, context) {
-    const state = context.state();
+  run(input, context) {
+    const scope = input.scope ?? "initial";
+    if (scope !== "initial" && scope !== "latest") throw new Error("scope 需为 initial 或 latest");
+    const state = context.state(scope);
     return {
       content: [{ type: "text", text: state.text }],
       stat: `${state.images} 张历史`,
@@ -79,7 +81,7 @@ const string = (input: Readonly<Record<string, unknown>>, key: string, optional 
   return value.trim();
 };
 const picture = (id: string, context: ToolContext) => {
-  if (!/^#(?:(?:h|f)\d+|c\d+\.\d+)$/.test(id)) throw new Error("请使用本页图片 ID，如 #h1 或 #f1");
+  if (!/^#(?:(?:h|f|a)\d+|c\d+\.\d+)$/.test(id)) throw new Error("请使用本页图片 ID，如 #h1、#f1 或附件 #a1");
   const found = context.library?.find((p) => p.aliases.includes(id));
   if (!found) throw new Error(`${id} 不在本轮图片快照中，可能已移除；新图请在下一轮查看`);
   return found;
@@ -88,13 +90,13 @@ const reply = (value: unknown, stat: string, picks?: readonly string[]): ToolOut
   content: [{ type: "text", text: dataBlock(canonical(value)) }], stat, ...(picks ? { picks } : {}),
 });
 const schema = (properties: Record<string, unknown>, required: string[] = []) => ({ type: "object", properties, required, additionalProperties: false });
-const idField = { type: "string", description: "图片 ID，如 #h12、#f3、当前 CHAT 分支的 #c2.1" };
+const idField = { type: "string", description: "图片 ID，如 #h12、#f3、当前 CHAT 分支的 #c2.1、本对话附件 #a1" };
 const readMeta: ToolEntry = {
   tool: { name: "get_meta", description: "读取图片完整参数，不发送图片。", schema: schema({ id: idField }, ["id"]) },
   verb: "读取", object: (input) => String(input.id ?? "图片参数"),
   run(input, context) {
     const item = picture(string(input, "id"), context);
-    return reply({ id: item.label, ...metadata(item) }, "参数");
+    return reply({ id: item.label, ...(item.attachment ?? metadata(item)) }, "参数");
   },
 };
 const diffMeta: ToolEntry = {
@@ -108,13 +110,13 @@ const diffMeta: ToolEntry = {
 };
 const searchHistory: ToolEntry = {
   tool: { name: "search_history", description: "本地检索本轮历史、收藏或当前 CHAT 分支图片。query 用朴素关键词，多词任一命中；不解析布尔或正则。changed_field 对比同来源前序，size 表示宽高变化；similar_to 按提示词相似度排序。默认 all、8条，最多15条；详情用 get_meta。", schema: schema({
-    query: { type: "string", maxLength: 300 }, changed_field: { type: "string", enum: changedFields }, similar_to: idField,
+    query: { type: "string", maxLength: 300 }, changed_field: { type: "string", enum: changedFields }, similar_to: { type: "string", description: "作为比较基准的工作区图片 ID（#h、#f、#c）；检索不含 #a 附件" },
     limit: { type: "integer", minimum: 1, maximum: 15 },
     scope: { type: "string", enum: ["history", "favorites", "chat", "all"] },
   }) },
   verb: "检索", object: () => "图片记录",
   run(input, context) {
-    const result = findHistory(input, context.library ?? [], context.snapshotTime ?? 0);
+    const result = findHistory(input, (context.library ?? []).filter(p => !p.attachment), context.snapshotTime ?? 0);
     return reply(result, `${result.total_matched} 张`, result.matches.length > 1 ? result.matches.slice(0, 4).map((p) => p.id) : undefined);
   },
 };
@@ -123,8 +125,9 @@ function visualContext(context: ToolContext) {
   if (!context.vision || !context.visual) throw new Error("视觉工具未就绪");
   return { vision: context.vision, visual: context.visual };
 }
+const specLabel = { glance: "概览", look: "细看", crop: "局部" } as const;
 const viewImage: ToolEntry = {
-  tool: { name: "view_image", description: "按需看图：glance 长边384px、look 768px。crop 前必须成功用本工具的 glance 或 look 查看同一 ID 的全图；view_sheet 拼图不满足该前置条件。百分比裁切区域自动四边扩25%。累计预算4次/1.5MP/400KB。", schema: schema({
+  tool: { name: "view_image", description: "按需看图：glance 长边384px、look 768px。crop 前须看过同一 ID 的全图：本工具的 glance/look 或随提问发送的 #a 附件图片均可，view_sheet 拼图不计。百分比裁切区域自动四边扩25%。本工具累计预算4次/1.5MP/400KB；随提问发送的图片不占此预算。", schema: schema({
     id: idField, spec: { type: "string", enum: ["glance", "look", "crop"] },
     region: { type: "array", items: { type: "number", minimum: 0, maximum: 100 }, minItems: 4, maxItems: 4 },
   }, ["id", "spec"]) },
@@ -139,11 +142,12 @@ const viewImage: ToolEntry = {
       region = input.region as unknown as Region;
     }
     const result = await vision.image(item, spec, region, visual);
-    return { content: [{ type: "text", text: dataBlock(canonical({ id: item.label, spec, bytes: result.bytes, pixels: result.pixels })) }, result.image], stat: `${spec} · ${Math.ceil(result.bytes / 1024)} KB` };
+    return { content: [{ type: "text", text: dataBlock(canonical({ id: item.label, spec, bytes: result.bytes, pixels: result.pixels })) }, result.image], stat: `${specLabel[spec]} · ${Math.ceil(result.bytes / 1024)} KB` };
   },
 };
 const viewSheet: ToolEntry = {
-  tool: { name: "view_sheet", description: "本地拼合2–6张图并标注ID。整张拼图长边默认768px，glance为384px；计作1次视觉调用。拼图不计入单图查看，之后裁切某图仍须先用 view_image 的 glance 或 look 查看该图。", schema: schema({ ids: { type: "array", items: idField, minItems: 2, maxItems: 6, uniqueItems: true }, spec: { type: "string", enum: ["glance", "look"] } }, ["ids"]) },
+  // Gemini relays reject uniqueItems; vision.sheet checks distinct picture IDs.
+  tool: { name: "view_sheet", description: "本地拼合2–6张不同图片并标注ID，支持 #a 附件与工作区图片混合预览。整张拼图长边默认768px，glance为384px；计作1次视觉调用。拼图不计入单图查看；crop 的前置条件见 view_image。", schema: schema({ ids: { type: "array", items: idField, minItems: 2, maxItems: 6 }, spec: { type: "string", enum: ["glance", "look"] } }, ["ids"]) },
   verb: "对比", object: (input) => Array.isArray(input.ids) ? input.ids.join(" ↔ ") : "拼图",
   async run(input, context) {
     const { vision, visual } = visualContext(context);
@@ -163,7 +167,7 @@ const readChat: ToolEntry = {
   },
 };
 const searchTags: ToolEntry = {
-  tool: { name: "search_tags", description: "按需核验 NAI 词条的标准写法、分类、中文释义与帖子收录量；queries 一次1–5词，每词默认5/最多10条。复用站内中英在线词典与缓存，可能联网。未命中不代表不存在，收录量不等于模型激活强度；原数据缺失的 count/category 沿用共享服务的0值，别名未知为null。", schema: schema({
+  tool: { name: "search_tags", description: "按需核验 NAI 词条的标准写法、分类、中文释义与帖子收录量；queries 一次1–5词，每词默认5/最多10条。复用站内中英在线词典与缓存，可能联网。未命中不代表不存在，服务失败表示未核验；保留有效结果，基于已有知识继续，不为服务故障连续换近义词重查。收录量不等于模型激活强度；原数据缺失的 count/category 沿用共享服务的0值，别名未知为null。", schema: schema({
     queries: { type: "array", minItems: 1, maxItems: 5, items: { type: "string", minLength: 1, maxLength: 300 } },
     limit_per_query: { type: "integer", minimum: 1, maximum: 10 },
   }, ["queries"]) },
@@ -172,8 +176,9 @@ const searchTags: ToolEntry = {
     if (!context.tags) throw new Error("词典服务未就绪");
     const result = await findTags(input, context.tags, context.signal);
     const failed = result.results.filter((r) => r.status === "error");
-    return { ...reply(result, `${result.results.length} 个查询${failed.length ? ` · ${failed.length} 失败` : ""}`),
-      ...(failed.length ? { reason: failed.map((r) => `${r.query}：${r.error}`).join("；") } : {}),
+    const data = failed.length ? { ...result, note: "失败项尚未核验，不代表词条不存在。保留有效结果，基于已有知识继续；不要因服务故障连续换近义词重查。" } : result;
+    return { ...reply(data, `${result.results.length} 个查询${failed.length ? ` · ${failed.length} 失败` : ""}`),
+      ...(failed.length ? { reason: failed.map((r) => `${r.query}：${r.error}`).join("\n") } : {}),
       ...(failed.length === result.results.length ? { error: true } : {}),
     };
   },

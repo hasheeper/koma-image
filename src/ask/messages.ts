@@ -16,6 +16,8 @@ export interface AskImage {
   readonly mime: "image/png" | "image/jpeg" | "image/webp";
   /** Base64 without the data: prefix. */
   readonly data: string;
+  /** Local estimate only; adapters never serialize this. */
+  readonly size?: { readonly width: number; readonly height: number };
   /** Local provenance; adapters omit it. Used when old images become text. */
   readonly viewed?: { readonly ids: readonly string[]; readonly spec: string; readonly bytes: number };
 }
@@ -44,6 +46,8 @@ export interface AskMessage {
 export interface AskRequest {
   readonly model: string;
   readonly tools: readonly AskTool[];
+  /** Prose-only completion after a silent tool turn; keep tool definitions. */
+  readonly toolChoice?: "none";
   readonly system: readonly [core: string, preferences: string];
   readonly messages: readonly AskMessage[];
   /** Sent where the protocol requires an output limit (Anthropic). */

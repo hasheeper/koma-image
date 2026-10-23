@@ -81,6 +81,7 @@ export function body(request: AskRequest): Record<string, unknown> {
           })),
         }
       : {}),
+    ...(request.toolChoice ? { tool_choice: request.toolChoice } : {}),
     messages: [
       ...(system ? [{ role: "system", content: system }] : []),
       ...request.messages.flatMap(messages),

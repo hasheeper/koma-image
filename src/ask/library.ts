@@ -3,7 +3,7 @@ import type { DigestImage } from "./digest/index.ts";
 import type { Ids } from "./ids.ts";
 
 /** A turn owns these references; later history deletion cannot change its input. */
-export type PictureSource = "history" | "favorites" | "chat";
+export type PictureSource = "history" | "favorites" | "chat" | "attachment";
 export interface PictureOrigin {
   readonly source: PictureSource;
   readonly label: string;
@@ -15,6 +15,7 @@ export interface Picture extends DigestImage {
   readonly aliases: readonly string[];
   readonly origins: readonly PictureOrigin[];
   readonly blob: Blob;
+  readonly attachment?: Readonly<Record<string, unknown>>;
 }
 export const promptOf = (image: DigestImage) => String(image.params.basePrompt ?? image.params.prompt ?? "");
 export function metadata(image: DigestImage): Record<string, unknown> {

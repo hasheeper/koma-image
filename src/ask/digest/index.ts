@@ -100,21 +100,25 @@ function params(image: DigestImage) {
 /**
  * L0: the workbench at the moment of sending. It travels at the tail of the
  * user's message, never in the system prompt, so edits never touch the cached
- * prefix. Prompts are the user's own text and stay exactly as written.
+ * prefix. Unanchored turns carry no image/form prompt text; an explicit
+ * get_state read can include the unmodified form text for drafting.
  */
-export function buildDigest(input: DigestInput): Digest {
+export function buildDigest(input: DigestInput, options: { readonly formText?: boolean } = {}): Digest {
   const { form, ids } = input;
   ids.sync(input.history, input.favorites);
   const id = (image: DigestImage) =>
     ids.label(image.id) ?? `#${image.id.slice(0, 8)}`;
   const anchor = [...input.history, ...input.favorites].find((image) => image.id === ids.resolve(input.anchor ?? ""));
+  const formText = !!options.formText || !!anchor;
   const history = historyIndex(input.history.map((image) => ({ ...image, label: id(image) })), anchor ? { ...anchor, label: id(anchor) } : null);
   const current = input.current
     ? {
         id: id(input.current),
-        ...params(input.current),
-        prompt: promptOf(input.current.params),
-        negative: String(object(input.current.params).negative_prompt ?? ""),
+        ...(anchor?.id === input.current.id ? {
+          ...params(input.current),
+          prompt: promptOf(input.current.params),
+          negative: String(object(input.current.params).negative_prompt ?? ""),
+        } : {}),
       }
     : null;
   const generation: Record<string, unknown> = {
@@ -126,14 +130,14 @@ export function buildDigest(input: DigestInput): Digest {
   if (input.generation.error) generation.error = input.generation.error;
   const base = baseHash(form.prompt, form.negative, input.composer);
   const state: Record<string, unknown> = {
-    v: 3,
+    v: 4,
     workspace: input.workspace,
     anchor: input.anchor,
     history_cursor: ids.cursor(),
     image: {
       form: {
-        prompt: form.prompt,
-        negative: form.negative,
+        text_included: formText,
+        ...(formText ? { prompt: form.prompt, negative: form.negative } : {}),
         model: input.modelName || form.model,
         size: `${form.width}x${form.height}`,
         steps: form.steps,
@@ -151,7 +155,6 @@ export function buildDigest(input: DigestInput): Digest {
       history,
       favorites: {
         count: input.favorites.length,
-        recent: input.favorites.slice(0, 5).map(id),
       },
     },
     base_hash: base,

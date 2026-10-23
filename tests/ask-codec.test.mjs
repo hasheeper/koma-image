@@ -53,7 +53,7 @@ test("codec: custom entries are normalized, deduplicated and refused when exclud
   const settings = readAskSettings({ words: ["see_through", "loli", "SEE THROUGH", 5, "nsfw"], preference: "x".repeat(400), model: "has space", images: "yes" });
   assert.deepEqual(settings.words, ["see through"]);
   assert.equal(settings.preference.length, 300);
-  assert.equal(settings.model, "");
+  assert.equal(settings.model, "has space");
   assert.equal(settings.images, true);
 });
 

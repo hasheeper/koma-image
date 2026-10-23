@@ -46,10 +46,18 @@ const failure = (id: string, text: string): AskResult => ({
  * The tool loop for one turn. Each step streams one model response; tool
  * calls run in order and their results go back at the tail of the turn, so
  * the request only ever grows at the end. At most six calls; a final tool
- * (the draft, A2) ends the turn. Errors propagate: the caller rolls back.
+ * (the draft, A2) ends tool execution. A silent turn gets one prose-only
+ * completion within the same request budget. Errors propagate: caller rolls back.
  */
 export async function* run(options: RunOptions): AsyncGenerator<RunEvent, void> {
   const { turn, tools, context, signal } = options;
+  let hasText = false, final = false, completing = false;
+  const complete = () => {
+    completing = true;
+    turn.push({ role: "user", content: [{ type: "text", text: final
+      ? "草稿已提交，尚未应用。请仅用 1–2 句说明这份草稿改了什么，交给用户核对；不要再调用工具。"
+      : "本轮工具已返回结果，但还没有回复正文。请仅用 1–2 句基于已取得的信息回答用户；未能确认的内容如实说明，不要再调用工具。" }] });
+  };
   while (true) {
     signal.throwIfAborted();
     if (++turn.budget.requests > LIMITS.requests)
@@ -58,11 +66,12 @@ export async function* run(options: RunOptions): AsyncGenerator<RunEvent, void> 
       stop: "end" | "tool" | "length" | "refusal" | "other" = "other";
     const calls: AskCall[] = [];
     for await (const event of options.stream(
-      { ...options.request, messages: turn.messages() },
+      { ...options.request, ...(completing ? { toolChoice: "none" as const } : {}), messages: turn.messages() },
       signal,
     )) {
       if (event.type === "text") {
         text += event.text;
+        hasText ||= !!event.text.trim();
         yield event;
       } else if (event.type === "call") calls.push(event.call);
       else {
@@ -72,16 +81,26 @@ export async function* run(options: RunOptions): AsyncGenerator<RunEvent, void> 
       }
     }
     const content: AskBlock[] = [
-      ...(text ? [{ type: "text" as const, text }] : []),
+      ...(text.trim() ? [{ type: "text" as const, text }] : []),
       ...calls,
     ];
-    turn.push({ role: "assistant", content });
+    if (content.length) turn.push({ role: "assistant", content });
+    if (completing) {
+      if (calls.length) throw new ProviderError("protocol", "模型在补充说明时仍调用工具，本轮未完成");
+      if (!hasText) throw new ProviderError("empty", "模型未补充回复说明，本轮未完成");
+      yield { type: "done", reason: stop === "length" ? "length" : final ? "final" : "end" };
+      return;
+    }
     if (!calls.length) {
+      if (!hasText) {
+        if (!turn.budget.toolCalls) throw new ProviderError("empty");
+        complete();
+        continue;
+      }
       yield { type: "done", reason: stop === "length" ? "length" : "end" };
       return;
     }
     const results: AskResult[] = [];
-    let final = false;
     for (const call of calls) {
       signal.throwIfAborted();
       const entry = tools.get(call.name);
@@ -121,6 +140,10 @@ export async function* run(options: RunOptions): AsyncGenerator<RunEvent, void> 
     }
     turn.push({ role: "user", content: results });
     if (final) {
+      if (!hasText) {
+        complete();
+        continue;
+      }
       yield { type: "done", reason: "final" };
       return;
     }

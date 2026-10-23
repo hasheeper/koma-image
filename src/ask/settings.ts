@@ -21,10 +21,10 @@ export const defaultAskSettings = (): AskSettings => ({
   words: [],
   alwaysCodec: false,
 });
-/** Model IDs go in request bodies, so slashes and colons are allowed. */
+/** Opaque upstream IDs go in JSON bodies: preserve spaces, case and suffixes. */
 export const modelId = (text: string) => {
   const id = text.trim();
-  return id.length <= 200 && !/[\s\p{Cc}]/u.test(id) ? id : "";
+  return id.length <= 200 && !/[\p{Cc}\p{Zl}\p{Zp}]/u.test(id) ? id : "";
 };
 /** Unknown or invalid fields fall back; excluded words never survive a read. */
 export function readAskSettings(value: unknown): AskSettings {

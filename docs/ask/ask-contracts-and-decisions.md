@@ -4,7 +4,7 @@
 
 用途：与《子产品理念、开发需求与基本框架》（文档 1）、《前端 UI 方案与交互定稿》（文档 2）配套，专用于指导 AI IDE 实现底层协议、缓存策略、内容防拦截、容错算法与并发边界。实现细节由 AI IDE 对照当前仓库代码自行探索，但不得违背以下定调。
 
-2026-10-22 检索与状态补丁已由文档 4 §2.8 采纳，目标契约见 [检索与状态感知修订](ask-retrieval-state.md)。状态分区移除、历史检索升级及在线批量查词已在 R1–R4 实现，集中验收单列记录。
+2026-10-22 检索与状态补丁已由文档 4 §2.8 采纳，目标契约见 [检索与状态感知修订](ask-retrieval-state.md)。状态分区移除、历史检索升级及在线批量查词已在 R1–R4 实现，集中验收单列记录。2026-10-23 同步文档 4 §2.9 采纳的 [窗口 v5](ask-window-v5.md)：多对话、检查点、编辑／分支与用户附件以该专题为准。
 
 ---
 
@@ -36,6 +36,8 @@
 4. [History Turns: 历史对话与已脱水的工具记录]
 5. [Current Turn User Message:
      <workspace_state> 当轮 L0 快照 JSON </workspace_state>
+     用户图片说明／图片／元数据（图片开关关闭时只含元数据）
+     <data> 文本附件 </data>
      用户的实际提问文本]                            <-- 动态内容永远追加在队尾
 6. [Current Turn Tool Calls & Results]             <-- 循环中每步在队尾追加（动态打断点 #3）
 ```
@@ -44,7 +46,7 @@
 
 1. **一次性装载 L2 核心**：System Block 1 中直接包含 NAI 4.5/V5、OpenAI Images、Gemini 等全部主力模型的精简知识，**不因用户切换生图模型而动态抽换 System Prompt**。2026-10-22 分层调整后，较长的专项手册通过只读 get_model_manual 读取，作为工具结果追加到队尾，不塞入静态核心；详见 [提示词分层记录](ask-prompts.md)。
 2. **禁止动态噪声**：System Prompt、Tools 定义及历史消息中严禁包含当前时间戳、随机数或每次重排的對象键名（JSON 序列化键序必须固定）。
-3. **工具循环内快照锁死**：在同一轮的第 1 步至第 6 步之间，第 5 项中的 `<workspace_state>` 保持不变；若模型调用 `get_state()`，新快照作为最新的 `tool_result` 追加在队尾，不回改前面的消息。
+3. **工具循环内快照锁死**：同轮初始 `<workspace_state>` 保持不变；v4 无锚点摘要不预载 IMAGE 原文与历史词文。`get_state()` 默认补齐 initial 原文，scope=latest 才取最新状态，均作为 `tool_result` 追加在队尾，不回改前面的消息或替换草稿初始 hash。
 
 ---
 
@@ -93,32 +95,30 @@
 * **L0 摘要扩展**：`form` 快照必须完整包含 NAI V4.5/V5 的**多角色独立描述区**（`characters: [{ id, prompt, negative, position }]`）以及已挂载的 **Vibe Transfer / 参考图摘要**（数量、强度与信息提取权重）。
 * **草稿靶点扩展**：`propose_draft` 的 `target` 字段除 `image.prompt`、`image.negative`、`chat.composer` 外，支持定位到具体角色分区（如 `image.char.0.prompt`、`image.char.0.negative`）。
 * **当前预留**：现有绘图表单尚无多角色分区与 Vibe 输入（`src/gateway/routes.ts` 的 `char_captions` 恒为空，只有图片元数据解析会识别）。L0 结构与靶点类型照此定义；表单缺少对应对象时，校验器返回「目标不存在」，该步作废并标注。ASK 不顺便修改绘图业务。
-* **语义分区移除（R1）**：删除的是 `image.prompt_sections`，不是角色框或原始 prompt/negative；根层 base_hash 保持原算法。静态宪章的六维指导已实现。纯文本跨度解析仅供 `.keep` 使用，不向模型外发程序猜测的全文分类。
+* **语义分区移除（R1）**：删除的是 `image.prompt_sections`，不是角色框或原始 prompt/negative；根层 base_hash 保持原算法。静态宪章的六维指导已实现。不向模型外发程序猜测的全文分类；W1 已移除无消费者的旧 `.keep` 解析，由纯展示 diff 接替。
 
 ### 3.2 视觉裁切（`crop`）的坐标系归一化与安全扩边
 
 不同多模态模型对原图像素坐标的估算极易偏航。`view_image(id, "crop", region)` 必须遵守以下约束：
 
-1. **先全图后局部**：模型必须在本轮或历史中先调用过该图的 `glance (384px)` 或 `look (768px)`，才允许对该图调用 `crop`；否则工具直接返回错误提示模型先看全图。
+1. **先全图后局部**：模型必须在本轮或历史中看过该图的 `glance (384px)`／`look (768px)`，或收到 W5 随提问发送的完整附件图片，才允许对该图调用 `crop`；否则工具直接返回错误提示模型先看全图。
 2. **百分比输入 + 25% 自动扩边**：`region` 参数统一规定为 `0–100` 的归一化百分比 `[x_pct, y_pct, w_pct, h_pct]`。前端 `vision.ts` 在换算为原图像素坐标时，**自动向四周外扩 25% 的安全边距（Padding，限制在画布边界内）**，再缩放到 `768px` 以内，确保即便模型指偏也能完整框住目标部位（如眼睛、手部）。
 
-### 3.3 宽容锚点匹配（Fuzzy Anchor Matcher）与 `.keep` 本地计算
+### 3.3 宽容锚点匹配与本地 diff
 
 为防止模型输出细微的标点或空格差异导致草稿报废，减轻模型计算负担：
 
 * **两级锚点匹配（`src/ask/draft/validate.ts`）**：
   1. **Level 1（精确匹配）**：直接在目标文本中查找 `anchor` 子串。
   2. **Level 2（归一化宽容匹配）**：若精确匹配失败，将目标文本与 `anchor` 均忽略首尾空白、统一中英文逗号与连续空格后再做唯一匹配，并映射回原字符串的真实起止区间。仍不唯一或找不到时，才将该步标记为失效。
-* **整段改写中的 `.keep` 下划线由前端本地生成**：
-  * 模型在 `rewrite` 草稿中只需输出干净的新文本字符串，**不需要自己标注哪些是保留词**。
-  * 前端在渲染 `.slice` 预览时，自动将原区段拆分为有效 Tag/词组，在新文本中进行大小写不敏感匹配，命中的原词自动包裹 `<span class="keep">`。
+* **展示由前端本地计算**：模型在 `rewrite` 草稿中只输出新文本，不标注保留词。W1 已用 `draft/view.ts` 的逗号词组 diff 和「改动／全文」替代早期 `.keep` 下划线，旧 `prompt-text.ts` 无消费者后移除。该展示不做语义分类或画师拦截。
 
 ### 3.4 多轮会话的历史图片脱水（Image Dehydration）
 
 为防止长会话在缓存过期或切换模型时因历史堆积大量 Base64 图片而撑爆 Token：
 
-* 在 `session.ts` 构造请求消息队列时，**仅保留最近 3 轮（Hot Turns）内工具返回的真实 Base64 图像块**。
-* 第 4 轮及更早轮次的视觉 `tool_result`，在序列化发送前自动替换为纯文本占位符：`[Image #h12 (look, 42KB) was viewed in an earlier turn; call view_image again if re-inspection is needed]`。前端 UI 流中的历史轨迹显示不受影响。
+* 在 `session.ts` 构造请求消息队列时，**仅保留最近 3 轮（Hot Turns）内的工具图片与用户附件像素**。
+* 第 4 轮及更早轮次的视觉 `tool_result`，在序列化发送前自动替换为纯文本占位符：`[Image #h12 (look, 42KB) was viewed in an earlier turn; call view_image again if re-inspection is needed]`。前端 UI 流中的历史轨迹显示不受影响。用户附件像素也替换为其已查看占位说明，文本附件保留；关闭图片开关时连同热区像素一并剥离。附件直接发送不计工具视觉预算。
 
 ### 3.5 检索与校验的修订边界（R1–R4）
 

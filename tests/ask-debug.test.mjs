@@ -4,7 +4,7 @@ import { createCallLog, inspectCall } from "../src/ask/debug.ts";
 import { wireBody } from "../src/ask/provider.ts";
 import { openaiChatProfile, anthropicMessagesProfile } from "../src/gateway/profile.ts";
 
-const info = { turn: 1, step: 1, question: "检查合成图", connection: "test", protocol: "openai-chat", model: "m", promptVersion: "test" };
+const info = { conversation: "conversation-1", turn: 1, step: 1, question: "检查合成图", connection: "test", protocol: "openai-chat", model: "m", promptVersion: "test" };
 const request = { model: "m", tools: [{ name: "get_state", description: "状态", schema: {} }], system: ["系统\n提示词", "个人偏好"], maxTokens: 128,
   messages: [{ role: "user", content: [{ type: "text", text: "<workspace_state>{}</workspace_state>\n检查合成图" }] }] };
 

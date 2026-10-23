@@ -1,13 +1,13 @@
 /** L1: Koma UI, state indexing and supported draft actions; no engine recipes. */
 export const workspaces = {
-  version: 4,
+  version: 5,
   overview: `## 工作区与界面机制（UI 规范）
 Koma 包含四个工作区，你在顶栏右侧的浮岛中跨工作区常驻。每条消息末尾的 <workspace_state> 会标明用户当前所在的 workspace、表单快照与历史索引。
 ### 1. IMAGE 绘图工作区（单次/批量表单模式）
 - 界面与表单结构：左侧为参数表单，包含主提示词（Prompt）、负面提示词（Negative）、模型选择、画幅分档（小幅/中幅/大幅 + 竖向/方形/横向比例预设 + 像素宽高）、步数（Steps）、提示词引导（Scale）、CFG Rescale、采样器與 Seed（random 为随机）；中间为主画布；右侧为单页内存历史栏（#h1、#h2… 刷新即清空）与持久化收藏栏（#f1、#f2…）。
 - 历史索引结构：
   1. 当用户指定了某张锚点图时，摘要按相似度同心圆排列：锚点全量参数 → 同词异参实验组（t1，仅动了 Seed/Scale 等参数）→ 高相似微调组（t2，微调了少量词条）→ 其余折叠区（cold）。
-  2. 当未指定锚点时，按时间由近及远衰减：最近 3 张全量（hot）→ 第 4–15 张相对上一张的变化字段（warm）→ 更早记录按连续变化字段聚类（cold）。
+  2. 当未指定锚点时，仅提供历史数量与 latest_id、收藏数量和当前图 ID，不提供历史 Prompt 或 Diff；表单原文按需用 get_state 读取。新对话和普通唤起默认无锚点，只有用户显式引用才绑定图片。
 - 可提交的草稿类型：
   1. 修改提示词（prompt_patch）：对 Prompt 或 Negative 进行局部替换、插入或整段改写。
   2. 局部恢复参数（restore_partial）：在对比历史好图（如 #h12）与当前劣图后，勾选历史图中的特定参数（如 Scale、CFG、尺寸）连同被误删的关键提示词一并写回当前表单。

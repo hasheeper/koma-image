@@ -61,6 +61,7 @@ export function body(request: AskRequest): Wire {
           ),
         }
       : {}),
+    ...(request.toolChoice ? { tool_choice: { type: request.toolChoice } } : {}),
     ...(system.length ? { system: marked(system) } : {}),
     messages,
   };

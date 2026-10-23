@@ -48,12 +48,7 @@ export function historyIndex(items: readonly Labeled[], anchor: Labeled | null) 
   }
   return {
     mode: "B",
-    hot: items.slice(0, 3).map((item, i) => ({ id: item.label, ...metadata(item),
-      ...(items[i + 1] ? { prompt_diff: promptDiff(promptOf(items[i + 1]), promptOf(item)) } : {}),
-    })),
-    warm: items.slice(3, 15).map((item, i) => ({ id: item.label,
-      ...(items[i + 4] ? { compared_to: items[i + 4].label, changes: differences(items[i + 4], item) } : { ...metadata(item) }),
-    })),
-    cold: cluster(items.slice(15)),
+    count: items.length,
+    latest_id: items[0]?.label ?? null,
   };
 }

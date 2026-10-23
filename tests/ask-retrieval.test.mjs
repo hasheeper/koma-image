@@ -116,12 +116,15 @@ test('dictionary verifier: concurrent allSettled, partial failures, missing fiel
   const result=await promise,data=parse(result);
   assert.deepEqual(data.results.map(r=>r.status),['ok','no_match','error','ok']);
   assert.equal(result.error,undefined);assert.match(result.reason,/错误.*频繁/);
+  assert.match(data.note,/尚未核验，不代表词条不存在/);
+  assert.match(data.note,/基于已有知识继续/);
   assert.equal(data.results[3].matches[0].post_count,0,'shared default values are preserved');
   assert.equal(data.results[3].matches[0].category,0);
   assert.equal(result.content[0].text.match(/<\/data>/g).length,1);
   const failing=createTagSearch(()=>[0],async()=>new Response('',{status:503}));
   const failed=await entry.run({queries:['错误']},{tags:failing.suggest,signal:signal()});
   assert.equal(failed.error,true);assert.match(failed.reason,/503/);
+  assert.match(parse(failed).note,/不要因服务故障连续换近义词重查/);
   for(const input of [{queries:[]},{queries:['']},{queries:['x'.repeat(301)]},{queries:Array(6).fill('x')},{queries:[1]},{queries:['x'],limit_per_query:11},{queries:['x'],limit_per_query:1.5},{query:'old'}]) await assert.rejects(entry.run(input,{tags:tags.suggest,signal:signal()}));
 });
 

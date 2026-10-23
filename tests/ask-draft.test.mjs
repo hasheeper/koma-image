@@ -1,7 +1,9 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { DEFAULTS, rollbackDrawingEdit } from '../src/domain/drawing.ts';
-import { matchAnchor, parseDraft, stateHash, validateDraft, keptParts } from '../src/ask/draft/validate.ts';
+import { matchAnchor, parseDraft, stateHash, validateDraft } from '../src/ask/draft/validate.ts';
+import { diffTags, draftView, hunksOf, tagsOf } from '../src/ask/draft/view.ts';
+import { newConversation } from '../src/domain/conversation.ts';
 import { createDraftWriter } from '../src/ask/draft/apply.ts';
 import { createTools } from '../src/ask/tools.ts';
 import { createSession } from '../src/ask/session.ts';
@@ -32,6 +34,15 @@ test('draft parser: hash locks send snapshot, copies state and source; no mixed 
   assert.throws(() => draft(base, [{ kind: 'chat_distill_branch' }]), /分支草稿/);
   const reserved = plan(draft(base, [patch('rewrite', '', 'x', 'image.char.0.prompt')]));
   assert.equal(reserved.steps[0].issue, '目标不存在'); assert.deepEqual(reserved.changes, []);
+});
+test('draft title: declared draft_title maps to the card title and earlier title responses still parse', () => {
+  const base = state(), input = { base_hash: stateHash(base), steps: [patch('replace', 'red eyes', 'blue eyes')] };
+  const current = parseDraft({ ...input, draft_title: '  调整眼睛  ' }, base, []);
+  assert.equal(current.title, '调整眼睛');
+  assert.equal(plan(current).title, '调整眼睛');
+  assert.equal(parseDraft({ ...input, title: '旧格式标题' }, base, []).title, '旧格式标题');
+  for (const draft_title of ['', ' ', 42, 'x'.repeat(121)])
+    assert.throws(() => parseDraft({ ...input, draft_title }, base, []));
 });
 test('draft sequential patch, insertion/deletion and toggles recalculate anchors without overwriting unrelated tags', () => {
   const base = state(), d = draft(base, [patch('replace', 'red eyes', 'blue eyes'), patch('after', 'blue eyes', ', soft lighting'), patch('replace', ', nude', '')]);
@@ -66,10 +77,27 @@ test('draft text edits are content-neutral and stay pending for confirmation', (
   const restored = plan(draft(base, [restore(['prompt'])], library({prompt:'artist:c'})));
   assert.equal(restored.changes[0].after, 'artist:c');
 });
-test('draft rewrite keep spans: local, case insensitive and whole words, never model markup', () => {
-  const parts = keptParts('Blue eyes, nude, large_breasts', 'BLUE EYES, nude, large breasts, nudely <b>new</b>');
-  assert.deepEqual(parts.filter(p => p.kept).map(p => p.text), ['BLUE EYES', 'nude', 'large breasts']);
-  assert.equal(parts.map(p => p.text).join(''), 'BLUE EYES, nude, large breasts, nudely <b>new</b>');
+test('draft view: tag-level diff ignores case, underscores and spacing; hunks pair removals with additions', () => {
+  const pieces = diffTags(tagsOf('Blue eyes, nude, large_breasts, smile'), tagsOf('BLUE EYES, nude, large breasts, frown\n<b>new</b>'));
+  assert.deepEqual(pieces.map(p => p.op), ['keep', 'keep', 'keep', 'del', 'ins', 'ins']);
+  assert.deepEqual(pieces.filter(p => p.op === 'keep').map(p => p.text), ['BLUE EYES', 'nude', 'large breasts']);
+  assert.deepEqual(hunksOf(pieces), [[{ sign: 'del', text: 'smile' }, { sign: 'ins', text: 'frown, <b>new</b>' }]]);
+  const long = Array.from({ length: 600 }, (_, i) => `t${i}`);
+  const wide = diffTags(long, [...long.slice(0, 10), ...long.slice(10).reverse()]);
+  assert.equal(wide.filter(p => p.op === 'keep').length >= 10, true);
+  assert.equal(wide.filter(p => p.op !== 'del').map(p => p.text).join(), [...long.slice(0, 10), ...long.slice(10).reverse()].join());
+});
+test('draft view: fields in order, parameters last, stat counts enabled valid steps; full view follows enabled steps', () => {
+  const base = state(), d = draft(base, [patch('replace', 'red eyes', 'blue eyes'), patch('rewrite', '', 'bad, ugly', 'image.negative'), restore(['seed'])], library({ seed: 42 }));
+  const view = draftView(plan(d));
+  assert.deepEqual(view.fields.map(f => f.key), ['prompt', 'negative', 'params']);
+  assert.deepEqual(view.fields[0].steps[0].hunks, [[{ sign: 'del', text: 'red eyes' }, { sign: 'ins', text: 'blue eyes' }]]);
+  assert.deepEqual(view.fields[2].steps[0].kind === 'param' && [view.fields[2].steps[0].name, view.fields[2].steps[0].icon, view.fields[2].steps[0].after], ['Seed', 'i-dice', '42']);
+  assert.deepEqual([view.added, view.removed], [1 + 2 + 1, 1 + 0 + 1]);
+  assert.deepEqual(view.fields[0].full.filter(p => p.op !== 'keep'), [{ op: 'del', text: 'red eyes' }, { op: 'ins', text: 'blue eyes' }]);
+  const off = draftView(plan(d, base, ['0']));
+  assert.deepEqual([off.added, off.removed], [3, 1]);
+  assert.equal(off.fields[0].full, null);
 });
 test('draft restore: only snapshot metadata, shared clamps, zero seed and absent source fields; per-field conflicts/toggles', () => {
   const base = state(), source = library({ scale: 7.3, steps: 99, cfg: -1, seed: 0, width: 832 });
@@ -80,6 +108,9 @@ test('draft restore: only snapshot metadata, shared clamps, zero seed and absent
   assert.equal(p.steps.filter(s => s.issue === '来源没有此参数').length, 3);
   assert.equal(plan(d, state({ scale: 8 }), ['0:seed']).changes.some(c => ['scale','seed'].includes(c.field)), false);
   assert.match(plan(d, state({ scale: 8 })).steps[0].issue, /外部修改/);
+  const repeated = draft(base, [restore(['seed', 'seed'])], library({ seed: 0 }));
+  assert.deepEqual(repeated.steps[0].fields, ['seed']);
+  assert.equal(plan(repeated).changes.length, 1);
 });
 test('draft restore: invalid sizes/seeds/counts and coupled model/sampler/size cannot cause hidden normalization', () => {
   const base = state();
@@ -95,22 +126,22 @@ test('draft writer: confirmation targets one workspace, atomically refuses stale
   let current = state(), writes = 0;
   const router = { route: { value: { workspace:'chat',overlay:null } }, switchWorkspace(w) { this.route.value.workspace = w; } };
   const drawing = { snapshot:()=>current, async writeDraft(values,expected) { assert.equal(router.route.value.workspace,'image'); for(const [k,v] of Object.entries(expected)) assert.equal(current.form[k],v); current.form={...current.form,...values}; writes++; } };
-  const chat = { snapshot:()=>({current:{id:current.conversationId,prompt:current.composer}}), async writeDraft(text,id,expected) {assert.equal(id,current.conversationId);assert.equal(expected,current.composer);current.composer=text;writes++;} };
+  const chat = { snapshot:()=>({current:{...newConversation(),id:current.conversationId,prompt:current.composer}}), async writeDraft(text,id,expected) {assert.equal(id,current.conversationId);assert.equal(expected,current.composer);current.composer=text;writes++;} };
   const writer = createDraftWriter(drawing,chat,router), p = plan(draft(current,[patch('replace','red eyes','blue eyes')]));
   assert.equal(writes,0); await writer.apply(p); assert.equal(writer.canUndo(p),true);
   current.form.negative='user';await writer.undo(p); assert.equal(current.form.negative,'user'); assert.match(current.form.prompt,/red eyes/);
-  current.form.prompt='edited';await assert.rejects(writer.apply(p),/内容已变化/);assert.equal(writes,2);
+  current.form.prompt='edited';await assert.rejects(writer.apply(p),/Prompt 已变化/);assert.equal(writes,2);
   current=state();const c=plan(draft(current,[patch('rewrite','','new','chat.composer')]));
-  current.conversationId='c2';await assert.rejects(writer.apply(c),/内容已变化/);
+  current.conversationId='c2';await assert.rejects(writer.apply(c),/对话已切换/);
   current=state();router.route.value.overlay='settings';await assert.rejects(writer.apply(p),/关闭/);
   router.route.value.overlay=null;router.route.value.workspace='chat';router.switchWorkspace=()=>{};await assert.rejects(writer.apply(p),/未能切换/);
 });
 test('draft runner: real proposal is read-only and stops same-response tools and duplicate proposals; all IDs answered', async () => {
   const base=state(),tools=createTools(),session=createSession(),turn=session.begin({role:'user',content:[{type:'text',text:'修改眼睛'}]});
-  const input={base_hash:stateHash(base),title:'眼睛',steps:[patch('replace','red eyes','blue eyes')]};
+  const input={base_hash:stateHash(base),draft_title:'眼睛',steps:[patch('replace','red eyes','blue eyes')]};
   const signal=new AbortController().signal;let reads=0,requests=0;
   const events=[];
-  for await(const e of run({tools,turn,signal,context:{signal,draftBase:base,state:()=>{reads++;return {text:'',images:0};}},request:{model:'m',tools:[],system:['',''],maxTokens:1024},async *stream(){requests++;for(const [id,name,args] of [['a','propose_draft',input],['b','get_state',{}],['c','propose_draft',input]])yield {type:'call',call:{type:'call',id,name,input:args}};yield {type:'done',stop:'tool'};}}))events.push(e);
+  for await(const e of run({tools,turn,signal,context:{signal,draftBase:base,state:()=>{reads++;return {text:'',images:0};}},request:{model:'m',tools:[],system:['',''],maxTokens:1024},async *stream(){requests++;yield {type:'text',text:'已调整眼睛。'};for(const [id,name,args] of [['a','propose_draft',input],['b','get_state',{}],['c','propose_draft',input]])yield {type:'call',call:{type:'call',id,name,input:args}};yield {type:'done',stop:'tool'};}}))events.push(e);
   assert.equal(requests,1);assert.equal(reads,0);assert.equal(events.filter(e=>e.draft).length,1);assert.match(base.form.prompt,/red eyes/);
   const results=turn.messages().at(-1).content;assert.deepEqual(results.map(r=>r.id),['a','b','c']);assert.deepEqual(results.map(r=>!!r.error),[false,true,true]);
 });

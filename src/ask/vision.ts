@@ -49,7 +49,7 @@ async function encode(canvas: OffscreenCanvas): Promise<Rendered> {
 }
 /** Bounded page cache of derived pixels only. Object identity prevents stale results after restore. */
 export function createVision() {
-  const cache = new Map<string, Rendered>();
+  const cache = new Map<string, { value: Rendered; labels: readonly string[] }>();
   const blobs = new WeakMap<Blob, number>();
   let sequence = 0, disposed = false;
   function identity(picture: Picture) {
@@ -64,16 +64,16 @@ export function createVision() {
   }
   async function result(key: string, render: () => Promise<OffscreenCanvas>, context: VisionContext, labels: readonly string[], spec: string) {
     allowed(context);
-    let value = cache.get(key);
+    let value = cache.get(key)?.value;
     if (!value) {
       value = await encode(await render());
       allowed(context);
       // Oversize encodings are never retained or sent; no quiet quality reduction.
       if (value.bytes <= LIMITS.vision.bytes) {
-        cache.set(key, value);
+        cache.set(key, { value, labels });
         while (cache.size > 16) cache.delete(cache.keys().next().value!);
       }
-    } else { cache.delete(key); cache.set(key, value); }
+    } else { cache.delete(key); cache.set(key, { value, labels }); }
     chargeVision(context.budget, value.pixels, value.bytes);
     return {
       ...value,
@@ -110,6 +110,7 @@ export function createVision() {
         () => makeContactSheet(pictures.map((p) => ({ blob: p.blob, label: p.label })), spec === "glance" ? 384 : 768, context.signal),
         context, pictures.map((p) => p.label), "sheet");
     },
+    forget(id: string) { for (const [key, item] of cache) if (item.labels.includes(id)) cache.delete(key); },
     dispose() { disposed = true; cache.clear(); },
   };
 }

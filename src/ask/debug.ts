@@ -2,6 +2,8 @@ import { object } from "../domain/value.ts";
 import type { AskStop, AskUsage, CacheUsage } from "./messages.ts";
 
 export interface CallInfo {
+  /** The page conversation that made the call. */
+  readonly conversation: string;
   readonly turn: number;
   readonly step: number;
   readonly question: string;

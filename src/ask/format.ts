@@ -1,15 +1,53 @@
+import { Lexer, Tokenizer } from "marked";
+import type { MarkedToken, Token } from "marked";
+import { decodeHTMLStrict } from "entities";
 import { idPattern } from "./ids.ts";
 
+type Leaf = { readonly t: "text" | "id" | "code"; readonly v: string };
 export type Inline =
-  | { readonly t: "text"; readonly v: string }
-  | { readonly t: "id"; readonly v: string }
-  | { readonly t: "code"; readonly v: string }
-  | { readonly t: "strong"; readonly v: string };
+  | Leaf
+  | { readonly t: "strong" | "em" | "del"; readonly parts: readonly Inline[] }
+  | { readonly t: "a"; readonly href: string; readonly title?: string; readonly parts: readonly Inline[] }
+  | { readonly t: "br" }
+  | { readonly t: "check"; readonly checked: boolean };
 export type Block =
   | { readonly t: "p"; readonly parts: readonly Inline[] }
-  | { readonly t: "ul" | "ol"; readonly items: readonly (readonly Inline[])[] };
+  | { readonly t: "heading"; readonly depth: number; readonly parts: readonly Inline[] }
+  | { readonly t: "ul" | "ol"; readonly start: number; readonly loose: boolean; readonly items: readonly { readonly blocks: readonly Block[]; readonly task: boolean }[] }
+  | { readonly t: "blockquote"; readonly blocks: readonly Block[] }
+  | { readonly t: "pre"; readonly text: string; readonly language: string }
+  | { readonly t: "hr" }
+  | { readonly t: "table"; readonly header: readonly (readonly Inline[])[]; readonly rows: readonly (readonly (readonly Inline[])[])[]; readonly align: readonly ("left" | "center" | "right" | null)[] };
 
-function ids(text: string, out: Inline[]) {
+const quotePairs = new Map([["\"", "\""], ["“", "”"], ["「", "」"], ["『", "』"]]);
+class AskTokenizer extends Tokenizer {
+  override emStrong(src: string, maskedSrc: string, prevChar = ""): ReturnType<Tokenizer["emStrong"]> {
+    const standard = super.emStrong(src, maskedSrc, prevChar);
+    if (standard) return standard;
+    // Chinese-adjacent quotes and horizontal padding often appear in model
+    // replies. Relax only quoted **strong**, after the standard rule fails.
+    const opening = /^\*\*[ \t]*(["“「『])/.exec(src);
+    if (!opening) return;
+    const closingQuote = quotePairs.get(opening[1]);
+    const closing = /(["”」』])[ \t]*\*\*(?!\*)/g;
+    closing.lastIndex = opening[0].length;
+    // Marked masks code, escapes and link destinations before emphasis parsing.
+    // Use that same mask so a quoted delimiter inside them cannot end the span.
+    const masked = maskedSrc.slice(-src.length);
+    for (let match; (match = closing.exec(masked));) {
+      if (match[1] !== closingQuote) continue;
+      const raw = src.slice(0, match.index + match[0].length), text = raw.slice(2, -2);
+      return { type: "strong", raw, text, tokens: this.lexer.inlineTokens(text) };
+    }
+  }
+}
+
+// New lexer per message: reference definitions and streaming fragments cannot
+// leak between turns. Single newlines remain visible, as in the ASK composer.
+const options = () => ({ gfm: true, breaks: true, tokenizer: new AskTokenizer() });
+function ids(text: string, refs: boolean): Leaf[] {
+  if (!refs) return [{ t: "text", v: text }];
+  const out: Leaf[] = [];
   let at = 0;
   for (const match of text.matchAll(idPattern)) {
     if (match.index > at) out.push({ t: "text", v: text.slice(at, match.index) });
@@ -17,55 +55,86 @@ function ids(text: string, out: Inline[]) {
     at = match.index + match[0].length;
   }
   if (at < text.length) out.push({ t: "text", v: text.slice(at) });
+  return out;
 }
-/** `code`, **strong** and display IDs; everything else stays plain text. */
-export function inline(text: string): Inline[] {
+/** Links are opened only by a click; model-provided HTML and images never load. */
+function linkUrl(value: string): string | null {
+  try {
+    const url = new URL(value);
+    return ["https:", "http:", "mailto:"].includes(url.protocol) ? url.href : null;
+  } catch { return null; }
+}
+function inlineTokens(tokens: readonly Token[], refs = true): Inline[] {
   const out: Inline[] = [];
-  let at = 0;
-  for (const match of text.matchAll(/`([^`\n]+)`|\*\*([^*\n]+)\*\*/g)) {
-    ids(text.slice(at, match.index), out);
-    out.push(match[1] !== undefined ? { t: "code", v: match[1] } : { t: "strong", v: match[2] });
-    at = match.index + match[0].length;
+  for (const value of tokens) {
+    // This lexer has no extensions, so it emits only Marked's built-in tokens.
+    const token = value as MarkedToken;
+    switch (token.type) {
+      case "text":
+        out.push(...(token.tokens ? inlineTokens(token.tokens, refs) : ids(token.escaped ? token.text : decodeHTMLStrict(token.text), refs)));
+        break;
+      case "escape": case "html": out.push({ t: "text", v: token.text }); break;
+      case "codespan":
+        out.push({ t: refs && /^#(?:h\d+|f\d+|a\d+|c\d+\.\d+)$/.test(token.text) ? "id" : "code", v: token.text });
+        break;
+      case "strong": case "em": case "del": out.push({ t: token.type, parts: inlineTokens(token.tokens, refs) }); break;
+      case "br": out.push({ t: "br" }); break;
+      case "checkbox": out.push({ t: "check", checked: token.checked }); break;
+      case "link": case "image": {
+        const literal = token.type === "link" && token.autolink;
+        const href = linkUrl(literal ? token.href : decodeHTMLStrict(token.href));
+        const parts = token.type === "image"
+          ? [{ t: "text" as const, v: decodeHTMLStrict(token.text) || "图片" }]
+          : literal ? [{ t: "text" as const, v: token.text }] : inlineTokens(token.tokens, false);
+        out.push(...(href ? [{ t: "a" as const, href, ...(token.title ? { title: decodeHTMLStrict(token.title) } : {}), parts }] : parts));
+        break;
+      }
+      default: out.push({ t: "text", v: token.raw });
+    }
   }
-  ids(text.slice(at), out);
   return out;
 }
-const bullet = /^\s*[-*•]\s+/,
-  numbered = /^\s*\d+[.)、]\s+/;
+export const inline = (text: string): Inline[] => inlineTokens(Lexer.lexInline(text, options()));
 
-/**
- * A reply as paragraphs and lists, rendered by the template as text nodes:
- * model output never becomes HTML.
- */
-export function blocks(text: string): Block[] {
+function blockTokens(tokens: readonly Token[]): Block[] {
   const out: Block[] = [];
-  // Declared wide: flush() resets both from a closure.
-  let list = null as { t: "ul" | "ol"; items: Inline[][] } | null,
-    paragraph = null as Inline[] | null;
-  const flush = () => {
-    if (list) out.push(list);
-    if (paragraph) out.push({ t: "p", parts: paragraph });
-    list = paragraph = null;
-  };
-  for (const raw of text.split("\n")) {
-    const line = raw.replace(/^\s*#{1,6}\s+/, "");
-    if (!line.trim()) {
-      flush();
-      continue;
-    }
-    const kind = bullet.test(line) ? "ul" : numbered.test(line) ? "ol" : null;
-    if (kind) {
-      if (paragraph || list?.t !== kind) flush();
-      list ??= { t: kind, items: [] };
-      list.items.push(inline(line.replace(kind === "ul" ? bullet : numbered, "")));
-    } else if (paragraph) {
-      // A single line break stays inside its paragraph.
-      paragraph.push({ t: "text", v: "\n" }, ...inline(line));
-    } else {
-      flush();
-      paragraph = inline(line);
+  for (const value of tokens) {
+    const token = value as MarkedToken;
+    switch (token.type) {
+      case "space": case "def": break;
+      case "heading": out.push({ t: "heading", depth: token.depth, parts: inlineTokens(token.tokens) }); break;
+      case "paragraph": case "text": out.push({ t: "p", parts: token.tokens ? inlineTokens(token.tokens) : ids(decodeHTMLStrict(token.text), true) }); break;
+      case "checkbox": out.push({ t: "p", parts: [{ t: "check", checked: token.checked }] }); break;
+      case "list": out.push({ t: token.ordered ? "ol" : "ul", start: typeof token.start === "number" ? token.start : 1, loose: token.loose, items: token.items.map(item => ({ blocks: blockTokens(item.tokens), task: item.task })) }); break;
+      case "blockquote": out.push({ t: "blockquote", blocks: blockTokens(token.tokens) }); break;
+      case "code": out.push({ t: "pre", text: token.text, language: token.lang?.trim().split(/\s+/)[0] ?? "" }); break;
+      case "hr": out.push({ t: "hr" }); break;
+      case "table": out.push({ t: "table", header: token.header.map(cell => inlineTokens(cell.tokens)), rows: token.rows.map(row => row.map(cell => inlineTokens(cell.tokens))), align: token.align }); break;
+      // Raw HTML is visible text, not a DOM subtree or a resource request.
+      default: out.push({ t: "p", parts: [{ t: "text", v: token.raw }] });
     }
   }
-  flush();
   return out;
+}
+export const blocks = (text: string): Block[] => blockTokens(Lexer.lex(text, options()));
+
+function leaves(parts: readonly Inline[]): Leaf[] {
+  return parts.flatMap(part => "v" in part ? [part]
+    : "parts" in part ? leaves(part.parts)
+      : [{ t: "text", v: part.t === "br" ? " " : part.checked ? "☑ " : "☐ " }]);
+}
+/** Compact result cards use the same parse tree, flattened without controls. */
+export function summary(text: string): Leaf[] {
+  function first(nodes: readonly Block[]): Leaf[] {
+    for (const node of nodes) {
+      const result = "parts" in node ? leaves(node.parts)
+        : node.t === "blockquote" ? first(node.blocks)
+          : node.t === "ul" || node.t === "ol" ? first(node.items[0]?.blocks ?? [])
+            : node.t === "pre" ? [{ t: "code" as const, v: node.text }]
+              : node.t === "table" ? node.header.flatMap((cell, i) => [...(i ? [{ t: "text" as const, v: " · " }] : []), ...leaves(cell)]) : [];
+      if (result.length) return result;
+    }
+    return [];
+  }
+  return first(blocks(text));
 }
