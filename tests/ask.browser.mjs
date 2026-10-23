@@ -497,7 +497,7 @@ test("ASK settings: free creation off by default, empty vocabulary and replaceme
     await page.locator("#askPreference").fill("先说结论");
     await page.locator("#askPreference").blur();
     await page.waitForFunction(() => JSON.parse(localStorage.getItem("koma.ask.v1"))?.preference === "先说结论");
-    assert.deepEqual(await stored(page, "koma.ask.v1"), { version: 1, connectionId: "claude", model: "reasoning-a", models: { claude: ["reasoning-a", "Manual Model (Thinking)"] }, images: false, preference: "先说结论", words: [], replacements: [], alwaysCodec: false });
+    assert.deepEqual(await stored(page, "koma.ask.v1"), { version: 1, connectionId: "claude", model: "reasoning-a", models: { claude: ["reasoning-a", "Manual Model (Thinking)"] }, images: false, textAttachments: { chars: 50_000, totalChars: 100_000 }, preference: "先说结论", words: [], replacements: [], alwaysCodec: false });
 
     await page.locator('label[for="askAdult"]').click();
     await page.waitForFunction(() => localStorage.getItem("koma.ask.adult.v1") === "true");
@@ -2851,6 +2851,62 @@ const scripted=(connection,name,input)=>connection==='chat'?openai(name?tool('a'
   {type:'content_block_start',index:0,content_block:name?{type:'tool_use',id:'a',name,input:{}}:{type:'text',text:'附件已核对。'}},
   ...(name?[{type:'content_block_delta',index:0,delta:{type:'input_json_delta',partial_json:JSON.stringify(input)}}]:[]),
   {type:'content_block_stop',index:0},{type:'message_delta',delta:{stop_reason:name?'tool_use':'end_turn'},usage:{output_tokens:10}},{type:'message_stop'});
+test('ASK text attachment settings: defaults, persistence, live limits, reset and four-width layout', async () => {
+  const { page, context, llm, calls, requests, errors } = await open('/#/image/settings/ask', { ask: askSettings() });
+  try {
+    await bind(page);
+    const section = page.getByRole('region', { name: '文本附件', exact: true });
+    const chars = page.locator('#askTextChars'), total = page.locator('#askTextTotalChars');
+    const set = async (field, value) => { await field.fill(String(value)); await field.press('Enter'); };
+    assert.equal(await chars.inputValue(), '50000'); assert.equal(await total.inputValue(), '100000');
+    await set(chars, 150000);
+    await page.waitForFunction(() => ask.settings.value.textAttachments.totalChars === 150000);
+    await section.getByRole('button', { name: '恢复默认' }).click();
+    await set(chars, 3000); await set(total, 5000);
+    await set(chars, 0); assert.equal(await chars.inputValue(), '3000');
+    await set(total, 2000); assert.equal(await total.inputValue(), '5000');
+    await page.reload(); await page.locator('#settingsPanel[open]').waitFor(); await bind(page);
+    assert.equal(await chars.inputValue(), '3000'); assert.equal(await total.inputValue(), '5000');
+    for (const width of [320, 390, 768, 1440]) {
+      await page.setViewportSize({ width, height: 900 });
+      await section.scrollIntoViewIfNeeded();
+      const fits = await section.evaluate(el => {
+        const r = el.getBoundingClientRect();
+        return el.scrollWidth <= el.clientWidth + 1 && [...el.querySelectorAll('input, button')].every(input => {
+          const b = input.getBoundingClientRect(); return b.left >= r.left && b.right <= r.right;
+        });
+      });
+      assert.equal(fits, true, `text settings fit ${width}px`);
+      assert.equal(await chars.evaluate(el => el.getBoundingClientRect().right - parseFloat(getComputedStyle(el).paddingRight) + 4 <= el.nextElementSibling.getBoundingClientRect().left), true, 'the count stays clear of the character suffix');
+      await page.screenshot({ path: `.local/ask/w5/text-settings-${width}.png` });
+    }
+    await page.keyboard.press('Escape'); await page.evaluate(() => ask.show());
+    await attachText(page, '字'.repeat(3001), '过长.md');
+    await page.getByText('过长.md 超过 3,000 字符', { exact: true }).waitFor();
+    assert.equal(await page.evaluate(() => ask.tray.value.length), 0);
+    await attachText(page, '字'.repeat(3000));
+    await page.evaluate(() => ask.addPastedText('文'.repeat(2000)));
+    assert.equal(await page.evaluate(() => ask.tray.value.length), 2);
+    await page.evaluate(() => ask.addPastedText('多'));
+    await page.getByText('每条文本附件合计最多 5,000 字符', { exact: true }).waitFor();
+    assert.equal(await page.evaluate(() => ask.tray.value.length), 2);
+    await page.evaluate(() => ask.openSettings()); await page.locator('#settingsPanel[open]').waitFor();
+    await set(chars, 2000); await set(total, 4000);
+    assert.deepEqual(await page.evaluate(() => ask.tray.value.map(a => ask.attachmentText(a.id).length)), [3000, 2000], 'lowering limits preserves existing attachments');
+    await section.getByRole('button', { name: '恢复默认' }).click();
+    assert.equal(await chars.inputValue(), '50000'); assert.equal(await total.inputValue(), '100000');
+    await page.keyboard.press('Escape');
+    await page.evaluate(() => { for (const a of ask.tray.value) ask.removeAttachment(a.id); });
+    await attachText(page, '新'.repeat(50000), '长文.md');
+    await attachText(page, '超'.repeat(50001), '超长.md');
+    await page.getByText('超长.md 超过 50,000 字符', { exact: true }).waitFor();
+    llm.push({ body: scripted('chat', null) });
+    await drawer(page).getByRole('button', { name: '发送', exact: true }).click();
+    await page.locator('.ask-turn[data-status="done"]').waitFor();
+    assert.ok(calls.at(-1).raw.includes('新'.repeat(50000)), 'accepted text reaches the model without truncation');
+    assert.deepEqual(generation(requests), []); assert.deepEqual(errors, []);
+  } finally { await context.close(); }
+});
 for(const connection of ['chat','claude']) test(`ASK W5: ${connection} attachments reach the wire, compress, crop directly and stay out of history search`,async()=>{
   const {page,context,llm,calls,requests,errors}=await open('/#/image',{ready:'.switcher',ask:askSettings({connectionId:connection})});
   try {

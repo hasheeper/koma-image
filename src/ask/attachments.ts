@@ -4,8 +4,10 @@ import { dataBlock, dataText } from "./prompts/index.ts";
 import type { AskBlock, AskImage } from "./messages.ts";
 import type { Picture } from "./library.ts";
 import { fitSize } from "./vision.ts";
+import { DEFAULT_TEXT_ATTACHMENT_LIMITS } from "./settings.ts";
+import type { TextAttachmentLimits } from "./settings.ts";
 
-export const ATTACHMENT_LIMITS = Object.freeze({ images: 4, texts: 4, chars: 20_000, totalChars: 40_000, paste: 2000, bytes: 20 * 1024 ** 2, pageBytes: 200 * 1024 ** 2, pixels: 40_000_000, edge: 1568, sentBytes: 1024 ** 2 });
+export const ATTACHMENT_LIMITS = Object.freeze({ images: 4, texts: 4, paste: 2000, bytes: 20 * 1024 ** 2, pageBytes: 200 * 1024 ** 2, pixels: 40_000_000, edge: 1568, sentBytes: 1024 ** 2 });
 export const attachmentAccept = "image/png,image/jpeg,image/webp,image/gif,image/avif,image/bmp,image/heic,image/heif,.txt,.md,.markdown,.json,.csv,.tsv,.yaml,.yml,.log";
 const textExtensions = /\.(?:txt|md|markdown|json|csv|tsv|ya?ml|log)$/i;
 const extension = (name: string) => name.match(/\.([a-z0-9]+)$/i)?.[1].toUpperCase() ?? "";
@@ -32,18 +34,20 @@ export const attachmentView = (a: Attachment): AttachmentView => ({
     : { pasted: a.pasted, meta: `${a.pasted ? "" : `${extension(a.name) || "文本"} · `}${charLabel(a.text.length)}` }),
 });
 
-export function decodeText(bytes: ArrayBuffer, name: string) {
+const textLimitMessage = (name: string, limit: number) => `${name} 超过 ${limit.toLocaleString("zh-CN")} 字符`;
+export function decodeText(bytes: ArrayBuffer, name: string, limits: Readonly<TextAttachmentLimits> = DEFAULT_TEXT_ATTACHMENT_LIMITS) {
   let text: string;
   try { text = new TextDecoder("utf-8", { fatal: true }).decode(bytes); } catch { throw new Error(`无法读取 ${name}`); }
   if (text.includes("\0")) throw new Error(`无法读取 ${name}`);
-  if (text.length > ATTACHMENT_LIMITS.chars) throw new Error(`${name} 超过 2 万字`);
+  if (text.length > limits.chars) throw new Error(textLimitMessage(name, limits.chars));
   return text;
 }
-export function attachmentCapacity(existing: readonly Attachment[], kind: Attachment["kind"], chars = 0) {
+export function attachmentCapacity(existing: readonly Attachment[], kind: Attachment["kind"], chars = 0, limits: Readonly<TextAttachmentLimits> = DEFAULT_TEXT_ATTACHMENT_LIMITS) {
   if (existing.filter(a => a.kind === kind).length >= (kind === "image" ? ATTACHMENT_LIMITS.images : ATTACHMENT_LIMITS.texts))
     throw new Error(kind === "image" ? "每条最多 4 张图片" : "每条最多 4 个文本附件");
-  if (kind === "text" && existing.reduce((n, a) => n + (a.kind === "text" ? a.text.length : 0), chars) > ATTACHMENT_LIMITS.totalChars)
-    throw new Error("每条文本附件合计最多 4 万字");
+  if (kind === "text" && chars > limits.chars) throw new Error(textLimitMessage("文本附件", limits.chars));
+  if (kind === "text" && existing.reduce((n, a) => n + (a.kind === "text" ? a.text.length : 0), chars) > limits.totalChars)
+    throw new Error(`每条文本附件合计最多 ${limits.totalChars.toLocaleString("zh-CN")} 字符`);
 }
 export function sendOriginal(mime: string, size: Size, bytes: number) {
   return ["image/png", "image/jpeg", "image/webp"].includes(mime) && Math.max(size.width, size.height) <= ATTACHMENT_LIMITS.edge && bytes <= ATTACHMENT_LIMITS.sentBytes;
@@ -55,14 +59,14 @@ async function base64(blob: Blob) {
   return btoa(binary);
 }
 /** Decode first; a misleading filename or MIME never turns a non-image into an image. */
-export async function prepareAttachment(file: File, pasted = false): Promise<Omit<TextAttachment, "id"> | Omit<ImageAttachment, "id" | "url">> {
+export async function prepareAttachment(file: File, pasted = false, limits: Readonly<TextAttachmentLimits> = DEFAULT_TEXT_ATTACHMENT_LIMITS): Promise<Omit<TextAttachment, "id"> | Omit<ImageAttachment, "id" | "url">> {
   const name = file.name || "图片", ext = extension(name), prefix = new Uint8Array(await file.slice(0, 1024).arrayBuffer());
   if (ext === "SVG" || file.type === "image/svg+xml") throw new Error("不支持 SVG");
   const text = pasted || textExtensions.test(name) || file.type.startsWith("text/");
   if (text) {
-    // A valid 20k-character UTF-8 file cannot need more than 80k bytes (+ BOM).
-    if (file.size > ATTACHMENT_LIMITS.chars * 4 + 3) throw new Error(`${name} 超过 2 万字`);
-    return { kind: "text", name, mime: file.type, bytes: file.size, pasted, text: decodeText(await file.arrayBuffer(), name) };
+    // Reject oversized UTF-8 files before reading them; allow four bytes per character and a BOM.
+    if (file.size > limits.chars * 4 + 3) throw new Error(textLimitMessage(name, limits.chars));
+    return { kind: "text", name, mime: file.type, bytes: file.size, pasted, text: decodeText(await file.arrayBuffer(), name, limits) };
   }
   if (/<svg(?=[\s/>])/i.test(new TextDecoder().decode(prefix))) throw new Error("不支持 SVG");
   if (file.size > ATTACHMENT_LIMITS.bytes) throw new Error(`${name} 超过 20 MB`);

@@ -2,6 +2,15 @@ import { object } from "../domain/value.ts";
 import { checkReplacement, checkWord } from "./codec.ts";
 import type { Replacement } from "./codec.ts";
 
+export interface TextAttachmentLimits { chars: number; totalChars: number }
+export const DEFAULT_TEXT_ATTACHMENT_LIMITS: Readonly<TextAttachmentLimits> = Object.freeze({ chars: 50_000, totalChars: 100_000 });
+export function readTextAttachmentLimits(value: unknown): TextAttachmentLimits {
+  const v = object(value);
+  const positive = (value: unknown, fallback: number) => typeof value === "number" && Number.isSafeInteger(value) && value > 0 ? value : fallback;
+  const chars = positive(v.chars, DEFAULT_TEXT_ATTACHMENT_LIMITS.chars);
+  return { chars, totalChars: Math.max(chars, positive(v.totalChars, DEFAULT_TEXT_ATTACHMENT_LIMITS.totalChars)) };
+}
+
 /** Stored under koma.ask.v1 and carried by backups; the adult flag lives apart. */
 export interface AskSettings {
   version: 1;
@@ -13,6 +22,7 @@ export interface AskSettings {
   /** IDs picked per reasoning connection, in the order picked; the composer switches among them. */
   models: Record<string, string[]>;
   images: boolean;
+  textAttachments: TextAttachmentLimits;
   preference: string;
   words: string[];
   replacements: Replacement[];
@@ -27,6 +37,7 @@ export const defaultAskSettings = (): AskSettings => ({
   model: "",
   models: {},
   images: true,
+  textAttachments: { ...DEFAULT_TEXT_ATTACHMENT_LIMITS },
   preference: "",
   words: [],
   replacements: [],
@@ -73,6 +84,7 @@ export function readAskSettings(value: unknown): AskSettings {
     if (ids.length) out.models[id] = ids;
   }
   if (typeof v.images === "boolean") out.images = v.images;
+  out.textAttachments = readTextAttachmentLimits(v.textAttachments);
   if (typeof v.preference === "string")
     out.preference = v.preference.slice(0, PREFERENCE_LIMIT);
   if (Array.isArray(v.words))

@@ -9,6 +9,7 @@ import { createTools } from '../src/ask/tools.ts';
 import { idPattern } from '../src/ask/ids.ts';
 import { parseDraft, stateHash } from '../src/ask/draft/validate.ts';
 import { DEFAULTS } from '../src/domain/drawing.ts';
+import { DEFAULT_TEXT_ATTACHMENT_LIMITS, readAskSettings } from '../src/ask/settings.ts';
 
 const txt = (text = '角色设定', name = '角色.md') => ({ kind: 'text', name, text, bytes: new Blob([text]).size, mime: 'text/plain', pasted: false });
 const pic = (over = {}) => ({ kind: 'image', name: '参考.png', bytes: 20, mime: 'image/png', blob: new Blob(['synthetic']), size: {width: 200, height: 300}, sentSize: {width: 200, height: 300}, sentBytes: 20, params: null, sent: {type: 'image', mime: 'image/png', data: 'AAAA', size: {width: 200, height: 300}}, ...over });
@@ -18,8 +19,8 @@ test('attachments: strict UTF-8, NUL, char limit, SVG rejection and text contain
   assert.equal(decodeText(new TextEncoder().encode('\ufeff中文').buffer,'x'), '中文');
   assert.throws(() => decodeText(new Uint8Array([255]).buffer,'x'), /无法读取/);
   assert.throws(() => decodeText(new Uint8Array([65,0]).buffer,'x'), /无法读取/);
-  assert.equal((await prepareAttachment(new File(['字'.repeat(20_000)],'x.md'))).text.length,20_000);
-  await assert.rejects(prepareAttachment(new File(['a'.repeat(20_001)],'x.md')), /2 万字/);
+  assert.equal((await prepareAttachment(new File(['字'.repeat(50_000)],'x.md'))).text.length,50_000);
+  await assert.rejects(prepareAttachment(new File(['a'.repeat(50_001)],'x.md')), /50,000 字符/);
   await assert.rejects(prepareAttachment(new File(['<svg/>'],'x.svg')), /不支持 SVG/);
   await assert.rejects(prepareAttachment(new File(['<svg xmlns="x">'],'x.png')), /不支持 SVG/);
   await assert.rejects(prepareAttachment(new File(['<svg/>'],'x.png')), /不支持 SVG/);
@@ -27,8 +28,8 @@ test('attachments: strict UTF-8, NUL, char limit, SVG rejection and text contain
   assert.equal((await prepareAttachment(new File(['粘贴'],'粘贴的文本'),true)).pasted,true);
 });
 test('attachments: per-turn counts, total text, original encoding thresholds and page bytes', () => {
-  assert.doesNotThrow(() => attachmentCapacity([txt('a'.repeat(20_000))], 'text',20_000));
-  assert.throws(() => attachmentCapacity([txt('a'.repeat(20_000))], 'text',20_001), /合计/);
+  assert.doesNotThrow(() => attachmentCapacity([txt('a'.repeat(50_000))], 'text',50_000));
+  assert.throws(() => attachmentCapacity([txt('a'.repeat(50_000)), txt('a'.repeat(30_000))], 'text',20_001), /合计/);
   for (const [kind,item] of [['text',txt()],['image',pic()]]) {
     assert.doesNotThrow(() => attachmentCapacity(Array(3).fill(item),kind));
     assert.throws(() => attachmentCapacity(Array(4).fill(item),kind), /最多 4/);
@@ -43,6 +44,24 @@ test('attachments: per-turn counts, total text, original encoding thresholds and
   const full = store.add({...txt(),bytes:limits.pageBytes});
   assert.throws(() => store.add(txt()), /200 MB/);
   store.release([full.id]); assert.equal(store.bytes,0); store.dispose();
+});
+test('attachments: custom text limits apply to decoded characters, pasted text and total capacity', async () => {
+  const custom = { chars: 3000, totalChars: 5000 };
+  const text = '中'.repeat(custom.chars);
+  assert.equal((await prepareAttachment(new File([text], 'x.md'), false, custom)).text, text);
+  assert.equal((await prepareAttachment(new File([text], '粘贴的文本'), true, custom)).text, text);
+  await assert.rejects(prepareAttachment(new File([`${text}字`], 'x.md'), false, custom), /3,000 字符/);
+  await assert.rejects(prepareAttachment(new File(['a'.repeat(12_004)], 'x.md'), false, custom), /3,000 字符/);
+  assert.doesNotThrow(() => attachmentCapacity([txt(text)], 'text', 2000, custom));
+  assert.throws(() => attachmentCapacity([txt(text)], 'text', 2001, custom), /合计最多 5,000 字符/);
+  assert.throws(() => attachmentCapacity([], 'text', 3001, custom), /3,000 字符/);
+});
+test('attachments: absent or invalid settings use defaults; custom limits survive serialization', () => {
+  for (const value of [undefined, null, {}, { chars: 0, totalChars: -1 }, { chars: '500', totalChars: Infinity }, { chars: 1.5, totalChars: Number.MAX_SAFE_INTEGER + 1 }])
+    assert.deepEqual(readAskSettings({ textAttachments: value }).textAttachments, DEFAULT_TEXT_ATTACHMENT_LIMITS);
+  const settings = readAskSettings({ textAttachments: { chars: 80_000, totalChars: 160_000 } });
+  assert.deepEqual(readAskSettings(JSON.parse(JSON.stringify(settings))).textAttachments, { chars: 80_000, totalChars: 160_000 });
+  assert.deepEqual(readAskSettings({ textAttachments: { chars: 120_000, totalChars: 50_000 } }).textAttachments, { chars: 120_000, totalChars: 120_000 });
 });
 test('attachments: shared turn references release URL exactly once and never reuse IDs', t => {
   const revoked=[], released=[];

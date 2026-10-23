@@ -234,9 +234,9 @@ export function createAsk(deps: {
         if (disposed || !conversations.get(owner.id)) break;
         try {
           if ([...scopes.values()].reduce((sum, c) => sum + c.attachments.bytes, file.size) > ATTACHMENT_LIMITS.pageBytes) throw new Error("本页附件已超过 200 MB");
-          const prepared = await prepareAttachment(file, pasted);
+          const prepared = await prepareAttachment(file, pasted, settings.value.textAttachments);
           if (disposed || !conversations.get(owner.id)) break;
-          attachmentCapacity(attachments.read(owner.tray), prepared.kind, prepared.kind === "text" ? prepared.text.length : 0);
+          attachmentCapacity(attachments.read(owner.tray), prepared.kind, prepared.kind === "text" ? prepared.text.length : 0, settings.value.textAttachments);
           const item = attachments.add(prepared);
           setTray([...owner.tray, item.id], owner);
         } catch (error) {

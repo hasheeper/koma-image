@@ -12,10 +12,11 @@ import { checkReplacement, checkWord, replacementLimits, wordLimits } from "../.
 import type { Replacement } from "../../ask/codec.ts";
 import {
   PREFERENCE_LIMIT,
+  DEFAULT_TEXT_ATTACHMENT_LIMITS,
   readAskSettings,
   withConnection,
 } from "../../ask/settings.ts";
-import type { AskSettings } from "../../ask/settings.ts";
+import type { AskSettings, TextAttachmentLimits } from "../../ask/settings.ts";
 
 const props = defineProps<{ routing: Routing }>();
 const emit = defineEmits<{ models: [connectionId: string, purpose?: "ask" | "naming"] }>();
@@ -63,6 +64,20 @@ async function save(patch: Partial<AskSettings>) {
 }
 function checked(event: Event) {
   return (event.target as HTMLInputElement).checked;
+}
+async function setTextLimit(key: keyof TextAttachmentLimits, event: Event) {
+  const input = event.target as HTMLInputElement, value = input.valueAsNumber;
+  const limits = { ...settings.value.textAttachments };
+  const invalid = !Number.isSafeInteger(value) || value <= 0;
+  if (invalid || key === "totalChars" && value < limits.chars) {
+    input.value = String(limits[key]);
+    ui.toast(invalid ? "字符上限须为正整数" : "每轮合计不能小于单个上限", "warn");
+    return;
+  }
+  limits[key] = value;
+  limits.totalChars = Math.max(limits.chars, limits.totalChars);
+  await save({ textAttachments: limits });
+  input.value = String(settings.value.textAttachments[key]);
 }
 async function setAdult(event: Event) {
   try {
@@ -221,6 +236,32 @@ async function removeReplacement(rule: Replacement) {
           </div>
         </div>
       </section>
+      <section class="sp-sec" aria-label="文本附件">
+        <div class="sp-sec-head ask-text-head">
+          <h3>文本附件</h3>
+          <button class="btn btn-quiet btn-xs" type="button" :disabled="settings.textAttachments.chars === DEFAULT_TEXT_ATTACHMENT_LIMITS.chars && settings.textAttachments.totalChars === DEFAULT_TEXT_ATTACHMENT_LIMITS.totalChars" @click="save({ textAttachments: { ...DEFAULT_TEXT_ATTACHMENT_LIMITS } })">恢复默认</button>
+        </div>
+        <div class="sp-group">
+          <div class="s-row">
+            <b><label for="askTextChars">单个上限</label></b>
+            <div class="s-ctl">
+              <div class="fld-inline ask-text-limit">
+                <input id="askTextChars" type="number" min="1" step="1" inputmode="numeric" :value="settings.textAttachments.chars" @change="setTextLimit('chars', $event)" @keydown.enter.prevent="($event.target as HTMLInputElement).blur()" />
+                <span>字符</span>
+              </div>
+            </div>
+          </div>
+          <div class="s-row">
+            <b><label for="askTextTotalChars">每轮合计上限</label></b>
+            <div class="s-ctl">
+              <div class="fld-inline ask-text-limit">
+                <input id="askTextTotalChars" type="number" :min="settings.textAttachments.chars" step="1" inputmode="numeric" :value="settings.textAttachments.totalChars" @change="setTextLimit('totalChars', $event)" @keydown.enter.prevent="($event.target as HTMLInputElement).blur()" />
+                <span>字符</span>
+              </div>
+            </div>
+          </div>
+        </div>
+      </section>
       <section class="sp-sec" aria-label="个人偏好">
         <div class="sp-sec-head"><h3>个人偏好</h3></div>
         <div class="sp-group">
@@ -351,6 +392,9 @@ async function removeReplacement(rule: Replacement) {
 /* Shared settings rows; vocabulary and replacement editors belong to ASK. */
 .ask-sections { display: grid; gap: var(--sp-6); }
 .ask-sections textarea { min-height: 76px; font-size: var(--fz-sm); }
+.ask-text-head { display: flex; align-items: baseline; justify-content: space-between; }
+.ask-text-limit { width: 140px; }
+.ask-text-limit input { height: 32px; padding-right: 44px; text-align: right; }
 .ask-chips { display: flex; flex-wrap: wrap; gap: 6px; margin: 0; padding: 0; list-style: none; }
 .ask-chips li {
   display: inline-flex; align-items: center; gap: 2px; height: 24px; padding: 0 9px;
