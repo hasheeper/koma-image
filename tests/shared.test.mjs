@@ -494,3 +494,37 @@ test("connection diagnostic: a connection changed during the request reports the
     /改变/,
   );
 });
+
+test('tags: fallback failures distinguish an empty primary index from two unavailable sources', async()=>{
+  const empty=createTagSearch(()=>[0],async url=>{
+    if(url.hostname==='danbooru.donmai.us')throw new TypeError('Failed to fetch');
+    return new Response(JSON.stringify({results:[]}));
+  });
+  await assert.rejects(empty.suggest('hair buns'),/中英词典未命中.*Danbooru.*暂时不可用/);
+  const down=createTagSearch(()=>[0],async url=>{
+    if(url.hostname==='danbooru.donmai.us')return new Response('',{status:503});
+    throw new DOMException('timed out','TimeoutError');
+  });
+  await assert.rejects(down.suggest('two buns'),/中英词典.*超时.*Danbooru.*503/);
+});
+
+test('tags: body timeouts, cancellation and network errors keep their cause instead of becoming malformed JSON',async t=>{
+  const timeout=new AbortController();
+  t.mock.method(AbortSignal,'timeout',ms=>{assert.equal(ms,8000);return timeout.signal;});
+  const fetcher=async(_url,options)=>new Response(new ReadableStream({start(c){
+    options.signal.addEventListener('abort',()=>c.error(options.signal.reason),{once:true});
+    queueMicrotask(()=>timeout.abort(new DOMException('timed out','TimeoutError')));
+  }}));
+  await assert.rejects(createTagSearch(()=>[0],fetcher).suggest('蓝发'),/Tag 查询超时/);
+  t.mock.restoreAll();
+  const cancel=new AbortController();
+  const waiting=createTagSearch(()=>[0],async(_url,options)=>new Response(new ReadableStream({start(c){
+    options.signal.addEventListener('abort',()=>c.error(options.signal.reason),{once:true});
+    queueMicrotask(()=>cancel.abort(new DOMException('已停止','AbortError')));
+  }})));
+  await assert.rejects(waiting.suggest('蓝发',{signal:cancel.signal}),{name:'AbortError'});
+  const disconnected=createTagSearch(()=>[0],async()=>new Response(new ReadableStream({start(c){c.error(new TypeError('connection reset'));}})));
+  await assert.rejects(disconnected.suggest('蓝发'),/Tag 服务暂时不可用/);
+  const malformed=createTagSearch(()=>[0],async()=>new Response('{broken'));
+  await assert.rejects(malformed.suggest('蓝发'),/Tag 词典返回格式异常/);
+});

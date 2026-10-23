@@ -31,12 +31,14 @@ export function createTagSearch(
       credentials: "omit" as const,
       referrerPolicy: "no-referrer" as const,
     };
+    let response: Response;
     try {
-      return await fetcher(url, options);
+      response = await fetcher(url, options);
     } catch (error) {
       if (options.signal.aborted || !(error instanceof TypeError)) throw error;
-      return fetcher(url, options);
+      response = await fetcher(url, options);
     }
+    return { response, signal: options.signal };
   }
   async function search(
     query: string,
@@ -67,7 +69,8 @@ export function createTagSearch(
         return structuredClone(stored.slice(offset, offset + limit));
       }
     }
-    const response = await get(url, signal);
+    const { response, signal: requestSignal } = await get(url, signal);
+    requestSignal.throwIfAborted();
     if (response.status === 429)
       throw new Error(
         official
@@ -78,8 +81,15 @@ export function createTagSearch(
       throw new Error(
         `${official ? "Danbooru" : "中文 Tag 词典"}暂不可用 (${response.status})`,
       );
-    const data: unknown = await response.json().catch(() => null),
-      rows = official ? data : object(data).results;
+    let data: unknown;
+    try { data = await response.json(); }
+    catch (error) {
+      requestSignal.throwIfAborted();
+      if (!(error instanceof SyntaxError)) throw error;
+      throw new Error("Tag 词典返回格式异常，请稍后再试");
+    }
+    requestSignal.throwIfAborted();
+    const rows = official ? data : object(data).results;
     if (!Array.isArray(rows)) throw new Error("Tag 词典返回格式异常，请稍后再试");
     signal?.throwIfAborted();
     const items = rows
@@ -106,6 +116,13 @@ export function createTagSearch(
       : error instanceof DOMException && error.name === "TimeoutError"
         ? new Error("Tag 查询超时，请稍后再试")
         : error;
+  const fallbackFailure = (primary: unknown, secondary: unknown) => {
+    const detail = (error: unknown) => {
+      const value = friendly(error);
+      return value instanceof Error ? value.message : "查询失败";
+    };
+    return new Error(`中英词典${primary === undefined ? "未命中" : `：${detail(primary)}`}；Danbooru：${detail(secondary)}`);
+  };
   function ids(options: Options) {
     return (
       options.categories?.length ? options.categories : categories()
@@ -157,7 +174,7 @@ export function createTagSearch(
         );
       } catch (error) {
         if (options.signal?.aborted) throw error;
-        throw friendly(primary || error);
+        throw fallbackFailure(primary, error);
       }
     },
     async page(query: string, options: Options = {}) {
@@ -203,7 +220,7 @@ export function createTagSearch(
         };
       } catch (error) {
         if (options.signal?.aborted) throw error;
-        throw friendly(primary || error);
+        throw fallbackFailure(primary, error);
       }
     },
   };
