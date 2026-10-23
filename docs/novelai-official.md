@@ -1,6 +1,6 @@
 # P3：NovelAI 官方连接
 
-更新于 2026-10-21。NovelAI 官方 API 作为独立 Gateway Profile 适配，用户添加连接和 Key，地址固定为官方地址。其他兼容服务由用户选择其实际提供的公开协议，不按渠道名称或域名判断。跨协议实现见[原生图像协议](native-image-protocols.md)。
+更新于 2026-10-23。NovelAI 官方 API 作为独立 Gateway Profile 适配，用户添加连接和 Key，地址固定为官方地址。其他兼容服务由用户选择其实际提供的公开协议，不按渠道名称或域名判断。跨协议实现见[原生图像协议](native-image-protocols.md)。多角色能力已完成[资料与代码勘探](novelai-multi-character.md)，角色 A、画板胶囊 A、官方与标准网关映射及 ASK 配合已完成本地模拟验收，见[基础实施计划](multi-character-boards-plan.md)；真实生成效果仍待核验。
 
 ## 状态
 
@@ -25,7 +25,9 @@
 
 ## 文档依据与待核验
 
-已读取官方 Swagger 中的 `/user/subscription`、`/ai/generate-image`、Bearer 鉴权、ZIP 响应，以及 generate／img2img／infill 动作。该 Schema 模型枚举较旧，parameters 为不透明对象，未覆盖当前 V4.5／V5 细节，也未列出 `/ai/upscale`。因此不据此开放尚未核验的工具或宣称高级型号兼容。
+2026-10-21 读取的账户主机 Swagger 列出 `/user/subscription`、`/ai/generate-image`、Bearer 鉴权、ZIP 响应，以及 generate／img2img／infill 动作；当时该来源模型枚举较旧、parameters 为不透明对象，也未列出 `/ai/upscale`。
+
+2026-10-23 另行读取[图像主机 Schema](https://image.novelai.net/docs/doc.json)，已能看到 `image.RequestParameters`、多角色正负数组与坐标类型，以及 `/ai/upscale`。此前“Schema 未列出”的判断仅代表当时读取的来源，不代表当前官方 API 没有这些能力。新版字段与多角色产品说明见[多角色专题](novelai-multi-character.md)；本轮没有真实生成或放大，仍不据此开放尚未联调的工具或宣称具体型号接入成功。
 
 后续用实际账户逐项核验，真实生成前取得明确授权：
 
@@ -36,3 +38,6 @@
 5. 订阅优惠、V5 用量／回充及 Medium 档位。只有规则核实后才考虑“不限量”“占用量”“扣 Anlas”等标签；未知时仍显示费用未知。
 
 当前验证仅使用合成图片、模拟凭据与拦截响应。不能用这些结果替代真实供应商联调，也不把完整 P3 标记为完成。
+
+
+2026-10-23 多角色基础适配已接入：沿用 `v4_prompt` / `v4_negative_prompt`，正负角色按同序对应，自动定位关闭 `use_coords`；V4.5 提交时投影格中心，V5 保留自由坐标。基础生图与已开放 img2img 使用显式来源快照，模拟验收见[多角色与画板](multi-character-boards-plan.md#9-本轮落地记录2026-10-23)。这没有扩展官方重绘／放大，也不代表真实账户验证。

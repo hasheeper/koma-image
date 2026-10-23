@@ -31,7 +31,7 @@ export interface ToolContext {
   /** Set by「仅发元数据重试」: visual tools answer with an error this turn. */
   readonly metadataOnly: boolean;
   /** Full form text on demand; the initial snapshot is the draft base. */
-  readonly state: (scope: "initial" | "latest") => { readonly text: string; readonly images: number };
+  readonly state: (scope: "initial" | "latest", boardId?: string) => { readonly text: string; readonly images: number };
   readonly library?: readonly Picture[];
   readonly vision?: Vision;
   readonly visual?: VisionContext;
@@ -59,15 +59,16 @@ const getState: ToolEntry = {
   tool: {
     name: "get_state",
     description:
-      "按需读取表单原文。scope 默认 initial：本轮初始 Prompt/Negative 与草稿基底；仅需确认外部最新改动时用 latest。历史保持原索引，不扩张本轮可访问图片集合。",
-    schema: { type: "object", properties: { scope: { type: "string", enum: ["initial", "latest"] } }, additionalProperties: false },
+      "活动画板完整词文已随初始状态提供。按需读取其他画板（board_id）以对比；scope 默认 initial 为本轮冻结数据，仅确认外部最新改动用 latest。读取其他板不改变草稿基底。历史保持原索引，不扩张本轮可访问图片集合。",
+    schema: { type: "object", properties: { scope: { type: "string", enum: ["initial", "latest"] }, board_id: { type: "string" } }, additionalProperties: false },
   },
   verb: "读取",
   object: () => "工作台",
   run(input, context) {
     const scope = input.scope ?? "initial";
     if (scope !== "initial" && scope !== "latest") throw new Error("scope 需为 initial 或 latest");
-    const state = context.state(scope);
+    if (input.board_id !== undefined && (typeof input.board_id !== "string" || !input.board_id.trim())) throw new Error("board_id 无效");
+    const state = context.state(scope, input.board_id as string | undefined);
     return {
       content: [{ type: "text", text: state.text }],
       stat: `${state.images} 张历史`,
@@ -127,9 +128,9 @@ function visualContext(context: ToolContext) {
 }
 const specLabel = { glance: "概览", look: "细看", crop: "局部" } as const;
 const viewImage: ToolEntry = {
-  tool: { name: "view_image", description: "按需看图：glance 长边384px、look 768px。crop 前须看过同一 ID 的全图：本工具的 glance/look 或随提问发送的 #a 附件图片均可，view_sheet 拼图不计。百分比裁切区域自动四边扩25%。本工具累计预算4次/1.5MP/400KB；随提问发送的图片不占此预算。", schema: schema({
+  tool: { name: "view_image", description: "按需看图：glance 长边384px、look 768px。crop 前须看过同一 ID 的全图：本工具的 glance/look 或随提问发送的 #a 附件图片均可，view_sheet 拼图不计。百分比裁切区域自动四边扩25%。与 view_sheet 共享本轮视觉预算：合计最多4次/1.5MP/400KB；随提问发送的图片不占此预算。", schema: schema({
     id: idField, spec: { type: "string", enum: ["glance", "look", "crop"] },
-    region: { type: "array", items: { type: "number", minimum: 0, maximum: 100 }, minItems: 4, maxItems: 4 },
+    region: { type: "array", description: "仅 crop 必填，glance/look 不传。顺序为 [x, y, width, height]，单位为相对原图的百分比（0–100）；原图左上角为 (0,0)，宽高须大于0，x+width、y+height 均不得超过100。", items: { type: "number", minimum: 0, maximum: 100 }, minItems: 4, maxItems: 4 },
   }, ["id", "spec"]) },
   verb: "查看", object: (input) => String(input.id ?? "图片"),
   async run(input, context) {
@@ -147,7 +148,7 @@ const viewImage: ToolEntry = {
 };
 const viewSheet: ToolEntry = {
   // Gemini relays reject uniqueItems; vision.sheet checks distinct picture IDs.
-  tool: { name: "view_sheet", description: "本地拼合2–6张不同图片并标注ID，支持 #a 附件与工作区图片混合预览。整张拼图长边默认768px，glance为384px；计作1次视觉调用。拼图不计入单图查看；crop 的前置条件见 view_image。", schema: schema({ ids: { type: "array", items: idField, minItems: 2, maxItems: 6 }, spec: { type: "string", enum: ["glance", "look"] } }, ["ids"]) },
+  tool: { name: "view_sheet", description: "本地拼合2–6张不同图片并标注ID，支持 #a 附件与工作区图片混合预览。整张拼图长边默认768px，glance为384px；计作1次视觉调用，与 view_image 共享本轮次数、像素和字节预算。拼图不计入单图查看；crop 的前置条件见 view_image。", schema: schema({ ids: { type: "array", items: idField, minItems: 2, maxItems: 6 }, spec: { type: "string", enum: ["glance", "look"] } }, ["ids"]) },
   verb: "对比", object: (input) => Array.isArray(input.ids) ? input.ids.join(" ↔ ") : "拼图",
   async run(input, context) {
     const { vision, visual } = visualContext(context);

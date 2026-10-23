@@ -87,7 +87,7 @@ const summary = computed(() => {
   return first.length ? first : [{ t: "text" as const, v: ask.draftPlan.value ? "草稿已就绪，请核对后应用。" : "请展开查看详情。" }];
 });
 const dimensions = computed(() => ({
-  "--ask-width": `${mode.value === "idle" ? 40 : mode.value === "run" ? 304 : mode.value === "ready" ? 372 : mode.value === "done" ? 236 : expanded.value ? 760 : 420}px`,
+  "--ask-width": `${mode.value === "idle" ? 40 : mode.value === "run" ? 304 : mode.value === "ready" ? 372 : mode.value === "done" ? 172 : expanded.value ? 760 : 420}px`,
   "--ask-height": mode.value === "exp" ? expanded.value ? "calc(var(--ask-available-height, 100dvh) - 32px)" : "660px" : mode.value === "ready" ? "var(--ask-ready-height, 160px)" : "40px",
 }));
 function dismiss() {
@@ -138,7 +138,7 @@ watch([ask.visible, ask.inline], async ([visible]) => {
     else root.value?.querySelector<HTMLButtonElement>(".ask-layer:not([inert]) .ask-open, .ask-layer:not([inert]).ask-open")?.focus({ preventScroll: true });
   }
 }, { flush: "pre" });
-// A compact layer can disappear after ignore, stop, undo or the applied timeout.
+// A compact layer can disappear under focus: dismissal, ⌘Z or the applied timeout.
 watch(mode, async () => {
   const active = document.activeElement;
   await nextTick();
@@ -152,7 +152,7 @@ onBeforeUnmount(() => { clearTimeout(doneTimer); controller.abort(); ask.attach(
     <button v-show="mode === 'idle'" id="askLauncher" class="ask-layer ask-launcher ask-open" :inert="mode !== 'idle'" data-ask-grip type="button" aria-label="打开 Koma ASK" aria-controls="askDrawer" aria-expanded="false" title="Koma ASK · 可拖动 · ⌘J / Ctrl+J" @click="ask.show()"><AskMark interactive /></button>
     <div v-show="mode === 'run'" class="ask-layer ask-run" :inert="mode !== 'run'">
       <button class="ask-open ask-run-grip" data-ask-grip type="button" aria-label="展开 ASK 对话" @click="ask.show()"><AskMark thinking /><span :key="activity.key" class="ask-activity" :title="`${activity.verb} ${activity.object} ${activity.stat}`"><span class="ask-verb">{{ activity.verb }}</span><span v-if="activity.object" class="ask-object">{{ activity.object }}</span><span v-if="activity.stat" class="ask-stat">{{ activity.stat }}</span></span></button>
-      <div class="ask-run-controls"><span class="ask-progress" :class="{ empty: !completed }" :title="`${completed} 项工具已完成`">{{ completed > 99 ? '99+' : completed }}✓</span><button class="ibtn" type="button" aria-label="停止 ASK" @click="ask.stop()"><AppIcon name="i-stop" /></button></div>
+      <span class="ask-progress" :class="{ empty: !completed }" :title="`${completed} 项工具已完成`">{{ completed > 99 ? '99+' : completed }}✓</span>
     </div>
     <section v-show="mode === 'ready'" class="ask-layer ask-ready" :inert="mode !== 'ready'" aria-label="ASK 结果">
       <header class="ask-result-head">
@@ -162,13 +162,11 @@ onBeforeUnmount(() => { clearTimeout(doneTimer); controller.abort(); ask.attach(
       </header>
       <p class="ask-summary"><template v-for="(part, i) in summary" :key="i"><code v-if="part.t === 'code'">{{ part.v }}</code><span v-else :class="{ 'ask-summary-id': part.t === 'id' }">{{ part.v }}</span></template></p>
       <div id="askCompactDraft" class="ask-compact-draft"></div>
-      <button v-if="!compactDraft && ask.undoId.value !== null" class="ask-undo" type="button" :disabled="ask.writingDraft.value || ask.running.value" @click="ask.undoDraft()">撤销</button>
       <p v-if="ask.notice.value" class="ask-compact-notice" role="status">{{ ask.notice.value }}</p>
       <button v-if="!compactDraft" class="ask-details ask-open" type="button" @click="ask.show()">{{ latest?.status === 'failed' || latest?.status === 'stopped' ? '查看详情与重试' : '继续对话' }}<span aria-hidden="true">↗</span></button>
     </section>
     <div v-show="mode === 'done'" class="ask-layer ask-done" :inert="mode !== 'done'">
       <button class="ask-open ask-done-grip" data-ask-grip type="button" aria-label="展开 ASK 对话" @click="ask.show()"><AppIcon name="i-check" /><span><b>已写入</b> · {{ ask.appliedDraft.value?.workspace === 'chat' ? '未发送' : '未生成' }}</span></button>
-      <button class="ask-undo" type="button" :disabled="ask.undoId.value === null || ask.writingDraft.value || ask.running.value" title="回退最近一份草稿" @click="ask.undoDraft()">撤销</button>
     </div>
     <div v-show="ask.visible.value" id="askDrawer" class="ask-layer ask-window" :class="{ 'ask-inline': !!ask.inline.value, 'ask-expanded': expanded && !ask.inline.value }" :inert="!ask.visible.value" role="dialog" aria-modal="false" aria-label="Koma ASK" @paste="paste" @dragenter="drag" @dragover="drag" @dragleave="drag" @drop="drag">
       <header class="ask-head">
@@ -234,17 +232,12 @@ onBeforeUnmount(() => { clearTimeout(doneTimer); controller.abort(); ask.attach(
 .ask-verb { flex: none; color: var(--fg-3); font-weight: var(--fw-regular); }
 .ask-object { min-width: 0; overflow: hidden; font-weight: var(--fw-medium); text-overflow: ellipsis; background: linear-gradient(90deg, var(--fg-3), var(--fg), var(--fg-3)); background-size: 250% 100%; background-clip: text; color: transparent; animation: ask-shimmer 2.4s ease-in-out infinite; }
 .ask-stat { flex: none; color: var(--fg-4); font: var(--fw-regular) 11.5px/1 var(--mono); font-variant-numeric: tabular-nums; }
-.ask-run-controls { display: grid; flex: none; place-items: center; width: 34px; height: 28px; }
-.ask-run-controls > * { grid-area: 1 / 1; }
-.ask-progress { display: grid; place-items: center; width: 34px; height: 20px; padding: 0 4px; color: var(--fg-3); font: var(--fw-medium) 11px/1 var(--mono); font-variant-numeric: tabular-nums; background: var(--ask-hover); border-radius: 10px; transition: opacity .15s var(--e); }
+/* Status only: stopping and undoing live in the window, never on the island. */
+.ask-progress { display: grid; flex: none; place-items: center; width: 34px; height: 20px; padding: 0 4px; color: var(--fg-3); font: var(--fw-medium) 11px/1 var(--mono); font-variant-numeric: tabular-nums; background: var(--ask-hover); border-radius: 10px; transition: opacity .15s var(--e); }
 .ask-progress.empty { opacity: 0; }
-.ask-run-controls .ibtn { opacity: 0; pointer-events: none; transition: opacity .15s var(--e); }
-.ask-island:hover .ask-run-controls .ibtn, .ask-run:focus-within .ask-run-controls .ibtn { opacity: 1; pointer-events: auto; }
-.ask-island:hover .ask-progress, .ask-run:focus-within .ask-progress { opacity: 0; }
 .ask-island :deep(.ibtn) { flex: none; width: 26px; height: 26px; border-radius: 13px; }
 .ask-island :deep(.ibtn:hover), .ask-island :deep(.btn-quiet:hover) { background: var(--ask-hover); }
 .ask-island :deep(.ibtn .ico) { width: 13px; height: 13px; }
-.ask-run-controls .ibtn :deep(.ico) { width: 10px; height: 10px; fill: currentColor; stroke: none; }
 .ask-ready { max-height: calc(var(--ask-available-height, 100dvh) - 16px); padding: 10px 12px 12px 10px; overflow-y: auto; overscroll-behavior: contain; }
 .ask-result-head { display: flex; align-items: center; gap: 10px; height: 20px; margin-bottom: 10px; }
 .ask-result-grip { display: flex; flex: 1; align-items: center; gap: 10px; min-width: 0; color: var(--fg-4); font-size: 12px; line-height: 1; }
@@ -257,13 +250,10 @@ onBeforeUnmount(() => { clearTimeout(doneTimer); controller.abort(); ask.attach(
 .ask-details { display: flex; align-items: center; justify-content: space-between; width: 100%; margin-top: 12px; padding: 8px 10px; color: var(--fg-3); background: var(--ask-layer); border-radius: 10px; font-size: 12.5px; }
 .ask-details:hover { color: var(--fg); background: var(--ask-hover); }
 .ask-compact-notice { margin-top: 8px; color: var(--warn); font-size: var(--fz-xs); overflow-wrap: anywhere; }
-.ask-done { gap: 8px; padding: 0 6px 0 12px; color: var(--fg-3); font-size: 13px; line-height: 1; }
+.ask-done { gap: 8px; padding: 0 14px 0 12px; color: var(--fg-3); font-size: 13px; line-height: 1; }
 .ask-done-grip { gap: 8px; white-space: nowrap; }
 .ask-done :deep(.ico) { flex: none; width: 16px; height: 16px; color: var(--ok); }
 .ask-done b { color: var(--fg); font-weight: var(--fw-semibold); }
-.ask-undo { padding: 5px 9px; color: var(--fg-3); font-size: 12.5px; font-weight: var(--fw-semibold); border-radius: 8px; }
-.ask-undo:hover { color: var(--fg); background: var(--ask-hover); }
-.ask-undo:disabled { color: var(--fg-4); }
 .ask-window { position: relative; display: flex; flex-direction: column; height: 100%; }
 .ask-head { display: flex; flex: none; align-items: center; gap: 4px; height: 48px; padding: 0 10px 0 14px; }
 .ask-head :deep(.ibtn) { width: 30px; height: 30px; color: var(--fg-3); border-radius: 8px; }
@@ -276,7 +266,6 @@ onBeforeUnmount(() => { clearTimeout(doneTimer); controller.abort(); ask.attach(
 .ask-full-draft { display: flex; flex: 0 1 auto; flex-direction: column; min-height: 0; }
 .ask-bottom :deep(.ask-dock) { flex: none; }
 .ask-island.ask-inline { top: var(--ask-inline-top, 80px); right: auto; left: var(--ask-inline-left, 8px); width: min(480px, calc(100vw - 16px)); height: min(560px, calc(100dvh - 96px)); }
-@media (hover: none) { .ask-run-controls .ibtn { opacity: 1; pointer-events: auto; } .ask-progress { opacity: 0; } }
 @media (max-width: 480px) {
   .ask-island { right: var(--ask-right, 12px); }
   .ask-bottom { padding-bottom: calc(14px + env(safe-area-inset-bottom)); }

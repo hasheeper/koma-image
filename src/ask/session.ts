@@ -39,18 +39,20 @@ export interface Turn {
   rollback(): void;
 }
 interface Committed { readonly messages: readonly AskMessage[]; readonly viewed: readonly string[] }
+export interface SessionSnapshot { readonly turns: readonly Committed[]; readonly usage: AskUsage }
 
 /**
- * One conversation in memory; never persisted (doc 1 D10). A turn is a
+ * One live conversation, optionally restored from a local favorite. A turn is a
  * transaction: its messages join the history only on commit, so a turn the
  * channel refused leaves nothing behind that would trip the next one.
  * `total` also receives every billed usage, for the page-wide count.
  */
-export function createSession(total?: (usage: AskUsage) => void, from: readonly Committed[] = []) {
+export function createSession(total?: (usage: AskUsage) => void, from: readonly Committed[] = [], initialUsage?: AskUsage) {
   let committed = from,
     open: object | null = null;
-  const usage = { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 };
+  const usage = { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, ...initialUsage };
   return {
+    snapshot(): SessionSnapshot { return structuredClone({ turns: committed, usage }); },
     get messages() {
       return committed.flatMap((t) => t.messages);
     },

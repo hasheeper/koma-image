@@ -10,6 +10,24 @@ const usage = { input: 100, output: 10, cacheRead: 80, cacheWrite: 0 };
 const user = (text) => ({ role: "user", content: [{ type: "text", text: "<workspace_state>\n{}\n</workspace_state>" }, { type: "text", text }] });
 const call = (id, name = "get_state", input = {}) => ({ type: "call", call: { type: "call", id, name, input } });
 const done = (stop = "end") => ({ type: "done", stop, usage });
+test('session favorite: roundtrip preserves committed tools, image provenance and usage, excluding an unfinished turn', () => {
+  const s = createSession(), t = s.begin(user('收藏这一轮'));
+  t.push({ role: 'assistant', content: [{ type: 'call', id: 'read', name: 'view_image', input: { id: '#a1' } }] });
+  t.push({ role: 'user', content: [{ type: 'result', id: 'read', content: [{ type: 'image', mime: 'image/png', data: 'PIXELS', viewed: { ids: ['#a1'], spec: 'full', bytes: 8 } }] }] });
+  t.record(usage); t.commit({ viewed: ['#a1'] });
+  const pending = s.begin(user('尚未完成'));
+  pending.push({ role: 'assistant', content: [{ type: 'text', text: '部分回复' }] });
+  const snapshot = s.snapshot(), billed = [];
+  const restored = createSession(u => billed.push(u), snapshot.turns, snapshot.usage);
+  assert.deepEqual(restored.messages, s.messages);
+  assert.deepEqual(restored.usage, usage);
+  assert.deepEqual([...restored.viewed()], ['#a1']);
+  assert.equal(restored.turns, 1);
+  assert.equal(restored.busy, false);
+  assert.deepEqual(billed, [], 'restoration does not bill the page again');
+  assert.doesNotMatch(JSON.stringify(snapshot), /尚未完成|部分回复/);
+  pending.rollback();
+});
 /** A scripted model: one array of events per request; records every request. */
 function script(...steps) {
   const requests = [];

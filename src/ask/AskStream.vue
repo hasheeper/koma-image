@@ -43,8 +43,7 @@ function leadOf(turn: AskTurnView) {
     if (turn.items[i].kind === "text") return i;
   return -1;
 }
-/** One disclosure line per tool group; a finished draft row is shown by the card instead. */
-const shown = (rows: readonly ToolRow[]) => rows.filter((r) => r.name !== "propose_draft" || r.state !== "done");
+/** One disclosure line per tool group; a finished draft keeps its row, so the line never blinks out before the card. */
 function summary(rows: readonly ToolRow[]) {
   const run = rows.find((r) => r.state === "run");
   if (run) return `正在${run.verb} ${run.object}`.trim();
@@ -89,10 +88,11 @@ const starters = computed(() => [
 ]);
 
 const filtered = (kind: string | undefined) => kind === "rejected" || kind === "empty";
+const codecAvailable = computed(() => ask.adult.value && ask.settings.value.words.length > 0);
 function retries(turn: AskTurnView): { mode: RetryMode; label: string }[] {
   if (!filtered(turn.failure?.kind)) return [{ mode: "plain", label: "重试" }];
   return [
-    ...(ask.adult.value && !ask.codecActive.value
+    ...(codecAvailable.value && !ask.codecActive.value
       ? [{ mode: "codec" as const, label: "启用词表混淆并重试" }]
       : []),
     { mode: "metadata", label: turn.metadataOnly ? "重试" : "仅发元数据重试" },
@@ -176,7 +176,7 @@ onBeforeUnmount(() => { resized.disconnect(); cancelAnimationFrame(frame); clear
       <p v-if="entry.type === 'note'" class="ask-note">{{ entry.text }}</p>
       <section
         v-else
-        v-memo="[entry, ask.adult.value, ask.codecActive.value, ask.libraryRevision.value, opened.get(entry.id), copied.slice(1) === String(entry.id) && copied, revealed === entry.id, editing === entry.id, ask.undoId.value, ask.redoId.value, ask.writingDraft.value, ask.running.value]"
+        v-memo="[entry, ask.adult.value, codecAvailable, ask.codecActive.value, ask.libraryRevision.value, opened.get(entry.id), copied.slice(1) === String(entry.id) && copied, revealed === entry.id, editing === entry.id, ask.undoId.value, ask.redoId.value, ask.writingDraft.value, ask.running.value]"
         class="ask-turn"
         :class="{ revealed: revealed === entry.id }"
         :data-status="entry.turn.status"
@@ -199,20 +199,18 @@ onBeforeUnmount(() => { resized.disconnect(); cancelAnimationFrame(frame); clear
         </div>
         <template v-for="(item, i) in entry.turn.items" :key="i">
           <template v-if="item.kind === 'tools'">
-            <template v-if="shown(item.rows).length">
-              <button class="ask-tools-line" type="button" :aria-expanded="isOpen(entry.id, i, item.rows)" @click="toggleTools(entry.id, i, item.rows)"><span class="ask-tools-summary" :class="{ run: item.rows.some(r => r.state === 'run') }">{{ summary(shown(item.rows)) }}</span><AppIcon name="i-chevron" /></button>
-              <div v-show="isOpen(entry.id, i, item.rows)" class="ask-tools">
-                <div v-for="row in shown(item.rows)" :key="row.id" class="ask-tool" :data-state="row.state">
-                  <div class="ask-tool-head">
-                    <AppIcon :name="icons[row.name] ?? 'i-info'" />
-                    <span class="ask-tool-text">{{ rowText(row) }}</span>
-                    <span v-if="row.state !== 'run'" class="ask-tool-object">{{ row.object }}</span>
-                    <span v-if="row.stat" class="ask-tool-stat">{{ row.stat }}</span>
-                  </div>
-                  <span v-if="row.reason" class="ask-tool-reason">{{ row.reason }}</span>
+            <button class="ask-tools-line" type="button" :aria-expanded="isOpen(entry.id, i, item.rows)" @click="toggleTools(entry.id, i, item.rows)"><span class="ask-tools-summary" :class="{ run: item.rows.some(r => r.state === 'run') }">{{ summary(item.rows) }}</span><AppIcon name="i-chevron" /></button>
+            <div v-show="isOpen(entry.id, i, item.rows)" class="ask-tools">
+              <div v-for="row in item.rows" :key="row.id" class="ask-tool" :data-state="row.state">
+                <div class="ask-tool-head">
+                  <AppIcon :name="icons[row.name] ?? 'i-info'" />
+                  <span class="ask-tool-text">{{ rowText(row) }}</span>
+                  <span v-if="row.state !== 'run'" class="ask-tool-object">{{ row.object }}</span>
+                  <span v-if="row.stat" class="ask-tool-stat">{{ row.stat }}</span>
                 </div>
+                <span v-if="row.reason" class="ask-tool-reason">{{ row.reason }}</span>
               </div>
-            </template>
+            </div>
           </template>
           <div v-else-if="item.kind === 'pick'" class="ask-pick" role="group" aria-label="选择要分析的图片">
             <button v-for="id in item.ids" :key="id" type="button" :disabled="!ask.pictureInfo(id)" :aria-label="`选择 ${id} 继续提问`" @click="ask.pick(id)">
@@ -238,7 +236,7 @@ onBeforeUnmount(() => { resized.disconnect(); cancelAnimationFrame(frame); clear
               {{ r.label }}
             </button>
             <button
-              v-if="filtered(entry.turn.failure?.kind) && !ask.adult.value"
+              v-if="filtered(entry.turn.failure?.kind) && !codecAvailable"
               class="btn btn-sm btn-quiet"
               type="button"
               @click="ask.openSettings()"
@@ -247,7 +245,7 @@ onBeforeUnmount(() => { resized.disconnect(); cancelAnimationFrame(frame); clear
             </button>
           </div>
           <p v-if="filtered(entry.turn.failure?.kind) && !ask.adult.value" class="ask-meta">
-            可在设置 → ASK 确认成年内容后启用词表混淆
+            可在设置 → ASK 开启自由创作后启用词表混淆
           </p>
         </div>
         <AskCheckpoint v-if="entry.turn.checkpoint" :checkpoint="entry.turn.checkpoint" />

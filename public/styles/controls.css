@@ -465,6 +465,27 @@ select option { background: var(--raised); }
 .check:has(input:disabled):hover { color: var(--fg-2); }
 .switches { display: grid; gap: 9px; }
 
+/* ── Switch ──────────────────────────────────────────────────── */
+/* An on/off that applies at once. The hidden checkbox (role="switch") sits
+   right before the track; hosts set --sw-w/--sw-h for their own size. */
+.switch {
+  --sw-w: 28px; --sw-h: 16px;
+  position: relative; flex: none;
+  width: var(--sw-w); height: var(--sw-h);
+  border-radius: 999px; background: rgba(255, 255, 255, 0.12);
+  transition: background var(--t1) var(--e);
+}
+.switch::after {
+  content: ""; position: absolute; top: 2px; left: 2px;
+  width: calc(var(--sw-h) - 4px); height: calc(var(--sw-h) - 4px);
+  border-radius: 50%; background: var(--fg-2);
+  transition: transform var(--t1) var(--e-out), background var(--t1) var(--e);
+}
+input:checked + .switch { background: var(--a); }
+input:checked + .switch::after { transform: translateX(calc(var(--sw-w) - var(--sw-h))); background: #fff; }
+input:focus-visible + .switch { outline: 2px solid var(--a); outline-offset: 2px; }
+input:disabled + .switch { opacity: 0.45; }
+
 /* ── Segmented ───────────────────────────────────────────────── */
 .seg { display: grid; grid-auto-flow: column; gap: 3px; padding: 3px; background: var(--well); border: 1px solid var(--line); border-radius: var(--r2); }
 .seg label { position: relative; }

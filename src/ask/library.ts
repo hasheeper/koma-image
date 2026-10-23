@@ -1,3 +1,4 @@
+import { readCharacters } from "../domain/characters.ts";
 import { canonical } from "./canonical.ts";
 import type { DigestImage } from "./digest/index.ts";
 import type { Ids } from "./ids.ts";
@@ -18,6 +19,7 @@ export interface Picture extends DigestImage {
   readonly attachment?: Readonly<Record<string, unknown>>;
 }
 export const promptOf = (image: DigestImage) => String(image.params.basePrompt ?? image.params.prompt ?? "");
+export const comparisonPrompt = (image: DigestImage) => [promptOf(image), ...readCharacters(image.params.characters).filter(c => c.on).map(c => c.prompt)].join("\n");
 export function metadata(image: DigestImage): Record<string, unknown> {
   const out: Record<string, unknown> = {
     prompt: promptOf(image),
@@ -28,6 +30,12 @@ export function metadata(image: DigestImage): Record<string, unknown> {
   // All parameters currently persisted by drawing/editor; omit routing and binary inputs.
   for (const key of ["model", "modelName", "seed", "steps", "scale", "cfg", "sampler", "strength", "noise", "noise_schedule", "cfg_rescale", "tool", "transparentBg", "optimize", "cache", "transform_prompt", "transform_mode", "randomSeed", "batchCount", "batchIndex", "batchTotal", "isComparison", "comparisonTotal", "seedStart"])
     if (image.params[key] === null || ["string", "number", "boolean"].includes(typeof image.params[key])) out[key] = image.params[key];
+  if (Array.isArray(image.params.characters)) {
+    out.characters = readCharacters(image.params.characters);
+    out.placement = image.params.placement === "manual" ? "manual" : "auto";
+  }
+  if (Array.isArray(image.params.localCharacters)) out.local_characters = readCharacters(image.params.localCharacters);
+  for (const key of ["boardId", "boardName", "boardColor"]) if (typeof image.params[key] === "string") out[key] = image.params[key];
   // Preserve the effective prompt and requested size only when they differ.
   if (typeof image.params.prompt === "string" && image.params.prompt !== out.prompt) out.sent_prompt = image.params.prompt;
   if (typeof image.params.width === "number" && typeof image.params.height === "number" &&
@@ -82,7 +90,16 @@ export function promptDiff(before: string, after: string) {
 }
 export function differences(a: DigestImage, b: DigestImage) {
   const before = metadata(a), after = metadata(b);
-  return Object.fromEntries([...new Set([...Object.keys(before), ...Object.keys(after)])]
+  const result: Record<string, unknown> = Object.fromEntries([...new Set([...Object.keys(before), ...Object.keys(after)])]
     .filter((key) => canonical(before[key] ?? null) !== canonical(after[key] ?? null))
     .map((key) => [key, { before: before[key] ?? null, after: after[key] ?? null }]));
+  if (result.characters) {
+    const left = readCharacters(a.params.characters), right = readCharacters(b.params.characters), byId = !!a.params.boardId && a.params.boardId === b.params.boardId;
+    const keys = byId ? [...new Set([...left, ...right].map(c => c.id))] : Array.from({ length: Math.max(left.length, right.length) }, (_, i) => String(i));
+    result.characters = { alignment: byId ? "stable_id" : "list_order_only_identity_unknown", order: { before: left.map(c => c.id), after: right.map(c => c.id) }, items: keys.flatMap(key => {
+      const x = byId ? left.find(c => c.id === key) : left[Number(key)], y = byId ? right.find(c => c.id === key) : right[Number(key)];
+      return canonical(x ?? null) === canonical(y ?? null) ? [] : [{ id: key, before: x ?? null, after: y ?? null }];
+    }) };
+  }
+  return result;
 }

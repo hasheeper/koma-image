@@ -8,8 +8,8 @@ import { inspectCall } from "./debug.ts";
 
 const props = defineProps<{ turn?: number }>(), emit = defineEmits<{ close: [] }>(), ask = useAsk();
 const dialog = shallowRef<HTMLDialogElement | null>(null), selected = shallowRef(0), filter = shallowRef(props.turn), json = shallowRef(false), notice = shallowRef("");
-// This conversation's calls; exporting all keeps every conversation.
-const mine = computed(() => ask.debug.value.calls.filter(c => c.conversation === ask.conversationId.value));
+// This conversation plus page-level board naming; exporting all keeps every conversation.
+const mine = computed(() => ask.debug.value.calls.filter(c => c.conversation === ask.conversationId.value || c.conversation.startsWith("board:")));
 const calls = computed(() => mine.value.filter(c => filter.value === undefined || c.turn === filter.value));
 watch(calls, list => { if (!list.some(c => c.id === selected.value)) selected.value = list.at(-1)?.id ?? 0; }, { immediate: true });
 watch(selected, () => { notice.value = ""; });
@@ -60,7 +60,7 @@ onBeforeUnmount(() => dialog.value?.close());
             <button class="btn btn-quiet btn-xs" type="button" :disabled="!record" @click="copy">复制请求 JSON</button>
             <button class="btn btn-quiet btn-xs" type="button" :disabled="!record" @click="save()">导出本次</button>
             <button class="btn btn-quiet btn-xs" type="button" :disabled="!ask.debug.value.calls.length" @click="save(true)">导出全部</button>
-            <button class="btn btn-quiet btn-xs" type="button" :disabled="ask.running.value || !ask.debug.value.calls.length" @click="ask.clearDebug()">清空记录</button>
+            <button class="btn btn-quiet btn-xs" type="button" :disabled="ask.running.value || !!ask.naming.value || !ask.debug.value.calls.length" @click="ask.clearDebug()">清空记录</button>
           </div>
         </div>
         <p v-if="notice" class="debug-feedback" role="status">{{ notice }}</p>
@@ -104,7 +104,7 @@ onBeforeUnmount(() => dialog.value?.close());
               <figure v-for="(image, i) in inspection.images" :key="image.path"><img :src="image.url" :alt="`发送的图片 ${i + 1}`" /><figcaption>图片 {{ i + 1 }} · {{ (image.bytes / 1024).toFixed(1) }} KB<br />{{ image.path }}</figcaption></figure>
             </div>
           </template>
-          <p v-else class="debug-empty">发送 ASK 提问后，每次实际模型调用都会出现在这里。</p>
+          <p v-else class="debug-empty">发送 ASK 提问或使用 AI 命名后，可在这里查看实际调用。</p>
           <p class="debug-retention">记录仅在本页内存中保留，刷新清空，不进入备份；最多保留最近 20 次、约 16 MiB 文本，单次超出时完整保留最新一条。{{ ask.debug.value.dropped ? `已释放 ${ask.debug.value.dropped} 条较早记录。` : '' }}</p>
         </div>
       </div>

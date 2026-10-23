@@ -13,6 +13,8 @@
 
 这里的“协议”与连接名称、渠道无关。用户配置的兼容服务可以选择其真正提供的 OpenAI Images 或 Gemini 原生协议；不按域名推断，不在正式源码中内置私有服务名称、地址或 Key。新环境连接仍为空。
 
+2026-10-23 多角色 C2 已补齐：标准报价／Studio／工具发送 `characters: [{ prompt, uc, center }]` 与顶层 `use_coords`；免费原生与官方继续使用同一领域快照构造 `v4_prompt`／`v4_negative_prompt` 正负数组，避免标准转换影响原生内容。字段依据为实际只读解析与报价探测，请求及参数往返已模拟验证，真实生成仍待实测。详情见[多角色接入记录](multi-character-boards-plan.md#c2-标准网关补齐与收口)。
+
 ## 已落地的结构
 
 - `gateway/profile.ts` 统一登记四种协议及鉴权、目录、报价、额度和路径能力。新增连接和现有连接均显式选择协议；未知 Profile 继续拒绝。
@@ -27,7 +29,7 @@
 
 - [OpenAI Image generation](https://developers.openai.com/api/docs/guides/image-generation) 与 [Images API](https://platform.openai.com/docs/api-reference/images)：本轮访问返回 403／连接中断，未完成当日在线文档复核。当前实现限于既有稳定 Images REST 请求形状；不据此宣称新的模型型号、定价或账户可用性。
 - [Gemini Image generation](https://ai.google.dev/gemini-api/docs/image-generation)：本轮访问超时；Discovery 服务亦未成功读取。已按原生 generateContent 的基础请求／响应结构实现模拟契约验证；实际服务的模型列表、可选参数与权限仍需真实连接核实。
-- [NovelAI API Swagger](https://api.novelai.net/docs)（其 swagger-ui-init.js 内的 OpenAPI 已读取）明确列出 /user/subscription、/ai/generate-image、Bearer，以及 generate／img2img／infill 动作；但模型枚举较旧、parameters 为不透明对象，未覆盖现有 V4.5／V5 细节，也未列出 /ai/upscale。
+- 2026-10-21 读取的 [NovelAI API Swagger](https://api.novelai.net/docs)（swagger-ui-init.js 内的 OpenAPI）明确列出 /user/subscription、/ai/generate-image、Bearer，以及 generate／img2img／infill 动作；当时该来源模型枚举较旧、parameters 为不透明对象，也未列出 /ai/upscale。2026-10-23 另行读取的[图像主机 Schema](https://image.novelai.net/docs/doc.json)已有角色正负数组、坐标类型及 /ai/upscale；多角色资料与当前接入缺口见[专题](novelai-multi-character.md)，不代表高级功能已经实现或真实联调成功。
 - [NovelAI 图像说明](https://docs.novelai.net/en/image/)已读取，确认图生图强度／噪声等产品能力；产品文档不等同于最新版请求 Schema。不能仅凭订阅成功就声称具体模型生成成功。
 
 实现验证使用合成图片、模拟 Key、拦截的网关响应，没有调用用户配置，也没有真实收费生成。模拟契约测试只能确认前端如何发请求、如何处理结果，不能替代供应商联调。

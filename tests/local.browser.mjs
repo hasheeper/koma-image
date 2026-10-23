@@ -329,6 +329,14 @@ test("M7 production local execution: native/Studio/tool routes, fresh max_cost, 
       document.querySelector("#goCost")?.textContent.includes("免费"),
     );
     await p.locator("#prompt").fill("local synthetic drawing");
+    await p.getByRole('button',{name:'添加角色',exact:true}).click();
+    await p.locator('#char-c1-prompt').fill('girl, red hair');
+    await p.getByRole('button',{name:'添加角色',exact:true}).click();
+    await p.locator('#char-c2-prompt').fill('boy, blue hair');
+    await p.locator('.mc').getByRole('tab',{name:/Negative/}).click();
+    await p.locator('#char-c2-negative').fill('red hair');
+    await p.locator('.mc').getByRole('button',{name:'手动',exact:true}).click();
+    const expectedRoles=[{prompt:'girl, red hair',uc:'',center:{x:.5,y:.5}},{prompt:'boy, blue hair',uc:'red hair',center:{x:2/3,y:.5}}];
     const run = async () => {
       await p.locator("#goBtn").click();
       await p.waitForFunction(
@@ -343,10 +351,13 @@ test("M7 production local execution: native/Studio/tool routes, fresh max_cost, 
     );
     assert.equal(native.payload.max_cost, 0);
     assert.equal(native.headers["x-media-provider"], "novelai");
+    assert.deepEqual(native.payload.parameters.v4_prompt.caption.char_captions,expectedRoles.map(c=>({char_caption:c.prompt,centers:[c.center]})));
+    assert.deepEqual(native.payload.parameters.v4_negative_prompt.caption.char_captions.map(c=>c.char_caption),['','red hair']);
     t.state.cost = 2;
     await run();
     const studio = t.upstreamRequests.find((r) => r.path.endsWith("/generate"));
     assert.equal(studio.payload.max_cost, 2);
+    assert.deepEqual(studio.payload.characters,expectedRoles);assert.equal(studio.payload.use_coords,true);assert.equal(studio.payload.placement,undefined);
     assert.equal(
       t.upstreamRequests.filter((r) => /\/generate(?:-image)?$/.test(r.path))
         .length,
@@ -372,6 +383,8 @@ test("M7 production local execution: native/Studio/tool routes, fresh max_cost, 
         .max_cost,
       2,
     );
+    assert.deepEqual(t.upstreamRequests.find(r=>r.path.endsWith('/tools/run')).payload.characters,expectedRoles);
+    assert.deepEqual(t.upstreamRequests.find(r=>r.path.endsWith('/tools/estimate')).payload.characters,expectedRoles);
     await p.locator("#imageEditor .editor-back").click();
     await route(p, "#/chat");
     await p.locator("#chatPrompt").fill("local synthetic chat");
@@ -389,6 +402,7 @@ test("M7 production local execution: native/Studio/tool routes, fresh max_cost, 
     );
     const backup = await readBackup(new Blob([bytes]));
     assert.equal(backup.favorites.length, 1);
+    assert.equal(backup.favorites[0].params.characters[1].negative,'red hair');
     assert.deepEqual(
       Buffer.from(await backup.favorites[0].blob.arrayBuffer()),
       png,
@@ -447,8 +461,10 @@ test('ASK A4 production local: both inference protocols stream tools and drafts 
   assert.equal(await p.locator('#askConnection option').count(),3);
   for(const protocol of ['openai','anthropic']){
    await route(p,'#/image/settings/ask');await p.locator('#askConnection').selectOption(`local-ask-${protocol}`);
-   await p.getByRole('button',{name:'获取',exact:true}).click();await p.waitForFunction(()=>document.querySelectorAll('#askModelIds option').length===1);
-   await p.locator('#askModel').fill('local-test-model');await p.locator('#askModel').blur();await p.waitForFunction(()=>JSON.parse(localStorage.getItem('koma.ask.v1')).model==='local-test-model');
+   await p.getByRole('button',{name:'选择模型',exact:true}).click();const list=p.locator('#askModelDialog');
+   await list.getByRole('button',{name:'选用 local-test-model',exact:true}).click();
+   await p.waitForFunction(id=>{const s=JSON.parse(localStorage.getItem('koma.ask.v1'));return s.connectionId===id&&s.model==='local-test-model';},`local-ask-${protocol}`);
+   await p.keyboard.press('Escape');await list.waitFor({state:'hidden'});
    await route(p,'#/image');await p.locator('#settingsPanel').waitFor({state:'hidden'});await p.locator('#prompt').fill('red eyes');
    await p.locator('#prompt').press('Control+k');await p.locator('#askDrawer.ask-inline').waitFor();await p.locator('#askPrompt').fill('读取当前状态，把红眼睛改为蓝色');await p.locator('#askPrompt').press('Enter');
    await p.locator('.ask-draft[data-status="pending"]').waitFor();assert.equal(await p.locator('#prompt').inputValue(),'red eyes');

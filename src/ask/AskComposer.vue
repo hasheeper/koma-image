@@ -3,7 +3,10 @@ import { computed, nextTick, shallowRef, watch } from "vue";
 import { useAsk } from "../app/ask";
 import { message, useUi } from "../app/ui";
 import AppIcon from "../shared/AppIcon.vue";
+import ModelIcon from "../shared/ModelIcon.vue";
+import { familyOf } from "./model-family.ts";
 import AskAttachments from "./AskAttachments.vue";
+import AskMenu from "./AskMenu.vue";
 import { attachmentAccept } from "./attachments.ts";
 
 const ask = useAsk(), ui = useUi();
@@ -28,6 +31,12 @@ function key(event: KeyboardEvent) {
   if (event.key !== "Enter" || event.shiftKey || event.isComposing || event.keyCode === 229) return;
   event.preventDefault();
   void ask.send();
+}
+// With nothing picked yet, the chip goes straight to settings instead of an empty menu.
+const switchable = computed(() => ask.picks.value.length > 0);
+async function useModel(connectionId: string, id: string, close: (refocus?: boolean) => void) {
+  close(true);
+  try { await ask.useModel(connectionId, id); } catch (error) { ui.toast(message(error), "err"); }
 }
 async function sendImages() {
   try { await ask.setImages(true); } catch (error) { ui.toast(message(error), "err"); }
@@ -80,23 +89,48 @@ defineExpose({
         <button v-if="limited" class="ask-flag ask-limited" type="button" title="已关闭发送图片，只提供元数据 · 点击恢复" @click="sendImages">仅元数据</button>
         <button v-if="paused" class="ask-flag ask-paused" type="button" title="本次已停用个人偏好 · 点击恢复" @click="ask.togglePreference()">偏好已停用</button>
         <span class="ask-end">
-          <button
-            class="ask-model"
-            type="button"
-            :title="modelTitle"
-            :aria-label="`ASK 模型：${ask.settings.value.model || '未选择'}`"
-            @click="ask.openSettings()"
-          >
-            <span class="ask-model-name">{{ ask.settings.value.model || "选择模型" }}</span>
-            <AppIcon name="i-chevron" class="ask-model-chev" />
-          </button>
+          <AskMenu id="askModelMenu" label="切换模型" side="up">
+            <template #trigger="{ open, toggle }">
+              <button
+                class="ask-model"
+                type="button"
+                :title="modelTitle"
+                :aria-label="`ASK 模型：${ask.settings.value.model || '未选择'}`"
+                :aria-haspopup="switchable ? 'menu' : undefined"
+                :aria-expanded="switchable ? open : undefined"
+                :aria-controls="switchable ? 'askModelMenu' : undefined"
+                @click="switchable ? toggle() : ask.openSettings()"
+              >
+                <span class="ask-model-name">{{ ask.settings.value.model || "选择模型" }}</span>
+                <AppIcon name="i-chevron" class="ask-model-chev" />
+              </button>
+            </template>
+            <template #default="{ close }">
+              <template v-for="c in ask.picks.value" :key="c.id">
+                <div v-if="ask.picks.value.length > 1" class="ask-menu-group" role="presentation">{{ c.name }}</div>
+                <button
+                  v-for="id in c.ids"
+                  :key="id"
+                  class="ask-menu-item"
+                  type="button"
+                  role="menuitemradio"
+                  :aria-checked="ask.settings.value.connectionId === c.id && ask.settings.value.model === id"
+                  :disabled="ask.running.value"
+                  :title="id"
+                  @click="useModel(c.id, id, close)"
+                ><ModelIcon :family="familyOf(id)" /><span class="ask-menu-label">{{ id }}</span><AppIcon name="i-check" class="ask-menu-check" /></button>
+              </template>
+              <hr role="separator" />
+              <button class="ask-menu-item" type="button" role="menuitem" @click="close(); ask.openSettings()"><AppIcon name="i-settings" /><span class="ask-menu-label">管理模型</span></button>
+            </template>
+          </AskMenu>
           <span class="ask-send-slot">
             <button
               class="btn btn-primary ask-send"
               type="submit"
               aria-label="发送"
               :hidden="ask.running.value"
-              :disabled="ask.running.value || ask.writingDraft.value || !!ask.preparing.value || (!ask.input.value.trim() && !ask.tray.value.length) || ask.ready.value === 'local'"
+              :disabled="!ask.canManage.value || !!ask.preparing.value || (!ask.input.value.trim() && !ask.tray.value.length) || ask.ready.value === 'local'"
             >
               <AppIcon name="i-up" />
             </button>

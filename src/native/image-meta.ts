@@ -1,3 +1,5 @@
+import { charactersFromNai, charactersFromStandard } from "../domain/characters.ts";
+import type { Character, Placement } from "../domain/characters.ts";
 /**
  * Read generation parameters back out of an image file.
  *
@@ -12,12 +14,14 @@
  * `fields` holds only what this app can actually drive. Values that look
  * plausible but mean something different upstream are deliberately dropped
  * rather than guessed at — see the note on `cfg` below. Everything else worth
- * knowing about the image (character prompts, noise schedule, references…)
+ * knowing about the image (noise schedule, references…)
  * comes back in `extras` as read-only label/value pairs, so the import view
  * can show it without pretending it will carry over.
  */
 
 export type ImageFields = {
+  characters?: Character[];
+  placement?: Placement;
   prompt?: string;
   negative_prompt?: string;
   model?: string;
@@ -228,8 +232,9 @@ function fromNovelAI(comment: string, chunks: Map<string, string>): ParsedMetada
     source,
     extras: naiExtras(data),
     fields: {
-      prompt: cleanText(data.prompt) ?? cleanText(chunks.get("Description")),
-      negative_prompt: cleanText(data.uc) ?? cleanText(data.negative_prompt),
+      ...(charactersFromNai(data) ?? charactersFromStandard(data) ?? {}),
+      prompt: cleanText(data.prompt) ?? cleanText(field(field(data.v4_prompt, "caption"), "base_caption")) ?? cleanText(chunks.get("Description")),
+      negative_prompt: cleanText(data.uc) ?? cleanText(data.negative_prompt) ?? cleanText(field(field(data.v4_negative_prompt, "caption"), "base_caption")),
       width: finiteNumber(data.width),
       height: finiteNumber(data.height),
       steps: finiteNumber(data.steps),
@@ -239,7 +244,7 @@ function fromNovelAI(comment: string, chunks: Map<string, string>): ParsedMetada
          is left out instead of being written into the wrong control. */
       scale: finiteNumber(data.scale),
       seed: finiteNumber(data.seed),
-      model: naiModel(source)
+      model: naiModel(source) ?? cleanText(data.model)
     }
   };
 }

@@ -10,7 +10,7 @@ import {
   prepareDrawingFields,
   rollbackDrawingEdit,
 } from "../domain/drawing.ts";
-import type { DrawingForm, ImageRecord } from "../domain/drawing.ts";
+import type { DrawingForm, DrawingParams, ImageRecord } from "../domain/drawing.ts";
 import type { CatalogModel } from "../domain/catalog.ts";
 import { resolveModel } from "../domain/catalog.ts";
 import { object } from "../domain/value.ts";
@@ -28,6 +28,10 @@ import type { FavoriteRecord, Fields } from "../storage/records.ts";
 import type { Ui } from "../app/ui.ts";
 import type { AppRouter } from "../app/router.ts";
 import { message } from "../app/ui.ts";
+import { boardForm, boardKeys, readBoards, boardColors } from "../domain/drawing.ts";
+import type { DrawingBoard } from "../domain/drawing.ts";
+import { characterCapability, nextCharacterId, sameValue } from "../domain/characters.ts";
+import type { Character } from "../domain/characters.ts";
 import { imageConnections } from "../config/connections.ts";
 
 export function createDrawing(
@@ -37,9 +41,12 @@ export function createDrawing(
 ) {
   const listeners = new Set<() => void>(),
     urls = new Map<string, { blob: Blob; url: string }>();
+  let boards = readBoards(services.preferences.get(names.preferences, {}));
+  const activeBoard = () => boards.items.find(b => b.id === boards.activeId)!;
   let form: DrawingForm = {
     ...DEFAULTS,
-    ...object(services.preferences.get(names.preferences, {})),
+    ...Object.fromEntries(Object.entries(object(services.preferences.get(names.preferences, {}))).filter(([k]) => k in DEFAULTS)),
+    ...activeBoard().form,
   };
   // Persistent values are small JSON; records and binary resources stay plain.
   form.seed = String(form.seed ?? "");
@@ -92,7 +99,15 @@ export function createDrawing(
     typeof BroadcastChannel === "function"
       ? new BroadcastChannel(names.sync)
       : undefined;
+  const syncBoard = () => { activeBoard().form = boardForm(form); activeBoard().nextCharacterId = Math.max(activeBoard().nextCharacterId, nextCharacterId(form.characters)); };
+  const save = async () => {
+    syncBoard();
+    const root = { ...object(services.preferences.get(names.preferences, {})), ...form };
+    for (const key of boardKeys) delete root[key];
+    await services.preferences.set(names.preferences, { ...root, boards });
+  };
   const emit = () => {
+    syncBoard();
     if (!disposed) for (const fn of listeners) fn();
   };
   const notify = (
@@ -180,6 +195,8 @@ export function createDrawing(
       preview?.update(null);
       return;
     }
+    const cap = characterCapability(form.model);
+    if (cap.max && form.characters.filter(c => c.on).length > cap.max) { preview?.update(null); return; }
     preview?.update(drawingPayload(collect(form, model, batchCount())));
   }
   function scheduleReset() {
@@ -196,9 +213,10 @@ export function createDrawing(
     force = false,
     selected = model,
     signal?: AbortSignal,
+    detached = false,
   ) {
     if (!selected) return null;
-    if (selected !== model) {
+    if (detached || selected !== model) {
       try {
         return await services
           .gateway(selected.connection)
@@ -530,16 +548,18 @@ export function createDrawing(
     else scheduleQuote();
     emit();
     try {
-      await services.preferences.set(names.preferences, {
-        ...object(services.preferences.get(names.preferences, {})),
-        ...form,
-      });
+      await save();
     } catch (e) {
       notify(message(e), "err");
     }
   }
   function apply(fields: Record<string, unknown>) {
     const { changes, applied } = prepareDrawingFields(fields, models, samplers);
+    if (changes.characters) {
+      let next = activeBoard().nextCharacterId;
+      changes.characters = changes.characters.map(c => ({ ...c, id: `c${next++}` }));
+      activeBoard().nextCharacterId = next;
+    }
     void patch(changes);
     return applied;
   }
@@ -585,10 +605,14 @@ export function createDrawing(
         .fatal
     )
       return;
+    const sourceBoardId = boards.activeId;
     let selected = model;
-    const before = state;
     let batchQuote = quote.status === "ready" ? quote.quote : null;
-    let base = collect(form, selected, batchCount());
+    // Keep the price the user saw, including during a pending preview refresh.
+    // A later board switch must not replace this batch's comparison baseline.
+    let shownCost = quote.quote?.cost ?? null;
+    let base: DrawingParams;
+    try { base = collect(form, selected, batchCount()); } catch (e) { notify(message(e), "warn"); return; }
     let completed = 0;
     const records: ImageRecord[] = [];
     taskAbort = new AbortController();
@@ -610,22 +634,27 @@ export function createDrawing(
     };
     emit();
     try {
-      await refreshQuota(true, selected, signal);
+      let preflightQuota = await refreshQuota(true, selected, signal, true);
       signal.throwIfAborted();
-      // Like the baseline, the preflight can finish after the user edits the form.
-      // Capture the actual submission only now; later edits cannot alter this batch.
-      if (
-        !model ||
-        sizeProblem(Number(form.width), Number(form.height), model.maxPixels)
-          .fatal
-      ) {
-        if (!browsing) state = before;
-        if (!model) notify("模型列表加载中，请稍候");
-        return;
+      // Preflight may observe edits on its source board, never another board.
+      let source = boards.items.find(b => b.id === sourceBoardId);
+      if (!source) throw new Error("来源画板已删除，本次生成已取消");
+      const sourceModel = resolveModel(models, source.form.model);
+      if (!sourceModel) throw new Error("来源画板的模型已不可用，请重新选择模型");
+      if (sizeProblem(source.form.width, source.form.height, sourceModel.maxPixels).fatal) throw new Error("来源画板的画幅超出模型限制，请调整后重新生成");
+      if (selected !== sourceModel) {
+        shownCost = null;
+        preflightQuota = await refreshQuota(true, sourceModel, signal, true);
       }
-      selected = model;
-      base = collect(form, selected, batchCount());
-      batchQuote = quote.status === "ready" ? quote.quote : null;
+      signal.throwIfAborted();
+      source = boards.items.find(b => b.id === sourceBoardId);
+      if (!source) throw new Error("来源画板已删除，本次生成已取消");
+      if (source.form.model !== sourceModel.id) throw new Error("预检期间模型已再次变化，请重新生成");
+      selected = sourceModel;
+      batchQuote = boards.activeId === sourceBoardId && quote.status === "ready" ? quote.quote : null;
+      base = collect({ ...form, ...source.form }, selected, count(source.form.batchCount));
+      if (quotaPolicy(preflightQuota, !usesNative(drawingPayload(base), batchQuote)).serialDisabled) base.batchCount = 1;
+      const provenance = { boardId: source.id, boardName: source.name, boardColor: source.color };
       pending = {
         width: base.width,
         height: base.height,
@@ -635,13 +664,13 @@ export function createDrawing(
       };
       emit();
       const result = await services.runTask(
-        { id: crypto.randomUUID(), workspace: "image", snapshot: base },
+        { id: crypto.randomUUID(), workspace: "image", snapshot: { ...base, ...provenance } },
         async (task) => {
           const gateway = task.gateway(selected.connection);
           await gateway.catalog(false, task.signal);
           // The batch owns one slot through its quota checks, decoding, reveal and comparison.
           const notice = createCostNotice(
-            quote.quote?.cost ?? null,
+            shownCost,
             base.batchCount > 1,
           );
           let quotaStopped = false;
@@ -662,7 +691,7 @@ export function createDrawing(
             const params = batchParams(base, index),
               payload = drawingPayload(params);
             if (index > 0) {
-              const status = await refreshQuota(true, selected, task.signal);
+              const status = await refreshQuota(true, selected, task.signal, true);
               if (
                 quotaPolicy(status, !usesNative(payload, batchQuote))
                   .serialDisabled
@@ -681,22 +710,24 @@ export function createDrawing(
             const record = await addImage(
               result.value.blob,
               result.value.size,
-              { ...params, via: result.via },
+              { ...params, ...provenance, via: result.via },
               result.ms,
               JSON.parse(JSON.stringify(result.quote)) as Fields,
             );
             completed++;
             records.push(record);
             pending = { ...pending!, done: completed };
+            // The landed picture takes the placeholder's slot while the stage reveals it.
+            emit();
             if (!browsing) {
               await reveal?.(record);
               if (!browsing) show(record);
-            } else emit();
+            }
             if (completed === base.batchCount)
               void refreshQuota(true, selected);
           }
           if (quotaStopped) {
-            if (records.length) show(records.at(-1)!);
+            if (records.length && !browsing) show(records.at(-1)!);
             title = "额度保护已停止串行";
             subtitle = `已完成 ${completed}/${base.batchCount}`;
             notify("额度不足或暂不可用，未再提交后续请求", "warn");
@@ -721,6 +752,7 @@ export function createDrawing(
                 comparison.size,
                 {
                   ...base,
+                  ...provenance,
                   modelName: `串行对比 · ${records.length} 张`,
                   seed: null,
                   seedStart: base.randomSeed ? null : base.seed,
@@ -731,11 +763,12 @@ export function createDrawing(
                 },
                 records.reduce((s, r) => s + (r.ms || 0), 0),
               );
-              show(record);
+              pending = { ...pending!, composing: false };
+              if (!browsing) show(record);
               notify(`批量生成完成，共 ${completed} 张，已生成对比图`, "ok");
             } catch (e) {
               task.signal.throwIfAborted();
-              show(records.at(-1)!);
+              if (!browsing) show(records.at(-1)!);
               notify("对比图生成失败，图片已保存到历史", "warn");
             }
           }
@@ -783,13 +816,14 @@ export function createDrawing(
   const stopConnections = services.connections.subscribe(queueCatalog);
   const stopPrefs = services.preferences.subscribe((key) => {
     if (!key || key === names.preferences) {
-      const next = {
-        ...DEFAULTS,
-        ...object(services.preferences.get(names.preferences, {})),
-      };
+      const saved = services.preferences.get(names.preferences, {});
+      const nextBoards = readBoards(saved);
+      const next = { ...DEFAULTS, ...Object.fromEntries(Object.entries(object(saved)).filter(([k]) => k in DEFAULTS)), ...nextBoards.items.find(b => b.id === nextBoards.activeId)!.form };
       next.seed = String(next.seed ?? "");
-      if (JSON.stringify(next) !== JSON.stringify(form)) {
-        const changed = next.model !== form.model;
+      if (!sameValue(next, form) || !sameValue(nextBoards, boards)) {
+        const changed = next.model !== form.model || nextBoards.activeId !== boards.activeId;
+        if (changed && pending) { browsing = true; state = current ? "done" : "empty"; }
+        boards = nextBoards;
         form = next;
         trim();
         if (changed) bindModel();
@@ -814,9 +848,41 @@ export function createDrawing(
   channel?.addEventListener("message", changed);
   void reloadFavorites();
   void refreshCatalog();
+  function selectBoard(id: string) {
+    const target = boards.items.find(b => b.id === id);
+    if (!target) throw new Error("画板不存在");
+    syncBoard();
+    boards.activeId = id;
+    form = { ...form, ...structuredClone(target.form) };
+    if (pending) { browsing = true; state = current ? "done" : "empty"; }
+    bindModel();
+    emit();
+  }
+  async function createBoard(copy = false) {
+    syncBoard();
+    const source = activeBoard();
+    const next: DrawingBoard = { id: crypto.randomUUID(), name: copy ? `${source.name} 副本`.slice(0, 80) : `画板 ${boards.items.length + 1}`, color: boardColors[boards.items.length % boardColors.length], nextCharacterId: copy ? source.nextCharacterId : 1,
+      form: copy ? structuredClone(source.form) : boardForm({ ...DEFAULTS, characters: [] }) };
+    boards.items.push(next);
+    selectBoard(next.id);
+    await save();
+    return next.id;
+  }
+  async function removeBoard(id: string) {
+    if (boards.items.length === 1) throw new Error("至少保留一个画板");
+    const index = boards.items.findIndex(b => b.id === id);
+    if (index < 0) return;
+    if (boards.activeId === id) selectBoard(boards.items[index === 0 ? 1 : index - 1].id);
+    boards.items = boards.items.filter(b => b.id !== id);
+    emit(); await save();
+  }
   return {
     snapshot: () => ({
       form,
+      boards: boards.items,
+      activeBoardId: boards.activeId,
+      characterCapability: characterCapability(form.model),
+      characterProblem: characterCapability(form.model).max > 0 && form.characters.filter(c => c.on).length > characterCapability(form.model).max,
       models,
       samplers,
       model,
@@ -859,14 +925,67 @@ export function createDrawing(
       return record;
     },
     patch,
+    board: (id: string) => { syncBoard(); return boards.items.find(b => b.id === id); },
+    async switchBoard(id: string) { draftQuotePaused = false; selectBoard(id); await save(); },
+    createBoard,
+    async renameBoard(id: string, name: string) {
+      const b = boards.items.find(b => b.id === id); if (!b) return;
+      const before = b.name, next = name.trim().slice(0, 80) || before;
+      b.name = next; emit();
+      try { await save(); }
+      catch (error) { if (b.name === next) { b.name = before; emit(); } throw error; }
+    },
+    removeBoard,
+    async editCharacters(chars: Character[], placement = form.placement, boardId = boards.activeId) {
+      if (boardId !== boards.activeId) return;
+      await patch({ characters: structuredClone(chars), placement });
+    },
+    async addCharacter(prompt = "") {
+      const cap = characterCapability(form.model);
+      if (!cap.max || form.characters.length >= cap.max) return;
+      const id = `c${activeBoard().nextCharacterId++}`;
+      await patch({ characters: [...form.characters, { id, on: true, prompt, negative: "", centers: [{ x: (form.characters.length + 1) / (form.characters.length + 2), y: 0.5 }] }] });
+      return id;
+    },
+    async insertBoardDraft(board: DrawingBoard, sourceId: string) {
+      if (!boards.items.some(b => b.id === sourceId) || boards.items.some(b => b.id === board.id)) throw new Error("来源画板已删除或目标画板已存在");
+      const previousId = boards.activeId;
+      draftQuotePaused = true; boards.items.push(structuredClone(board)); selectBoard(board.id);
+      try { await save(); } catch (error) {
+        syncBoard();
+        const created = boards.items.find(b => b.id === board.id);
+        const fallback = boards.items.find(b => b.id === previousId) ?? boards.items.find(b => b.id !== board.id);
+        // Only discard our untouched copy; preserve edits made while saving.
+        if (created && fallback && sameValue(created, board)) {
+          if (boards.activeId === board.id) selectBoard(fallback.id);
+          boards.items = boards.items.filter(b => b.id !== board.id);
+        }
+        emit(); throw error;
+      }
+    },
+    async removeBoardDraft(id: string, expected: DrawingBoard, sourceId: string) {
+      const target = boards.items.find(b => b.id === id);
+      if (!target || !sameValue(target.form, expected.form) || !boards.items.some(b => b.id === sourceId)) throw new Error("画板已变化或来源已删除");
+      const removed = structuredClone(target), index = boards.items.indexOf(target), previousId = boards.activeId;
+      draftQuotePaused = true; selectBoard(sourceId); boards.items = boards.items.filter(b => b.id !== id); emit();
+      try { await save(); } catch (error) {
+        syncBoard();
+        if (!boards.items.some(b => b.id === id)) boards.items.splice(Math.min(index, boards.items.length), 0, removed);
+        if (boards.activeId === sourceId && boards.items.some(b => b.id === previousId)) selectBoard(previousId);
+        emit(); throw error;
+      }
+    },
     samplersFor(modelId: string) {
       const selected = resolveModel(models, modelId);
       return [...(selected ? connectionSamplers.get(selected.connection) ?? [DEFAULTS.sampler] : samplers)];
     },
     /** User-confirmed ASK writes invalidate the quote without scheduling network work. */
-    async writeDraft(values: Partial<DrawingForm>, expected: Record<string, unknown>) {
+    async writeDraft(values: Partial<DrawingForm>, expected: Record<string, unknown>, boardId = boards.activeId) {
+      const target = boards.items.find(b => b.id === boardId);
+      if (!target) throw new Error("来源画板已删除");
+      if (boardId !== boards.activeId) { draftQuotePaused = true; selectBoard(boardId); }
       if (disposed || services.data.phase !== "ready") throw new Error("数据尚未就绪，草稿未写入");
-      if (Object.entries(expected).some(([key, value]) => form[key as keyof DrawingForm] !== value)) throw new Error("表单已变化，草稿未写入");
+      if (Object.entries(expected).some(([key, value]) => !sameValue(form[key as keyof DrawingForm], value))) throw new Error("表单已变化，草稿未写入");
       const targetModel = resolveModel(models, values.model ?? form.model);
       if (values.model !== undefined && !targetModel) throw new Error("目标模型已不可用");
       const allowedSamplers = targetModel ? connectionSamplers.get(targetModel.connection) ?? [DEFAULTS.sampler] : samplers;
@@ -880,13 +999,21 @@ export function createDrawing(
       const written = { ...form };
       emit();
       try {
-        await services.preferences.set(names.preferences, { ...object(services.preferences.get(names.preferences, {})), ...form });
+        await save();
       } catch (error) {
         // Model, sampler and size must remain a valid group after a manual edit.
-        const previousModel = form.model;
-        form = rollbackDrawingEdit(before, written, form, Object.keys(values) as (keyof DrawingForm)[]);
-        if (form.model !== previousModel) bindModel();
-        emit();
+        syncBoard();
+        const owner = boards.items.find(b => b.id === boardId);
+        if (owner) {
+          const restored = rollbackDrawingEdit(before, written, { ...form, ...owner.form }, Object.keys(values) as (keyof DrawingForm)[]);
+          owner.form = boardForm(restored);
+          if (boards.activeId === boardId) {
+            const previousModel = form.model;
+            form = restored;
+            if (form.model !== previousModel) bindModel();
+          }
+          emit();
+        }
         throw error;
       }
     },

@@ -1,7 +1,9 @@
+import { characterCapability, cellCenter, nextCharacterId, sameValue } from "../../domain/characters.ts";
+import type { CharacterStep } from "./types.ts";
 import { prepareDrawingFields, reuseFields, samplerName, sizeProblem } from "../../domain/drawing.ts";
 import { resolveModel } from "../../domain/catalog.ts";
 import { canonical } from "../canonical.ts";
-import { baseHash, hash } from "../digest/index.ts";
+import { workspaceHash, hash } from "../digest/index.ts";
 import type { Picture } from "../library.ts";
 import { restoreKeys } from "./types.ts";
 import type { CheckedStep, Draft, DraftPlan, DraftState, Field, RestoreKey, TextMode, TextTarget, ValidateOptions } from "./types.ts";
@@ -14,7 +16,7 @@ const text = (value: unknown, max = 24000) => {
   if (typeof value !== "string" || value.length > max) throw new Error("草稿文字长度或类型无效");
   return value;
 };
-export const stateHash = (s: DraftState) => baseHash(s.form.prompt, s.form.negative, s.composer);
+export const stateHash = (s: DraftState) => workspaceHash(s.form, s.composer, s.boardId);
 export function parseDraft(input: Readonly<Record<string, unknown>>, base: DraftState, library: readonly Picture[], question = ""): Draft {
   // Keep in-flight responses and earlier tool turns using `title` readable.
   const title = text(input.draft_title ?? input.title, 120).trim();
@@ -25,11 +27,28 @@ export function parseDraft(input: Readonly<Record<string, unknown>>, base: Draft
     const step = record(raw);
     if (step.kind === "prompt_patch") {
       const target = text(step.target, 80), mode = text(step.mode, 20);
-      if (!/^(?:image\.(?:prompt|negative|char\.\d+\.(?:prompt|negative))|chat\.composer)$/.test(target)) throw new Error("草稿目标无效");
+      if (!/^(?:image\.(?:prompt|negative|char\.c[1-9]\d*\.(?:prompt|negative))|chat\.composer)$/.test(target)) throw new Error("草稿目标无效");
       if (!["replace", "before", "after", "append", "rewrite"].includes(mode)) throw new Error("草稿修改方式无效");
       const anchor = step.anchor === undefined ? "" : text(step.anchor);
       if (!["append", "rewrite"].includes(mode) && !anchor.trim()) throw new Error("局部修改需要非空 anchor");
       return { kind: "prompt_patch" as const, target: target as TextTarget, mode: mode as TextMode, anchor, text: text(step.text) };
+    }
+    if (step.kind === "character_edit") {
+      if (!["add", "remove", "reorder", "set_enabled", "set_position", "set_placement"].includes(String(step.op))) throw new Error("角色动作无效");
+      const op = step.op as CharacterStep["op"];
+      const result: { kind: "character_edit"; op: CharacterStep["op"]; id?: string; ids?: string[]; prompt?: string; negative?: string; on?: boolean; cell?: string; x?: number; y?: number; placement?: "auto" | "manual" } = { kind: "character_edit", op };
+      if (["remove", "set_enabled", "set_position"].includes(op)) { result.id = text(step.id, 80); if (!/^c[1-9]\d*$/.test(result.id)) throw new Error("需要稳定角色 ID，如 c2"); }
+      if (op === "add") { result.prompt = text(step.prompt); result.negative = step.negative === undefined ? "" : text(step.negative); }
+      if (op === "add" || op === "set_enabled") { if (step.on !== undefined && typeof step.on !== "boolean" || op === "set_enabled" && typeof step.on !== "boolean") throw new Error("on 需要布尔值"); result.on = step.on !== false; }
+      if (op === "reorder") { if (!Array.isArray(step.ids) || !step.ids.every(v => typeof v === "string")) throw new Error("ids 需要完整角色 ID 顺序"); result.ids = [...step.ids] as string[]; }
+      if (op === "set_position" || op === "add") {
+        if (step.cell !== undefined) { result.cell = text(step.cell, 2); cellCenter(result.cell); }
+        if (step.x !== undefined || step.y !== undefined) { if ([step.x, step.y].some(v => typeof v !== "number" || !Number.isFinite(v) || v < 0 || v > 1)) throw new Error("x/y 需要 0–1 坐标"); result.x = step.x as number; result.y = step.y as number; }
+        if (result.cell && result.x !== undefined) throw new Error("位置只选 cell 或 x/y");
+        if (op === "set_position" && !result.cell && result.x === undefined) throw new Error("缺少角色位置");
+      }
+      if (op === "set_placement") { if (step.placement !== "auto" && step.placement !== "manual") throw new Error("placement 需为 auto/manual"); result.placement = step.placement; }
+      return result;
     }
     if (step.kind === "chat_distill_branch") {
       if (rawSteps.length !== 1 || !base.chat) throw new Error("分支草稿需要当前会话快照，且必须独立提交");
@@ -55,7 +74,9 @@ export function parseDraft(input: Readonly<Record<string, unknown>>, base: Draft
   });
   const workspaces = new Set(steps.map((s) => (s.kind === "chat_distill_branch" || s.kind === "prompt_patch" && s.target.startsWith("chat.")) ? "chat" : "image"));
   if (workspaces.size !== 1) throw new Error("一份草稿只能写入一个工作区");
-  return { title, baseHash: stateHash(base), question, steps, base: structuredClone(base) };
+  const newBoardName = input.new_board_name === undefined ? undefined : text(input.new_board_name, 80).trim();
+  if (newBoardName !== undefined && (!newBoardName || !workspaces.has("image") || !base.boardId)) throw new Error("new_board_name 需要非空名称，且仅用于有来源画板的 IMAGE 草稿");
+  return { title, ...(newBoardName === undefined ? {} : { newBoardName }), baseHash: stateHash(base), question, steps, base: structuredClone(base) };
 }
 
 /** Normalized code units retain original source spans, including repeated spaces. */
@@ -86,21 +107,30 @@ export function matchAnchor(value: string, anchor: string) {
   const matches = occurrences(source.text, needle);
   return matches.length === 1 ? { start: source.starts[matches[0]], end: source.ends[matches[0] + needle.length - 1], aligned: true } : null;
 }
+const roleGroupText = (chars: DraftState["form"]["characters"], placement: string) => `${placement === "manual" ? "手动定位" : "自动定位"}\n${chars.map((c, i) => `角色 ${i + 1} (${c.id}) · ${c.on ? "启用" : "停用"} · ${c.centers.map(p => `${p.x}/${p.y}`).join("; ")}\nPrompt: ${c.prompt}\nNegative: ${c.negative || "（空）"}`).join("\n")}`;
 const labels: Partial<Record<Field, string>> = { prompt: "Prompt", negative: "Negative", composer: "对话输入框", width: "宽", height: "高", steps: "步数", scale: "Scale", cfg: "CFG", sampler: "采样器", seed: "Seed", model: "模型", batchCount: "批次" };
 
 export function validateDraft(draft: Draft, now: DraftState, options: ValidateOptions): DraftPlan {
   if (draft.steps[0].kind === "chat_distill_branch") return validateBranch(draft, now, options);
   const workspace: "image" | "chat" = draft.steps[0].kind === "prompt_patch" && draft.steps[0].target.startsWith("chat.") ? "chat" : "image";
-  const initial = { ...now.form, composer: now.composer }, working = { ...initial };
+  const initial = structuredClone({ ...now.form, characters: now.form.characters ?? [], composer: now.composer }), working = structuredClone(initial);
+  let allocation = Math.max(now.nextCharacterId ?? 1, draft.base.nextCharacterId ?? 1, nextCharacterId(draft.base.form.characters ?? []));
   const checked: CheckedStep[] = [];
   let aligned = stateHash(now) !== draft.baseHash;
   const checkText = (id: string, target: TextTarget, mode: TextMode, anchor: string, replacement: string, label?: string) => {
+    const match = /^image\.char\.(c[1-9]\d*)\.(prompt|negative)$/.exec(target);
+    const char = match ? working.characters.find(c => c.id === match[1]) : undefined;
+    const charField = match?.[2] as "prompt" | "negative" | undefined;
     const field = target === "chat.composer" ? "composer" : target === "image.prompt" ? "prompt" : target === "image.negative" ? "negative" : null;
-    const before = field ? working[field] : "", original = field === "composer" ? draft.base.composer : field ? draft.base.form[field] : "";
-    let issue = !field ? "目标不存在" : target === "chat.composer" && now.conversationId !== draft.base.conversationId ? "当前对话已切换" : "";
+    const before = char && charField ? char[charField] : field ? working[field] : "";
+    const originalChar = match ? draft.base.form.characters?.find(c => c.id === match[1]) : undefined;
+    const original = charField ? originalChar?.[charField] ?? "" : field === "composer" ? draft.base.composer : field ? draft.base.form[field] : "";
+    const initialText = charField ? initial.characters.find(c => c.id === match![1])?.[charField] ?? "" : field ? initial[field] : "";
+    let issue = !field && (!char || !originalChar) ? "目标角色已不存在" : target === "chat.composer" && now.conversationId !== draft.base.conversationId ? "当前对话已切换" : "";
+    if (workspace === "image" && now.boardPresent === false) issue = "来源画板已删除";
     let start = 0, end = before.length, moved = false;
     if (mode === "append" || mode === "rewrite") {
-      if (field && initial[field] !== original) issue ||= "原文已变化，需基于当前内容重新提议";
+      if (initialText !== original) issue ||= "原文已变化，需基于当前内容重新提议";
       if (mode === "append") start = end;
     } else {
       const found = matchAnchor(before, anchor);
@@ -112,16 +142,57 @@ export function validateDraft(draft: Draft, now: DraftState, options: ValidateOp
     const after = before.slice(0, start) + replacement + before.slice(end);
     if (after.length > 24000) issue ||= "结果超过 24000 字";
     const enabled = !options.off.has(id);
-    checked.push({ id, label: label ?? labels[field ?? "prompt"] ?? target, kind: mode === "rewrite" ? "rewrite" : "patch", enabled, issue, aligned: moved || initial[field ?? "prompt"] !== original, before: mode === "rewrite" ? before : before.slice(start, end), after: mode === "rewrite" ? after : replacement, prefix: mode === "rewrite" ? "" : before.slice(Math.max(0, start - 60), start), suffix: mode === "rewrite" ? "" : before.slice(end, end + 60) });
+    checked.push({ id, ...(match ? { characterId: match[1], characterLabel: `角色 ${initial.characters.findIndex(c => c.id === match[1]) + 1} · ${match[1]}` } : {}), label: label ?? (charField === "negative" ? "Negative" : charField === "prompt" ? "Prompt" : labels[field ?? "prompt"]) ?? target, kind: mode === "rewrite" ? "rewrite" : "patch", enabled, issue, aligned: moved || initialText !== original, before: mode === "rewrite" ? before : before.slice(start, end), after: mode === "rewrite" ? after : replacement, prefix: mode === "rewrite" ? "" : before.slice(Math.max(0, start - 60), start), suffix: mode === "rewrite" ? "" : before.slice(end, end + 60) });
     aligned ||= moved;
-    if (field && enabled && !issue) working[field] = after;
+    if (enabled && !issue) { if (char && charField) char[charField] = after; else if (field) working[field] = after; }
   };
   draft.steps.forEach((step, i) => {
     if (step.kind === "prompt_patch") return checkText(String(i), step.target, step.mode, step.anchor, step.text);
+    if (step.kind === "character_edit") {
+      const id = String(i), enabled = !options.off.has(id), cap = characterCapability(working.model);
+      let issue = now.boardPresent === false ? "来源画板已删除" : !sameValue(initial.characters, draft.base.form.characters ?? []) || initial.placement !== draft.base.form.placement && draft.base.form.placement !== undefined ? "角色组已在外部修改，请重新提议" : "";
+      const chars = structuredClone(working.characters), c = chars.find(c => c.id === step.id);
+      let before = "", after = "", label = "角色", characterId = step.id;
+      const center = step.cell ? cellCenter(step.cell) : step.x !== undefined ? { x: step.x, y: step.y! } : null;
+      if (center && (cap.positioning === "grid5" ? !step.cell : !cap.max || !!step.cell)) issue ||= "位置格式与当前模型不匹配";
+      if (step.op === "add") {
+        const addedId = `c${allocation++}`; characterId = addedId;
+        label = "新增"; after = `${step.prompt ?? ""}\n${step.on === false ? "停用" : "启用"} · ${step.cell ?? (step.x === undefined ? "默认位置" : `${step.x}, ${step.y}`)}`;
+        if (!cap.max || chars.length >= cap.max) issue ||= "已达当前模型角色上限";
+        chars.push({ id: addedId, on: step.on !== false, prompt: step.prompt ?? "", negative: step.negative ?? "", centers: [center ?? { x: .5, y: .5 }] });
+        if (step.negative) after += `\nNegative: ${step.negative}`;
+      } else if (step.op === "reorder") {
+        label = "角色顺序"; before = chars.map(c => c.id).join(" → "); after = step.ids!.join(" → ");
+        if (step.ids!.length !== chars.length || new Set(step.ids).size !== chars.length || step.ids!.some(id => !chars.some(c => c.id === id))) issue ||= "排序必须包含全部现有角色且不重复";
+        if (!issue) chars.splice(0, chars.length, ...step.ids!.map(id => chars.find(c => c.id === id)!));
+      } else if (step.op === "set_placement") {
+        label = "角色定位"; before = working.placement === "manual" ? "手动" : "自动"; after = step.placement === "manual" ? "手动" : "自动";
+        if (!cap.max) issue ||= "当前模型不支持角色定位";
+        if (enabled && !issue) { working.placement = step.placement!; if (step.placement === "manual") chars.forEach(c => { if (!c.centers.length) c.centers = [{ x: .5, y: .5 }]; }); }
+      } else if (!c) issue ||= "目标角色已不存在";
+      else if (!draft.base.form.characters?.some(x => x.id === c.id)) issue ||= "目标不在初始角色组中";
+      else if (step.op === "remove") { label = "删除"; before = `${c.prompt || c.id}\nNegative: ${c.negative || "（空）"}`; after = "移除"; chars.splice(chars.indexOf(c), 1); }
+      else if (step.op === "set_enabled") { label = "状态"; before = c.on ? "启用" : "停用"; after = step.on ? "启用" : "停用"; c.on = step.on!; }
+      else if (step.op === "set_position") { label = "位置"; before = c.centers.map(p => `${p.x}, ${p.y}`).join(" / "); after = step.cell ?? `${step.x}, ${step.y}`; c.centers = [center!]; }
+      const ordinal = step.op === "add" ? working.characters.length + 1 : initial.characters.findIndex(c => c.id === characterId) + 1;
+      checked.push({ id, label, ...(characterId ? { characterId, characterLabel: `角色 ${ordinal || characterId} · ${characterId}` } : {}), kind: step.op === "add" || step.op === "remove" ? "rewrite" : "parameter", enabled, issue, aligned: false, before, after });
+      if (enabled && !issue) working.characters = chars;
+      return;
+    }
     if (step.kind !== "restore_partial") return;
     for (const key of step.fields) {
       const id = `${i}:${key}`, field = key === "negative_prompt" ? "negative" : key;
       const label = `${labels[field]} · ${step.source}`, value = step.values[key];
+      if (key === "characters") {
+        let issue = !Array.isArray(value) ? "来源没有角色参数" : !sameValue(initial.characters, draft.base.form.characters ?? []) || initial.placement !== draft.base.form.placement ? "角色组已在外部修改" : "";
+        if (now.boardPresent === false) issue = "来源画板已删除";
+        const chars = Array.isArray(value) ? structuredClone(value) as typeof working.characters : [];
+        chars.forEach(c => { c.id = `c${allocation++}`; });
+        const enabled = !options.off.has(id);
+        checked.push({ id, label: `角色组 · ${step.source}`, kind: "rewrite", enabled, issue, aligned: false, before: roleGroupText(working.characters, working.placement), after: roleGroupText(chars, step.values.placement === "manual" ? "manual" : "auto") });
+        if (enabled && !issue) { working.characters = chars; working.placement = step.values.placement === "manual" ? "manual" : "auto"; }
+        continue;
+      }
       if (key === "prompt" || key === "negative_prompt") {
         if (value !== undefined) { checkText(id, key === "prompt" ? "image.prompt" : "image.negative", "rewrite", "", String(value), label); continue; }
       }
@@ -129,12 +200,12 @@ export function validateDraft(draft: Draft, now: DraftState, options: ValidateOp
       const { changes } = prepareDrawingFields({ [key]: value }, now.models, samplers);
       const after = changes[field], before = working[field];
       let issue = value === undefined ? "来源没有此参数" : after === undefined ? "当前模型或采样器不可用" : "";
-      if (initial[field] !== draft.base.form[field] && initial[field] !== after) issue ||= "此参数已在外部修改";
+      if (!sameValue(initial[field], draft.base.form[field]) && !sameValue(initial[field], after)) issue ||= "此参数已在外部修改";
       if ((field === "width" || field === "height") && (typeof after !== "number" || after < 64 || after > 2048 || after % 64)) issue ||= "尺寸须为 64–2048 且对齐 64px";
       if (field === "batchCount" && (typeof after !== "number" || !Number.isInteger(after) || after < 1)) issue ||= "批次数无效";
       if (field === "seed" && after !== "" && (!/^\d+$/.test(String(after)) || Number(after) > 4294967295)) issue ||= "种子无效";
       const enabled = !options.off.has(id);
-      checked.push({ id, label, kind: "parameter", enabled, issue, aligned: initial[field] !== draft.base.form[field], before: String(before), after: String(after ?? value ?? "—"),
+      checked.push({ id, label, kind: "parameter", enabled, issue, aligned: !sameValue(initial[field], draft.base.form[field]), before: String(before), after: String(after ?? value ?? "—"),
         displayBefore: field === "model" ? resolveModel(now.models, String(before))?.name : field === "sampler" ? samplerName(before) : undefined,
         displayAfter: field === "model" ? resolveModel(now.models, String(after))?.name : field === "sampler" ? samplerName(after) : undefined });
       if (enabled && !issue && after !== undefined) Object.assign(working, { [field]: after });
@@ -152,8 +223,14 @@ export function validateDraft(draft: Draft, now: DraftState, options: ValidateOp
     working.model = initial.model; working.sampler = initial.sampler;
     working.width = initial.width; working.height = initial.height;
   }
-  const changes = (Object.keys(working) as Field[]).filter((field) => working[field] !== initial[field]).map((field) => ({ field, before: initial[field], after: working[field] }));
-  const plan = { title: draft.title, workspace, conversationId: draft.base.conversationId, steps: checked, changes, aligned };
+  const cap = characterCapability(working.model);
+  if (cap.max && working.characters.filter(c => c.on).length > cap.max && (!sameValue(initial.characters, working.characters) || initial.model !== working.model)) {
+    for (let i = 0; i < checked.length; i++) checked[i] = { ...checked[i], issue: checked[i].issue || `当前模型最多 ${cap.max} 个启用角色` };
+    Object.assign(working, structuredClone(initial));
+  }
+  if (workspace === "image" && now.boardPresent === false) { for (let i = 0; i < checked.length; i++) checked[i] = { ...checked[i], issue: "来源画板已删除" }; Object.assign(working, initial); }
+  const changes = (Object.keys(working) as Field[]).filter((field) => !sameValue(working[field], initial[field])).map((field) => ({ field, before: initial[field], after: working[field] }));
+  const plan = { boardId: draft.base.boardId, boardName: now.boardName, ...(draft.newBoardName === undefined ? {} : { newBoardName: draft.newBoardName }), title: draft.title, workspace, conversationId: draft.base.conversationId, steps: checked, changes, aligned };
   return { ...plan, fingerprint: hash(canonical(plan)) };
 }
 

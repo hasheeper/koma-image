@@ -32,8 +32,9 @@ test('draft parser: hash locks send snapshot, copies state and source; no mixed 
   assert.throws(() => draft(base, [patch('replace', '', 'x')]), /anchor/);
   assert.throws(() => draft(base, [restore(['url'])], library({})), /字段/);
   assert.throws(() => draft(base, [{ kind: 'chat_distill_branch' }]), /分支草稿/);
-  const reserved = plan(draft(base, [patch('rewrite', '', 'x', 'image.char.0.prompt')]));
-  assert.equal(reserved.steps[0].issue, '目标不存在'); assert.deepEqual(reserved.changes, []);
+  assert.throws(() => draft(base, [patch('rewrite', '', 'x', 'image.char.0.prompt')]), /目标无效/);
+  const missing = plan(draft(base, [patch('rewrite', '', 'x', 'image.char.c9.prompt')]));
+  assert.equal(missing.steps[0].issue, '目标角色已不存在'); assert.deepEqual(missing.changes, []);
 });
 test('draft title: declared draft_title maps to the card title and earlier title responses still parse', () => {
   const base = state(), input = { base_hash: stateHash(base), steps: [patch('replace', 'red eyes', 'blue eyes')] };
@@ -43,6 +44,26 @@ test('draft title: declared draft_title maps to the card title and earlier title
   assert.equal(parseDraft({ ...input, title: '旧格式标题' }, base, []).title, '旧格式标题');
   for (const draft_title of ['', ' ', 42, 'x'.repeat(121)])
     assert.throws(() => parseDraft({ ...input, draft_title }, base, []));
+});
+test('draft new board: explicit name is image-only, stays separate from summary and participates in confirmation', () => {
+  const base = { ...state(), boardId: 'source', boardName: '原画板' };
+  const input = { base_hash: stateHash(base), draft_title: '改写夜景', steps: [patch('rewrite', '', 'night station')] };
+  const proposed = parseDraft({ ...input, new_board_name: '  雨夜车站  ' }, base, []);
+  const checked = plan(proposed);
+  assert.equal(proposed.title, '改写夜景');
+  assert.equal(checked.newBoardName, '雨夜车站');
+  assert.equal(checked.boardId, 'source');
+  assert.equal(checked.boardName, '原画板');
+  assert.equal(checked.createdBoard, undefined, 'proposal does not allocate or create a board');
+  const ordinary = plan(parseDraft(input, base, []));
+  assert.equal(ordinary.newBoardName, undefined);
+  assert.notEqual(ordinary.fingerprint, checked.fingerprint);
+  assert.notEqual(plan(parseDraft({ ...input, new_board_name: '清晨车站' }, base, [])).fingerprint, checked.fingerprint);
+  for (const new_board_name of ['', ' ', null, 42, '长'.repeat(81)])
+    assert.throws(() => parseDraft({ ...input, new_board_name }, base, []));
+  assert.throws(() => parseDraft({ ...input, new_board_name: '新画板', steps: [patch('rewrite', '', 'text', 'chat.composer')] }, base, []), /IMAGE/);
+  const missing = state();
+  assert.throws(() => parseDraft({ ...input, base_hash: stateHash(missing), new_board_name: '新画板' }, missing, []), /来源画板/);
 });
 test('draft sequential patch, insertion/deletion and toggles recalculate anchors without overwriting unrelated tags', () => {
   const base = state(), d = draft(base, [patch('replace', 'red eyes', 'blue eyes'), patch('after', 'blue eyes', ', soft lighting'), patch('replace', ', nude', '')]);

@@ -3,6 +3,8 @@ import type { CatalogModel } from "./catalog.ts";
 import type { FavoriteRecord } from "../storage/records.ts";
 import type { ImagePayload } from "../gateway/routes.ts";
 import { naiPrompt } from "../gateway/routes.ts";
+import { activeCharacters, readCharacters, nextCharacterId, sameValue } from "./characters.ts";
+import type { Character, Placement } from "./characters.ts";
 export const DEFAULTS = {
   prompt: "",
   negative: "",
@@ -21,8 +23,37 @@ export const DEFAULTS = {
   localCache: true,
   historyLimit: 25,
   tagSuggest: true,
+  characters: [] as Character[],
+  placement: "auto" as Placement,
 };
 export type DrawingForm = typeof DEFAULTS;
+export const boardKeys = ["prompt", "negative", "model", "sampler", "width", "height", "steps", "scale", "cfg", "seed", "batchCount", "optimize", "serverCache", "transparentBg", "characters", "placement"] as const;
+export type BoardForm = Pick<DrawingForm, typeof boardKeys[number]>;
+export interface DrawingBoard { id: string; name: string; color: string; nextCharacterId: number; form: BoardForm }
+export interface Boards { activeId: string; items: DrawingBoard[] }
+export const boardColors = ["#b3a1ff", "#7bc4a8", "#e0ab68", "#7bb7ef", "#e58fb0", "#9fd17a"];
+export const boardForm = (form: DrawingForm): BoardForm => structuredClone(Object.fromEntries(boardKeys.map(k => [k, form[k]]))) as BoardForm;
+export function readBoards(value: unknown): Boards {
+  const root = value && typeof value === "object" ? value as Record<string, unknown> : {};
+  const raw = root.boards && typeof root.boards === "object" ? root.boards as Record<string, unknown> : {};
+  const seen = new Set<string>();
+  const items = (Array.isArray(raw.items) ? raw.items : []).flatMap((entry): DrawingBoard[] => {
+    if (!entry || typeof entry !== "object") return [];
+    const b = entry as Record<string, unknown>;
+    if (typeof b.id !== "string" || !b.id || seen.has(b.id)) return [];
+    seen.add(b.id);
+    const f = { ...DEFAULTS, ...(b.form && typeof b.form === "object" ? b.form : {}) } as DrawingForm;
+    f.characters = readCharacters(f.characters); f.placement = f.placement === "manual" ? "manual" : "auto"; f.seed = String(f.seed ?? "");
+    return [{ id: b.id, name: String(b.name || "画板").slice(0, 80), color: boardColors.includes(String(b.color)) ? String(b.color) : boardColors[0],
+      nextCharacterId: Math.max(nextCharacterId(f.characters), Number(b.nextCharacterId) || 1), form: boardForm(f) }];
+  });
+  if (!items.length) {
+    const f = { ...DEFAULTS, ...root } as DrawingForm;
+    f.characters = readCharacters(f.characters); f.placement = f.placement === "manual" ? "manual" : "auto"; f.seed = String(f.seed ?? "");
+    items.push({ id: "board-1", name: "画板 1", color: boardColors[0], nextCharacterId: nextCharacterId(f.characters), form: boardForm(f) });
+  }
+  return { activeId: items.some(b => b.id === raw.activeId) ? String(raw.activeId) : items[0].id, items };
+}
 export type DrawingParams = Pick<
   DrawingForm,
   | "prompt"
@@ -44,6 +75,9 @@ export type DrawingParams = Pick<
   transparentBg: boolean;
   batchIndex?: number;
   batchTotal?: number;
+  characters: Character[];
+  localCharacters: Character[];
+  placement: Placement;
 };
 export interface ImageRecord extends Omit<FavoriteRecord, "favoritedAt"> {
   favoritedAt?: number;
@@ -164,6 +198,9 @@ export function collect(
         ? randomSeed()
         : Math.min(4294967295, Math.max(0, Math.floor(Number(form.seed)) || 0)),
     transparentBg,
+    characters: activeCharacters(form.characters, model.id),
+    localCharacters: structuredClone(form.characters),
+    placement: form.placement,
   };
 }
 export function batchParams(base: DrawingParams, index: number): DrawingParams {
@@ -202,6 +239,7 @@ export function drawingPayload(p: DrawingParams): ImagePayload {
     cache: p.cache,
     transform_prompt: false,
     transform_mode: "off",
+    ...(p.characters.length ? { characters: structuredClone(p.characters), placement: p.placement } : {}),
   };
 }
 export function reuseFields(item: Pick<ImageRecord, "params">) {
@@ -218,6 +256,7 @@ export function reuseFields(item: Pick<ImageRecord, "params">) {
     sampler: p.sampler,
     seed: p.isComparison ? (p.seedStart ?? "") : (p.seed ?? ""),
     batchCount: p.batchTotal ?? p.batchCount ?? 1,
+    ...(Array.isArray(p.localCharacters ?? p.characters) ? { characters: readCharacters(p.localCharacters ?? p.characters), placement: p.placement === "manual" ? "manual" : "auto" } : {}),
   };
 }
 export function imageFileName(item: ImageRecord) {
@@ -254,6 +293,8 @@ export function prepareDrawingFields(fields: Record<string, unknown>, models: Ca
   const applied: string[] = [];
   for (const [key, value] of Object.entries(fields)) {
     if (value === undefined) continue;
+    if (key === "characters" && Array.isArray(value)) { changes.characters = readCharacters(value); applied.push(key); continue; }
+    if (key === "placement" && (value === "auto" || value === "manual")) { changes.placement = value; applied.push(key); continue; }
     const target = key === "negative_prompt" ? "negative" : key;
     if (key === "model") {
       const resolved = resolveModel(models, String(value));
@@ -303,7 +344,7 @@ export function rollbackDrawingEdit(before: DrawingForm, written: DrawingForm, c
   const groupEdited = coupled.some((key) => current[key] !== written[key]);
   const restored = { ...current };
   for (const key of fields) {
-    if (current[key] !== written[key] || (groupEdited && coupled.includes(key))) continue;
+    if (!sameValue(current[key], written[key]) || (groupEdited && coupled.includes(key))) continue;
     Object.assign(restored, { [key]: before[key] });
   }
   return restored;

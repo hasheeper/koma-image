@@ -24,6 +24,7 @@ export interface ImageAttachment extends Base {
 }
 export interface TextAttachment extends Base { readonly kind: "text"; readonly text: string; readonly pasted: boolean }
 export type Attachment = ImageAttachment | TextAttachment;
+export type SavedAttachment = Omit<ImageAttachment, "url"> | TextAttachment;
 export type AttachmentView = Pick<Base, "id" | "name"> & { readonly kind: "image" | "text"; readonly meta: string; readonly url?: string; readonly pasted?: boolean };
 export const attachmentView = (a: Attachment): AttachmentView => ({
   id: a.id, name: a.name, kind: a.kind,
@@ -101,6 +102,26 @@ export function createAttachments(onRelease: (id: string) => void = () => {}) {
     get size() { return items.size; },
     get(id: string) { return items.get(id)?.value ?? null; },
     read(ids: readonly string[]): Attachment[] { return ids.flatMap(id => { const a = items.get(id); return a ? [a.value] : []; }); },
+    snapshot(ids: readonly string[]): SavedAttachment[] {
+      return [...new Set(ids)].flatMap<SavedAttachment>(id => {
+        const a = items.get(id)?.value;
+        if (!a) return [];
+        if (a.kind === "text") return [a];
+        const { url: _url, ...stored } = a;
+        return [stored];
+      });
+    },
+    restore(saved: readonly SavedAttachment[], references: readonly string[]) {
+      for (const a of saved) {
+        if (items.has(a.id)) continue;
+        if (bytes + a.bytes > ATTACHMENT_LIMITS.pageBytes) throw new Error("收藏附件已超过 200 MB");
+        const value: Attachment = a.kind === "image" ? { ...a, url: URL.createObjectURL(a.blob) } : a;
+        items.set(a.id, { value, refs: 0 }); bytes += a.bytes;
+        if (a.kind === "image") imageSequence = Math.max(imageSequence, Number(a.id.slice(2)));
+        else textSequence = Math.max(textSequence, Number(a.id.slice(5)));
+      }
+      this.retain(references);
+    },
     add(prepared: Awaited<ReturnType<typeof prepareAttachment>>): Attachment {
       if (bytes + prepared.bytes > ATTACHMENT_LIMITS.pageBytes) throw new Error("本页附件已超过 200 MB");
       const value: Attachment = prepared.kind === "image" ? { ...prepared, id: `#a${++imageSequence}`, url: URL.createObjectURL(prepared.blob) }

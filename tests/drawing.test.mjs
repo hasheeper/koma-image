@@ -245,8 +245,17 @@ test("metadata: compressed international text, optional character data and malfo
     ] } },
     v4_negative_prompt: { caption: { char_captions: [{ char_caption: "bad" }] } },
   }));
-  assert.deepEqual(result.fields, { prompt: "猫", width: 832, height: 1216, steps: 25, scale: 0, seed: 0 });
+  assert.deepEqual(result.fields, { prompt: "猫", width: 832, height: 1216, steps: 25, scale: 0, seed: 0, placement: "manual", characters: [{id:"c1",on:true,prompt:"  blue hair  ",negative:"bad",centers:[{x:.5,y:.8}]},{id:"c2",on:true,prompt:"",negative:"",centers:[]}] });
   assert.deepEqual(result.extras, [{ label: "角色 1 · C5", value: "blue hair" }, { label: "角色 1 排除", value: "bad" }]);
+  const standard={model:'nai-diffusion-5-full',prompt:'2people',use_coords:true,characters:[{prompt:'girl, red hair',uc:'',center:{x:.24,y:.76}},{prompt:'boy, blue hair',uc:'red hair',center:{x:.8,y:.3}}]};
+  const normalized=(await readImageParams(image(standard))).fields;
+  assert.equal(normalized.placement,'manual');
+  assert.equal(normalized.model,'nai-diffusion-5-full');
+  assert.deepEqual(normalized.characters,[{id:'c1',on:true,prompt:'girl, red hair',negative:'',centers:[{x:.24,y:.76}]},{id:'c2',on:true,prompt:'boy, blue hair',negative:'red hair',centers:[{x:.8,y:.3}]}]);
+  assert.equal((await readImageParams(image({...standard,use_coords:false}))).fields.placement,'auto');
+  assert.deepEqual((await readImageParams(image({...standard,characters:[]}))).fields.characters,[]);
+  const nativeFirst=await readImageParams(image({...standard,v4_prompt:{caption:{char_captions:[{char_caption:'official',centers:[{x:.1,y:.2},{x:.7,y:.8}]}]}}}));
+  assert.equal(nativeFirst.fields.characters.length,1);assert.equal(nativeFirst.fields.characters[0].centers.length,2);
   const primitive = await readImageParams(image({ prompt: "ok", v4_prompt: "not an object" }));
   assert.deepEqual(primitive.extras, []);
   await assert.rejects(readImageParams(image({ prompt: "ok", v4_prompt: { caption: { char_captions: {} } } })),

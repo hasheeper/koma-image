@@ -176,7 +176,7 @@ test("single document, cached drafts and nodes, back/forward, and global overlay
     {
       local: ["koma.tag.categories.v1", "koma.prefs.v1", "koma.chat.rail.v1"],
       session: [],
-      dbs: ["koma-chat", "koma-handoff", "koma-image-favorites"],
+      dbs: ["koma-ask", "koma-chat", "koma-handoff", "koma-image-favorites"],
     },
   );
   await clean(result);
@@ -391,7 +391,7 @@ test("repeat activation and dialog cycles retain one listener set and release in
   );
   assert.equal(await page.locator("#gallery").count(), 1);
   assert.equal(await page.locator("[data-workspace-root]").count(), 1);
-  assert.equal(await page.locator("dialog").count(), 7);
+  assert.equal(await page.locator("dialog").count(), 8);
   await cdp.detach();
   await clean(result);
 });

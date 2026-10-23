@@ -286,7 +286,6 @@ function openAsk() {
       id="resultPanel"
       aria-label="图片信息"
     >
-      <button class="btn btn-quiet btn-sm result-ask" type="button" :disabled="!current" aria-label="Ask 这张图" @click="openAsk"><AskMark />Ask</button>
       <div class="result-copy">
         <strong class="result-title" id="resultModel">{{
           params.modelName || params.model || "结果"
@@ -338,6 +337,9 @@ function openAsk() {
           >
         </div>
         <div class="result-actions" role="group" aria-label="图片操作">
+          <div class="result-group result-group-ask">
+            <button class="btn btn-sm result-ask" type="button" :disabled="!current" aria-label="Ask 这张图" @click="openAsk"><AskMark />Ask</button>
+          </div>
           <div class="result-group">
             <button
               v-for="action in [
@@ -434,11 +436,25 @@ function openAsk() {
 </template>
 <style scoped>
 .result-panel { position: relative; }
-.result-copy { padding-right: 90px; }
-.result-ask { position: absolute; top: 10px; right: 12px; gap: 6px; color: var(--a); font-weight: var(--fw-semibold); }
+/* Ask leads the action row as its own group: flat like the icons, accent like its mark. */
+.result-ask { height: 36px; padding: 0 10px 0 8px; gap: 6px; color: var(--a); font-weight: var(--fw-semibold); background: transparent; border: 1px solid transparent; }
+.result-ask:not(:disabled):hover { background: var(--a-dim); border-color: var(--a-line); }
 .result-ask-id { color: var(--a); }
 .ask-why { margin-top: 8px; color: var(--a); }
 @media (max-width: 860px) {
-  .result-ask { top: 5px; min-height: 40px; }
+  .result-ask { height: 44px; }
+}
+/* A narrow stage keeps its width for the parameters; Ask returns to the title row. */
+@container image-stage (max-width: 640px) {
+  .result-copy { padding-right: 90px; }
+  .result-group-ask { position: absolute; top: 10px; right: 12px; }
+  .result-group-ask + .result-group::before { display: none; }
+  .result-ask { height: 32px; }
+}
+@media (max-width: 860px) {
+  @container image-stage (max-width: 640px) {
+    .result-group-ask { top: 5px; }
+    .result-ask { height: 40px; }
+  }
 }
 </style>

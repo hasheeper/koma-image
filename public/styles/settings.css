@@ -190,8 +190,9 @@
 }
 .set-ui .conn-models:not(:disabled):hover { background: color-mix(in srgb, var(--fg) 2.5%, transparent); }
 .set-ui .conn-models:disabled { cursor: default; }
-.set-ui .conn-models span:last-of-type { margin-left: auto; font-size: var(--fz-xs); color: var(--fg-3); }
-.set-ui .conn-models .ico { --ico: 14px; color: var(--fg-4); }
+.set-ui .conn-models span:first-child { flex: none; }
+.set-ui .conn-models span:last-of-type { min-width: 0; margin-left: auto; overflow: hidden; font-size: var(--fz-xs); color: var(--fg-3); text-overflow: ellipsis; white-space: nowrap; }
+.set-ui .conn-models .ico { flex: none; --ico: 14px; color: var(--fg-4); }
 .set-ui .conn-top:has(.conn-menu:popover-open) .conn-more { color: var(--fg); background: var(--hover); border-color: var(--line-2); }
 /* The card's ⋯ menu: a popover in the top layer, placed beside its button once it opens. */
 .set-ui .conn-menu {
@@ -216,14 +217,31 @@
 .set-ui .conn-menu .danger, .set-ui .conn-menu .danger .ico { color: var(--err); }
 .set-ui .conn-menu .danger:is(:hover, :focus-visible) { color: var(--err); background: var(--err-dim); }
 
-/* ── Rows with one action ───────────────────────────────────── */
-.set-ui .s-row { display: flex; align-items: center; gap: 14px; padding: 12px 12px 12px 14px; }
-.set-ui .s-row > div { flex: 1 1 auto; min-width: 0; }
+/* ── Rows: the text first, then one control or one cluster ──── */
+/* Every page shares these: a button, a switch or a compact field stays on the
+   right; a field cluster takes --s-field so stacked rows share both edges; a
+   block row puts its content under a heading line at full width. */
+.set-ui .s-row { --s-field: clamp(200px, 42%, 300px); display: flex; align-items: center; gap: 14px; padding: 12px 12px 12px 14px; }
+.set-ui .s-row > div:first-child { flex: 1 1 auto; min-width: 0; }
 .set-ui .s-row b { font-size: var(--fz-sm); font-weight: var(--fw-medium); }
 .set-ui .s-row p { margin-top: 2px; font-size: var(--fz-xs); line-height: 1.55; color: var(--fg-3); }
-.set-ui .s-row .btn { margin-left: auto; flex: none; }
-.set-ui .settings-toggle { justify-content: center; width: 32px; height: 32px; flex: none; }
-.set-ui .s-row > .preference-actions { flex: none; margin-left: auto; }
+.set-ui .s-row > .btn { margin-left: auto; flex: none; }
+.set-ui .s-ctl { display: flex; flex: none; align-items: center; gap: 8px; margin-left: auto; }
+.set-ui .s-ctl.s-field { width: var(--s-field); }
+.set-ui .s-field > :is(select, input) { flex: 1; min-width: 0; height: 32px; }
+.set-ui .s-ctl select { font-size: var(--fz-xs); }
+.set-ui .s-ctl .btn { flex: none; height: 32px; padding-block: 0; }
+.set-ui .s-toggle { position: relative; display: grid; place-items: center; flex: none; width: 44px; height: 32px; margin-right: -5px; cursor: pointer; }
+.set-ui .s-toggle input { position: absolute; width: 0; height: 0; opacity: 0; }
+.set-ui .s-toggle .switch { --sw-w: 34px; --sw-h: 20px; }
+.set-ui .s-toggle:hover input:not(:checked, :disabled) + .switch { background: rgba(255, 255, 255, 0.18); }
+.set-ui .s-meta { display: flex; align-items: center; gap: 8px; min-width: 0; }
+.set-ui .s-meta > span:last-child { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.set-ui .s-row.s-block { display: grid; gap: 10px; }
+.set-ui .s-block > .s-ctl { justify-self: start; margin-left: 0; }
+.set-ui .s-head { display: flex; align-items: baseline; gap: 8px; }
+.set-ui .s-head small { font: var(--fz-2xs)/1 var(--mono); color: var(--fg-4); }
+.set-ui .s-head small:last-child { margin-left: auto; }
 .set-ui .history-limit { width: 84px; }
 .set-ui .history-limit input { height: 32px; text-align: right; }
 .set-ui .sp-empty { display: flex; align-items: center; gap: 12px; padding: 14px; font-size: var(--fz-xs); color: var(--fg-3); }
@@ -267,7 +285,9 @@
   .set-ui .conn-name { flex-wrap: wrap; row-gap: 4px; }
   .set-ui .conn-meters { grid-template-columns: repeat(auto-fill, minmax(86px, 1fr)); gap: 14px 12px; padding: 12px 12px 14px; }
   .set-ui .conn-models { min-height: 44px; padding-left: 12px; }
-  .set-ui .s-row { flex-wrap: wrap; }
+  /* A field cluster drops under its text; switches and buttons stay on the right. */
+  .set-ui .s-row:has(> .s-field) { flex-wrap: wrap; }
+  .set-ui .s-ctl.s-field { width: 100%; }
   .set-ui .sm-lines { padding-left: 12px; }
   .set-ui .md-id { flex-direction: column; gap: 2px; }
   .set-ui .md-id b { max-width: 100%; }

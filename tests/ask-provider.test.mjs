@@ -8,8 +8,9 @@ import { anthropicMessagesProfile as anthropic, openaiChatProfile as chat, stand
 import { imageConnections, reasoningConnections } from "../src/config/connections.ts";
 import { createProvider, wireBody, ProviderError } from "../src/ask/provider.ts";
 import { createCodec } from "../src/ask/codec.ts";
-import { modelId, readAskSettings } from "../src/ask/settings.ts";
+import { MODEL_LIMIT, modelId, readAskSettings, withConnection, withModel, withModels } from "../src/ask/settings.ts";
 import { createTools } from "../src/ask/tools.ts";
+import { familyOf } from "../src/ask/model-family.ts";
 
 const encoder = new TextEncoder();
 const stream = (chunks, { status = 200, type = "text/event-stream", hold = false, onCancel } = {}) =>
@@ -72,6 +73,37 @@ test("ASK model IDs: preserve internal spaces, case and relay suffixes through s
   assert.equal(modelId("m".repeat(200)), "m".repeat(200));
 });
 
+test("ASK model picks: kept per connection, a single older ID joins its list, the active ID stays among the picks", () => {
+  assert.deepEqual(readAskSettings({ connectionId: "chat", model: "a" }).models, { chat: ["a"] });
+  const s = readAskSettings({ connectionId: "chat", model: "", models: { chat: [" b ", "b", "bad\nid", 5, "c"], claude: ["x"], "": ["y"], other: "z" } });
+  assert.deepEqual(s.models, { chat: ["b", "c"], claude: ["x"] });
+  assert.equal(s.model, "b");
+  assert.deepEqual(readAskSettings(JSON.parse(JSON.stringify(s))), s);
+  assert.equal(readAskSettings({ models: { chat: Array.from({ length: 30 }, (_, i) => `m${i}`) } }).models.chat.length, MODEL_LIMIT);
+  // Dropping the active ID moves to the first remaining; other connections keep theirs.
+  assert.equal(withModels({ ...s, model: "c" }, "chat", ["b"]).model, "b");
+  assert.deepEqual(withModels(s, "chat", []).models, { claude: ["x"] });
+  assert.equal(withModels(s, "chat", []).model, "");
+  assert.equal(withModels(s, "claude", ["x", "w"]).model, "b");
+  // Switching connection resumes its first pick; another connection's pick switches both.
+  assert.deepEqual([withConnection(s, "claude").connectionId, withConnection(s, "claude").model], ["claude", "x"]);
+  assert.equal(withConnection(s, "none").model, "");
+  const used = withModel(s, "claude", "x");
+  assert.deepEqual([used.connectionId, used.model], ["claude", "x"]);
+  assert.equal(withModel(s, "claude", "nope"), s);
+});
+
+test("ASK model list headings: the model names its family, a trailing [provider] does not", () => {
+  const cases = {
+    "chat-latest": "gpt", "gpt-5-chat-latest": "gpt", "openrouter/openai/o3": "gpt", "deepseek-chat-latest": "deepseek",
+    "GLM-5.1 [zai]": "glm", "GLM-5.2 [togetherai]": "glm", "GLM-5.3-flash [zai]": "glm",
+    "kimi-k2.6 [moonshot]": "kimi", "Kimi-K2.7-Code [togetherai]": "kimi", "kimi-k3 [fireworks]": "kimi",
+    "MiniMax-M3 [minimax]": "minimax", "Claude Sonnet 4.5 (Thinking)": "claude", "grok-4 [xai]": "xai",
+    "llama-4 [openai]": "other", "reasoning-a": "other",
+  };
+  for (const [id, family] of Object.entries(cases)) assert.equal(familyOf(id), family, id);
+});
+
 test("ASK tool schemas: full registry avoids uniqueItems rejected by Gemini relays, including nested draft variants", () => {
   const request = { ...turn1, tools: [...createTools().values()].map((entry) => entry.tool) };
   for (const profile of [chat, anthropic]) {
@@ -83,7 +115,7 @@ test("ASK tool schemas: full registry avoids uniqueItems rejected by Gemini rela
     assert.equal(sheet.properties.ids.minItems, 2);
     assert.equal(sheet.properties.ids.maxItems, 6);
     const draft = definitions.find((t) => t.name === "propose_draft").parameters;
-    assert.equal(draft.properties.steps.items.anyOf.length, 3);
+    assert.equal(draft.properties.steps.items.anyOf.length, 4);
     assert.equal(draft.properties.steps.items.anyOf[1].properties.fields.minItems, 1);
     assert.deepEqual(draft.required, ["base_hash", "draft_title", "steps"]);
     assert.equal(JSON.stringify(wireBody(profile, request)), JSON.stringify(payload));
@@ -202,7 +234,7 @@ test("anthropic payload: breakpoints on the last tool, the last system block and
 });
 
 test("codec at the edge: outbound strings encoded with the codebook last; inbound text and calls decoded", async () => {
-  const codec = createCodec([]);
+  const codec = createCodec(["nsfw", "large breasts"]);
   const request = { ...turn1, messages: [user('{"prompt":"1girl, nsfw, large breasts"}', "NSFW 标签会不会冲突？")] };
   const encoded = wireBody(chat, request, codec), text = JSON.stringify(encoded.messages.slice(1));
   assert.equal(/nsfw|large breasts/i.test(text), false);
@@ -220,6 +252,40 @@ test("codec at the edge: outbound strings encoded with the codebook last; inboun
   const events = await collect(provider.stream(request, { codec }));
   assert.equal(events.filter((e) => e.type === "text").map((e) => e.text).join(""), "去掉 nsfw 即可");
   assert.deepEqual(events.find((e) => e.type === "call").call.input, { remove: "large breasts" });
+});
+
+for (const profile of [chat, anthropic]) test(`text replacements at the edge: ${profile.id} sends B and restores streamed prose and draft fields to A`, async () => {
+  const codec = createCodec([], [{ from: "red coat", to: "azure dress" }]),
+    request = { ...turn1, model: "red coat", messages: [user('{"prompt":"red coat"}', "保留 red coat")] };
+  const input = { target: "image.prompt", anchor: "azure dress", text: "azure dress, soft light" };
+  let sent;
+  const { provider } = await setup(profile, async (_url, init) => {
+    sent = init.body;
+    return stream(profile === chat ? [
+      ...sse({ choices: [{ delta: { content: "保留 azure dr" } }] }),
+      ...sse({ choices: [{ delta: { content: "ess。" } }] }),
+      ...sse({ choices: [{ delta: { tool_calls: [{ index: 0, id: "draft", function: { name: "propose_draft", arguments: JSON.stringify(input) } }] }, finish_reason: "tool_calls" }] }),
+      ...sse("[DONE]"),
+    ] : named(
+      { type: "message_start", message: { usage: { input_tokens: 100 } } },
+      { type: "content_block_start", index: 0, content_block: { type: "text", text: "保留 azure dr" } },
+      { type: "content_block_delta", index: 0, delta: { type: "text_delta", text: "ess。" } },
+      { type: "content_block_stop", index: 0 },
+      { type: "content_block_start", index: 1, content_block: { type: "tool_use", id: "draft", name: "propose_draft", input: {} } },
+      { type: "content_block_delta", index: 1, delta: { type: "input_json_delta", partial_json: JSON.stringify(input) } },
+      { type: "content_block_stop", index: 1 },
+      { type: "message_delta", delta: { stop_reason: "tool_use" }, usage: { output_tokens: 20 } },
+      { type: "message_stop" },
+    ));
+  });
+  const events = await collect(provider.stream(request, { codec })), body = JSON.parse(sent);
+  assert.equal(body.model, "red coat", "model IDs are not replaced");
+  const userMessage = body.messages.find((m) => m.role === "user");
+  assert.match(JSON.stringify(userMessage), /保留 azure dress/);
+  assert.equal(JSON.stringify(userMessage).includes("red coat"), false);
+  assert.deepEqual(body, wireBody(profile, request, codec));
+  assert.equal(events.filter((e) => e.type === "text").map((e) => e.text).join(""), "保留 red coat。");
+  assert.deepEqual(events.find((e) => e.type === "call").call.input, { target: "image.prompt", anchor: "red coat", text: "red coat, soft light" });
 });
 
 test("openai-chat stream: text, tool-call deltas and the common relay variants", async () => {

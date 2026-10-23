@@ -1,3 +1,6 @@
+import { boardKeys } from "../../domain/drawing.ts";
+import { characterCapability, characterSummary } from "../../domain/characters.ts";
+import type { Character, Placement } from "../../domain/characters.ts";
 import { canonical } from "../canonical.ts";
 import { finite, object } from "../../domain/value.ts";
 import type { Ids } from "../ids.ts";
@@ -13,6 +16,8 @@ export interface DigestImage {
   readonly size: { readonly width: number; readonly height: number };
 }
 export interface DigestForm {
+  readonly characters?: readonly Character[];
+  readonly placement?: Placement;
   readonly prompt: string;
   readonly negative: string;
   readonly model: string;
@@ -38,6 +43,8 @@ export interface DigestInput {
   readonly workspace: "image" | "chat" | "tags";
   readonly anchor: string | null;
   readonly form: DigestForm;
+  readonly boardId?: string;
+  readonly boards?: readonly { id: string; name: string; form: DigestForm }[];
   readonly modelName: string | null;
   readonly history: readonly DigestImage[];
   readonly favorites: readonly DigestImage[];
@@ -57,7 +64,7 @@ export interface DigestInput {
 export interface Digest {
   /** Sorted-key JSON; the same workbench always gives the same bytes. */
   readonly json: string;
-  /** Hash of what drafts may change: prompt, negative and the chat composer. */
+  /** Hash of the source board identity, generation form and chat composer. */
   readonly baseHash: string;
   /** Highest `#h` number at snapshot time. */
   readonly cursor: number;
@@ -80,6 +87,10 @@ export function hash(text: string) {
 export const baseHash = (prompt: string, negative: string, composer: string) =>
   hash(canonical({ composer, negative, prompt }));
 
+export const workspaceHash = (form: DigestForm, composer: string, boardId?: string) => boardId
+  ? hash(canonical({ boardId, form: Object.fromEntries(boardKeys.map(k => [k, (form as unknown as Record<string, unknown>)[k]])), composer }))
+  : baseHash(form.prompt, form.negative, composer);
+
 const promptOf = (p: Readonly<Record<string, unknown>>) =>
   String(p.basePrompt ?? p.prompt ?? "");
 
@@ -100,16 +111,16 @@ function params(image: DigestImage) {
 /**
  * L0: the workbench at the moment of sending. It travels at the tail of the
  * user's message, never in the system prompt, so edits never touch the cached
- * prefix. Unanchored turns carry no image/form prompt text; an explicit
- * get_state read can include the unmodified form text for drafting.
+ * prefix. Active-board text is always present; unanchored historical image
+ * text and inactive-board text stay behind explicit read tools.
  */
-export function buildDigest(input: DigestInput, options: { readonly formText?: boolean } = {}): Digest {
+export function buildDigest(input: DigestInput, _options: { readonly formText?: boolean } = {}): Digest {
   const { form, ids } = input;
   ids.sync(input.history, input.favorites);
   const id = (image: DigestImage) =>
     ids.label(image.id) ?? `#${image.id.slice(0, 8)}`;
   const anchor = [...input.history, ...input.favorites].find((image) => image.id === ids.resolve(input.anchor ?? ""));
-  const formText = !!options.formText || !!anchor;
+
   const history = historyIndex(input.history.map((image) => ({ ...image, label: id(image) })), anchor ? { ...anchor, label: id(anchor) } : null);
   const current = input.current
     ? {
@@ -128,16 +139,19 @@ export function buildDigest(input: DigestInput, options: { readonly formText?: b
   if (input.generation.total)
     generation.progress = `${input.generation.index ?? 1}/${input.generation.total}`;
   if (input.generation.error) generation.error = input.generation.error;
-  const base = baseHash(form.prompt, form.negative, input.composer);
+  const base = workspaceHash(form, input.composer, input.boardId);
   const state: Record<string, unknown> = {
-    v: 4,
+    v: 5,
     workspace: input.workspace,
     anchor: input.anchor,
     history_cursor: ids.cursor(),
     image: {
+      active_board_id: input.boardId,
+      boards: input.boards?.map(b => ({ id: b.id, name: b.name, model: b.form.model, characters_count: b.form.characters?.length ?? 0 })),
+      character_capability: characterCapability(form.model),
       form: {
-        text_included: formText,
-        ...(formText ? { prompt: form.prompt, negative: form.negative } : {}),
+        text_included: true,
+        prompt: form.prompt, negative: form.negative,
         model: input.modelName || form.model,
         size: `${form.width}x${form.height}`,
         steps: form.steps,
@@ -146,8 +160,8 @@ export function buildDigest(input: DigestInput, options: { readonly formText?: b
         sampler: form.sampler,
         seed: form.seed.trim() || "random",
         batch: form.batchCount,
-        // Reserved until the drawing form has them (doc 3 §3.1).
-        characters: [],
+        placement: form.placement ?? "auto",
+        characters: (form.characters ?? []).map(c => ({ ...characterSummary(c, form.placement ?? "auto", form.model), centers: c.centers })),
         vibes: [],
       },
       current,

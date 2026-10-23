@@ -1,11 +1,11 @@
 import type { ChatDraftSnapshot } from "../chat-context.ts";
 import type { ChatSelection } from "../../domain/conversation.ts";
-import type { DrawingForm } from "../../domain/drawing.ts";
+import type { DrawingBoard, DrawingForm } from "../../domain/drawing.ts";
 import type { CatalogModel } from "../../domain/catalog.ts";
 
-export type TextTarget = "image.prompt" | "image.negative" | "chat.composer" | `image.char.${number}.${"prompt" | "negative"}`;
+export type TextTarget = "image.prompt" | "image.negative" | "chat.composer" | `image.char.c${number}.${"prompt" | "negative"}`;
 export type TextMode = "replace" | "before" | "after" | "append" | "rewrite";
-export const restoreKeys = ["prompt", "negative_prompt", "model", "width", "height", "steps", "scale", "cfg", "sampler", "seed", "batchCount"] as const;
+export const restoreKeys = ["prompt", "negative_prompt", "model", "width", "height", "steps", "scale", "cfg", "sampler", "seed", "batchCount", "characters"] as const;
 export type RestoreKey = typeof restoreKeys[number];
 export interface TextStep {
   readonly kind: "prompt_patch";
@@ -27,7 +27,24 @@ export interface BranchStep {
   readonly exclude: readonly string[];
   readonly text: string;
 }
+export interface CharacterStep {
+  readonly kind: "character_edit";
+  readonly op: "add" | "remove" | "reorder" | "set_enabled" | "set_position" | "set_placement";
+  readonly id?: string;
+  readonly ids?: readonly string[];
+  readonly prompt?: string;
+  readonly negative?: string;
+  readonly on?: boolean;
+  readonly cell?: string;
+  readonly x?: number;
+  readonly y?: number;
+  readonly placement?: "auto" | "manual";
+}
 export interface DraftState {
+  readonly boardId?: string;
+  readonly boardName?: string;
+  readonly boardPresent?: boolean;
+  readonly nextCharacterId?: number;
   readonly chat?: ChatDraftSnapshot;
   readonly form: Readonly<DrawingForm>;
   readonly composer: string;
@@ -38,15 +55,19 @@ export interface DraftState {
 }
 export interface Draft {
   readonly title: string;
+  /** Present only when this proposal targets a named new IMAGE board. */
+  readonly newBoardName?: string;
   readonly baseHash: string;
   /** Original request, reused by the explicit “重新提议” action. */
   readonly question: string;
-  readonly steps: readonly (TextStep | RestoreStep | BranchStep)[];
+  readonly steps: readonly (TextStep | RestoreStep | BranchStep | CharacterStep)[];
   readonly base: DraftState;
 }
 export type Field = "composer" | keyof DrawingForm;
-export interface Change { readonly field: Field; readonly before: string | number | boolean; readonly after: string | number | boolean }
+export interface Change { readonly field: Field; readonly before: DrawingForm[keyof DrawingForm]; readonly after: DrawingForm[keyof DrawingForm] }
 export interface CheckedStep {
+  readonly characterId?: string;
+  readonly characterLabel?: string;
   readonly id: string;
   readonly label: string;
   readonly kind: "patch" | "rewrite" | "parameter" | "branch";
@@ -62,6 +83,10 @@ export interface CheckedStep {
   readonly suffix?: string;
 }
 export interface DraftPlan {
+  readonly boardId?: string;
+  readonly boardName?: string;
+  readonly newBoardName?: string;
+  readonly createdBoard?: DrawingBoard;
   readonly branch?: { readonly before: ChatSelection; readonly after: ChatSelection; readonly key: string };
   readonly title: string;
   readonly workspace: "image" | "chat";

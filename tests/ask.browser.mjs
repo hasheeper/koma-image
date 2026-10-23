@@ -85,7 +85,7 @@ const text = (content) => ({ choices: [{ index: 0, delta: { content } }] });
 const tool = (id, name, input = {}) => ({ choices: [{ index: 0, delta: { tool_calls: [{ index: 0, id, type: "function", function: { name, arguments: JSON.stringify(input) } }] } }] });
 const end = (finish_reason = "stop") => ({ choices: [{ index: 0, delta: {}, finish_reason }], usage: { prompt_tokens: 1800, completion_tokens: 40, prompt_tokens_details: { cached_tokens: 1500 } } });
 const anthropic = (...events) => events.map((e) => `event: ${e.type}\ndata: ${JSON.stringify(e)}\n\n`).join("");
-const askSettings = (over = {}) => ({ version: 1, connectionId: "chat", model: "reasoning-a", images: true, preference: "", words: [], alwaysCodec: false, ...over });
+const askSettings = (over = {}) => ({ version: 1, connectionId: "chat", model: "reasoning-a", images: true, preference: "", words: [], replacements: [], alwaysCodec: false, ...over });
 /** Generation, edit, upscale, quote and balance endpoints: ASK must never reach them. */
 const generation = (requests) => requests.filter((r) => r.host === hosts.image && !r.path.endsWith("/v1/models"));
 async function bind(page) {
@@ -120,8 +120,192 @@ async function openDraft(page) {
   const toggle = page.locator('#askFullDraft .draft-toggle[aria-expanded="false"]');
   if (await toggle.count()) await toggle.click();
 }
+async function openApplyMenu(page) {
+  await page.locator('#askFullDraft').getByRole('button', { name: '选择应用方式', exact: true }).click();
+  return page.locator('.draft-apply-menu:popover-open');
+}
 const route = (page, hash) => page.evaluate((hash) => (location.hash = hash), hash);
 const stored = (page, key) => page.evaluate((key) => JSON.parse(localStorage.getItem(key)), key);
+
+test('AI naming: independent model settings, manual IDs and four-width settings layout', async () => {
+  const {page,context,calls,errors}=await open('/#/image/settings/ask',{ask:askSettings()});
+  try {
+    await mkdir('.local/ask/naming',{recursive:true});
+    const section=page.getByRole('region',{name:'命名模型',exact:true});
+    assert.equal(await page.locator('#askNamingConnection').inputValue(),'');
+    assert.match(await section.textContent(),/reasoning-a/);
+    await page.locator('#askNamingConnection').selectOption('claude');
+    await section.getByRole('button',{name:'选择模型',exact:true}).click();
+    const dialog=page.locator('#askModelDialog');await dialog.waitFor();
+    await dialog.getByRole('searchbox').fill('Claude Naming [provider]');
+    await dialog.getByRole('searchbox').press('Enter');
+    await page.waitForFunction(()=>JSON.parse(localStorage.getItem('koma.ask.v1')).naming?.model==='Claude Naming [provider]');
+    await dialog.getByRole('button',{name:'选用 reasoning-b',exact:true}).click();
+    await page.waitForFunction(()=>JSON.parse(localStorage.getItem('koma.ask.v1')).naming?.model==='reasoning-b');
+    assert.equal(await dialog.locator('.lamp[data-s="on"]').count(),1);
+    await page.keyboard.press('Escape');
+    const config=await stored(page,'koma.ask.v1');assert.equal(config.connectionId,'chat');assert.equal(config.model,'reasoning-a');assert.deepEqual(config.models,{chat:['reasoning-a']});
+    for(const width of [320,390,768,1440]) {
+      await page.setViewportSize({width,height:900});await section.scrollIntoViewIfNeeded();
+      assert.equal(await section.evaluate(el=>el.scrollWidth>el.clientWidth),false);
+      await page.screenshot({path:`.local/ask/naming/settings-${width}.png`});
+    }
+    await page.reload();await page.waitForSelector('#settingsPanel[open]');
+    assert.equal(await page.locator('#askNamingConnection').inputValue(),'claude');assert.match(await section.textContent(),/reasoning-b/);
+    await page.locator('#askNamingConnection').selectOption('');
+    await page.waitForFunction(()=>!JSON.parse(localStorage.getItem('koma.ask.v1')).naming);
+    assert.match(await section.textContent(),/reasoning-a/);assert.deepEqual(calls,[]);assert.deepEqual(errors,[]);
+  } finally {await context.close();}
+});
+
+for(const protocol of ['chat','claude']) test(`AI naming: ${protocol} scoped requests, board persistence, conversation rename and exact debug`,async()=>{
+  const config=askSettings(protocol==='claude'?{naming:{connectionId:'claude',model:'Claude Naming [provider]'}}:{models:{chat:['reasoning-a','reasoning-b']}});
+  const {page,context,llm,calls,requests,errors}=await open('/#/image',{ready:'.switcher',ask:config,standard:true});
+  const reply=title=>({body:protocol==='chat'?openai(text(title),end()):anthropic(
+    {type:'message_start',message:{usage:{input_tokens:100,cache_read_input_tokens:80}}},
+    {type:'content_block_start',index:0,content_block:{type:'text',text:title}},
+    {type:'content_block_stop',index:0},{type:'message_delta',delta:{stop_reason:'end_turn'},usage:{output_tokens:8}},{type:'message_stop'})});
+  try {
+    await bind(page);await page.waitForFunction(()=>drawing.snapshot().models.length===2);
+    await page.evaluate(async()=>{
+      await drawing.patch({prompt:'rainy station, warm lights',negative:'negative-secret',characters:[{id:'c1',on:true,prompt:'girl, red coat',negative:'character-negative-secret',centers:[{x:.5,y:.5}]},{id:'c2',on:false,prompt:'disabled-secret',negative:'',centers:[{x:.2,y:.5}]}]});
+      window.namedBoard=drawing.snapshot().activeBoardId;
+      window.otherBoard=await drawing.createBoard(false);await drawing.patch({prompt:'inactive-secret'});await drawing.switchBoard(namedBoard);
+      ask.show();
+    });
+    await askText(page,llm,'绘制雨夜的车站与候车女孩');
+    if(protocol==='chat') await page.evaluate(()=>ask.useModel('chat','reasoning-b'));
+    await page.waitForTimeout(750);requests.length=0;calls.length=0;
+    llm.push(reply('“雨夜候车”'));
+    await page.getByRole('button',{name:'AI 命名画板',exact:true}).click();
+    await page.waitForFunction(()=>!ask.naming.value&&drawing.board(namedBoard).name==='雨夜候车');
+    assert.match(await page.locator('.bd-name').textContent(),/雨夜候车/);
+    const boardCall=calls[0];assert.equal(boardCall.host,hosts[protocol]);assert.equal(boardCall.body.model,protocol==='chat'?'reasoning-b':'Claude Naming [provider]');
+    assert.match(boardCall.raw,/rainy station/);assert.match(boardCall.raw,/red coat/);assert.doesNotMatch(boardCall.raw,/negative-secret|inactive-secret|disabled-secret|workspace_state|image_url|propose_draft/);assert.equal(boardCall.body.tools,undefined);
+    const storedBoards=(await stored(page,'koma.prefs.v1')).boards, namedBoard=await page.evaluate(()=>namedBoard);assert.equal(storedBoards.items.find(b=>b.id===namedBoard)?.name,'雨夜候车');
+    llm.push(reply('雨夜车站构思'));
+    await page.getByRole('button',{name:'AI 命名对话',exact:true}).click();
+    await page.waitForFunction(()=>!ask.naming.value&&ask.heading.value.title==='雨夜车站构思');
+    assert.match(calls[1].raw,/绘制雨夜/);assert.doesNotMatch(calls[1].raw,/rainy station|workspace_state|negative-secret|propose_draft/);
+    const logs=await page.evaluate(()=>ask.debug.value.calls.filter(c=>c.promptVersion==='naming-1').map(c=>({raw:ask.debugCall(c.id).body,cache:c.cache,status:c.status})));
+    assert.deepEqual(logs.map(c=>c.raw),calls.map(c=>c.raw));assert.ok(logs.every(c=>c.status==='done'&&c.cache.read>0));
+    await openDebug(page);const debug=page.locator('#askDebug');
+    const boardOption=debug.locator('option').filter({hasText:'AI 命名 · 画板'});assert.equal(await boardOption.count(),1);
+    await debug.locator('select').selectOption(await boardOption.getAttribute('value'));
+    assert.equal(await debug.locator('.debug-question').textContent(),'AI 命名 · 画板');
+    await debug.getByRole('button',{name:'关闭调用上下文'}).click();
+    await openConversations(page);await page.getByRole('menuitem',{name:'重命名',exact:true}).click();await page.getByRole('textbox',{name:'对话名称',exact:true}).fill('手动命名的雨夜车站');await page.locator('#askConvMenu').getByRole('button',{name:'保存',exact:true}).click();
+    assert.equal(await page.evaluate(()=>ask.heading.value.title),'手动命名的雨夜车站');
+    assert.deepEqual(generation(requests),[]);assert.deepEqual(errors,[]);
+  } finally {await context.close();}
+});
+
+test('AI naming: cancel, failure, target switch/delete, manual rename and failed save preserve names',async()=>{
+  const {page,context,llm,calls,errors}=await open('/#/image',{ready:'.switcher',ask:askSettings()});
+  let release;
+  const pending=async(target,title='迟到名称')=>{
+    const dispatched=page.waitForRequest(r=>reasoning.test(new URL(r.url()).pathname));
+    llm.push({...textReply(title),wait:new Promise(resolve=>{release=resolve;})});
+    await page.evaluate(target=>{void ask.generateName(target);},target);
+    await dispatched;await page.waitForFunction(()=>!!ask.naming.value);
+  };
+  const finish=async()=>{release();await page.waitForFunction(()=>!ask.naming.value);};
+  try {
+    await bind(page);
+    await page.evaluate(async()=>{await drawing.patch({prompt:'red forest'});window.a=drawing.snapshot().activeBoardId;window.b=await drawing.createBoard(false);await drawing.patch({prompt:'blue sea'});await drawing.switchBoard(a);});
+    const a=await page.evaluate(()=>a),b=await page.evaluate(()=>b);
+    await pending({kind:'board',id:a},'红林');await page.evaluate(b=>drawing.switchBoard(b),b);await finish();
+    assert.deepEqual(await page.evaluate(()=>[drawing.board(a).name,drawing.board(b).name,drawing.snapshot().activeBoardId]),['红林','画板 2',b]);
+    await pending({kind:'board',id:a});await page.evaluate(a=>drawing.renameBoard(a,'手动保留'),a);await finish();assert.equal(await page.evaluate(()=>drawing.board(a).name),'手动保留');
+    await pending({kind:'board',id:b});await page.getByRole('button',{name:'取消命名',exact:true}).click();await page.waitForFunction(()=>!ask.naming.value);release();assert.equal(await page.evaluate(()=>drawing.board(b).name),'画板 2');
+    assert.equal(await page.evaluate(()=>ask.debug.value.calls.at(-1).status),'stopped');
+    await pending({kind:'board',id:a});await page.evaluate(a=>drawing.removeBoard(a),a);await finish();assert.equal(await page.evaluate(()=>drawing.snapshot().boards.length),1);
+    for(const failure of [{status:503,type:'application/json',body:'{"error":{"message":"synthetic unavailable"}}'},textReply('一\n二'),{body:openai(text('半截名称'),end('length'))}]){
+      const count=calls.length;llm.push(failure);await page.evaluate(b=>ask.generateName({kind:'board',id:b}),b);assert.equal(calls.length,count+1);assert.equal(await page.evaluate(()=>drawing.board(b).name),'画板 2');
+    }
+    llm.push(textReply('不能保存的名称'));
+    await page.evaluate(async b=>{
+      const p=document.body.__vue_app__._context.provides,s=p[Object.getOwnPropertySymbols(p).find(k=>k.description==='application-services')],set=s.preferences.set;
+      s.preferences.set=async()=>{throw new Error('synthetic naming save failure');};
+      try {await ask.generateName({kind:'board',id:b});} finally{s.preferences.set=set;}
+    },b);
+    assert.equal(await page.evaluate(()=>drawing.board(b).name),'画板 2');
+    await askText(page,llm,'为海边小屋构思');const c=await page.evaluate(()=>ask.conversationId.value);
+    await pending({kind:'conversation',id:c},'海边小屋');await page.evaluate(()=>ask.newConversation());await finish();
+    assert.equal(await page.evaluate(()=>ask.heading.value.title),'新对话');assert.equal(await page.evaluate(c=>ask.conversations.value.find(x=>x.id===c).title,c),'海边小屋');
+    await pending({kind:'conversation',id:c});await page.evaluate(c=>ask.renameConversation(c,'保留手动名'),c);await finish();assert.equal(await page.evaluate(c=>ask.conversations.value.find(x=>x.id===c).title,c),'保留手动名');
+    await pending({kind:'conversation',id:c});await page.evaluate(c=>ask.deleteConversation(c),c);await finish();assert.equal(await page.evaluate(()=>ask.conversations.value.length),1);
+    const before=calls.length;await page.evaluate(()=>ask.generateName({kind:'conversation',id:ask.conversationId.value}));assert.equal(calls.length,before,'empty conversation never requests');
+    assert.deepEqual(errors,[]);
+  }finally{release?.();await context.close();}
+});
+
+test('AI naming: four-width title buttons, manual name editor and reduced-motion pending state',async()=>{
+  const {page,context,llm,errors}=await open('/#/image',{ready:'.switcher',ask:askSettings()});
+  let release;
+  try {
+    await mkdir('.local/ask/naming',{recursive:true});await bind(page);
+    await page.evaluate(async()=>{await drawing.patch({prompt:'rainy city'});await drawing.renameBoard(drawing.snapshot().activeBoardId,'雨夜车站的候车女孩与暖色灯光 · 完整长标题');});
+    await askText(page,llm,'构思雨夜车站的候车女孩与暖色灯光，保留完整长标题');
+    for(const width of [320,390,768,1440]) {
+      await page.setViewportSize({width,height:900});
+      const button=page.getByRole('button',{name:'AI 命名对话',exact:true});
+      const [r,frame]=await Promise.all([button.boundingBox(),drawer(page).boundingBox()]);
+      assert.ok(r.x>=frame.x&&r.x+r.width<=frame.x+frame.width&&r.width===30);
+      await page.screenshot({path:`.local/ask/naming/window-${width}.png`});
+      const menu=await openConversations(page);await menu.getByRole('menuitem',{name:'重命名',exact:true}).click();
+      const edit=page.getByRole('textbox',{name:'对话名称',exact:true});await edit.press('Home');
+      assert.equal(await edit.evaluate(el=>el===document.activeElement&&el.selectionStart===0),true);
+      assert.equal(await menu.evaluate(el=>el.scrollWidth>el.clientWidth),false);
+      await page.screenshot({path:`.local/ask/naming/rename-${width}.png`});
+      await page.keyboard.press('Escape');await page.keyboard.press('Escape');
+      await page.evaluate(()=>ask.hide());
+      const boardButton=page.getByRole('button',{name:'AI 命名画板',exact:true});await boardButton.scrollIntoViewIfNeeded();
+      assert.ok(await boardButton.evaluate(el=>{const r=el.getBoundingClientRect();return r.x>=0&&r.right<=innerWidth&&r.width===30;}));
+      assert.equal(await page.locator('.bd-pill').evaluate(el=>el.scrollWidth>el.clientWidth),false);
+      await page.screenshot({path:`.local/ask/naming/board-${width}.png`});
+      await page.evaluate(()=>ask.show());
+    }
+    llm.push({...textReply('新名称'),wait:new Promise(resolve=>{release=resolve;})});
+    await page.getByRole('button',{name:'AI 命名对话',exact:true}).click();
+    const stop=page.getByRole('button',{name:'取消命名',exact:true});await stop.waitFor();
+    assert.equal(await stop.locator('.ico').evaluate(el=>getComputedStyle(el).animationName),'none');
+    await page.screenshot({path:'.local/ask/naming/pending.png'});await stop.click();release();
+    assert.deepEqual(errors,[]);
+  }finally{release?.();await context.close();}
+});
+
+test('AI naming: timeout, missing configuration and codec gate use the same provider boundary',async()=>{
+  const {page,context,llm,calls,errors}=await open('/#/image',{ready:'.switcher',ask:askSettings({replacements:[{from:'red coat',to:'azure dress'}]})});
+  let release;
+  try{
+    await bind(page);await page.evaluate(async()=>{await drawing.patch({prompt:'girl, red coat'});window.board=drawing.snapshot().activeBoardId;});
+    for(const adult of [false,true]){
+      await page.evaluate(async adult=>{
+        const p=document.body.__vue_app__._context.provides,s=p[Object.getOwnPropertySymbols(p).find(k=>k.description==='application-services')];
+        await s.preferences.set('koma.ask.adult.v1',adult);
+      },adult);
+      llm.push(textReply(adult?'azure dress':'red coat'));
+      await page.evaluate(()=>ask.generateName({kind:'board',id:board}));
+      assert.equal(await page.evaluate(()=>drawing.board(board).name),'red coat');
+      const content=JSON.parse(calls.at(-1).body.messages.at(-1).content);assert.equal(content.content.prompt,adult?'girl, azure dress':'girl, red coat');
+    }
+    llm.push({...textReply('late'),wait:new Promise(resolve=>{release=resolve;})});
+    await page.evaluate(async()=>{
+      const timer=window.setTimeout;window.setTimeout=(fn,ms,...args)=>timer(fn,ms===60000?100:ms,...args);
+      try {await ask.generateName({kind:'board',id:board});} finally{window.setTimeout=timer;}
+    });
+    release();assert.equal(await page.evaluate(()=>drawing.board(board).name),'red coat');assert.equal(await page.evaluate(()=>ask.debug.value.calls.at(-1).status),'failed');
+    assert.ok(await page.getByText('命名失败：命名超时，请重试',{exact:true}).count());
+    const count=calls.length;
+    await page.evaluate(async()=>{
+      const p=document.body.__vue_app__._context.provides,s=p[Object.getOwnPropertySymbols(p).find(k=>k.description==='application-services')];
+      await s.preferences.set('koma.ask.v1',{...ask.settings.value,naming:{connectionId:'gone',model:'namer'}});
+      await ask.generateName({kind:'board',id:board});
+    });
+    assert.equal(calls.length,count,'explicit unavailable config never silently falls back');assert.deepEqual(errors,[]);
+  }finally{release?.();await context.close();}
+});
 
 for (const connectionId of ['chat','claude']) test(`ASK retrieval: ${connectionId} raw state, multiword history, online batch verification and picks`, async () => {
   const {page,context,llm,calls,requests,errors}=await open('/#/image',{ready:'.switcher',ask:askSettings({connectionId,images:false})});
@@ -253,7 +437,7 @@ for (const connectionId of ["chat", "claude"]) test(`ASK prompts: ${connectionId
   } finally {release?.();await context.close();}
 });
 
-test("ASK settings: own group, reasoning connections only, adult gate off by default, word list behind it", async () => {
+test("ASK settings: free creation off by default, empty vocabulary and replacement editor; add/edit/delete and four widths", async () => {
   const { page, context, requests, errors } = await open("/#/image/settings/ask");
   try {
     const nav = page.locator(".set-nav button", { hasText: "ASK" });
@@ -261,58 +445,139 @@ test("ASK settings: own group, reasoning connections only, adult gate off by def
     const options = await page.locator("#askConnection option").allTextContents();
     assert.deepEqual(options.map((o) => o.trim()), ["选择连接", "推理 Chat", "推理 Messages"]);
     assert.equal(await page.locator("#askAdult").isChecked(), false);
-    assert.equal(await page.getByRole("region", { name: "词表" }).count(), 0);
-    assert.equal(await page.getByText("词表", { exact: true }).count(), 0);
+    // The word list lives in the adult group and stays absent until the gate is on.
+    const adultGroup = page.getByRole("region", { name: "创作", exact: true });
+    assert.equal(await page.getByRole("switch", { name: "自由创作", exact: true }).isChecked(), false);
+    assert.equal(await adultGroup.locator('.s-row').first().locator('p').count(), 0);
+    assert.equal(await adultGroup.locator("#askAlwaysCodec").count(), 0);
+    assert.equal(await page.getByRole("list", { name: "内置词条" }).count(), 0);
     assert.equal(await page.locator("#askImages").isChecked(), true);
+    assert.equal(await page.getByRole("switch", { name: "发送图片给模型" }).isChecked(), true);
+    assert.equal(await page.locator(".set-nav button", { hasText: "ASK" }).locator("use").getAttribute("href"), "/assets/icons.svg#i-ask");
 
     await page.locator("#askConnection").selectOption("claude");
     await page.waitForFunction(() => JSON.parse(localStorage.getItem("koma.ask.v1"))?.connectionId === "claude");
-    await page.getByRole("button", { name: "获取", exact: true }).click();
-    await page.waitForFunction(() => document.querySelectorAll("#askModelIds option").length === 2);
+    // The selected connection shows its protocol and address like its card.
+    assert.deepEqual((await page.locator("#askConnection").locator("xpath=ancestor::div[contains(@class,'s-row')]").locator(".s-meta span").allTextContents()).map((t) => t.trim()), ["Anthropic Messages", hosts.claude]);
+    // The model list layout over the connection's catalog: a lamp per ID, the first one used becomes current.
+    const act = (id) => `.lamp[aria-label$=" ${id}"]`, list = page.locator("#askModelDialog"), pick = (id) => list.locator(act(id));
+    const tag = (id) => list.locator(".md-row", { has: page.locator(act(id)) }).locator(".md-miss");
+    await page.getByRole("button", { name: "选择模型", exact: true }).click();
+    await pick("reasoning-a").waitFor();
+    assert.equal((await list.locator("#askModelTitle").textContent()).trim(), "推理 Messages 模型列表");
+    assert.deepEqual(await list.locator(".md-row .md-id b").allTextContents(), ["reasoning-a", "reasoning-b"]);
+    assert.deepEqual(await list.locator(".md-gtitle b").allTextContents(), ["其他"]);
     const fetched = requests.find((r) => r.host === hosts.claude);
     assert.equal(fetched.path, "/v1/models");
     assert.equal(fetched.headers["x-api-key"], "synthetic-claude");
     assert.equal(fetched.headers["anthropic-version"], "2023-06-01");
-    await page.locator("#askModel").fill("reasoning-a");
-    await page.locator("#askModel").press("Enter");
+    await pick("reasoning-b").click();
+    await page.waitForFunction(() => JSON.parse(localStorage.getItem("koma.ask.v1"))?.model === "reasoning-b");
+    await pick("reasoning-a").click();
+    // An ID outside the list is typed into the search field and stays marked.
+    const search = list.getByRole("searchbox", { name: "搜索或填写模型 ID" });
+    await search.fill("Manual Model (Thinking)");
+    await search.press("Enter");
+    await page.waitForFunction(() => JSON.parse(localStorage.getItem("koma.ask.v1"))?.models?.claude?.length === 3);
+    assert.equal(await tag("Manual Model (Thinking)").textContent(), "列表外");
+    assert.equal(await tag("reasoning-b").count(), 0);
+    assert.equal(await pick("reasoning-b").getAttribute("data-s"), "on");
+    // Dropping the current one moves to the next.
+    await list.getByRole("tab", { name: "已用", exact: true }).click();
+    assert.equal(await list.locator(".md-row").count(), 3);
+    await pick("reasoning-b").click();
+    await page.waitForFunction(() => JSON.parse(localStorage.getItem("koma.ask.v1"))?.model === "reasoning-a");
+    await page.keyboard.press("Escape");
+    await list.waitFor({ state: "hidden" });
+    assert.equal(await page.locator("#settingsPanel").evaluate((el) => el.open), true);
+    // The row names the current one like the connection row names its address.
+    const meta = page.locator(".s-row", { has: page.getByRole("button", { name: "选择模型", exact: true }) }).locator(".s-meta span");
+    assert.deepEqual((await meta.allTextContents()).map((t) => t.trim()), ["当前 · 共 2 个", "reasoning-a"]);
     await page.locator('label[for="askImages"]').click();
     await page.locator("#askPreference").fill("先说结论");
     await page.locator("#askPreference").blur();
     await page.waitForFunction(() => JSON.parse(localStorage.getItem("koma.ask.v1"))?.preference === "先说结论");
-    assert.deepEqual(await stored(page, "koma.ask.v1"), { version: 1, connectionId: "claude", model: "reasoning-a", images: false, preference: "先说结论", words: [], alwaysCodec: false });
+    assert.deepEqual(await stored(page, "koma.ask.v1"), { version: 1, connectionId: "claude", model: "reasoning-a", models: { claude: ["reasoning-a", "Manual Model (Thinking)"] }, images: false, preference: "先说结论", words: [], replacements: [], alwaysCodec: false });
 
     await page.locator('label[for="askAdult"]').click();
     await page.waitForFunction(() => localStorage.getItem("koma.ask.adult.v1") === "true");
-    const words = page.getByRole("region", { name: "词表" });
-    await words.waitFor();
-    assert.ok((await words.getByRole("list", { name: "内置词条" }).locator("li").count()) > 10);
+    const words = adultGroup;
+    await words.getByRole("switch", { name: "始终启用词表混淆" }).waitFor({ state: "attached" });
+    assert.equal(await words.getByRole("list", { name: "内置词条" }).count(), 0);
+    assert.equal(await words.getByRole("list", { name: "自定义词条" }).count(), 0);
+    assert.equal(await words.getByRole("list", { name: "文本替换", exact: true }).count(), 0);
     const add = words.getByRole("textbox", { name: "添加词条" });
     await add.fill("See_Through");
     await words.getByRole("button", { name: "添加", exact: true }).click();
     await page.waitForFunction(() => JSON.parse(localStorage.getItem("koma.ask.v1"))?.words?.[0] === "see through");
-    for (const term of ["LOLI", "guro"]) {
-      await add.fill(term);
-      await words.getByRole("button", { name: "添加", exact: true }).click();
-      assert.equal((await words.getByRole("alert").textContent()).trim(), "该词不在可混淆范围");
-    }
     assert.deepEqual((await stored(page, "koma.ask.v1")).words, ["see through"]);
     await words.getByRole("button", { name: "删除 see through", exact: true }).click();
     await page.waitForFunction(() => JSON.parse(localStorage.getItem("koma.ask.v1"))?.words?.length === 0);
+    const from = words.getByRole("textbox", { name: "原文 A", exact: true }), to = words.getByRole("textbox", { name: "替换为 B", exact: true });
+    assert.equal(await from.inputValue(), ""); assert.equal(await to.inputValue(), "");
+    await from.fill("red coat"); await to.fill("azure dress");
+    await words.getByRole("button", { name: "添加替换", exact: true }).click();
+    await page.waitForFunction(() => JSON.parse(localStorage.getItem("koma.ask.v1"))?.replacements?.[0]?.to === "azure dress");
+    await words.getByRole("button", { name: "编辑替换 red coat", exact: true }).click();
+    assert.equal(await from.inputValue(), "red coat");
+    assert.equal(await from.evaluate(el => el === document.activeElement), true);
+    await to.fill("amber dress");
+    await words.getByRole("button", { name: "保存替换", exact: true }).click();
+    await page.waitForFunction(() => JSON.parse(localStorage.getItem("koma.ask.v1"))?.replacements?.[0]?.to === "amber dress");
+    await words.getByRole("button", { name: "编辑替换 red coat", exact: true }).click();
+    await to.fill("unsaved"); await words.getByRole("button", { name: "取消", exact: true }).click();
+    assert.deepEqual((await stored(page, "koma.ask.v1")).replacements, [{ from: "red coat", to: "amber dress" }]);
+    await words.getByRole("button", { name: "删除替换 red coat", exact: true }).click();
+    await page.waitForFunction(() => JSON.parse(localStorage.getItem("koma.ask.v1"))?.replacements?.length === 0);
+    await from.fill("保留的服装描述与光影设定"); await to.fill("replacement_clothing_and_lighting");
+    await words.getByRole("button", { name: "添加替换", exact: true }).click();
+    await page.waitForFunction(() => JSON.parse(localStorage.getItem("koma.ask.v1"))?.replacements?.length === 1);
     await page.locator('label[for="askAdult"]').click();
     await page.waitForFunction(() => localStorage.getItem("koma.ask.adult.v1") === "false");
-    assert.equal(await page.getByRole("region", { name: "词表" }).count(), 0);
+    assert.equal(await adultGroup.locator("#askAlwaysCodec").count(), 0);
+    assert.equal(await page.getByRole("list", { name: "内置词条" }).count(), 0);
 
     await page.reload();
     await page.waitForSelector("#settingsPanel[open]");
-    assert.equal(await page.locator("#askModel").inputValue(), "reasoning-a");
+    assert.equal((await meta.last().textContent()).trim(), "reasoning-a");
     assert.equal(await page.locator("#askConnection").inputValue(), "claude");
     assert.equal(await page.locator("#askImages").isChecked(), false);
+    await page.locator('label[for="askAdult"]').click();
+    await words.getByRole("list", { name: "文本替换", exact: true }).waitFor();
+    assert.deepEqual((await stored(page, "koma.ask.v1")).replacements, [{ from: "保留的服装描述与光影设定", to: "replacement_clothing_and_lighting" }]);
 
+    // Shared rows: switches and field clusters end on one edge, and a switch never drops under its text.
+    const rows = (section) => page.evaluate((section) => [...document.querySelectorAll(`section[aria-label="${section}"] .s-row`)].map((row) => {
+      const control = row.querySelector(":scope > .s-toggle .switch, :scope > .s-ctl, :scope > .btn"), text = row.querySelector(":scope > div:first-child");
+      if (!control || !text || row.classList.contains("s-block")) return null;
+      const c = control.getBoundingClientRect(), t = text.getBoundingClientRect(), r = row.getBoundingClientRect();
+      return { right: Math.round(r.right - c.right), wrapped: c.top >= t.bottom - 1, field: control.classList.contains("s-field") };
+    }).filter(Boolean), section);
     for (const width of [320, 390, 768, 1440]) {
       await page.setViewportSize({ width, height: 900 });
       await page.waitForTimeout(80);
       assert.ok(await page.locator("#settingsPanel").evaluate((el) => el.scrollWidth <= innerWidth + 1), `overflow at ${width}`);
+      for (const section of ["推理模型", "创作"]) for (const row of await rows(section)) {
+        assert.ok(Math.abs(row.right - 12) <= 1, `${section} edge ${row.right} at ${width}`);
+        assert.equal(row.wrapped, row.field && width <= 640, `${section} wrap at ${width}`);
+      }
+      const replacementRow = words.locator('.s-row').last();
+      assert.equal(await replacementRow.locator('p:not([role="alert"])').count(), 0, 'the replacement controls need no explanatory subtitle');
+      assert.ok(await replacementRow.evaluate(el => el.scrollWidth <= el.clientWidth + 1), `replacement overflow at ${width}`);
+      await replacementRow.scrollIntoViewIfNeeded();
+      await page.screenshot({ path: `.local/ask/free-creation-${width}.png`, fullPage: true });
       await page.screenshot({ path: `.local/ask/settings-${width}.png`, fullPage: true });
+    }
+    await route(page, "#/image/settings/general");
+    await page.locator("#historyLimit").waitFor();
+    for (const width of [320, 1440]) {
+      await page.setViewportSize({ width, height: 900 });
+      await page.waitForTimeout(80);
+      const general = await rows("通用");
+      assert.equal(general.length, 2);
+      assert.ok(general.every((row) => Math.abs(row.right - 12) <= 1 && !row.wrapped), JSON.stringify(general));
+      const [limit, toggle] = await Promise.all(["#historyLimit", 'label[title="保留历史"]'].map((s) => page.locator(s).boundingBox()));
+      assert.ok(Math.abs((limit.y + limit.height / 2) - (toggle.y + toggle.height / 2)) <= 1, `history row at ${width}`);
     }
     assert.deepEqual(errors, []);
     assert.ok(requests.every((r) => r.method === "GET" && r.path.endsWith("/v1/models")));
@@ -321,7 +586,7 @@ test("ASK settings: own group, reasoning connections only, adult gate off by def
   }
 });
 
-test("ASK compatibility: catalog and manual model IDs keep spaces/suffixes through reload and tool turns", async () => {
+test("ASK compatibility: catalog and manual model IDs keep spaces/suffixes through the list, the quick switch, reload and tool turns", async () => {
   const modelIds = ["gemini-4", "Claude Sonnet 4.5 (Thinking)"];
   const { page, context, requests, errors, llm, calls } = await open("/#/image/settings/ask", { ask: askSettings() });
   try {
@@ -329,20 +594,35 @@ test("ASK compatibility: catalog and manual model IDs keep spaces/suffixes throu
     for (const id of [...modelIds, "vendor/Claude  Opus:thinking-预算"]) {
       await route(page, "#/image/settings/ask");
       await page.locator("#settingsPanel[open]").waitFor();
-      if (modelIds.includes(id)) {
-        await page.getByRole("button", { name: "获取", exact: true }).click();
-        await page.waitForFunction((id) => [...document.querySelectorAll("#askModelIds option")].some((o) => o.value === id), id);
+      await page.getByRole("button", { name: "选择模型", exact: true }).click();
+      const list = page.locator("#askModelDialog");
+      if (id === modelIds[0]) {
+        // Catalogs carry no family: headings and icons follow the ID, the hand-kept pick sits under 其他.
+        await list.locator(`.lamp[aria-label="选用 ${id}"]`).waitFor();
+        assert.deepEqual(await list.locator(".md-gtitle b").allTextContents(), ["Claude", "Gemini", "其他"]);
+        assert.deepEqual(await list.locator(".md-ghead .vtile use").evaluateAll((uses) => uses.map((u) => u.getAttribute("href"))), ["#v-claude-c", "#v-gemini-c", "/assets/icons.svg#i-model"]);
       }
-      await page.locator("#askModel").fill(id);
-      await page.locator("#askModel").press("Enter");
-      await page.waitForFunction((id) => JSON.parse(localStorage.getItem("koma.ask.v1"))?.model === id, id);
-      await page.reload();
-      await page.locator("#settingsPanel[open]").waitFor();
-      assert.equal(await page.locator("#askModel").inputValue(), id);
+      if (modelIds.includes(id)) await list.locator(`.lamp[aria-label="选用 ${id}"]`).click();
+      else {
+        await list.getByRole("searchbox", { name: "搜索或填写模型 ID" }).fill(id);
+        await list.getByRole("searchbox", { name: "搜索或填写模型 ID" }).press("Enter");
+      }
+      await page.waitForFunction((id) => JSON.parse(localStorage.getItem("koma.ask.v1"))?.models?.chat?.includes(id), id);
+      await page.keyboard.press("Escape");
+      await list.waitFor({ state: "hidden" });
       await route(page, "#/image");
       await page.locator("#settingsPanel").waitFor({ state: "hidden" });
+      if (!(await drawer(page).isVisible())) await page.keyboard.press("Control+j");
+      await drawer(page).waitFor();
+      // The composer's chip switches to the new pick; the title keeps exact spacing.
+      await drawer(page).locator(".ask-model").click();
+      await page.locator(`#askModelMenu [title="${id}"]`).click();
+      await page.waitForFunction((id) => JSON.parse(localStorage.getItem("koma.ask.v1"))?.model === id, id);
+      await page.reload();
+      await page.waitForSelector(".switcher");
       await page.keyboard.press("Control+j");
       await drawer(page).waitFor();
+      assert.equal(await drawer(page).locator(".ask-model-name").evaluate((el) => el.textContent), id);
       llm.push(
         { body: openai(tool("compat_state", "get_state"), end("tool_calls")) },
         { body: openai(text("模拟工具轮次完成。"), end()) },
@@ -365,15 +645,90 @@ test("ASK compatibility: catalog and manual model IDs keep spaces/suffixes throu
   } finally { await context.close(); }
 });
 
+test("ASK composer: the model chip switches among picks across connections; a running turn keeps its model", async () => {
+  const { page, context, llm, calls, requests, errors } = await open("/#/image", { ready: ".switcher", ask: askSettings({ models: { chat: ["reasoning-a", "reasoning-b"], claude: ["claude-x"] } }) });
+  let release;
+  const messages = anthropic(
+    { type: "message_start", message: { id: "synthetic", usage: { input_tokens: 50, output_tokens: 0 } } },
+    { type: "content_block_start", index: 0, content_block: { type: "text", text: "Messages 回答。" } },
+    { type: "content_block_stop", index: 0 },
+    { type: "message_delta", delta: { stop_reason: "end_turn" }, usage: { output_tokens: 10 } },
+    { type: "message_stop" },
+  );
+  try {
+    await page.keyboard.press("Control+j");
+    await drawer(page).waitFor();
+    const chip = drawer(page).locator(".ask-model"), menu = page.locator("#askModelMenu");
+    const send = async (question) => { await page.locator("#askPrompt").fill(question); await page.locator("#askPrompt").press("Enter"); };
+    assert.equal((await chip.textContent()).trim(), "reasoning-a");
+    await chip.click();
+    // With picks on more than one connection, each set sits under its connection's name.
+    assert.deepEqual(await menu.locator(".ask-menu-group").allTextContents(), ["推理 Chat", "推理 Messages"]);
+    assert.deepEqual(await menu.getByRole("menuitemradio").allTextContents(), ["reasoning-a", "reasoning-b", "claude-x"]);
+    assert.equal(await menu.getByRole("menuitemradio", { name: "reasoning-a" }).getAttribute("aria-checked"), "true");
+    // The menu rises over the stream and stays inside the window.
+    const [box, frame] = await Promise.all([menu.boundingBox(), drawer(page).boundingBox()]);
+    assert.ok(box.y >= frame.y && box.x >= frame.x && box.x + box.width <= frame.x + frame.width + 1, JSON.stringify({ box, frame }));
+    await menu.getByRole("menuitemradio", { name: "claude-x" }).click();
+    await menu.waitFor({ state: "detached" });
+    await page.waitForFunction(() => { const s = JSON.parse(localStorage.getItem("koma.ask.v1")); return s.connectionId === "claude" && s.model === "claude-x"; });
+    assert.equal((await chip.textContent()).trim(), "claude-x");
+    // While a turn runs the picks are locked; the next turn uses the new one.
+    llm.push({ body: messages, wait: new Promise((resolve) => { release = resolve; }) }, { body: openai(text("Chat 回答。"), end()) });
+    const dispatched = page.waitForRequest((request) => reasoning.test(new URL(request.url()).pathname));
+    await send("第一问");
+    await dispatched;
+    await chip.click();
+    assert.equal(await menu.getByRole("menuitemradio", { name: "reasoning-b" }).isDisabled(), true);
+    await page.keyboard.press("Escape");
+    await menu.waitFor({ state: "detached" });
+    release();
+    await drawer(page).locator('.ask-turn[data-status="done"]').waitFor();
+    await chip.click();
+    await menu.getByRole("menuitemradio", { name: "reasoning-b" }).click();
+    await page.waitForFunction(() => JSON.parse(localStorage.getItem("koma.ask.v1")).model === "reasoning-b");
+    await send("第二问");
+    await drawer(page).locator('.ask-turn[data-status="done"]').nth(1).waitFor();
+    assert.deepEqual(calls.map((c) => [c.host, c.body.model]), [[hosts.claude, "claude-x"], [hosts.chat, "reasoning-b"]]);
+    // The last entry leads to the picks.
+    await chip.click();
+    await menu.getByRole("menuitem", { name: "管理模型" }).click();
+    await page.waitForFunction(() => location.hash.endsWith("/settings/ask"));
+    assert.deepEqual(generation(requests), []);
+    assert.deepEqual(errors, []);
+  } finally {
+    release?.();
+    await context.close();
+  }
+});
+
 test("ASK settings leave image work alone: cards, model sources and the protocol list", async () => {
   const { page, context, requests, errors } = await open("/#/image/settings/connections");
   try {
     await page.waitForFunction(() => [...document.querySelectorAll(".conn-card .st")].every((s) => s.dataset.s === "ok"));
     const card = (name) => page.locator(".conn-card", { hasText: name });
     assert.match(await card("推理 Chat").locator(".conn-models").textContent(), /ASK 模型\s*2 个 ID/);
+    // The card ASK uses names its model; the others keep their catalog count.
+    await page.evaluate(() => localStorage.setItem("koma.ask.v1", JSON.stringify({ version: 1, connectionId: "claude", model: "reasoning-b", images: true, preference: "", words: [], alwaysCodec: false })));
+    await page.evaluate(() => window.dispatchEvent(new StorageEvent("storage", { key: "koma.ask.v1" })));
+    await page.waitForFunction(() => /使用中 · reasoning-b/.test([...document.querySelectorAll(".conn-card")].find((c) => c.textContent.includes("推理 Messages"))?.querySelector(".conn-models")?.textContent ?? ""));
+    assert.match(await card("推理 Chat").locator(".conn-models").textContent(), /2 个 ID/);
     assert.match(await card("图像连接").locator(".conn-models").textContent(), /1 个 · 已用/);
+    // Like an image card, the row opens that connection's list, with ASK's picks ticked.
     await card("推理 Messages").locator(".conn-models").click();
-    await page.waitForFunction(() => location.hash.endsWith("/settings/ask"));
+    const list = page.locator("#askModelDialog");
+    await list.locator(".lamp").first().waitFor();
+    assert.equal((await list.locator("#askModelTitle").textContent()).trim(), "推理 Messages 模型列表");
+    assert.deepEqual(await list.locator(".lamp").evaluateAll((lamps) => lamps.map((l) => l.dataset.s)), ["off", "on"]);
+    await list.getByRole("button", { name: "选用 reasoning-a", exact: true }).click();
+    await page.waitForFunction(() => JSON.parse(localStorage.getItem("koma.ask.v1"))?.models?.claude?.length === 2);
+    await page.keyboard.press("Escape");
+    await list.waitFor({ state: "hidden" });
+    assert.match(await card("推理 Messages").locator(".conn-models").textContent(), /使用中 · reasoning-b/);
+    // A connection ASK does not use shows how many it picked there.
+    await page.evaluate(() => localStorage.setItem("koma.ask.v1", JSON.stringify({ version: 1, connectionId: "claude", model: "reasoning-b", models: { chat: ["reasoning-a"] }, images: true, preference: "", words: [], alwaysCodec: false })));
+    await page.evaluate(() => window.dispatchEvent(new StorageEvent("storage", { key: "koma.ask.v1" })));
+    await page.waitForFunction(() => /已选 1 个/.test([...document.querySelectorAll(".conn-card")].find((c) => c.textContent.includes("推理 Chat"))?.querySelector(".conn-models")?.textContent ?? ""));
     // Expanded image models list their sources; reasoning connections are not among them.
     await route(page, "#/image/settings/models");
     await page.getByRole("button", { name: /^展开 .+ 的来源$/ }).first().click();
@@ -575,7 +930,7 @@ test("ASK drawer: Esc closes the popover, then stops the turn, then the drawer; 
     await failed.waitFor();
     assert.match(await failed.locator(".ask-fail-text").textContent(), /content_filter/);
     assert.deepEqual((await failed.locator(".ask-fail-actions button").allTextContents()).map((t) => t.trim()), ["仅发元数据重试", "设置"]);
-    assert.match(await failed.locator(".ask-meta").textContent(), /确认成年内容后启用词表混淆/);
+    assert.match(await failed.locator(".ask-meta").textContent(), /开启自由创作后启用词表混淆/);
     await drawer(page).screenshot({ path: ".local/ask/drawer-failed.png" });
     const before = calls.length;
     await page.waitForTimeout(300);
@@ -598,6 +953,19 @@ test("ASK drawer: Esc closes the popover, then stops the turn, then the drawer; 
     await page.locator("#askPrompt").fill("nsfw 还是被拦截");
     await page.locator("#askPrompt").press("Enter");
     await failed.waitFor();
+    assert.deepEqual((await failed.locator(".ask-fail-actions button").allTextContents()).map((t) => t.trim()), ["仅发元数据重试", "设置"], 'empty vocabulary does not offer an ineffective codec retry');
+    const emptyCalls = calls.length;
+    await page.evaluate(() => {
+      const failed = ask.entries.value.find(e => e.type === 'turn' && e.turn.status === 'failed');
+      ask.retry(failed.id, 'codec');
+    });
+    assert.equal(calls.length, emptyCalls);
+    await page.evaluate(() => {
+      const settings = JSON.parse(localStorage.getItem("koma.ask.v1"));
+      localStorage.setItem("koma.ask.v1", JSON.stringify({ ...settings, words: ["nsfw"] }));
+      window.dispatchEvent(new StorageEvent("storage", { key: "koma.ask.v1" }));
+    });
+    await failed.getByRole("button", { name: "启用词表混淆并重试" }).waitFor();
     assert.deepEqual((await failed.locator(".ask-fail-actions button").allTextContents()).map((t) => t.trim()), ["启用词表混淆并重试", "仅发元数据重试"]);
     llm.push({ body: openai(text("@t_001 本身没问题。"), end()) });
     await failed.getByRole("button", { name: "启用词表混淆并重试" }).click();
@@ -1061,6 +1429,42 @@ const reverted = page => page.waitForFunction(()=>!ask.writingDraft.value && ask
 const undoCheckpoint = async page => {await page.locator('.ask-checkpoint').getByRole('button',{name:'回退',exact:true}).click();await reverted(page);};
 const restoreCheckpoint = async page => {await page.locator('.ask-checkpoint').getByRole('button',{name:'恢复',exact:true}).click();await page.waitForFunction(()=>!ask.writingDraft.value && ask.redoId.value === null);};
 
+test('ASK text replacements: actual wire uses B; streamed reply, confirmed draft, form and undo keep A', async () => {
+  const {page,context,llm,calls,requests,errors}=await open('/#/image',{ready:'.switcher',ask:askSettings({replacements:[{from:'red coat',to:'azure dress'}]})});
+  try {
+    await bind(page);
+    await page.evaluate(() => {
+      drawing.patch({prompt:'red coat, standing'});
+      localStorage.setItem('koma.ask.adult.v1','true');
+      window.dispatchEvent(new StorageEvent('storage',{key:'koma.ask.adult.v1'}));
+    });
+    await page.waitForFunction(()=>ask.adult.value===true);
+    assert.equal(await page.evaluate(()=>ask.codecActive.value),false,'explicit pairs do not require the automatic alias switch');
+    llm.push({body:request=>{
+      const state=JSON.parse(request.messages.at(-1).content.match(/<workspace_state>([\s\S]*?)<\/workspace_state>/)[1]);
+      return openai(text('保留 azure dr'),text('ess，补充柔光。'),tool('replacement_draft','propose_draft',{
+        base_hash:state.base_hash,draft_title:'保留 azure dress',steps:[patchStep('replace','azure dress','azure dress, soft light')],
+      }),end('tool_calls'));
+    }});
+    await page.evaluate(()=>ask.show());
+    await page.locator('#askPrompt').fill('保留 red coat，增加柔光');
+    await page.locator('#askPrompt').press('Enter');
+    await page.locator('.ask-draft[data-status="pending"]').waitFor();
+    await openDraft(page);
+    assert.match(calls[0].body.messages.at(-1).content,/保留 azure dress，增加柔光/);
+    assert.match(calls[0].body.messages[0].content,/<codebook>/);
+    assert.match(await drawer(page).locator('.ask-markdown').textContent(),/保留 red coat，补充柔光/);
+    assert.match(await page.locator('#askFullDraft').textContent(),/red coat/);
+    assert.equal((await page.locator('#askFullDraft').textContent()).includes('azure dress'),false);
+    assert.equal((await form(page)).prompt,'red coat, standing','proposing does not write');
+    await applyDraft(page);
+    assert.equal((await form(page)).prompt,'red coat, soft light, standing');
+    await undoCheckpoint(page);
+    assert.equal((await form(page)).prompt,'red coat, standing');
+    assert.deepEqual(generation(requests),[]);assert.deepEqual(errors,[]);
+  } finally {await context.close();}
+});
+
 test('ASK A2: confirmation, step withdrawal, four-width draft previews, apply and single-action undo preserve original tags',async()=>{
   const {page,context,llm,calls,requests,errors}=await open('/#/image',{ready:'.switcher',ask:askSettings()});
   try {
@@ -1070,6 +1474,8 @@ test('ASK A2: confirmation, step withdrawal, four-width draft previews, apply an
     const initial=await form(page);
     await askDraft(page,llm,[patchStep('replace','red eyes','blue eyes'),patchStep('append','',', soft lighting')]);
     assert.equal(await page.locator('#askFullDraft .draft-title strong').textContent(), '调整提示词');
+    // The finished draft keeps its trace line above the card instead of blinking out.
+    assert.equal((await drawer(page).locator('.ask-tools-summary').last().textContent()).trim(),'已整理 草稿');
     assert.deepEqual(await form(page),initial);assert.equal(calls.length,1);
     const steps=page.locator('.draft-step');
     await steps.nth(1).getByRole('button',{name:'撤回 Prompt',exact:true}).click();
@@ -1337,7 +1743,7 @@ test('ASK A4 inline: selected text, four widths, confirmation, undo, expand and 
   assert.equal(await page.locator('.ask-draft').count(),0);
   await page.locator('#askPrompt').focus();await page.keyboard.press('Escape');await drawer(page).waitFor({state:'hidden'});assert.equal(await source.evaluate(el=>document.activeElement===el),true);
   await source.press('Meta+k');await page.locator('#askDrawer.ask-inline').waitFor();await page.keyboard.press('Escape');await drawer(page).waitFor({state:'hidden'});
-  await route(page,'#/image/settings/ask');await page.locator('#askModel').focus();await page.locator('#askModel').press('Control+k');assert.equal(await drawer(page).isVisible(),false);
+  await route(page,'#/image/settings/ask');await page.locator('#askPreference').focus();await page.locator('#askPreference').press('Control+k');assert.equal(await drawer(page).isVisible(),false);
   assert.deepEqual(generation(requests),[]);assert.deepEqual(errors,[]);
  }finally{await context.close();}
 });
@@ -1562,7 +1968,9 @@ test('ASK island: collapsed tools, reviewed draft, apply/undo, focus guards and 
     await page.locator('#askDrawer [aria-label="收起 ASK"]').click();
     await islandMode(page, 'run');
     assert.match(await page.locator('.ask-activity').textContent(), /正在/);
-    assert.equal(await page.locator('.ask-run [aria-label="停止 ASK"]').isVisible(), true);
+    assert.equal(await page.locator('.ask-run button').count(), 1, 'the running island only opens the window');
+    // Esc on the island never stops the turn: the draft still arrives.
+    await page.keyboard.press('Escape');
     await islandMode(page, 'ready');
     assert.equal(await drawer(page).isVisible(), false);
     assert.equal(await page.locator('#askCompactDraft .ask-draft').isVisible(), true);
@@ -1594,9 +2002,13 @@ test('ASK island: collapsed tools, reviewed draft, apply/undo, focus guards and 
     await page.keyboard.press('Tab');
     await islandMode(page, 'done');
     assert.equal((await form(page)).prompt, 'blue eyes');
-    await page.locator('.ask-done .ask-undo').click();
-    await islandMode(page, 'idle');
+    // Undo lives in the window: the write pill only opens it.
+    assert.equal(await page.locator('.ask-done button').count(), 1);
+    await page.locator('.ask-done [aria-label="展开 ASK 对话"]').click();
+    await undoCheckpoint(page);
     assert.deepEqual(await form(page), initial);
+    await page.locator('#askDrawer [aria-label="收起 ASK"]').click();
+    await islandMode(page, 'idle');
     // A new pending draft still validates edits in compact mode.
     await askDraft(page,llm,[patchStep('replace','red eyes','blue eyes')]);
     await page.locator('#askPrompt').fill('保留输入');
@@ -1638,7 +2050,7 @@ test('ASK island: text, error, stop and responsive morphs retain anchors without
         await islandMode(page, state);
         await page.waitForFunction(state => {
           const el = document.querySelector('#askIsland'), r = el.getBoundingClientRect();
-          const size = { idle: [40, 40], run: [304, 40], done: [236, 40], exp: [420, Math.min(660, innerHeight - 16)], ready: [372, el.querySelector('.ask-ready').offsetHeight] }[state];
+          const size = { idle: [40, 40], run: [304, 40], done: [172, 40], exp: [420, Math.min(660, innerHeight - 16)], ready: [372, el.querySelector('.ask-ready').offsetHeight] }[state];
           return r.width === Math.min(size[0], innerWidth - 16) && Math.abs(r.height - size[1]) < 1 && r.left >= 7 && r.right <= innerWidth - 7 && r.top >= 7 && r.bottom <= innerHeight - 7 && el.scrollWidth <= el.clientWidth + 1;
         }, state);
         const visual = await page.locator('#askIsland').evaluate(el => {
@@ -1674,6 +2086,7 @@ test('ASK island: text, error, stop and responsive morphs retain anchors without
       assert.equal(await page.locator('#askCompactDraft .ask-draft-apply').isVisible(), true);
       await page.locator('#askCompactDraft .ask-draft-apply').click();
       await shot('done');
+      assert.equal(await page.locator('.ask-done button').count(), 1, 'no undo on the write pill');
       await page.locator('.ask-done [aria-label="展开 ASK 对话"]').click();
       await undoCheckpoint(page);
       await page.locator('#askDrawer [aria-label="收起 ASK"]').click();
@@ -1732,7 +2145,11 @@ test('ASK island: text, error, stop and responsive morphs retain anchors without
     await page.locator('#askDrawer .ask-fail-actions button').first().click();
     await page.locator('#askDrawer [aria-label="收起 ASK"]').click();
     await islandMode(page, 'run');
-    await page.locator('.ask-run [aria-label="停止 ASK"]').click();
+    await page.keyboard.press('Escape');
+    assert.equal(await page.evaluate(() => ask.running.value), true, 'Esc on the island never stops a turn');
+    await page.locator('.ask-run [aria-label="展开 ASK 对话"]').click();
+    await drawer(page).getByRole('button', { name: '停止', exact: true }).click();
+    await page.locator('#askDrawer [aria-label="收起 ASK"]').click();
     await islandMode(page, 'ready');
     assert.match(await page.locator('.ask-summary').textContent(), /已停止/);
     await page.locator('.ask-ready [aria-label="展开 ASK 对话"]').focus();
@@ -1934,7 +2351,7 @@ test('ASK W2: new, switch and delete keep input, drafts and calls apart; the men
 
     let menu=await openConversations(page);
     assert.equal(await menu.getByRole('menuitemradio').count(),1);
-    assert.match(await menu.textContent(),/只保留本页对话，刷新后清空/);
+    assert.match(await menu.textContent(),/收藏保留，其余刷新后清空/);
     await menu.getByRole('menuitem',{name:'新对话'}).click();
     await page.waitForFunction(()=>document.activeElement?.id==='askPrompt');
     assert.equal(await heading(page),'新对话');
@@ -2144,7 +2561,7 @@ test('ASK W3: real CHAT branch receipts support successive rollback and restore 
   } finally { await context.close(); }
 });
 
-test('ASK W3: a later reply replaces the write pill, compact undo reports conflicts and the result can close', async () => {
+test('ASK W3: a later reply replaces the write pill, undo conflicts report from the window and the result can close', async () => {
   const {page,context,llm,requests,errors}=await open('/#/image',{ready:'.switcher',ask:askSettings()});
   try {
     await bind(page); await page.evaluate(()=>drawing.patch({prompt:'red eyes'}));
@@ -2160,12 +2577,13 @@ test('ASK W3: a later reply replaces the write pill, compact undo reports confli
     assert.match(await page.locator('.ask-summary').textContent(),/后续的普通回复/);
     // A conflict keeps the written record and reports through the common toast.
     await page.evaluate(()=>drawing.patch({prompt:'manual'}));
-    await page.locator('.ask-ready .ask-undo').click();
-    await page.waitForFunction(()=>ask.notice.value.includes('回退失败：Prompt'));
-    assert.equal((await form(page)).prompt,'manual');
+    assert.equal(await page.locator('.ask-ready .ask-undo').count(),0,'undo lives in the window');
     await page.locator('.ask-ready').getByRole('button',{name:'收起 ASK 结果'}).click();
     await islandMode(page,'idle');
     await page.locator('#askLauncher').click();
+    await page.locator('.ask-checkpoint').getByRole('button',{name:'回退',exact:true}).click();
+    await page.waitForFunction(()=>ask.notice.value.includes('回退失败：Prompt'));
+    assert.equal((await form(page)).prompt,'manual');
     await page.evaluate(()=>drawing.patch({prompt:'blue eyes'}));
     // Ignoring another pending draft dismisses its compact result, keeps A's undo.
     await askDraft(page,llm,[patchStep('append','',', sunlight')]);
@@ -2762,10 +3180,10 @@ for (const connection of ['chat','claude']) test(`ASK clean context: ${connectio
     assert.equal(state.anchor,null);
     assert.deepEqual(state.image.history,{mode:'B',count:4,latest_id:'#h4'});
     assert.deepEqual(state.image.current,{id:'#h4'});
-    assert.equal(state.image.form.text_included,false);
-    assert.equal(state.image.form.prompt,undefined);assert.equal(state.image.form.negative,undefined);
+    assert.equal(state.image.form.text_included,true);
+    assert.equal(state.image.form.prompt,initial.prompt);assert.equal(state.image.form.negative,initial.negative);
     assert.equal(state.image.form.seed,'123');
-    assert.doesNotMatch(calls[1].raw,/old_tram_scene|old_laundry_scene|old_cafe_scene|old_elf_scene|old_negative_text|旧会话唯一标记/);
+    assert.doesNotMatch(calls[1].raw,/old_laundry_scene|old_cafe_scene|旧会话唯一标记/);
     assert.match(calls[1].raw,/魔法少女绘奈|星形发饰/);
     assert.deepEqual(calls[2].body.tool_choice,connection==='chat'?'none':{type:'none'});
     assert.deepEqual(calls[2].body.tools,calls[1].body.tools);
@@ -2797,7 +3215,7 @@ test('ASK clean context: on-demand initial form stays frozen; latest read append
     await page.locator('.ask-turn[data-status=done]').waitFor();
     const states=wireStates(calls[2].body);
     assert.equal(states.length,3);
-    assert.equal(states[0].image.form.prompt,undefined);
+    assert.equal(states[0].image.form.prompt,'initial_text_only');
     assert.equal(states[1].image.form.prompt,'initial_text_only');
     assert.equal(states[2].image.form.prompt,'externally_changed_text');
     assert.equal(states[0].base_hash,states[1].base_hash);assert.notEqual(states[1].base_hash,states[2].base_hash);
@@ -2864,4 +3282,412 @@ test('ASK tag failures: partial errors keep header labels together, details belo
     await page.locator('.ask-tool[data-state=error] .ask-tool-reason').waitFor();
     assert.deepEqual(generation(requests),[]);assert.deepEqual(errors,[]);
   } finally {await context.close();}
+});
+
+for (const connectionId of ['chat','claude']) test(`C4 boards/characters: ${connectionId} frozen state, grouped draft, source board and new-board checkpoint`, async()=>{
+  const {page,context,llm,calls,requests,errors}=await open('/#/image',{ready:'.switcher',standard:true,ask:askSettings({connectionId,images:false})});
+  try {
+    await bind(page);await page.waitForFunction(()=>drawing.snapshot().models.length===2);
+    await page.evaluate(async()=>{
+      await drawing.patch({prompt:'2people, park',characters:[{id:'c1',on:true,prompt:'girl, red hair',negative:'blue hair',centers:[{x:.2,y:.5}]},{id:'c2',on:true,prompt:'boy, blue hair',negative:'',centers:[{x:.8,y:.5}]}],placement:'manual'});
+      window.sourceBoard=drawing.snapshot().activeBoardId;
+      window.otherBoard=await drawing.createBoard(false);await drawing.patch({prompt:'inactive_secret'});await drawing.switchBoard(sourceBoard);ask.show();
+    });
+    await page.waitForTimeout(750);requests.length=0;
+    const response=(name,input)=>scripted(connectionId==='chat'?'chat':'claude',name,input);
+    llm.push({body:body=>response('get_state',{board_id:wireStates(body)[0].image.boards.find(b=>b.id!==wireStates(body)[0].image.active_board_id).id})},
+      {body:body=>response('propose_draft',{base_hash:wireStates(body)[0].base_hash,draft_title:'调整角色二',steps:[
+        {kind:'prompt_patch',target:'image.char.c2.prompt',mode:'replace',anchor:'blue hair',text:'green hair'},
+        {kind:'character_edit',op:'set_enabled',id:'c2',on:false},
+        {kind:'character_edit',op:'set_position',id:'c2',x:.7,y:.4},
+        {kind:'character_edit',op:'add',prompt:'girl, blonde hair',negative:'red hair',x:.3,y:.6},
+      ]})}, {body:response(null)});
+    await page.locator('#askPrompt').fill('修改角色二，另一个画板仅供比较');await page.locator('#askPrompt').press('Enter');
+    await page.locator('.ask-draft[data-status=pending]').waitFor();await page.waitForFunction(()=>!ask.running.value);
+    const initial=wireStates(calls[0].body)[0];assert.equal(initial.image.form.prompt,'2people, park');assert.equal(initial.image.form.characters[1].prompt,'boy, blue hair');assert.doesNotMatch(calls[0].raw,/inactive_secret/);assert.match(calls[1].raw,/inactive_secret/);
+    await openDraft(page);assert.equal(await page.locator('#askFullDraft .draft-field').count(),2);assert.equal(await page.locator('#askFullDraft .draft-field[data-field="character:c2"] .draft-step').count(),3);
+    await page.screenshot({path:`.local/multi-char/implementation/ui/draft-${connectionId}.png`});
+    await page.evaluate(()=>drawing.switchBoard(otherBoard));await page.waitForTimeout(700);requests.length=0;
+    assert.match(await page.locator('#askFullDraft .ask-draft-apply').textContent(),/切回画板 1并应用/);
+    await page.evaluate(()=>{
+      const p=document.body.__vue_app__._context.provides,s=p[Object.getOwnPropertySymbols(p).find(k=>k.description==='application-services')],set=s.preferences.set;
+      s.preferences.set=async()=>{s.preferences.set=set;throw new Error('synthetic new-board save failure');};
+    });
+    await (await openApplyMenu(page)).getByRole('menuitem',{name:'应用到新画板',exact:true}).click();
+    await page.waitForFunction(()=>!ask.writingDraft.value&&ask.notice.value.includes('synthetic new-board save failure'));
+    assert.equal(await page.evaluate(()=>drawing.snapshot().boards.length),2);
+    assert.equal(await page.evaluate(()=>drawing.snapshot().activeBoardId),await page.evaluate(()=>otherBoard));
+    assert.equal(await page.evaluate(()=>ask.undoId.value),null);
+    await (await openApplyMenu(page)).getByRole('menuitem',{name:'应用到新画板',exact:true}).click();
+    await page.waitForFunction(()=>!ask.writingDraft.value&&drawing.snapshot().boards.length===3);
+    const result=await page.evaluate(()=>({id:drawing.snapshot().activeBoardId,characters:drawing.snapshot().form.characters,source:drawing.board(sourceBoard).form.characters,prompt:drawing.board(otherBoard).form.prompt}));
+    assert.equal(result.characters[1].prompt,'boy, green hair');assert.equal(result.characters[1].on,false);assert.equal(result.source[1].prompt,'boy, blue hair');assert.equal(result.prompt,'inactive_secret');
+    assert.equal(result.characters[2].id,'c3');assert.equal(result.characters[2].negative,'red hair');
+    assert.equal(await page.evaluate(()=>drawing.board(drawing.snapshot().activeBoardId).nextCharacterId),4);
+    const checkpoint=await page.evaluate(()=>ask.undoId.value);await page.evaluate(id=>ask.undoDraft(id),checkpoint);assert.equal(await page.evaluate(()=>drawing.snapshot().boards.length),2);
+    await page.evaluate(id=>ask.restoreDraft(id),checkpoint);assert.equal(await page.evaluate(()=>drawing.snapshot().activeBoardId),result.id);
+    assert.deepEqual(generation(requests),[]);assert.deepEqual(errors,[]);
+  } finally {await context.close();}
+});
+
+for (const connectionId of ['chat', 'claude']) test(`ASK named board: ${connectionId} locked destination, ordinary split menu, compact apply and checkpoint`, async () => {
+  const { page, context, llm, calls, requests, errors } = await open('/#/image', { ready: '.switcher', standard: true, ask: askSettings({ connectionId, images: false }) });
+  try {
+    await mkdir('.local/ask/draft-actions/implementation', { recursive: true });
+    await bind(page);
+    await page.waitForFunction(() => drawing.snapshot().models.length === 2);
+    const source = await page.evaluate(async () => { await drawing.patch({ prompt: 'red eyes', seed: '7' }); return drawing.snapshot().activeBoardId; });
+    const other = await page.evaluate(async () => { const id = await drawing.createBoard(false); await drawing.patch({ prompt: 'other board' }); return id; });
+    await page.evaluate(id => { void drawing.switchBoard(id); ask.show(); }, source);
+    const propose = async (name, mode = 'rewrite', text = 'night train, blue eyes') => {
+      llm.push({ body: body => scripted(connectionId, 'propose_draft', {
+        base_hash: wireStates(body).at(-1).base_hash, draft_title: '整理夜景构图', new_board_name: name,
+        steps: [patchStep(mode, '', text)],
+      }) }, { body: scripted(connectionId, null) });
+      await page.locator('#askPrompt').fill(name ? '保留原画板，在新画板尝试雨夜电车' : '给这份提示词补充晨光');
+      await page.locator('#askPrompt').press('Enter');
+      await page.locator('.ask-draft[data-status=pending]').waitFor();
+      await page.waitForFunction(() => !ask.running.value);
+    };
+    await propose('雨夜电车');
+    assert.equal(await page.evaluate(() => drawing.snapshot().boards.length), 2, 'model proposal only previews a destination');
+    assert.equal(await page.locator('.draft-destination').textContent(), '新画板·雨夜电车');
+    assert.equal(await page.locator('.draft-title strong').textContent(), '整理夜景构图');
+    assert.match(await page.locator('.ask-draft-apply').textContent(), /新建并应用/);
+    const tools = calls[0].body.tools;
+    const schema = connectionId === 'chat' ? tools.find(t => t.function.name === 'propose_draft').function.parameters : tools.find(t => t.name === 'propose_draft').input_schema;
+    assert.equal(schema.properties.new_board_name.maxLength, 80);
+    await page.evaluate(id => drawing.switchBoard(id), other);
+    await page.waitForTimeout(750); requests.length = 0;
+    assert.match(await page.locator('.ask-draft-apply').textContent(), /新建并应用/);
+    await openDraft(page);
+    for (const width of [320, 390, 768, 1440]) {
+      await page.setViewportSize({ width, height: 900 });
+      assert.equal(await page.locator('.draft-apply-more, .draft-apply-menu').count(), 0, 'named destination has no alternative write target');
+      assert.ok(await page.locator('.ask-draft').evaluate(el => el.scrollWidth <= el.clientWidth + 1));
+      await page.screenshot({ path: `.local/ask/draft-actions/implementation/${connectionId}-${width}.png` });
+      assert.equal(await page.evaluate(() => drawing.snapshot().boards.length), 2);
+    }
+    await page.evaluate(() => {
+      const p = document.body.__vue_app__._context.provides, services = p[Object.getOwnPropertySymbols(p).find(k => k.description === 'application-services')], set = services.preferences.set;
+      services.preferences.set = async () => { services.preferences.set = set; throw new Error('named board save failure'); };
+    });
+    await page.locator('.ask-draft-apply').click();
+    await page.waitForFunction(() => !ask.writingDraft.value && ask.notice.value.includes('named board save failure'));
+    assert.equal(await page.evaluate(() => drawing.snapshot().boards.length), 2);
+    assert.equal(await page.evaluate(() => drawing.snapshot().activeBoardId), other);
+    assert.equal(await page.evaluate(() => ask.undoId.value), null);
+    await page.locator('#askDrawer [aria-label="收起 ASK"]').click();
+    await islandMode(page, 'ready');
+    assert.match(await page.locator('#askCompactDraft .draft-destination').textContent(), /雨夜电车/);
+    assert.equal(await page.locator('#askCompactDraft .draft-apply-more').count(), 0);
+    const callCount = calls.length;
+    if (connectionId === 'chat') await page.locator('#askCompactDraft .ask-draft-apply').click();
+    else { await page.locator('.ask-ready [aria-label="展开 ASK 对话"]').focus(); await page.keyboard.press('Tab'); }
+    await page.waitForFunction(() => !ask.writingDraft.value && !ask.draftPlan.value && drawing.snapshot().boards.length === 3);
+    const created = await page.evaluate(() => ({ id: drawing.snapshot().activeBoardId, name: drawing.board(drawing.snapshot().activeBoardId).name, prompt: drawing.snapshot().form.prompt }));
+    assert.equal(created.name, '雨夜电车'); assert.equal(created.prompt, 'night train, blue eyes');
+    assert.equal(await page.evaluate(id => drawing.board(id).form.prompt, source), 'red eyes');
+    assert.equal(await page.evaluate(id => drawing.board(id).form.prompt, other), 'other board');
+    assert.equal(calls.length, callCount, 'application never calls the naming model');
+    const checkpoint = await page.evaluate(() => ask.undoId.value);
+    await page.evaluate(id => ask.undoDraft(id), checkpoint);
+    assert.equal(await page.evaluate(id => !!drawing.board(id), created.id), false);
+    await page.evaluate(id => ask.restoreDraft(id), checkpoint);
+    assert.equal(await page.evaluate(() => drawing.snapshot().activeBoardId), created.id);
+    assert.equal(await page.evaluate(id => drawing.board(id).name, created.id), '雨夜电车');
+    await page.evaluate(() => ask.show());
+    await propose('第二个试验', 'append', ', moonlight');
+    await route(page, '/chat');
+    await page.waitForFunction(() => ask.draftApplyLabel.value === '切回绘图并新建');
+    assert.equal(await page.locator('.draft-apply-more, .draft-apply-menu').count(), 0);
+    await page.evaluate(() => ask.applyDraft(ask.draftPlan.value.fingerprint, false));
+    await page.waitForFunction(() => !ask.writingDraft.value && !ask.draftPlan.value);
+    assert.equal(await page.evaluate(() => drawing.snapshot().boards.length), 4, 'legacy false argument cannot redirect a named new-board draft to its source');
+    assert.equal(await page.evaluate(() => drawing.board(drawing.snapshot().activeBoardId).name), '第二个试验');
+    assert.equal(await page.evaluate(id => drawing.board(id).form.prompt, created.id), 'night train, blue eyes');
+    assert.equal(await page.evaluate(() => drawing.snapshot().form.prompt), 'night train, blue eyes, moonlight');
+    assert.equal(await page.evaluate(() => location.hash), '#/image');
+    await propose(undefined, 'append', ', dawn');
+    assert.equal(await page.locator('.draft-destination').count(), 0);
+    for (const width of [320, 390, 768, 1440]) {
+      await page.setViewportSize({ width, height: 900 });
+      const menu = await openApplyMenu(page);
+      assert.equal(await menu.getByRole('menuitem', { name: '应用到来源画板', exact: true }).count(), 1);
+      assert.equal(await menu.getByRole('menuitem', { name: '应用到新画板', exact: true }).count(), 1);
+      assert.equal((await menu.textContent()).replace(/\s+/g, ''), '应用到来源画板应用到新画板');
+      assert.equal(await menu.locator('small').count(), 0);
+      assert.equal(await menu.evaluate(el => el.getBoundingClientRect().width), 184);
+      assert.ok(await menu.evaluate(el => { const r = el.getBoundingClientRect(); return r.left >= 0 && r.right <= innerWidth && r.top >= 0 && r.bottom <= innerHeight; }));
+      const right = await menu.evaluate(el => el.getBoundingClientRect().right);
+      const buttonRight = await page.locator('.draft-apply-more').evaluate(el => el.getBoundingClientRect().right);
+      assert.ok(Math.abs(right - buttonRight) < 2, `menu stays anchored at ${width}: ${right} / ${buttonRight}`);
+      await page.locator('.ask-stream').evaluate(el => el.dispatchEvent(new Event('scroll')));
+      assert.equal(await menu.count(), 1, 'message stream scrolling does not dismiss the stationary menu');
+      await page.screenshot({ path: `.local/ask/draft-actions/implementation/${connectionId}-ordinary-${width}.png` });
+      if (width === 1440) {
+        const a = await page.locator('.draft-actions').boundingBox(), b = await menu.boundingBox();
+        await page.screenshot({ path: `.local/ask/draft-actions/implementation/${connectionId}-actions.png`, clip: { x: b.x - 8, y: a.y - 8, width: b.width + 16, height: b.y + b.height - a.y + 16 }, scale: 'css' });
+      }
+      await page.keyboard.press(width === 320 ? 'Tab' : 'Escape');
+      assert.equal(await menu.count(), 0);
+      assert.equal(await page.locator('.draft-apply-more').evaluate(el => el === document.activeElement), true);
+      assert.equal(await page.evaluate(() => drawing.snapshot().boards.length), 4);
+    }
+    await (await openApplyMenu(page)).getByRole('menuitem', { name: /应用到来源画板/ }).click();
+    await page.waitForFunction(() => !ask.writingDraft.value && !ask.draftPlan.value);
+    assert.equal(await page.evaluate(() => drawing.snapshot().boards.length), 4);
+    assert.equal(await page.evaluate(() => drawing.snapshot().form.prompt), 'night train, blue eyes, moonlight, dawn');
+    assert.deepEqual(generation(requests), []); assert.deepEqual(errors, []);
+  } finally { await context.close(); }
+});
+
+test('C4 atomic writes: failed new board leaves no copy; delayed source save never rolls back another board',async()=>{
+  const {page,context,errors}=await open('/#/image',{ready:'.switcher',standard:true,ask:askSettings()});
+  try {
+    await bind(page);await page.waitForFunction(()=>drawing.snapshot().models.length===2);
+    const result=await page.evaluate(async()=>{
+      const p=document.body.__vue_app__._context.provides,s=p[Object.getOwnPropertySymbols(p).find(k=>k.description==='application-services')];
+      await drawing.patch({prompt:'A'});const a=drawing.snapshot().activeBoardId,b=await drawing.createBoard(false);await drawing.patch({prompt:'B'});
+      const {boardForm}=await import('/src/domain/drawing.ts'), source=drawing.board(a), fresh={...structuredClone(source),id:'new-failed',form:{...boardForm(drawing.snapshot().form),prompt:'new'}};
+      const set=s.preferences.set;s.preferences.set=async()=>{throw new Error('synthetic save failure');};
+      let failed=false;try{await drawing.insertBoardDraft(fresh,a);}catch{failed=true;}s.preferences.set=set;
+      const copyCount=drawing.snapshot().boards.length;
+      let reject; s.preferences.set=()=>new Promise((_,r)=>reject=r);
+      const pending=drawing.writeDraft({prompt:'ASK A'},{prompt:'A'},a).catch(()=>{});s.preferences.set=set;
+      await drawing.switchBoard(b);await drawing.patch({prompt:'manual B'});reject(new Error('late failure'));await pending;
+      s.preferences.set=()=>new Promise((_,r)=>reject=r);
+      const inserting=drawing.insertBoardDraft(fresh,a).catch(()=>{});s.preferences.set=set;
+      await drawing.switchBoard(b);await drawing.patch({prompt:'later B'});reject(new Error('late insert failure'));await inserting;
+      const afterInsert={count:drawing.snapshot().boards.length,prompt:drawing.snapshot().form.prompt};
+      await drawing.insertBoardDraft(fresh,a);
+      s.preferences.set=()=>new Promise((_,r)=>reject=r);
+      const removing=drawing.removeBoardDraft(fresh.id,fresh,a).catch(()=>{});s.preferences.set=set;
+      await drawing.switchBoard(b);await drawing.patch({prompt:'latest B'});reject(new Error('late remove failure'));await removing;
+      const afterRemove={count:drawing.snapshot().boards.length,prompt:drawing.snapshot().form.prompt,restored:drawing.board(fresh.id).form.prompt};
+      return {failed,copyCount,current:drawing.snapshot().form.prompt,source:drawing.board(a).form.prompt,afterInsert,afterRemove};
+    });
+    assert.deepEqual(result,{failed:true,copyCount:2,current:'latest B',source:'A',afterInsert:{count:2,prompt:'later B'},afterRemove:{count:3,prompt:'latest B',restored:'new'}});assert.deepEqual(errors,[]);
+  } finally {await context.close();}
+});
+
+async function savedAsk(page) {
+  return page.evaluate(async () => {
+    const { names } = await import('/src/storage/names.ts'), { idbRequest } = await import('/src/storage/databases.ts');
+    const p = document.body.__vue_app__._context.provides, s = p[Object.getOwnPropertySymbols(p).find(k => k.description === 'application-services')];
+    return idbRequest(s.databases.transaction(names.databases.ask, 'conversations').objectStore('conversations').getAll());
+  });
+}
+async function reloadAsk(page) {
+  await page.reload(); await page.waitForSelector('.switcher'); await bind(page);
+  await page.waitForFunction(() => ask.favoritesReady.value);
+  await page.evaluate(() => ask.show());
+}
+for (const connectionId of ['chat', 'claude']) test(`ASK favorites: ${connectionId} reload, exact context, attachments, auto-save, unstar and delete`, async () => {
+  const { page, context, llm, calls, requests, errors } = await open('/#/image', { ready: '.switcher', ask: askSettings({ connectionId }) });
+  try {
+    await mkdir('.local/ask/favorites', { recursive: true });
+    await bind(page); await page.waitForFunction(() => ask.favoritesReady.value);
+    await addImage(page, 'temporary history');
+    await page.evaluate(async () => {
+      const c = new OffscreenCanvas(40, 40); c.getContext('2d').fillRect(0, 0, 40, 40);
+      const blob = await c.convertToBlob({ type: 'image/png' });
+      await ask.addFiles([new File([blob], 'sample.png', { type: 'image/png' }), new File(['attachment-original'], 'notes.md', { type: 'text/plain' })]);
+      ask.show();
+    });
+    llm.push({ body: scripted(connectionId, 'get_meta', { id: '#a1' }) }, { body: scripted(connectionId, null) });
+    await page.locator('#askPrompt').fill('收藏样例 #h1 和 #a1'); await page.locator('#askPrompt').press('Enter');
+    await page.waitForFunction(() => !ask.running.value && ask.entries.value.length === 1);
+    const id = await page.evaluate(() => ask.conversationId.value);
+    const initialMessages = calls[1].body.messages;
+    let menu = await openConversations(page);
+    await menu.getByRole('menuitemcheckbox', { name: '收藏会话', exact: true }).click();
+    await page.waitForFunction(() => ask.heading.value.favorite && !ask.favoriteBusy.value);
+    assert.equal((await savedAsk(page)).length, 1);
+    const stored = (await savedAsk(page))[0];
+    assert.equal(stored.attachments.length, 2);
+    assert.equal(stored.attachments.some(a => 'url' in a), false);
+    assert.doesNotMatch(JSON.stringify(stored), /blob:http|synthetic-chat|synthetic-claude|authorization/);
+    for (const width of [320, 390, 768, 1440]) {
+      await page.setViewportSize({ width, height: 900 });
+      assert.ok(await menu.evaluate(el => { const r = el.getBoundingClientRect(); return r.left >= 0 && r.right <= innerWidth && r.bottom <= innerHeight; }));
+      await page.screenshot({ path: `.local/ask/favorites/${connectionId}-${width}.png` });
+    }
+    await menu.getByRole('menuitem', { name: '新对话', exact: true }).click();
+    llm.push({ body: scripted(connectionId, null) });
+    await page.locator('#askPrompt').fill('临时对话不会保存'); await page.locator('#askPrompt').press('Enter');
+    await page.waitForFunction(() => !ask.running.value && ask.entries.value.length === 1);
+    assert.equal(await page.evaluate(() => ask.conversations.value[0].id), id, 'favorites precede temporary conversations');
+    await reloadAsk(page);
+    assert.equal(await page.evaluate(() => ask.conversations.value.length), 1);
+    assert.equal(await page.evaluate(() => ask.conversationId.value), id);
+    assert.equal(await heading(page), '收藏样例 #h1 和 #a1');
+    assert.equal(await page.locator('.ask-turn').count(), 1);
+    assert.equal(await page.evaluate(() => ask.attachmentText('text-1')), 'attachment-original');
+    assert.equal(await page.evaluate(async () => (await fetch(ask.pictureInfo('#a1').url)).ok), true);
+    const added = await addImage(page, 'new history after reload');
+    assert.equal(await page.evaluate(id => ask.labelFor(id), added), '#h2');
+    assert.equal(await page.evaluate(() => ask.pictureInfo('#h1')), null, 'old history references never resolve to the new image');
+    const nextCall = calls.length;
+    llm.push({ body: scripted(connectionId, 'view_image', { id: '#a1' }) }, { body: scripted(connectionId, null) });
+    await page.locator('#askPrompt').fill('继续查看附件'); await page.locator('#askPrompt').press('Enter');
+    await page.waitForFunction(() => !ask.running.value && ask.entries.value.length === 2);
+    await page.evaluate(() => ask.flushFavorites());
+    const withoutCacheBoundary = value => JSON.parse(JSON.stringify(value, (key, item) => key === 'cache_control' ? undefined : item));
+    assert.deepEqual(withoutCacheBoundary(calls[nextCall].body.messages.slice(0, initialMessages.length)), withoutCacheBoundary(initialMessages), 'saved conversation preserves its message prefix; Anthropic moves the cache boundary to the newest turn');
+    assert.match(calls[nextCall + 1].raw, /image/);
+    assert.equal((await savedAsk(page))[0].entries.length, 2, 'new turns update the favorite');
+    await page.evaluate(() => { ask.renameConversation(ask.conversationId.value, '改名后的收藏'); ask.setInput('保留未发送文字'); });
+    await page.evaluate(() => ask.flushFavorites());
+    await reloadAsk(page);
+    assert.equal(await heading(page), '改名后的收藏');
+    assert.equal(await page.locator('#askPrompt').inputValue(), '保留未发送文字');
+    menu = await openConversations(page);
+    await menu.getByRole('menuitemcheckbox', { name: '取消收藏', exact: true }).click();
+    await page.waitForFunction(() => !ask.heading.value.favorite && !ask.favoriteBusy.value);
+    assert.equal((await savedAsk(page)).length, 0);
+    assert.equal(await page.locator('.ask-turn').count(), 2, 'unstar keeps the current page conversation');
+    await menu.getByRole('menuitemcheckbox', { name: '收藏会话', exact: true }).click();
+    await page.waitForFunction(() => ask.heading.value.favorite && !ask.favoriteBusy.value);
+    await menu.getByRole('button', { name: '删除 改名后的收藏', exact: true }).click();
+    await menu.getByRole('button', { name: '确认删除 改名后的收藏', exact: true }).click();
+    await page.waitForFunction(() => ask.heading.value.title === '新对话');
+    assert.equal((await savedAsk(page)).length, 0);
+    await reloadAsk(page);
+    assert.equal(await page.locator('.ask-turn').count(), 0);
+    assert.deepEqual(generation(requests), []); assert.deepEqual(errors, []);
+  } finally { await context.close(); }
+});
+
+test('ASK favorites: pending draft survives, applied checkpoints stay read-only after reload, failures keep the favorite', async () => {
+  const { page, context, llm, requests, errors } = await open('/#/image', { ready: '.switcher', ask: askSettings() });
+  try {
+    await bind(page); await page.waitForFunction(() => ask.favoritesReady.value);
+    await page.evaluate(() => drawing.patch({ prompt: 'red eyes' }));
+    await askDraft(page, llm, [patchStep('replace', 'red eyes', 'blue eyes')], '保存草稿');
+    await page.evaluate(() => ask.toggleFavorite());
+    await reloadAsk(page);
+    assert.equal(await page.locator('.ask-draft').count(), 1);
+    assert.equal(await page.evaluate(() => drawing.snapshot().form.prompt), 'red eyes');
+    await page.locator('.ask-draft-apply').click();
+    await page.waitForFunction(() => !ask.writingDraft.value && !ask.draftPlan.value);
+    assert.equal(await page.evaluate(() => drawing.snapshot().form.prompt), 'blue eyes');
+    await reloadAsk(page);
+    assert.equal(await page.locator('.ask-draft').count(), 0);
+    assert.equal(await page.locator('.ask-checkpoint[data-state=applied]').count(), 1);
+    assert.equal(await page.locator('.ask-checkpoint button').count(), 0);
+    await askDraft(page, llm, [patchStep('replace', 'blue eyes', 'green eyes')], '新一轮草稿');
+    await page.locator('.ask-draft-apply').click();
+    await page.waitForFunction(() => !ask.writingDraft.value && !ask.draftPlan.value);
+    assert.equal(await page.locator('.ask-checkpoint').first().locator('button').count(), 0, 'old checkpoint cannot alias the new undo ID');
+    assert.equal(await page.locator('.ask-checkpoint').last().getByRole('button', { name: '回退', exact: true }).count(), 1);
+    await page.evaluate(() => {
+      const p = document.body.__vue_app__._context.provides, s = p[Object.getOwnPropertySymbols(p).find(k => k.description === 'application-services')];
+      const write = s.data.write; s.data.write = () => { s.data.write = write; return Promise.reject(new Error('synthetic favorite save failure')); };
+    });
+    await page.evaluate(() => ask.toggleFavorite());
+    assert.equal(await page.evaluate(() => ask.heading.value.favorite), true);
+    assert.equal((await savedAsk(page)).length, 1);
+    await page.evaluate(() => ask.toggleFavorite());
+    assert.equal((await savedAsk(page)).length, 0);
+    await reloadAsk(page);
+    assert.equal(await page.locator('.ask-turn').count(), 0);
+    assert.equal(await page.evaluate(() => drawing.snapshot().form.prompt), 'green eyes', 'removing a favorite never undoes workspace writes');
+    assert.deepEqual(generation(requests), []); assert.deepEqual(errors, []);
+  } finally { await context.close(); }
+});
+
+test('ASK favorites: separate tabs retain both favorites and isolate repeated attachment/history labels', async () => {
+  const { page, context, llm, requests, errors } = await open('/#/image', { ready: '.switcher', ask: askSettings() });
+  try {
+    const second = await context.newPage(); await second.goto(origin + '/#/image'); await second.waitForSelector('.switcher');
+    const ids = [];
+    for (const [target, value] of [[page, 'A'], [second, 'B']]) {
+      await bind(target); await target.waitForFunction(() => ask.favoritesReady.value);
+      await addImage(target, `history-${value}`);
+      await target.evaluate(async value => {
+        const canvas = new OffscreenCanvas(8, 8), g = canvas.getContext('2d');
+        g.fillStyle = value === 'A' ? '#ff0000' : '#0000ff'; g.fillRect(0, 0, 8, 8);
+        await ask.addFiles([new File([await canvas.convertToBlob()], `${value}.png`, { type: 'image/png' }), new File([`text-${value}`], `${value}.txt`, { type: 'text/plain' })]);
+      }, value);
+      await askText(target, llm, `收藏 ${value} #h1 #a1`);
+      await target.evaluate(() => ask.toggleFavorite());
+      ids.push(await target.evaluate(() => ask.conversationId.value));
+    }
+    assert.equal((await savedAsk(page)).length, 2, 'saving in another tab does not replace the first favorite');
+    await second.close();
+    await reloadAsk(page);
+    for (const [id, value] of [[ids[0], 'A'], [ids[1], 'B']]) {
+      await page.evaluate(id => ask.selectConversation(id), id);
+      assert.equal(await page.evaluate(() => ask.attachmentText('text-1')), `text-${value}`);
+      assert.equal(await page.evaluate(() => ask.entries.value[0].turn.attachments[0].name), `${value}.png`);
+      assert.equal(await page.evaluate(() => ask.pictureInfo('#h1')), null);
+      const pixel = await page.evaluate(async () => {
+        const blob = await (await fetch(ask.pictureInfo('#a1').url)).blob(), bitmap = await createImageBitmap(blob);
+        const canvas = new OffscreenCanvas(8, 8), g = canvas.getContext('2d'); g.drawImage(bitmap, 0, 0); bitmap.close();
+        return [...g.getImageData(0, 0, 1, 1).data];
+      });
+      assert.deepEqual(pixel, value === 'A' ? [255, 0, 0, 255] : [0, 0, 255, 255]);
+    }
+    await page.evaluate(id => ask.deleteConversation(id), ids[0]);
+    await reloadAsk(page);
+    assert.deepEqual(await page.evaluate(() => ask.conversations.value.map(c => c.id)), [ids[1]]);
+    assert.equal(await page.evaluate(() => ask.attachmentText('text-1')), 'text-B');
+    assert.deepEqual(generation(requests), []); assert.deepEqual(errors, []);
+  } finally { await context.close(); }
+});
+
+test('ASK favorites: two tabs extending the same saved scope keep newly numbered attachments independent', async () => {
+  const { page, context, llm, errors } = await open('/#/image', { ready: '.switcher', ask: askSettings() });
+  try {
+    await bind(page); await page.waitForFunction(() => ask.favoritesReady.value);
+    await page.evaluate(() => ask.addPastedText('shared-text'));
+    await askText(page, llm, '共享起点'); await page.evaluate(() => ask.toggleFavorite());
+    await reloadAsk(page);
+    const second = await context.newPage(); await second.goto(origin + '/#/image'); await second.waitForSelector('.switcher');
+    await bind(second); await second.waitForFunction(() => ask.favoritesReady.value);
+    const branches = [];
+    for (const [target, value] of [[page, 'C'], [second, 'D']]) {
+      await target.evaluate(async value => { ask.newConversation(); await ask.addPastedText(`new-${value}`); }, value);
+      await askText(target, llm, `新收藏 ${value}`);
+      await target.evaluate(() => ask.toggleFavorite());
+      branches.push([await target.evaluate(() => ask.conversationId.value), value]);
+    }
+    await second.close();
+    await reloadAsk(page);
+    assert.equal((await savedAsk(page)).length, 3);
+    for (const [id, value] of branches) {
+      await page.evaluate(id => ask.selectConversation(id), id);
+      assert.equal(await page.evaluate(() => ask.attachmentText('text-2')), `new-${value}`);
+      assert.equal(await page.evaluate(() => ask.entries.value[0].turn.attachments[0].id), 'text-2');
+    }
+    assert.deepEqual(errors, []);
+  } finally { await context.close(); }
+});
+
+test('ASK favorites: interrupted request restores as stopped and never resumes automatically', async () => {
+  const { page, context, llm, calls, requests, errors } = await open('/#/image', { ready: '.switcher', ask: askSettings() });
+  let release;
+  try {
+    await bind(page); await page.waitForFunction(() => ask.favoritesReady.value);
+    await askText(page, llm, '已经完成的一轮');
+    await page.evaluate(() => ask.toggleFavorite());
+    llm.push({ wait: new Promise(done => release = done), body: openai(text('迟来的内容'), end()) });
+    await page.locator('#askPrompt').fill('刷新前尚未完成的一轮'); await page.locator('#askPrompt').press('Enter');
+    await page.waitForFunction(() => ask.running.value);
+    await page.evaluate(() => ask.flushFavorites());
+    const stored = (await savedAsk(page))[0];
+    assert.equal(stored.entries.at(-1).turn.status, 'stopped');
+    assert.equal(stored.session.turns.length, 1, 'only committed protocol messages persist');
+    await reloadAsk(page);
+    const count = calls.length;
+    release();
+    await page.waitForTimeout(350);
+    assert.equal(await page.locator('.ask-turn[data-status=done]').count(), 1);
+    assert.equal(await page.locator('.ask-turn[data-status=stopped]').count(), 1);
+    assert.equal(await page.evaluate(() => ask.running.value), false);
+    assert.equal(calls.length, count, 'reload never triggers inference');
+    assert.equal(await page.locator('.ask-markdown').filter({ hasText: '迟来的内容' }).count(), 0);
+    assert.deepEqual(generation(requests), []); assert.deepEqual(errors, []);
+  } finally { release?.(); await context.close(); }
 });

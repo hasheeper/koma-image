@@ -6,6 +6,8 @@ import AppIcon from "../../shared/AppIcon.vue";
 import WorkspaceSwitch from "../../shared/WorkspaceSwitch.vue";
 import WalletDisplay from "../../shared/WalletDisplay.vue";
 import ImageLibrary from "./ImageLibrary.vue";
+import BoardSwitcher from "./BoardSwitcher.vue";
+import CharactersEditor from "./CharactersEditor.vue";
 import PromptDraft from "./PromptDraft.vue";
 import DrawingControls from "./DrawingControls.vue";
 import ImageStage from "./ImageStage.vue";
@@ -45,7 +47,7 @@ watch(
 );
 const valid = computed(
   () =>
-    !!view.value.model &&
+    !!view.value.model && !view.value.characterProblem &&
     !sizeProblem(
       view.value.form.width,
       view.value.form.height,
@@ -175,10 +177,13 @@ function security() {
       :aria-busy="view.busy"
     >
       <div ref="composerScroll" class="composer-scroll">
+        <BoardSwitcher />
         <PromptDraft
+          :key="view.activeBoardId"
           :suggest="view.form.tagSuggest"
           @import="importSheet?.pick()"
         />
+        <CharactersEditor :key="view.activeBoardId" />
         <DrawingControls />
       </div>
       <div ref="foot" class="composer-foot">

@@ -25,15 +25,17 @@ test("only the new Koma envelope is accepted, with logical allowlisted preferenc
 });
 
 test("ASK settings travel as a validated logical field; the adult confirmation never does", () => {
-  const stored = { [names.ask]: JSON.stringify({ version: 1, connectionId: "connection-a", model: "reasoning-model", images: false, preference: "先说结论", words: ["see_through", "loli", "guro"], alwaysCodec: true, extra: "dropped" }),
+  const stored = { [names.ask]: JSON.stringify({ version: 1, connectionId: "connection-a", model: "reasoning-model", images: false, preference: "先说结论", words: ["soft_light", "new topic", "自由设定"], replacements: [{ from: "red coat", to: "blue dress" }], alwaysCodec: true, extra: "dropped" }),
     [names.askAdult]: "true" };
   const read = [];
   const preferences = collectBackupPreferences({ getItem(key) { read.push(key); return stored[key] ?? null; } });
   assert.deepEqual(Object.keys(preferences), ["ask"]);
   assert.ok(!read.includes(names.askAdult));
-  assert.deepEqual(JSON.parse(preferences.ask), { version: 1, connectionId: "connection-a", model: "reasoning-model", images: false, preference: "先说结论", words: ["see through"], alwaysCodec: true });
+  // A single older model ID becomes its connection's only pick.
+  assert.deepEqual(JSON.parse(preferences.ask), { version: 1, connectionId: "connection-a", model: "reasoning-model", models: { "connection-a": ["reasoning-model"] }, images: false, preference: "先说结论", words: ["soft light", "new topic", "自由设定"], replacements: [{ from: "red coat", to: "blue dress" }], alwaysCodec: true });
   const restored = validateBackupManifest({ ...manifest(), preferences: { ask: stored[names.ask], askAdult: "true" } });
   assert.deepEqual(Object.keys(restored.preferences), ["ask"]);
+  assert.deepEqual(JSON.parse(restored.preferences.ask).replacements, [{ from: "red coat", to: "blue dress" }]);
   for (const ask of ["[]", "null", "\"text\""]) assert.throws(() => validateBackupManifest({ ...manifest(), preferences: { ask } }));
 });
 

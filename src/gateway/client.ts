@@ -8,7 +8,7 @@ import type { ReservationPort } from "../services/scheduler.ts";
 import { profileFor, profilePath } from "./profile.ts";
 import type { GatewayProfile } from "./profile.ts";
 import { createTransport, readJson, errorMessage } from "./transport.ts";
-import { executionRoute, toNativePayload } from "./routes.ts";
+import { executionRoute, toNativePayload, toStandardPayload } from "./routes.ts";
 import type { ImagePayload } from "./routes.ts";
 import { nativeCatalog, nativeMappedCatalog, nativeRequest } from "./native-protocols.ts";
 
@@ -71,7 +71,7 @@ export function createGateway(
       await readJson(
         await transport.request(
           profilePath(profile, payload.tool ? "toolEstimate" : "estimate"),
-          { body: payload, signal: timedSignal(30_000, signal) },
+          { body: !profile.protocol || profile.protocol === "standard" ? toStandardPayload(payload) : payload, signal: timedSignal(30_000, signal) },
         ),
       ),
     );
@@ -199,7 +199,7 @@ export function createGateway(
           quote && profile.costCeiling
             ? { ...payload, [profile.costCeiling.field]: quote.cost }
             : payload;
-        const requestBody = adapted ? adapted.body : native ? toNativePayload(body) : body;
+        const requestBody = adapted ? adapted.body : native ? toNativePayload(body) : toStandardPayload(body);
         submitted = true;
         const response = await transport.request(route.path, {
           body: requestBody,

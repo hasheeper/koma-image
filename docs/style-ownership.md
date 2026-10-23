@@ -26,12 +26,12 @@ fonts/index.css
 | --- | --- |
 | `public/styles/tokens.css` | 全局色彩、尺寸、字重、间距、圆角、层级与动效变量；三个字体角色仍来自生成入口 |
 | `public/styles/base.css` | reset、默认排版、表单继承、焦点、选区和滚动条 |
-| `public/styles/controls.css` | 表单、按钮、图标、勾选、分段、滑杆及共享 Tag 分类色点 |
+| `public/styles/controls.css` | 表单、按钮、图标、勾选、开关（`.switch`，宿主用 `--sw-w`／`--sw-h` 定尺寸）、分段、滑杆及共享 Tag 分类色点 |
 | `public/styles/ui.css` | 跨工作区使用的顶栏、额度、组合布局、分栏、舞台／图片、图片栏／缩略图、结果操作组、加载、灯箱、通用弹窗与 sheet 宿主 |
 | `public/styles/styles.css` | 绘图布局、画幅、参数导入、图片栏扩展及结果元数据；先放原公共元数据规则，再放绘图覆盖 |
 | `public/styles/chat.css`／`tags.css` | 对话／词典布局与各自上下文；本轮未修改 |
 | `public/styles/editor.css` | 编辑布局、画布、版本栏及词典背景下的版本栏宽度修正 |
-| `public/styles/settings.css`／`transfer.css` | 设置与备份界面；持续加载，本轮未修改 |
+| `public/styles/settings.css`／`transfer.css` | 设置与备份界面；持续加载。设置行统一为「文字列 + 一个控件或一组控件」：`.s-ctl` 控件组、`.s-field` 字段宽度（≤640px 换到文字下方）、`.s-toggle` 开关、`.s-block` 整行内容、`.s-meta` 标签加说明 |
 | `src/shared/TagPicker.vue` | 选择器私有 scoped 规则、局部输入底色、加载动画与移动覆盖；通用 `.sheet` 外框仍由 ui 管理 |
 | `src/shared/HighlightInput.vue` | 高亮宿主与镜像指标采用普通样式块，自动补全采用 scoped 样式块；详见下文 |
 | `src/shared/ToastList.vue` | Toast 的 scoped 外观、动画、局部底色、移动布局及减少动效下的真实计时例外 |
@@ -69,3 +69,8 @@ fonts/index.css
 - 复用现有四视口、根路径／子路径、Teleport、指针事件不触发 Vue 重渲染、反复开关释放监听与资源的回归，不增加像素矩阵或帧率跑分。
 
 后续修改应回到上表负责处，先核对消费者与覆盖顺序。G4 已[接入 Stylelint 与轻量检查](style-checks.md)；表中列明的全局结构和上下文覆盖继续保留，不要求全部改成 scoped。
+
+
+2026-10-23 多角色／画板新增样式归属：胶囊与下拉在 `BoardSwitcher.vue`；角色折叠列表、文本页签和放大定位栏在 `CharactersEditor.vue`；定位板与点位在 `CharacterPosition.vue`。历史归属圆点留在 `ImageLibrary.vue`，角色草稿合并和新画板应用入口留在 `DraftCard.vue`。全部复用站内 tokens 与现有高亮输入，不新增全局覆盖。
+
+同日 AI 命名的共用星光／停止按钮与状态动效由 `src/shared/AiNameButton.vue` 的 scoped 样式负责；画板胶囊内的位置归 `BoardSwitcher.vue`，ASK 标题与手动改名行归 `AskConversations.vue`。命名模型设置复用现有设置行与模型列表；减少动效时停止脉动，不新增全局规则。

@@ -1,10 +1,9 @@
 import { canonical } from "./canonical.ts";
-import { metadata, normalize, promptOf, similarity } from "./library.ts";
-import type { Picture, PictureOrigin, PictureSource } from "./library.ts";
+import { comparisonPrompt, metadata, normalize, promptOf, similarity } from "./library.ts";
+import type { Picture, PictureOrigin } from "./library.ts";
 
-export const changedFields = ["prompt", "negative", "model", "seed", "steps", "scale", "cfg", "sampler", "width", "height", "size", "strength", "noise"] as const;
+export const changedFields = ["prompt", "negative", "model", "seed", "steps", "scale", "cfg", "sampler", "width", "height", "size", "strength", "noise", "characters"] as const;
 const textFields = ["prompt", "negative", "model", "modelName"] as const;
-type TextField = typeof textFields[number];
 type Candidate = { picture: Picture; origin: PictureOrigin };
 
 /** Literal words only: operators are noise, never an executable query language. */
@@ -58,13 +57,14 @@ export function searchHistory(input: Readonly<Record<string, unknown>>, library:
   if (typeof limit !== "number" || !Number.isInteger(limit) || limit < 1 || limit > 15) throw new Error("limit 需为 1–15");
   const similarId = textArg(input, "similar_to"), base = similarId ? library.find((p) => p.aliases.includes(similarId)) : null;
   if (similarId && !base) throw new Error(`${similarId} 不在本轮图片快照中`);
-  if (base && !promptOf(base).trim()) throw new Error("基准图片没有提示词，无法进行相似检索");
+  if (base && !comparisonPrompt(base).trim()) throw new Error("基准图片没有提示词，无法进行相似检索");
 
-  const timelines = new Map<PictureSource, Candidate[]>();
+  const timelines = new Map<string, Candidate[]>();
   const unique = [...new Map(library.map((p) => [p.id, p])).values()];
   for (const picture of unique) for (const origin of picture.origins) {
-    const list = timelines.get(origin.source) ?? [];
-    list.push({ picture, origin }); timelines.set(origin.source, list);
+    const timeline = `${origin.source}:${picture.params.boardId ?? ""}`;
+    const list = timelines.get(timeline) ?? [];
+    list.push({ picture, origin }); timelines.set(timeline, list);
   }
   const previous = new Map<PictureOrigin, Candidate>();
   for (const list of timelines.values()) {
@@ -79,11 +79,12 @@ export function searchHistory(input: Readonly<Record<string, unknown>>, library:
     if (!origin || picture.id === base?.id) return [];
     const prior = previous.get(origin), changed = prior ? changes(prior.picture, picture) : null;
     if (field && !changed?.includes(field)) return [];
-    const score = base ? similarity(promptOf(base), promptOf(picture)) : 0;
+    const score = base ? similarity(comparisonPrompt(base), comparisonPrompt(picture)) : 0;
     if (base && score <= 0) return [];
     const meta = metadata(picture);
-    const fields = textFields.map((key) => {
-      const value = typeof meta[key] === "string" ? meta[key] : "", normalized = tokens(value).join(" ");
+    const characterFields = Array.isArray(meta.characters) ? meta.characters.flatMap((raw, i) => { const c = raw as Record<string, unknown>; return ["prompt", "negative"].map(k => ({ key: `characters.${c.id ?? i}.${k}`, value: String(c[k] ?? "") })); }) : [];
+    const fields = [...textFields.map(key => ({ key, value: typeof meta[key] === "string" ? meta[key] : "" })), ...characterFields].map(({key, value}) => {
+      const normalized = tokens(value).join(" ");
       const bag = new Set(tokens(value)), matched = words.filter((word) => bag.has(word));
       return { key, value, matched, exact: !!phrase && normalized.includes(phrase) };
     });
@@ -102,7 +103,7 @@ export function searchHistory(input: Readonly<Record<string, unknown>>, library:
       id: origin.label, aliases: picture.aliases, source: origin.source,
       age: age(picture.createdAt, now), size: [picture.size.width, picture.size.height],
       seed: typeof picture.params.seed === "number" && Number.isFinite(picture.params.seed) ? picture.params.seed : null,
-      matched_field: query ? best.key as TextField : null,
+      matched_field: query ? best.key : null,
       matched_snippet: excerpt(query ? best.value : promptOf(picture), words),
       compared_to: prior?.origin.label ?? null, changed_from_prev: changed,
       ...(base ? { similarity: Math.round(score * 1000) / 1000 } : {}),

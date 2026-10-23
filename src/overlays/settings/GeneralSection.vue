@@ -21,15 +21,15 @@ function change(
         <div>
           <b><label for="tagSuggest">Tag 自动补全</label></b>
         </div>
-        <label class="check settings-toggle" title="Tag 自动补全">
+        <label class="s-toggle" title="Tag 自动补全">
           <input
             id="tagSuggest"
             type="checkbox"
-            aria-label="Tag 自动补全"
+            role="switch"
             :checked="form.tagSuggest"
             @change="change('tagSuggest', $event)"
           />
-          <span aria-hidden="true"></span>
+          <span class="switch" aria-hidden="true"></span>
         </label>
       </div>
       <div class="s-row">
@@ -37,7 +37,7 @@ function change(
           <b><label for="localCache">保留历史</label></b>
           <p>刷新后清空</p>
         </div>
-        <div class="row-acts preference-actions">
+        <div class="s-ctl">
           <div class="fld-inline history-limit" title="填 0 不限数量">
             <input
               id="historyLimit"
@@ -53,15 +53,15 @@ function change(
             />
             <span>张</span>
           </div>
-          <label class="check settings-toggle" title="保留历史">
+          <label class="s-toggle" title="保留历史">
             <input
               id="localCache"
               type="checkbox"
-              aria-label="保留历史"
+              role="switch"
               :checked="form.localCache"
               @change="change('localCache', $event)"
             />
-            <span aria-hidden="true"></span>
+            <span class="switch" aria-hidden="true"></span>
           </label>
         </div>
       </div>

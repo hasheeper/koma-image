@@ -1,7 +1,7 @@
 import type { CheckedStep, DraftPlan } from "./types.ts";
 
 /** Display-only model for the draft card; validation and writing never read it. */
-export type FieldKey = "branch" | "prompt" | "negative" | "composer" | "params";
+export type FieldKey = "branch" | "prompt" | "negative" | "composer" | "params" | "characters" | `character:${string}`;
 export interface Piece { readonly op: "keep" | "del" | "ins"; readonly text: string }
 export interface Line { readonly sign: "del" | "ins"; readonly text: string }
 export type StepView =
@@ -18,14 +18,15 @@ export interface FieldView {
 }
 export interface DraftView { readonly fields: readonly FieldView[]; readonly added: number; readonly removed: number }
 
-const fields: Record<FieldKey, { label: string; icon: string }> = {
+const fields: Record<Exclude<FieldKey, `character:${string}`>, { label: string; icon: string }> = {
   branch: { label: "对话分支", icon: "i-branch" },
   prompt: { label: "Prompt", icon: "i-brush" },
   negative: { label: "Negative", icon: "i-ban" },
   composer: { label: "对话输入框", icon: "i-chat" },
+  characters: { label: "角色组", icon: "i-model" },
   params: { label: "参数", icon: "i-parameters" },
 };
-const order: readonly FieldKey[] = ["branch", "prompt", "negative", "composer", "params"];
+const order: readonly FieldKey[] = ["branch", "prompt", "negative", "composer", "characters", "params"];
 const paramIcons: Record<string, string> = { Seed: "i-dice", 模型: "i-model", 宽: "i-frame", 高: "i-frame" };
 
 export const tagsOf = (text: string) => text.split(/[,\n，]/).map((s) => s.trim()).filter(Boolean);
@@ -75,7 +76,7 @@ export function hunksOf(pieces: readonly Piece[]): Line[][] {
 }
 
 const fieldOf = (step: CheckedStep): FieldKey =>
-  step.kind === "parameter" ? "params" : step.kind === "branch" ? "branch"
+  step.characterId ? `character:${step.characterId}` : step.label.startsWith("角色组") ? "characters" : step.kind === "parameter" ? "params" : step.kind === "branch" ? "branch"
     : step.label.startsWith("Prompt") ? "prompt" : step.label.startsWith("Negative") ? "negative" : "composer";
 
 function stepView(step: CheckedStep): StepView {
@@ -105,12 +106,12 @@ export function draftView(plan: DraftPlan): DraftView {
   }
   let added = 0, removed = 0;
   const out: FieldView[] = [];
-  for (const key of order) {
+  for (const key of [...order, ...[...groups.keys()].filter(k => k.startsWith("character:"))]) {
     const steps = groups.get(key);
     if (!steps) continue;
     for (const s of steps) if (s.step.enabled && !s.step.issue) { added += s.added; removed += s.removed; }
-    const change = key === "params" || key === "branch" ? undefined : plan.changes.find((c) => c.field === key);
-    out.push({ key, ...fields[key], steps, full: change ? diffTags(tagsOf(String(change.before)), tagsOf(String(change.after))) : null });
+    const change = key === "params" || key === "branch" || key === "characters" ? undefined : plan.changes.find((c) => c.field === key);
+    out.push({ key, ...(key.startsWith("character:") ? { label: steps[0].step.characterLabel ?? key, icon: "i-model" } : fields[key as keyof typeof fields]), steps, full: change ? diffTags(tagsOf(String(change.before)), tagsOf(String(change.after))) : null });
   }
   return { fields: out, added, removed };
 }

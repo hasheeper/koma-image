@@ -1,24 +1,26 @@
 <script setup lang="ts">
-import { computed, onBeforeUnmount, ref, shallowRef, watch } from "vue";
+import { computed, onBeforeUnmount, ref, shallowRef } from "vue";
 import { useShell } from "../../app/shell";
 import { useServices } from "../../app/services";
 import { useUi, message } from "../../app/ui";
 import AppIcon from "../../shared/AppIcon.vue";
-import type { Routing } from "../../config/connections.ts";
+import type { Connection, Routing } from "../../config/connections.ts";
 import { reasoningConnections } from "../../config/connections.ts";
-import { catalogEntries } from "../../domain/catalog.ts";
+import { profileFor } from "../../gateway/profile.ts";
 import { names } from "../../storage/names.ts";
-import { builtinWords, checkWord, wordLimits } from "../../ask/codec.ts";
+import { checkReplacement, checkWord, replacementLimits, wordLimits } from "../../ask/codec.ts";
+import type { Replacement } from "../../ask/codec.ts";
 import {
   PREFERENCE_LIMIT,
-  modelId,
   readAskSettings,
+  withConnection,
 } from "../../ask/settings.ts";
 import type { AskSettings } from "../../ask/settings.ts";
 
 const props = defineProps<{ routing: Routing }>();
+const emit = defineEmits<{ models: [connectionId: string, purpose?: "ask" | "naming"] }>();
 const { router } = useShell(),
-  { preferences, connections, gateway } = useServices(),
+  { preferences, connections } = useServices(),
   ui = useUi();
 const local = connections.local;
 const read = () => readAskSettings(preferences.get(names.ask, null)),
@@ -29,11 +31,18 @@ const settings = shallowRef<AskSettings>(read()),
 const sources = computed(() => reasoningConnections(props.routing)),
   selected = computed(() =>
     sources.value.find((c) => c.id === settings.value.connectionId),
-  );
-const ids = shallowRef<string[]>([]),
-  fetching = ref(false),
-  word = ref(""),
+  ),
+  picked = computed(() => settings.value.models[selected.value?.id ?? ""] ?? []);
+// The page already says ASK, so the protocol tag drops the card label's "· ASK".
+const protocol = (c: Connection) =>
+  profileFor(c.profileId).protocol === "anthropic-messages"
+    ? "Anthropic Messages"
+    : "OpenAI Chat 兼容";
+const word = ref(""),
   wordError = ref("");
+const replacementFrom = ref(""), replacementTo = ref(""),
+  replacementError = ref(""), editingFrom = ref<string | null>(null);
+const replacementInput = ref<HTMLInputElement | null>(null);
 // Other tabs and restores change the same keys; the adult flag stays per device.
 const unsubscribe = preferences.subscribe((key) => {
   if (!key || key === names.ask) {
@@ -43,41 +52,13 @@ const unsubscribe = preferences.subscribe((key) => {
   if (!key || key === names.askAdult) adult.value = readAdult();
 });
 onBeforeUnmount(unsubscribe);
-watch(
-  () => selected.value?.id,
-  () => (ids.value = []),
-);
 async function save(patch: Partial<AskSettings>) {
   try {
     await preferences.set(names.ask, { ...settings.value, ...patch });
+    return true;
   } catch (error) {
     ui.toast(message(error), "err");
-  }
-}
-function changeModel(event: Event) {
-  const input = event.target as HTMLInputElement,
-    id = modelId(input.value);
-  if (input.value.trim() && !id) {
-    ui.toast("模型 ID 无效", "err");
-    input.value = settings.value.model;
-    return;
-  }
-  if (id !== settings.value.model) void save({ model: id });
-}
-async function fetchModels() {
-  const c = selected.value;
-  if (!c || fetching.value) return;
-  fetching.value = true;
-  try {
-    const raw = await gateway(c.id).rawCatalog(true);
-    ids.value = catalogEntries(raw)
-      .map((e) => e.id)
-      .sort();
-    ui.toast(`已获取 ${ids.value.length} 个模型 ID`, "ok");
-  } catch (error) {
-    ui.toast(message(error), "err");
-  } finally {
-    fetching.value = false;
+    return false;
   }
 }
 function checked(event: Event) {
@@ -98,8 +79,35 @@ async function addWord() {
     return;
   }
   wordError.value = "";
-  word.value = "";
-  await save({ words: [...settings.value.words, result.word] });
+  if (await save({ words: [...settings.value.words, result.word] })) word.value = "";
+}
+function clearReplacement() {
+  replacementFrom.value = replacementTo.value = replacementError.value = "";
+  editingFrom.value = null;
+}
+function editReplacement(rule: Replacement) {
+  replacementFrom.value = rule.from;
+  replacementTo.value = rule.to;
+  replacementError.value = "";
+  editingFrom.value = rule.from;
+  replacementInput.value?.focus();
+}
+async function saveReplacement() {
+  const rules = settings.value.replacements,
+    result = checkReplacement(replacementFrom.value, replacementTo.value, rules.filter((r) => r.from !== editingFrom.value));
+  if ("error" in result) { replacementError.value = result.error; return; }
+  const index = rules.findIndex((r) => r.from === editingFrom.value);
+  const next = [...rules];
+  if (index < 0) next.push(result.replacement);
+  else next[index] = result.replacement;
+  if (await save({ replacements: next })) {
+    clearReplacement();
+    replacementInput.value?.focus();
+  }
+}
+async function removeReplacement(rule: Replacement) {
+  if (await save({ replacements: settings.value.replacements.filter((r) => r.from !== rule.from) }))
+    if (editingFrom.value === rule.from) clearReplacement();
 }
 </script>
 <template>
@@ -111,8 +119,8 @@ async function addWord() {
       </div>
     </section>
     <template v-else>
-      <section class="sp-sec" aria-label="ASK 模型">
-        <div class="sp-sec-head"><h3>模型</h3></div>
+      <section class="sp-sec" aria-label="推理模型">
+        <div class="sp-sec-head"><h3>推理模型</h3></div>
         <div class="sp-group">
           <div v-if="!sources.length" class="sp-empty">
             <span>尚未添加 OpenAI Chat 或 Anthropic Messages 连接</span
@@ -127,78 +135,96 @@ async function addWord() {
           <div v-else class="s-row">
             <div>
               <b><label for="askConnection">连接</label></b>
+              <p v-if="selected" class="s-meta">
+                <span class="type">{{ protocol(selected) }}</span
+                ><span :title="local ? undefined : selected.baseUrl">{{
+                  local ? "本机同源代理" : selected.baseUrl.replace(/^https:\/\//, "")
+                }}</span>
+              </p>
             </div>
-            <select
-              id="askConnection"
-              class="ask-field"
-              :value="selected?.id ?? ''"
-              @change="
-                save({
-                  connectionId: ($event.target as HTMLSelectElement).value,
-                })
-              "
-            >
-              <option v-if="!selected" value="" disabled>选择连接</option>
-              <option v-for="c in sources" :key="c.id" :value="c.id">
-                {{ c.name }}
-              </option>
-            </select>
+            <div class="s-ctl s-field">
+              <select
+                id="askConnection"
+                :value="selected?.id ?? ''"
+                @change="
+                  save(
+                    withConnection(
+                      settings,
+                      ($event.target as HTMLSelectElement).value,
+                    ),
+                  )
+                "
+              >
+                <option v-if="!selected" value="" disabled>选择连接</option>
+                <option v-for="c in sources" :key="c.id" :value="c.id">
+                  {{ c.name }}
+                </option>
+              </select>
+            </div>
           </div>
           <div class="s-row">
             <div>
-              <b><label for="askModel">模型 ID</label></b>
-              <p>
+              <b>模型</b>
+              <!-- The list picks several; the composer's chip switches among them. -->
+              <p v-if="settings.model" class="s-meta">
+                <span class="type">{{ picked.length > 1 ? `当前 · 共 ${picked.length} 个` : "当前" }}</span
+                ><span :title="settings.model">{{ settings.model }}</span>
+              </p>
+              <p v-else>
                 需要流式输出、工具调用与图片输入；原生多模态、工具调用稳定的模型效果更好。
               </p>
             </div>
-            <div class="ask-model">
-              <input
-                id="askModel"
-                class="ask-field"
-                type="text"
-                list="askModelIds"
-                maxlength="200"
-                placeholder="手动填写或获取"
-                autocomplete="off"
-                spellcheck="false"
-                :value="settings.model"
-                @change="changeModel"
-                @keydown.enter.prevent="($event.target as HTMLInputElement).blur()"
-              />
-              <datalist id="askModelIds">
-                <option v-for="id in ids" :key="id" :value="id" />
-              </datalist>
-              <button
-                class="btn btn-quiet btn-xs"
-                type="button"
-                :disabled="!selected || fetching"
-                @click="fetchModels"
-              >
-                {{ fetching ? "获取中…" : "获取" }}
-              </button>
-            </div>
+            <button
+              class="btn btn-quiet btn-sm"
+              type="button"
+              :disabled="!selected"
+              @click="selected && emit('models', selected.id)"
+            >
+              选择模型
+            </button>
           </div>
           <div class="s-row">
             <div>
               <b><label for="askImages">发送图片给模型</label></b>
               <p>关闭后只发送参数与元数据</p>
             </div>
-            <label class="check settings-toggle" title="发送图片给模型">
+            <label class="s-toggle" title="发送图片给模型">
               <input
                 id="askImages"
                 type="checkbox"
+                role="switch"
                 :checked="settings.images"
                 @change="save({ images: checked($event) })"
               />
-              <span aria-hidden="true"></span>
+              <span class="switch" aria-hidden="true"></span>
             </label>
+          </div>
+        </div>
+      </section>
+      <section class="sp-sec" aria-label="命名模型">
+        <div class="sp-sec-head"><h3>命名模型</h3></div>
+        <div class="sp-group">
+          <div class="s-row">
+            <b><label for="askNamingConnection">连接</label></b>
+            <div class="s-ctl s-field">
+              <select id="askNamingConnection" :value="settings.naming?.connectionId ?? ''" @change="save({ naming: ($event.target as HTMLSelectElement).value ? { connectionId: ($event.target as HTMLSelectElement).value, model: '' } : undefined })">
+                <option value="">沿用 ASK</option>
+                <option v-if="settings.naming && !sources.some(c => c.id === settings.naming?.connectionId)" :value="settings.naming.connectionId" disabled>连接不可用</option>
+                <option v-for="c in sources" :key="c.id" :value="c.id">{{ c.name }}</option>
+              </select>
+            </div>
+          </div>
+          <div class="s-row">
+            <div><b>模型</b><p class="s-meta"><span :title="settings.naming?.model ?? settings.model">{{ (settings.naming ? settings.naming.model : settings.model) || '尚未选择' }}</span></p></div>
+            <button v-if="settings.naming" class="btn btn-quiet btn-sm" type="button" :disabled="!sources.some(c => c.id === settings.naming?.connectionId)" @click="emit('models', settings.naming.connectionId, 'naming')">选择模型</button>
+            <span v-else class="s-meta">沿用 ASK</span>
           </div>
         </div>
       </section>
       <section class="sp-sec" aria-label="个人偏好">
         <div class="sp-sec-head"><h3>个人偏好</h3></div>
         <div class="sp-group">
-          <div class="s-row ask-preference">
+          <div class="s-row s-block">
             <textarea
               id="askPreference"
               v-model="preference"
@@ -208,67 +234,52 @@ async function addWord() {
               placeholder="例如：回答简短，先说结论"
               @change="save({ preference })"
             ></textarea>
-            <small>{{ preference.length }}/{{ PREFERENCE_LIMIT }}</small>
+            <div class="s-head">
+              <small>{{ preference.length }}/{{ PREFERENCE_LIMIT }}</small>
+            </div>
           </div>
         </div>
       </section>
-      <section class="sp-sec" aria-label="成年内容">
-        <div class="sp-sec-head"><h3>成年内容</h3></div>
+      <section class="sp-sec" aria-label="创作">
+        <div class="sp-sec-head"><h3>创作</h3></div>
         <div class="sp-group">
           <div class="s-row">
             <div>
-              <b
-                ><label for="askAdult"
-                  >我已成年，自行承担渠道风控与封号风险</label
-                ></b
-              >
-              <p>仅保存在本机，不进备份</p>
+              <b><label for="askAdult">自由创作</label></b>
             </div>
-            <label class="check settings-toggle" title="成年内容">
+            <label class="s-toggle" title="自由创作">
               <input
                 id="askAdult"
                 type="checkbox"
+                role="switch"
                 :checked="adult"
                 @change="setAdult"
               />
-              <span aria-hidden="true"></span>
+              <span class="switch" aria-hidden="true"></span>
             </label>
           </div>
-        </div>
-      </section>
-      <section v-if="adult" class="sp-sec" aria-label="词表">
-        <div class="sp-sec-head"><h3>词表</h3></div>
-        <div class="sp-group">
-          <div class="s-row">
-            <div>
-              <b><label for="askAlwaysCodec">始终启用词表混淆</label></b>
-              <p>关闭时仅在被拦截后按需启用</p>
+          <template v-if="adult">
+            <div class="s-row">
+              <div>
+                <b><label for="askAlwaysCodec">始终启用词表混淆</label></b>
+                <p>关闭时仅在被拦截后按需启用</p>
+              </div>
+              <label class="s-toggle" title="始终启用词表混淆">
+                <input
+                  id="askAlwaysCodec"
+                  type="checkbox"
+                  role="switch"
+                  :checked="settings.alwaysCodec"
+                  @change="save({ alwaysCodec: checked($event) })"
+                />
+                <span class="switch" aria-hidden="true"></span>
+              </label>
             </div>
-            <label class="check settings-toggle" title="始终启用词表混淆">
-              <input
-                id="askAlwaysCodec"
-                type="checkbox"
-                :checked="settings.alwaysCodec"
-                @change="save({ alwaysCodec: checked($event) })"
-              />
-              <span aria-hidden="true"></span>
-            </label>
-          </div>
-          <div class="s-row ask-words">
-            <div>
-              <b>内置</b>
-              <ul class="ask-chips" aria-label="内置词条">
-                <li v-for="w in builtinWords" :key="w">{{ w }}</li>
-              </ul>
-            </div>
-          </div>
-          <div class="s-row ask-words">
-            <div>
-              <b
-                >自定义<small
-                  >{{ settings.words.length }}/{{ wordLimits.count }}</small
-                ></b
-              >
+            <div class="s-row s-block">
+              <div class="s-head">
+                <b>自定义词条</b
+                ><small>{{ settings.words.length }}/{{ wordLimits.count }}</small>
+              </div>
               <ul
                 v-if="settings.words.length"
                 class="ask-chips"
@@ -287,10 +298,9 @@ async function addWord() {
                   </button>
                 </li>
               </ul>
-              <form class="ask-add" @submit.prevent="addWord">
+              <form class="s-ctl s-field" @submit.prevent="addWord">
                 <input
                   v-model="word"
-                  class="ask-field"
                   type="text"
                   :maxlength="wordLimits.chars"
                   placeholder="添加词条"
@@ -305,23 +315,43 @@ async function addWord() {
                 {{ wordError }}
               </p>
             </div>
-          </div>
+            <div class="s-row s-block">
+              <div class="s-head">
+                <b>文本替换</b><small>{{ settings.replacements.length }}/{{ replacementLimits.count }}</small>
+              </div>
+              <ul v-if="settings.replacements.length" class="ask-rules" aria-label="文本替换">
+                <li v-for="rule in settings.replacements" :key="rule.from">
+                  <div class="ask-rule-text"><span>{{ rule.from }}</span><span aria-hidden="true">→</span><span>{{ rule.to }}</span></div>
+                  <div class="ask-rule-actions">
+                    <button type="button" class="btn btn-quiet btn-xs" :aria-label="`编辑替换 ${rule.from}`" @click="editReplacement(rule)">编辑</button>
+                    <button type="button" class="btn btn-quiet btn-xs" :aria-label="`删除替换 ${rule.from}`" @click="removeReplacement(rule)">删除</button>
+                  </div>
+                </li>
+              </ul>
+              <form class="ask-replace-form" @submit.prevent="saveReplacement">
+                <div class="ask-replace-fields">
+                  <input ref="replacementInput" v-model="replacementFrom" aria-label="原文 A" placeholder="原文 A" type="text" :maxlength="replacementLimits.chars" autocomplete="off" spellcheck="false" @input="replacementError = ''" />
+                  <span aria-hidden="true">→</span>
+                  <input v-model="replacementTo" aria-label="替换为 B" placeholder="替换为 B" type="text" :maxlength="replacementLimits.chars" autocomplete="off" spellcheck="false" @input="replacementError = ''" />
+                </div>
+                <div class="ask-rule-actions">
+                  <button v-if="editingFrom !== null" class="btn btn-quiet btn-xs" type="button" @click="clearReplacement">取消</button>
+                  <button class="btn btn-quiet btn-xs" type="submit" :disabled="!replacementFrom.trim() || !replacementTo.trim()">{{ editingFrom === null ? "添加替换" : "保存替换" }}</button>
+                </div>
+              </form>
+              <p v-if="replacementError" class="ask-error" role="alert">{{ replacementError }}</p>
+            </div>
+          </template>
         </div>
       </section>
     </template>
   </div>
 </template>
 <style scoped>
-/* ASK settings: four groups, rows share the settings row frame. */
+/* Shared settings rows; vocabulary and replacement editors belong to ASK. */
 .ask-sections { display: grid; gap: var(--sp-6); }
-.ask-field { flex: none; width: 240px; height: 32px; }
-.ask-model { display: flex; align-items: center; gap: var(--sp-2); flex: none; }
-.ask-preference { display: grid; gap: 6px; }
-.ask-preference textarea { min-height: 76px; font-size: var(--fz-sm); }
-.ask-preference small { justify-self: end; font: var(--fz-2xs)/1 var(--mono); color: var(--fg-4); }
-.ask-words { align-items: start; }
-.ask-words b small { margin-left: var(--sp-2); font: var(--fz-2xs)/1 var(--mono); color: var(--fg-4); }
-.ask-chips { display: flex; flex-wrap: wrap; gap: 6px; margin: 10px 0 0; padding: 0; list-style: none; }
+.ask-sections textarea { min-height: 76px; font-size: var(--fz-sm); }
+.ask-chips { display: flex; flex-wrap: wrap; gap: 6px; margin: 0; padding: 0; list-style: none; }
 .ask-chips li {
   display: inline-flex; align-items: center; gap: 2px; height: 24px; padding: 0 9px;
   font: var(--fz-xs)/1 var(--mono); color: var(--fg-2);
@@ -330,12 +360,18 @@ async function addWord() {
 .ask-chips li:has(button) { padding-right: 3px; }
 .ask-chips button { display: grid; place-items: center; width: 18px; height: 18px; --ico: 11px; color: var(--fg-4); border-radius: 50%; }
 .ask-chips button:hover { color: var(--fg); background: var(--hover); }
-.ask-add { display: flex; gap: var(--sp-2); margin-top: var(--sp-3); }
-.ask-add .ask-field { flex: 0 1 240px; min-width: 0; }
-.ask-error { margin-top: 6px; font-size: var(--fz-xs); color: var(--err); }
-
-@media (max-width: 640px) {
-  .ask-model { width: 100%; }
-  .ask-model .ask-field, select.ask-field { flex: 1; width: auto; min-width: 0; }
+.s-row .ask-error { margin-top: -4px; font-size: var(--fz-xs); color: var(--err); }
+.ask-rules { display: grid; gap: 6px; margin: 0; padding: 0; list-style: none; }
+.ask-rules li { display: flex; align-items: center; gap: 8px; padding: 6px 8px; border-radius: var(--r1); background: var(--raised); }
+.ask-rule-text { display: grid; grid-template-columns: minmax(0, 1fr) auto minmax(0, 1fr); align-items: baseline; gap: 8px; flex: 1; min-width: 0; font: var(--fz-xs)/1.5 var(--mono); }
+.ask-rule-text span { overflow-wrap: anywhere; }
+.ask-rule-text span:nth-child(2), .ask-replace-fields > span { color: var(--fg-4); }
+.ask-rule-actions { display: flex; flex-shrink: 0; justify-content: flex-end; gap: 4px; }
+.ask-replace-form { display: flex; align-items: center; gap: 8px; min-width: 0; }
+.ask-replace-fields { display: grid; grid-template-columns: minmax(0, 1fr) auto minmax(0, 1fr); align-items: center; flex: 1; gap: 8px; min-width: 0; }
+.ask-replace-fields input { width: 100%; min-width: 0; height: 32px; }
+@media (width <= 640px) {
+  .ask-replace-form, .ask-rules li { align-items: stretch; flex-direction: column; }
 }
+
 </style>

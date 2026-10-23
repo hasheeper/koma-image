@@ -1,5 +1,5 @@
 import { canonical } from "../canonical.ts";
-import { differences, metadata, promptDiff, promptOf, similarity } from "../library.ts";
+import { comparisonPrompt, differences, metadata, promptDiff, promptOf, similarity } from "../library.ts";
 import type { DigestImage } from "./index.ts";
 
 type Labeled = DigestImage & { readonly label: string };
@@ -8,7 +8,7 @@ export function cluster(items: readonly Labeled[]) {
   const groups: Labeled[][] = [];
   let signature = "";
   for (const item of items) {
-    const m = metadata(item), key = canonical({ prompt: m.prompt, negative: m.negative, model: m.model, width: m.width, height: m.height });
+    const m = metadata(item), key = canonical({ prompt: m.prompt, negative: m.negative, model: m.model, width: m.width, height: m.height, characters: m.characters, placement: m.placement });
     if (!groups.length || key !== signature) groups.push([]);
     groups.at(-1)!.push(item);
     signature = key;
@@ -38,9 +38,9 @@ export function historyIndex(items: readonly Labeled[], anchor: Labeled | null) 
     const t1: Record<string, unknown>[] = [], t2: Record<string, unknown>[] = [], rest: Labeled[] = [];
     for (const item of items) {
       if (item.id === anchor.id) continue;
-      if (promptOf(item) === promptOf(anchor))
+      if (comparisonPrompt(item) === comparisonPrompt(anchor))
         t1.push({ id: item.label, changes: differences(anchor, item) });
-      else if (similarity(promptOf(anchor), promptOf(item)) >= 0.9)
+      else if (similarity(comparisonPrompt(anchor), comparisonPrompt(item)) >= 0.9)
         t2.push({ id: item.label, changes: differences(anchor, item), prompt_diff: promptDiff(promptOf(anchor), promptOf(item)) });
       else rest.push(item);
     }

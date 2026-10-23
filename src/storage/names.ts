@@ -4,6 +4,7 @@ export const names = Object.freeze({
     favorites: "koma-image-favorites",
     chat: "koma-chat",
     handoff: "koma-handoff",
+    ask: "koma-ask",
   },
   preferences: "koma.prefs.v1",
   routing: "koma.routing.v1",

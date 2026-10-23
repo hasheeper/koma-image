@@ -27,6 +27,14 @@
 
 OpenAI／Gemini 的模型列表仅用于获取 ID，不按名称提前筛选，也不自动遍历分页。自定义 ID 可在「设置 → 模型 → 指定 ID」中匹配；实际请求会发送选中的上游 ID。
 
+## ASK 与画板
+
+⌘J／Ctrl+J 打开 ASK 悬浮窗口，支持多会话、图片／文本附件、只读检索与视觉工具。修改一律先展示草稿，由用户确认后写入；不会自动生成图片或发送 CHAT 消息。草稿可应用到来源画板或新画板；ASK 已指定新画板时，只提供「新建并应用」。
+
+标题下拉菜单可收藏会话，收藏的消息、附件和待确认草稿刷新后保留；未收藏会话与撤销栈只留在当前页面。收藏仅存本机，不进入普通备份。设置支持独立命名模型，默认沿用 ASK 模型。
+
+IMAGE 顶部画板胶囊可新建、复制和切换独立表单；角色区支持 NAI V4.5／V5 的角色描述、Negative、启停与位置。活动画板全文随 ASK 状态发送，其他画板与历史图片按需读取。官方和标准网关字段已经接线并模拟验证，真实生成效果仍待核验。
+
 ## 本地开发
 
 使用 Node 26.8.2 与 npm 11.19.1；具体版本记录在 `.nvmrc` 和 `package.json`。
@@ -133,6 +141,7 @@ docs/         规范、实施记录与发布说明
 - [M7 本地代理与发布验收](docs/release-acceptance.md)
 - [P3 NovelAI 官方连接](docs/novelai-official.md)：[P3.0 连接管理](docs/shared-settings-tags.md#p30-连接管理)、[P3.1 Profile 泛化](docs/gateway-data-scheduler.md#p31-profile-泛化)
 - [原生图像协议接入](docs/native-image-protocols.md)：OpenAI Images、Gemini 原生、NAI 官方基础适配及实测边界
+- [多角色与画板](docs/multi-character-boards-plan.md)：C1–C5 基础接入、ASK 草稿与本地验收；[多角色能力勘探](docs/novelai-multi-character.md)
 - [Koma ASK 决策与实施规划](docs/ask/ask-implementation-plan.md)：A0–A4 已实现并通过合成图片／模拟服务验证。推理协议、设置、会话与抽屉见 [A0](docs/ask/ask-a0.md)，只读工具与视觉入口见 [A1](docs/ask/ask-a1.md)，草稿审阅、确认应用与撤销见 [A2](docs/ask/ask-a2.md)，当前 CHAT 分支摘要与提纯草稿见 [A3](docs/ask/ask-a3.md)，本地推理代理与行内模式见 [A4](docs/ask/ask-a4.md)。⌘J／Ctrl+J 打开抽屉，Prompt／Negative／CHAT 输入框中 ⌘K／Ctrl+K 打开行内模式。真实图片诊断质量与供应商实测待办；设计见 `docs/ask/` 下文档 1–3
 - [发布包使用、更新与回退](docs/release-guide.md)
 - [第三方资源](docs/third-party-assets.md)

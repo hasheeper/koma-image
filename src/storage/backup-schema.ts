@@ -1,3 +1,4 @@
+import { DEFAULTS, boardKeys } from "../domain/drawing.ts";
 import { names } from "./names.ts";
 import { validateRouting, validateModelLinks } from "../config/connections.ts";
 import { object } from "../domain/value.ts";
@@ -86,6 +87,30 @@ export function readBackupPreferences(value: unknown): BackupPreferences {
       out[key] = JSON.stringify(validateRouting(JSON.parse(text)));
     else if (key === "localModels")
       out[key] = JSON.stringify(validateModelLinks(JSON.parse(text)));
+    else if (key === "drawing") {
+      const value = object(JSON.parse(text));
+      if (value.boards !== undefined) {
+        const boards = object(value.boards), seen = new Set<string>();
+        if (!Array.isArray(boards.items) || !boards.items.length) throw bad();
+        for (const raw of boards.items) {
+          const b = object(raw), f = object(b.form), chars = f.characters;
+          if (!id(b.id) || seen.has(b.id) || typeof b.name !== "string" || !plain(b.form) || !Number.isSafeInteger(b.nextCharacterId) || Number(b.nextCharacterId) < 1 || !["auto", "manual"].includes(String(f.placement)) || !Array.isArray(chars)) throw bad();
+          for (const key of boardKeys) {
+            if (key === "characters" || key === "placement") continue;
+            if (typeof f[key] !== typeof DEFAULTS[key] || typeof f[key] === "number" && !Number.isFinite(f[key])) throw bad();
+          }
+          seen.add(b.id); const roles = new Set<string>();
+          for (const raw of chars) {
+            const c = object(raw);
+            if (typeof c.id !== "string" || !/^c[1-9]\d*$/.test(c.id) || roles.has(c.id) || Number(c.id.slice(1)) >= Number(b.nextCharacterId) || typeof c.on !== "boolean" || typeof c.prompt !== "string" || typeof c.negative !== "string" || !Array.isArray(c.centers)) throw bad();
+            roles.add(c.id);
+            for (const raw of c.centers) { const p = object(raw); if ([p.x, p.y].some(v => typeof v !== "number" || !Number.isFinite(v) || v < 0 || v > 1)) throw bad(); }
+          }
+        }
+        if (typeof boards.activeId !== "string" || !seen.has(boards.activeId)) throw bad();
+      }
+      out[key] = text;
+    }
     else if (key === "ask") {
       const value = JSON.parse(text);
       if (!plain(value)) throw bad();

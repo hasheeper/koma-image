@@ -14,6 +14,8 @@
 - 回复中的 ID 支持悬停／键盘焦点预览和点击定位；手机定位后收起抽屉以露出画布。删除的图片引用停用。
 - `search_history` 多命中时显示最多 3 张候选缩略图，用户点选后绑定锚点并预填下一问，仍由用户发送。
 
+2026-10-23 用户批准入口样式调整：「Ask」去掉底框，作为操作栏首组（舞台宽度 ≤640px 时回到标题行右侧）；缩略图 ID 改用收藏星标同款底色，移到左下角，当前图为强调色；「对比」改为图标开关，与清空历史同列于图片栏底部右侧，按下时显示强调底色，再次点击退出。行为不变。
+
 UI 沿用当前侧栏与抽屉，不重编号、不移动抽屉位置。手机历史栏内原有按钮宽度与隐藏规则会覆盖新增对比操作，已在 `ImageLibrary.vue` 内收窄样式，覆盖 320／390／768px 菜单内部边界；桌面折叠图片栏保留原有短条形态。
 
 截图与设计过程仅保存在忽略提交的 `.local/ask/a1/`：批准方案为 `proposal-diff.png`、`proposal-mobile.png`；落地截图为 `entry-320.png`、`entry-390.png`、`entry-768.png`、`entry-1440.png`、`entry-selection-320.png`、`entry-selection-390.png`、`entry-selection-768.png`、`entries-diff-1440.png`、`s1-diagnosis.png`、`s2-comparison.png`。设计咨询使用 `model-consult`；原始返回保存在 `design-consult-original.txt`，咨询 ID 为 `c-8037f58a-cc9c-4379-892b-3b7fafecb751`。用户批准的是按工程约定调整后的截图方案。

@@ -19,6 +19,20 @@ const tabs = ["history", "favorites"] as const,
 const pending = computed(() =>
   image.library === "history" ? view.value.pending : null,
 );
+/** The placeholder stands only for a picture still on its way; a landed one takes its slot while the stage reveals it. */
+const waiting = computed(() => {
+  const p = pending.value;
+  return !!p && (!!p.composing || p.done < p.index);
+});
+/** The tile the stage shows or is about to show; none while the placeholder is current. */
+const showing = computed(() =>
+  pending.value && !view.value.browsing
+    ? waiting.value ? null : view.value.history[0]?.id ?? null
+    : view.value.current?.id ?? null,
+);
+const landing = computed(() =>
+  pending.value && !waiting.value && !view.value.browsing ? showing.value : null,
+);
 function askLabel(id: string) { void ask.libraryRevision.value; return ask.labelFor(id); }
 function choose(id: string) {
   if (selected.value.includes(id)) selected.value = selected.value.filter((value) => value !== id);
@@ -39,11 +53,11 @@ watch(() => [view.value.history, view.value.favorites], () => {
   selected.value = selected.value.filter((id) => alive.has(id));
 });
 const focus = computed(() =>
-  pending.value && !view.value.browsing
+  waiting.value && !view.value.browsing
     ? -1
     : Math.max(
         0,
-        items.value.findIndex((item) => item.id === view.value.current?.id),
+        items.value.findIndex((item) => item.id === showing.value),
       ),
 );
 function barStyle(
@@ -60,7 +74,7 @@ const bars = computed(() =>
   ),
 );
 const pendingBar = computed(() =>
-  pending.value
+  pending.value && waiting.value
     ? barStyle("pending", pending.value, Math.abs(-1 - focus.value))
     : undefined,
 );
@@ -192,7 +206,7 @@ async function preview(item: ImageRecord, e: Event) {
       @focusout="peek = null"
     >
       <button
-        v-if="view.pending && image.library === 'history'"
+        v-if="view.pending && waiting"
         class="tile tile-pending"
         type="button"
         :data-shape="shape(view.pending)"
@@ -214,10 +228,8 @@ async function preview(item: ImageRecord, e: Event) {
         :data-id="item.id"
         :data-shape="shape(item.size)"
         :data-fav="has(item.id) ? '' : undefined"
-        :aria-current="
-          !(view.pending && image.library === 'history' && !view.browsing) &&
-          view.current?.id === item.id
-        "
+        :aria-current="showing === item.id"
+        :data-landing="landing === item.id ? '' : undefined"
         :aria-label="`${has(item.id) ? '已收藏，' : ''}查看 ${imageFileName(item)}`"
         :style="{
           '--thumb': `url('${drawing.url(item, true)}')`,
@@ -232,7 +244,7 @@ async function preview(item: ImageRecord, e: Event) {
         @pointerenter="preview(item, $event)"
         @focus="preview(item, $event)"
       >
-        <span v-if="image.historyOpen || narrow" class="library-ask-id">{{ askLabel(item.id) }}</span>
+        <span v-if="image.historyOpen || narrow" class="library-ask-id"><i v-if="item.params.boardColor" class="library-board-dot" :style="{ background: String(item.params.boardColor) }" :title="String(item.params.boardName || '画板')"></i>{{ askLabel(item.id) }}</span>
         <img :src="drawing.url(item, true)" alt="" decoding="async" /><span
           v-if="image.library === 'history' && has(item.id)"
           class="tile-favorite"
@@ -333,6 +345,16 @@ async function preview(item: ImageRecord, e: Event) {
       >
         <AppIcon name="i-sidebar" /></button
       ><button
+        v-if="image.historyOpen || narrow"
+        class="ibtn ibtn-xs library-compare"
+        type="button"
+        :aria-pressed="comparing"
+        :aria-label="comparing ? '退出对比' : '对比'"
+        :data-tip="comparing ? '退出对比' : '对比'"
+        @click="toggleCompare"
+      >
+        <AppIcon name="i-compare" /></button
+      ><button
         id="clearHist"
         class="ibtn ibtn-xs library-clear"
         type="button"
@@ -342,14 +364,27 @@ async function preview(item: ImageRecord, e: Event) {
       >
         <AppIcon name="i-trash" />
       </button>
-      <button v-if="image.historyOpen || narrow" class="library-compare" type="button" :aria-pressed="comparing" @click="toggleCompare">{{ comparing ? '完成' : '对比' }}</button>
     </footer>
   </aside>
 </template>
 <style scoped>
 .library-item { position: relative; flex: none; min-width: 0; }
 .library-item > .tile { display: block; }
-.library-ask-id { position: absolute; top: 5px; left: 5px; z-index: 1; padding: 2px 5px; color: var(--fg); font: var(--fw-regular) var(--fz-2xs)/1.4 var(--mono); background: rgba(0, 0, 0, .65); border-radius: 5px; pointer-events: none; }
+/* The favourite star's chip, on the same bottom row; the top of a portrait stays clear. */
+.library-ask-id {
+  position: absolute; bottom: 5px; left: 5px; z-index: 1;
+  display: inline-flex; align-items: center; gap: 3px; height: 20px; padding: 0 6px;
+  color: var(--fg-2); font: var(--fw-medium) var(--fz-2xs)/1 var(--sans); font-variant-numeric: tabular-nums;
+  background: color-mix(in srgb, var(--chrome) 72%, transparent);
+  border-radius: var(--r1); backdrop-filter: blur(3px); pointer-events: none;
+}
+.tile[aria-current="true"] .library-ask-id { color: var(--a); }
+/* A landed picture surfaces in the placeholder's slot while the stage's crest plays. */
+.tile[data-landing] > :is(img, .library-ask-id), .tile[data-landing]::before { animation: tile-land 900ms var(--e-out) both; }
+@keyframes tile-land { from { opacity: 0; } }
+@media (prefers-reduced-motion: reduce) {
+  .tile[data-landing] > :is(img, .library-ask-id), .tile[data-landing]::before { animation: none; }
+}
 .library-pick { position: absolute; right: 0; bottom: 0; display: grid; place-items: center; width: 44px; height: 44px; }
 .library-pick span { display: grid; place-items: center; width: 24px; height: 24px; color: var(--a-ink); font-size: var(--fz-xs); background: var(--sunken); border: 1px solid var(--fg-3); border-radius: 50%; }
 .library-pick[aria-pressed="true"] span { background: var(--a); border-color: var(--a); }
@@ -357,17 +392,21 @@ async function preview(item: ImageRecord, e: Event) {
 .library-diff { display: grid; flex: none; gap: 7px; justify-items: center; margin: 6px 8px; padding: 9px 6px; font-size: var(--fz-xs); background: var(--raised); border: 1px solid var(--line-2); border-radius: 10px; }
 .library-diff > span { color: var(--fg-3); }
 .library-diff .btn { min-height: 30px; padding: 0 8px; }
-.library-compare { flex: none; padding: 4px; color: var(--fg-3); font-size: var(--fz-2xs); white-space: nowrap; border-radius: 5px; }
-.library-compare[aria-pressed="true"] { color: var(--a); }
+/* Fold on the left; compare and clear share the right, clear at the edge. */
+.library-foot { justify-content: flex-end; gap: 2px; }
+.library-foot:has(.library-compare) .library-fold { margin-right: auto; }
+.gallery .library-compare { flex: none; padding: 0; justify-content: center; }
+.library-foot .library-compare[aria-pressed="true"] { color: var(--a); background: var(--a-dim); }
 @media (min-width: 861px) {
   :global(body[data-hist="off"]) .library-item { display: contents; }
 }
 @media (max-width: 860px) {
   .gallery .library-foot:has(.library-compare) { display: flex; }
   .gallery .library-foot .library-fold { display: none; }
-  .gallery .library-foot .library-clear { flex: none; width: 44px; height: 44px; padding: 0; justify-content: center; }
+  /* The phone menu stretches its icon buttons into rows; these two stay square. */
+  .gallery .library-foot :is(.library-clear, .library-compare) { flex: none; width: 44px; height: 44px; padding: 0; justify-content: center; }
   .library-diff { display: flex; justify-content: center; margin: 6px 0; }
-  .library-compare { min-width: 44px; min-height: 44px; }
-  .library-ask-id { font-size: var(--fz-xs); }
+  .library-ask-id { height: 22px; padding: 0 7px; font-size: var(--fz-xs); }
 }
+.library-board-dot { display: inline-block; width: 5px; height: 5px; border-radius: 50%; }
 </style>

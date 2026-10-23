@@ -39,10 +39,10 @@ const labels: Record<string, string> = {
   seed: "Seed",
 };
 const rows = computed(() => {
-  const fields: Readonly<Record<string, string | number | undefined>> = candidate.value?.fields ?? {},
+  const fields: Readonly<Record<string, unknown>> = candidate.value?.fields ?? {},
     form = view.value.form;
   return Object.entries(labels).flatMap(([key, label]) => {
-    const keys = (key === "size" ? ["width", "height"] : [key]).filter(
+    const keys = (key === "size" ? ["width", "height"] : key === "characters" ? ["characters", "placement"] : [key]).filter(
       (k) => fields[k] !== undefined,
     );
     if (!keys.length) return [];
@@ -105,11 +105,12 @@ function close() {
 async function open(result: ImageMetadata, blob: Blob) {
   if (url.value) URL.revokeObjectURL(url.value);
   focus = document.activeElement as HTMLElement;
-  candidate.value = result;
+  candidate.value = result.fields.characters ? { ...result, extras: result.extras.filter(e => !e.label.startsWith("角色")) } : result;
   url.value = URL.createObjectURL(blob);
   selected.value = [
     ...texts.value.filter((r) => !r.same).map((r) => r.key),
     ...rows.value.filter((r) => !r.same && !r.blocked).map((r) => r.key),
+    ...(result.fields.characters ? ["characters"] : []),
   ];
   image.importing = true;
   await nextTick();
@@ -131,10 +132,10 @@ async function read(blob: File) {
 }
 function apply() {
   if (!candidate.value) return;
-  const values: Readonly<Record<string, string | number | undefined>> = candidate.value.fields;
+  const values: Readonly<Record<string, unknown>> = candidate.value.fields;
   const fields: Record<string, unknown> = {};
   for (const key of selected.value)
-    for (const k of key === "size" ? ["width", "height"] : [key])
+    for (const k of key === "size" ? ["width", "height"] : key === "characters" ? ["characters", "placement"] : [key])
       if (values[k] !== undefined)
         fields[k] = values[k];
   const n = drawing.apply(fields).length;
@@ -341,6 +342,11 @@ defineExpose({ pick: () => file.value?.click(), close });
                 </div>
               </section>
             </div>
+            <section v-if="candidate?.fields.characters" class="import-text" data-key="characters">
+              <label class="import-toggle"><input v-model="selected" type="checkbox" value="characters" /><span class="import-check"></span><b>角色 · {{ candidate.fields.characters.length }}</b></label>
+              <p v-if="!candidate.fields.characters.length" class="import-prose">（空）导入会清空当前角色</p>
+              <div v-for="(c, i) in candidate.fields.characters" :key="c.id" class="import-prose"><b>角色 {{ i + 1 }} · {{ c.on ? '启用' : '停用' }} · {{ candidate.fields.placement === 'manual' ? c.centers.map(p => `${p.x}, ${p.y}`).join(' / ') : '自动' }}</b><p>{{ c.prompt || '（空）' }}</p><p>Negative：{{ c.negative || '（空）' }}</p></div>
+            </section>
             <section v-if="rows.length" class="import-section">
               <h2 class="import-label">参数</h2>
               <div class="import-params">

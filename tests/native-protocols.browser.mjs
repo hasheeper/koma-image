@@ -188,3 +188,22 @@ test("native connection settings: explicit protocol, saved selection, key input,
     assert.deepEqual(t.errors, []);
   } finally { await t.context.close(); }
 });
+
+test('C2 official NAI: role arrays survive generation, history reuse, img2img and local snapshots', async()=>{
+  const {page,context,requests,errors}=await open('nai-official-v1');
+  try {
+    await page.waitForFunction(()=>drawing.snapshot().models.length>0);
+    await page.evaluate(()=>drawing.patch({tagSuggest:false,prompt:'2people, outdoors',negative:'lowres',placement:'manual',seed:'7',characters:[{id:'c1',on:true,prompt:'girl, red hair',negative:'',centers:[{x:.23,y:.34}]},{id:'c2',on:true,prompt:'boy, blue eyes',negative:'red hair',centers:[{x:.81,y:.7}]},{id:'c3',on:false,prompt:'other, unused',negative:'',centers:[]}]}));
+    await page.evaluate(()=>drawing.run());
+    const first=JSON.parse(requests.find(r=>r.path==='/ai/generate-image').body);
+    assert.deepEqual(first.parameters.v4_prompt.caption.char_captions.map(c=>c.char_caption),['girl, red hair','boy, blue eyes']);
+    assert.deepEqual(first.parameters.v4_negative_prompt.caption.char_captions.map(c=>c.char_caption),['','red hair']);assert.equal(first.parameters.v4_prompt.use_coords,true);
+    const meta=await page.evaluate(()=>drawing.snapshot().history[0].params);assert.equal(meta.characters.length,2);assert.equal(meta.localCharacters.length,3);assert.ok(meta.boardId);
+    await page.evaluate(async()=>{const record=drawing.snapshot().history[0];await drawing.patch({characters:[],placement:'auto'});drawing.apply((await import('/src/domain/drawing.ts')).reuseFields(record));});
+    const restored=await page.evaluate(()=>drawing.snapshot().form.characters);assert.equal(restored.length,3);assert.deepEqual(restored.map(c=>c.id),['c4','c5','c6']);
+    await page.evaluate(async()=>{const r=drawing.snapshot().history[0];await editor.open('image',r.blob,'synthetic.png',{mode:'img2img',settings:r.params});await drawing.createBoard(false);await drawing.patch({prompt:'another board'});await editor.run();});
+    const posts=requests.filter(r=>r.path==='/ai/generate-image').map(r=>JSON.parse(r.body));assert.equal(posts.length,2);assert.equal(posts[1].action,'img2img');assert.deepEqual(posts[1].parameters.v4_prompt.caption.char_captions,first.parameters.v4_prompt.caption.char_captions);
+    assert.equal(await page.evaluate(()=>drawing.snapshot().history[0].params.boardId),meta.boardId);
+    assert.deepEqual(errors,[]);
+  } finally {await context.close();}
+});

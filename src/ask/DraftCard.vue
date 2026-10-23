@@ -1,9 +1,10 @@
 <script setup lang="ts">
-import { computed, nextTick, shallowRef, watch } from "vue";
+import { computed, nextTick, onBeforeUnmount, shallowRef, useId, watch } from "vue";
 import { useAsk } from "../app/ask";
 import AppIcon from "../shared/AppIcon.vue";
 import { draftView } from "./draft/view.ts";
 import type { FieldKey } from "./draft/view.ts";
+import { menuKeys, placeMenu } from "../shared/popover";
 
 const props = defineProps<{ compact?: boolean }>();
 const emit = defineEmits<{ review: [] }>();
@@ -16,6 +17,50 @@ const view = computed(() => plan.value ? draftView(plan.value) : null);
 const issues = computed(() => plan.value?.steps.some((s) => !!s.issue));
 const toggles = computed(() => (plan.value?.steps.length ?? 0) > 1);
 const blocked = computed(() => !plan.value || (!plan.value.changes.length && !plan.value.branch) || ask.writingDraft.value || ask.running.value);
+const menuId = `draftApply-${useId()}`;
+const menu = shallowRef<HTMLElement | null>(null), menuTrigger = shallowRef<HTMLButtonElement | null>(null), menuOpen = shallowRef(false);
+const hasApplyMenu = computed(() => plan.value?.workspace === "image" && !plan.value.newBoardName && !props.compact);
+const destinations = [
+  { newBoard: false, label: "应用到来源画板" },
+  { newBoard: true, label: "应用到新画板" },
+];
+const applyTitle = computed(() => plan.value?.newBoardName ? `新建画板「${plan.value.newBoardName}」并应用，不会生成 · Tab` : `${plan.value?.workspace === 'image' ? '写入来源画板，不会生成' : '写入输入框，不会发送'} · Tab`);
+let stopLayer = () => {};
+function closeMenu(refocus = false) {
+  menu.value?.hidePopover();
+  if (refocus) menuTrigger.value?.focus({ preventScroll: true });
+}
+function outsideScroll(event: Event) {
+  // The sibling message stream may auto-scroll without moving this button.
+  if (event.target instanceof Node && menuTrigger.value && event.target.contains(menuTrigger.value)) closeMenu();
+}
+function closeOnResize() { closeMenu(); }
+function cleanupMenu() {
+  stopLayer();
+  window.removeEventListener("resize", closeOnResize);
+  window.removeEventListener("scroll", outsideScroll, true);
+}
+function beforeMenu(event: ToggleEvent) {
+  menuOpen.value = event.newState === "open";
+  if (!menuOpen.value) cleanupMenu();
+}
+function toggleMenu() {
+  if (!menu.value || !menuTrigger.value) return;
+  if (menu.value.matches(":popover-open")) { closeMenu(); return; }
+  // Measure in the top layer and place before the first paint, not in the queued toggle event.
+  menu.value.showPopover();
+  placeMenu(menu.value, menuTrigger.value.getBoundingClientRect());
+  stopLayer = ask.layer(() => { closeMenu(true); return true; });
+  window.addEventListener("resize", closeOnResize);
+  window.addEventListener("scroll", outsideScroll, true);
+  menu.value.querySelector<HTMLButtonElement>('button:not(:disabled)')?.focus({ preventScroll: true });
+}
+function actionKeys(event: KeyboardEvent) {
+  if (event.key === "Escape" || event.key === "Tab") { event.preventDefault(); closeMenu(true); }
+  else menuKeys(event);
+}
+watch([() => plan.value?.fingerprint, () => props.compact, ask.visible, blocked], () => closeMenu());
+onBeforeUnmount(() => { closeMenu(); cleanupMenu(); });
 function full(key: FieldKey, on: boolean) {
   const next = new Set(fulls.value);
   if (on) next.add(key); else next.delete(key);
@@ -33,25 +78,35 @@ function review() {
 }
 function apply(event: MouseEvent) {
   const button = event.currentTarget as HTMLButtonElement;
-  void ask.applyDraft(button.dataset.fingerprint ?? "");
+  closeMenu();
+  const target = button.dataset.newBoard;
+  void ask.applyDraft(button.dataset.fingerprint ?? "", target === undefined ? undefined : target === "true");
 }
 </script>
 <template>
-  <section v-if="plan && view" class="ask-draft" :class="{ compact, open: open && !compact }" aria-label="待确认草稿" data-status="pending" :aria-busy="ask.writingDraft.value">
+  <section v-if="plan && view" class="ask-draft" :class="{ compact, open: open && !compact, 'has-destination': !!plan.newBoardName }" aria-label="待确认草稿" data-status="pending" :aria-busy="ask.writingDraft.value">
       <header class="draft-head">
         <button v-if="compact" class="draft-toggle draft-review" type="button" aria-label="查看草稿修改" :title="plan.title" @click="review">
           <AppIcon name="i-edit" class="draft-lead" />
-          <span class="draft-title"><strong>{{ plan.title }}</strong><span class="draft-stat"><span v-if="view.added" class="i">+{{ view.added }}</span><span v-if="view.removed" class="d">−{{ view.removed }}</span></span></span>
+          <span class="draft-heading"><span class="draft-title"><strong>{{ plan.title }}</strong><span class="draft-stat"><span v-if="view.added" class="i">+{{ view.added }}</span><span v-if="view.removed" class="d">−{{ view.removed }}</span></span></span><span v-if="plan.newBoardName" class="draft-destination" :title="`新画板 · ${plan.newBoardName}`"><span>新画板</span><span aria-hidden="true">·</span><span class="draft-board-name">{{ plan.newBoardName }}</span></span></span>
         </button>
         <button v-else class="draft-toggle" type="button" :aria-expanded="open" aria-controls="askDraftBody" :title="plan.title" @click="open = !open">
           <AppIcon name="i-chevron" class="draft-chev" />
-          <span class="draft-title"><strong>{{ plan.title }}</strong><span class="draft-stat" :title="`新增 ${view.added} 项 · 删除 ${view.removed} 项`"><span v-if="view.added" class="i">+{{ view.added }}</span><span v-if="view.removed" class="d">−{{ view.removed }}</span></span></span>
+          <span class="draft-heading"><span class="draft-title"><strong>{{ plan.title }}</strong><span class="draft-stat" :title="`新增 ${view.added} 项 · 删除 ${view.removed} 项`"><span v-if="view.added" class="i">+{{ view.added }}</span><span v-if="view.removed" class="d">−{{ view.removed }}</span></span></span><span v-if="plan.newBoardName" class="draft-destination" :title="`新画板 · ${plan.newBoardName}`"><span>新画板</span><span aria-hidden="true">·</span><span class="draft-board-name">{{ plan.newBoardName }}</span></span></span>
         </button>
         <div class="draft-actions">
-          <button class="btn btn-quiet btn-sm" type="button" title="忽略 · Esc" :disabled="ask.writingDraft.value" @click="ask.ignoreDraft()">忽略</button>
-          <button class="btn btn-primary btn-sm ask-draft-apply" type="button" :title="`${plan.workspace === 'image' ? '写入表单，不会生成' : '写入输入框，不会发送'} · Tab`" :data-fingerprint="plan.fingerprint" :disabled="blocked" :aria-disabled="blocked" @click="apply">{{ ask.writingDraft.value ? '写入中…' : ask.draftApplyLabel.value }}</button>
+          <button class="btn btn-sm draft-ignore" type="button" title="忽略 · Esc" :disabled="ask.writingDraft.value" @click="ask.ignoreDraft()">忽略</button>
+          <div class="draft-apply-group" :class="{ split: hasApplyMenu }">
+            <button class="btn btn-primary btn-sm ask-draft-apply" type="button" :title="applyTitle" :data-fingerprint="plan.fingerprint" :disabled="blocked" :aria-disabled="blocked" @click="apply"><AppIcon :name="plan.newBoardName ? 'i-copy' : 'i-check'" /><span>{{ ask.writingDraft.value ? '写入中…' : ask.draftApplyLabel.value }}</span></button>
+            <button v-if="hasApplyMenu" ref="menuTrigger" class="btn btn-primary btn-sm draft-apply-more" type="button" aria-label="选择应用方式" title="选择应用方式" :popovertarget="menuId" aria-haspopup="menu" :aria-expanded="menuOpen" :disabled="blocked" @click.prevent="toggleMenu"><AppIcon name="i-chevron" /></button>
+          </div>
         </div>
       </header>
+      <div v-if="hasApplyMenu" :id="menuId" ref="menu" class="draft-apply-menu" popover="auto" role="menu" aria-label="应用方式" @beforetoggle="beforeMenu" @keydown.stop="actionKeys">
+        <button v-for="destination in destinations" :key="String(destination.newBoard)" type="button" role="menuitem" :data-fingerprint="plan.fingerprint" :data-new-board="String(destination.newBoard)" :disabled="blocked" @click="apply">
+          <AppIcon :name="destination.newBoard ? 'i-copy' : 'i-check'" /><span>{{ destination.label }}</span>
+        </button>
+      </div>
       <p v-if="plan.aligned" class="draft-aligned">已按当前内容对齐，请核对后应用</p>
       <div v-show="open && !compact" id="askDraftBody" ref="body" class="draft-body" :class="{ more }" @scroll.passive="fade">
         <section v-for="field in view.fields" :key="field.key" class="draft-field" :data-field="field.key">
@@ -69,6 +124,7 @@ function apply(event: MouseEvent) {
                 <div v-for="(hunk, h) in s.hunks" :key="h" class="draft-hunk">
                   <div v-for="line in hunk" :key="line.sign" class="draft-line" :class="line.sign"><span class="draft-sign">{{ line.sign === 'del' ? '−' : '+' }}</span><span class="draft-text">{{ line.text }}</span></div>
                 </div>
+                <small v-if="s.step.characterId" class="draft-role-field">{{ s.step.label }}</small>
                 <p v-if="!s.hunks.length" class="draft-same">无变化</p>
               </template>
               <div v-else-if="s.kind === 'param'" class="draft-kv">
@@ -88,20 +144,45 @@ function apply(event: MouseEvent) {
 <style scoped>
 /* One grid: column A (14px chevron, icons, ± signs) at 12px, column B (text) at 34px, right edge at 8px. */
 .ask-draft { --draft-a: 12px; --draft-b: 34px; --draft-r: 8px; --draft-del: rgba(232, 135, 135, .1); --draft-ins: rgba(116, 207, 155, .085); --draft-del-hi: rgba(232, 135, 135, .17); --draft-ins-hi: rgba(116, 207, 155, .15); display: flex; flex: 0 1 auto; flex-direction: column; min-height: 0; margin-bottom: 8px; overflow: hidden; color: var(--fg-2); background: var(--ask-layer, var(--raised)); border: 1px solid var(--line-2); border-radius: 14px; }
-.draft-head { display: flex; flex: none; align-items: center; gap: 8px; min-height: 44px; padding: 0 var(--draft-r) 0 0; }
-.draft-toggle { display: flex; flex: 1; align-items: center; gap: 8px; min-width: 0; align-self: stretch; padding-left: var(--draft-a); text-align: left; }
+.draft-head { display: flex; flex: none; flex-wrap: wrap; align-items: center; gap: 0 8px; min-height: 44px; padding: 6px var(--draft-r) 6px 0; }
+.draft-toggle { display: flex; flex: 1; align-items: center; gap: 8px; min-width: min(140px, 100%); min-height: 32px; align-self: stretch; padding-left: var(--draft-a); text-align: left; }
 .draft-chev { flex: none; width: 14px; height: 14px; color: var(--fg-3); transform: rotate(-90deg); transition: transform var(--t1) var(--e), color var(--t1) var(--e); }
 .open .draft-chev { transform: rotate(90deg); }
 .draft-toggle:hover .draft-chev { color: var(--fg); }
 .draft-lead { flex: none; width: 14px; height: 14px; color: var(--a); }
+.draft-heading { display: grid; flex: 1; gap: 3px; min-width: 0; }
+.has-destination .draft-toggle { padding-block: 4px; }
+.draft-destination { display: flex; align-items: baseline; gap: 5px; color: var(--fg-3); font-size: 12px; font-weight: var(--fw-regular); }
+.draft-destination > span:first-child { flex: none; color: var(--a); }
+.draft-board-name { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .draft-title { display: flex; flex: 1; align-items: baseline; gap: 8px; min-width: 0; }
 .draft-title strong { min-width: 0; overflow: hidden; color: var(--fg); font-size: 13px; font-weight: var(--fw-medium); text-overflow: ellipsis; white-space: nowrap; }
 .draft-review:hover strong { color: var(--a); }
 .draft-stat { display: flex; flex: none; gap: 6px; font-size: 12.5px; font-variant-numeric: tabular-nums; }
 .draft-stat .i { color: var(--ok); }
 .draft-stat .d { color: var(--err); }
-.draft-actions { display: flex; flex: none; gap: 4px; }
-.draft-actions .btn { min-height: 30px; padding: 0 12px; font-size: 13px; border-radius: 8px; }
+.draft-actions { display: flex; flex: 0 1 auto; align-items: center; gap: 4px; max-width: 100%; margin-left: auto; padding-left: 8px; }
+.draft-actions .btn { min-height: 30px; padding: 0 9px; font-size: 13px; font-weight: var(--fw-medium); border: 0; border-radius: 8px; box-shadow: none; }
+.draft-ignore { flex: none; color: var(--fg-3); }
+.draft-ignore:hover:not(:disabled) { color: var(--fg); background: var(--ask-hover, var(--hover)); }
+.draft-ignore:disabled { opacity: .4; cursor: default; }
+.draft-apply-group { display: flex; align-items: stretch; min-width: 0; border-radius: 8px; background: var(--a); }
+.draft-actions .ask-draft-apply { gap: 4px; padding-inline: 10px; white-space: normal; overflow-wrap: anywhere; }
+.draft-apply-group .ico { width: 14px; height: 14px; }
+.split .ask-draft-apply:not(:disabled) { background: transparent; }
+.split .ask-draft-apply { border-radius: 8px 0 0 8px; }
+.split .ask-draft-apply:hover:not(:disabled) { background: var(--a-hover); }
+.draft-actions .draft-apply-more { position: relative; flex: none; width: 28px; padding: 0; border-radius: 0 8px 8px 0; }
+.draft-actions .draft-apply-more:hover:not(:disabled), .draft-apply-more[aria-expanded="true"] { background: rgb(255 255 255 / 18%); }
+.draft-apply-more::before { content: ""; position: absolute; left: 0; top: 7px; bottom: 7px; width: 1px; background: rgb(23 19 42 / 16%); }
+.draft-apply-more .ico { transform: rotate(90deg); }
+/* Measured coordinates must not transition, including under the global reduced-motion duration. */
+.draft-apply-menu { position: fixed; inset: auto; width: min(184px, calc(100vw - 16px)); margin: 0; padding: 4px; color: var(--fg); background: #26262d; border: 1px solid var(--line-2); border-radius: 9px; box-shadow: 0 8px 24px rgb(0 0 0 / 45%); transition-property: none; }
+.draft-apply-menu:popover-open { display: grid; }
+.draft-apply-menu button { display: flex; align-items: center; gap: 8px; min-height: 34px; padding: 0 9px; color: var(--fg); text-align: left; font-size: 13px; border-radius: 5px; }
+.draft-apply-menu button:is(:hover, :focus-visible):not(:disabled) { background: rgb(255 255 255 / 5.5%); outline: none; }
+.draft-apply-menu button:disabled { color: var(--fg-4); cursor: default; }
+.draft-apply-menu .ico { flex: none; width: 14px; height: 14px; }
 .draft-aligned { flex: none; padding: 0 var(--draft-r) 8px var(--draft-b); color: var(--warn); font-size: var(--fz-xs); }
 .draft-body { display: grid; flex: 0 1 auto; grid-auto-rows: max-content; min-height: 0; max-height: min(44dvh, 340px); padding: 4px 0 10px; overflow-y: auto; overscroll-behavior: contain; border-top: 1px solid var(--line); }
 .draft-body.more { -webkit-mask-image: linear-gradient(to bottom, #000 calc(100% - 28px), transparent); mask-image: linear-gradient(to bottom, #000 calc(100% - 28px), transparent); }
@@ -159,6 +240,8 @@ function apply(event: MouseEvent) {
 .compact .draft-aligned, .compact .draft-conflict { padding-left: 32px; }
 @media (max-width: 860px) {
   .draft-actions .btn { min-height: 36px; }
+  .draft-actions .draft-apply-more { width: 36px; }
+  .draft-apply-menu button { min-height: 44px; }
   .draft-undo { width: 32px; height: 32px; opacity: 1; }
   .draft-seg button { height: 30px; }
 }
@@ -170,4 +253,6 @@ function apply(event: MouseEvent) {
 @media (prefers-reduced-motion: reduce) {
   .draft-step, .draft-chev { transition: none; }
 }
+.draft-role-field { order: -1; padding-left: 28px; color: var(--fg-3); font-size: var(--fz-xs); }
+.draft-field[data-field^="character:"] .draft-diff { gap: 0; padding-block: 4px; border: 1px solid var(--line); border-radius: 8px; margin-inline: 8px; }
 </style>

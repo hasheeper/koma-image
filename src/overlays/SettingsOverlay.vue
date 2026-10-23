@@ -20,6 +20,7 @@ import ModelListDialog from "./settings/ModelListDialog.vue";
 import BackupSection from "./settings/BackupSection.vue";
 import GeneralSection from "./settings/GeneralSection.vue";
 import AskSection from "./settings/AskSection.vue";
+import AskModelDialog from "./settings/AskModelDialog.vue";
 import type { SettingsSection } from "../app/routes";
 import type { Connection, Routing } from "../config/connections.ts";
 import {
@@ -34,11 +35,14 @@ import { object } from "../domain/value.ts";
 import { MODELS } from "../domain/models.ts";
 import { catalogEntries, sourceState } from "../domain/catalog.ts";
 import { download } from "../shared/files";
+import { names } from "../storage/names.ts";
+import { readAskSettings } from "../ask/settings.ts";
+import type { AskSettings } from "../ask/settings.ts";
 import { placeMenu, menuKeys } from "../shared/popover";
 const { router } = useShell(),
   services = useServices(),
   ui = useUi();
-const { connections, vault } = services;
+const { connections, vault, preferences } = services;
 const local = connections.local;
 const dialog = useTemplateRef<HTMLDialogElement>("dialog"),
   form = useTemplateRef<HTMLDialogElement>("connectionForm");
@@ -52,7 +56,13 @@ const raw = shallowRef<Record<string, unknown>>({}),
   balances = shallowRef<Record<string, Record<string, unknown>>>({});
 const statuses = ref<Record<string, { s: string; text: string }>>({}),
   testing = ref<string | null>(null),
-  listConnection = ref<string | null>(null);
+  listConnection = ref<string | null>(null),
+  askList = ref<string | null>(null);
+const askListPurpose = ref<"ask" | "naming">("ask");
+function openAskModels(id: string, purpose: "ask" | "naming" = "ask") {
+  askListPurpose.value = purpose;
+  askList.value = id;
+}
 // The connection form adds a connection, or edits one when it has a target.
 const formTarget = ref<string | null>(null),
   formName = ref(""),
@@ -69,7 +79,7 @@ const sections: { id: SettingsSection; label: string; icon: string }[] = [
   { id: "models", label: "模型", icon: "model" },
   { id: "general", label: "通用", icon: "settings" },
   { id: "security", label: "安全与备份", icon: "lock" },
-  { id: "ask", label: "ASK", icon: "info" },
+  { id: "ask", label: "ASK", icon: "ask" },
 ];
 // Keep existing backup links usable within the combined settings page.
 const activeSection = computed(() =>
@@ -228,6 +238,48 @@ const unconnections = connections.subscribe((kind) => {
   }
   if (dialog.value?.open) queueLoad();
 });
+// A reasoning card says whether ASK uses it, with which model ID, or how many it picked there.
+const readAsk = () => readAskSettings(preferences.get(names.ask, null));
+const askUse = shallowRef(readAsk());
+const unask = preferences.subscribe((key) => {
+  if (!key || key === names.ask) askUse.value = readAsk();
+});
+const askModels = (id: string) => {
+  const picked = askUse.value.models[id]?.length;
+  return askUse.value.connectionId === id
+    ? askUse.value.model ? `使用中 · ${askUse.value.model}` : "使用中"
+    : picked ? `已选 ${picked} 个`
+    : raw.value[id] ? `${catalogEntries(raw.value[id]).length} 个 ID` : "—";
+};
+// The ASK list loads only its own connection, wherever it opens; cards keep their own pass.
+async function loadAsk(force = false) {
+  const c = askList.value ? routing.value.connections[askList.value] : undefined;
+  if (!c || (raw.value[c.id] && !force)) return;
+  if (!connections.hasCredential(c.credentialRef)) {
+    statuses.value[c.id] = { s: "wait", text: mode.value === "empty" ? "未配置 Key" : "请先解锁 Key" };
+    return;
+  }
+  statuses.value[c.id] = { s: "wait", text: "检查中…" };
+  try {
+    const value = await services.gateway(c.id).rawCatalog(force);
+    if (disposed) return;
+    raw.value = { ...raw.value, [c.id]: value };
+    statuses.value[c.id] = { s: "ok", text: "可用 · 推理尚未实测" };
+  } catch (error) {
+    if (!disposed) statuses.value[c.id] = { s: "err", text: message(error) };
+  }
+}
+watch(askList, () => void loadAsk());
+// Ticks land before the write settles, so quick clicks build on each other.
+async function saveAsk(next: AskSettings) {
+  askUse.value = next;
+  try {
+    await preferences.set(names.ask, next);
+  } catch (error) {
+    askUse.value = readAsk();
+    ui.toast(message(error), "err");
+  }
+}
 const unvault = vault.subscribe(() => {
   version.value++;
   raw.value = {};
@@ -242,6 +294,7 @@ watch(
       sequence++;
       closeMenu();
       listConnection.value = null;
+      askList.value = null;
       form.value?.close();
       return;
     }
@@ -255,6 +308,7 @@ onBeforeUnmount(() => {
   controller?.abort();
   unconnections();
   unvault();
+  unask();
   closeMenu();
   form.value?.close();
 });
@@ -657,17 +711,15 @@ async function reveal(id: string) {
                   ></span>
                 </div>
               </div>
-              <!-- Reasoning connections serve ASK only; their IDs are picked there. -->
+              <!-- Reasoning connections serve ASK only; their list picks ASK's IDs. -->
               <button
                 v-if="profileFor(c.profileId).reasoning"
                 class="conn-models"
                 type="button"
-                @click="router.selectSection('ask')"
+                @click="openAskModels(c.id)"
               >
                 <span>ASK 模型</span
-                ><span>{{
-                  raw[c.id] ? `${catalogEntries(raw[c.id]).length} 个 ID` : "—"
-                }}</span
+                ><span>{{ askModels(c.id) }}</span
                 ><AppIcon name="i-chevron" />
               </button>
               <button
@@ -697,7 +749,11 @@ async function reveal(id: string) {
             @reload="load(true)"
           />
           <GeneralSection v-show="activeSection === 'general'" />
-          <AskSection v-show="activeSection === 'ask'" :routing="routing" />
+          <AskSection
+            v-show="activeSection === 'ask'"
+            :routing="routing"
+            @models="openAskModels"
+          />
           <div v-show="activeSection === 'security'" class="backup-sections">
             <section class="sp-sec" aria-label="安全">
               <div class="sp-sec-head"><h3>安全</h3></div>
@@ -907,5 +963,16 @@ async function reveal(id: string) {
     @refresh="load(true)"
     @change="commit"
     @reveal="reveal"
+  />
+  <AskModelDialog
+    :purpose="askListPurpose"
+    :connection="askList && routing.connections[askList] ? askList : null"
+    :routing="routing"
+    :raw="raw[askList ?? '']"
+    :status="statuses[askList ?? '']?.text"
+    :settings="askUse"
+    @close="askList = null"
+    @refresh="loadAsk(true)"
+    @change="saveAsk"
   />
 </template>

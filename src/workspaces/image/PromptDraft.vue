@@ -5,6 +5,7 @@ import {
   onActivated,
   onBeforeUnmount,
   onDeactivated,
+  onMounted,
   ref,
   useTemplateRef,
   watch,
@@ -27,7 +28,7 @@ const emit = defineEmits<{ import: [] }>();
 const props = defineProps<{ suggest: boolean }>();
 const promptBox = useTemplateRef<HTMLElement>("promptBox");
 let promptResize: ResizeObserver | undefined;
-onActivated(() => {
+function resumeResize() {
   const hero = promptBox.value;
   if (!hero) return;
   const wraps = [...hero.querySelectorAll<HTMLElement>(".hl-wrap")];
@@ -65,7 +66,10 @@ onActivated(() => {
     }
   });
   for (const wrap of wraps) promptResize.observe(wrap);
-});
+}
+// Switching boards remounts this keyed child without reactivating the workspace.
+onMounted(resumeResize);
+onActivated(resumeResize);
 const pauseResize = () => promptResize?.disconnect();
 onDeactivated(pauseResize);
 onBeforeUnmount(pauseResize);

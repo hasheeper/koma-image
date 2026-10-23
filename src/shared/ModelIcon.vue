@@ -14,6 +14,12 @@ const glyphs: Record<string, string> = {
   xai: "grok",
   wan: "alibabacloud-c",
   dashscope: "alibabacloud-c",
+  claude: "claude-c",
+  deepseek: "deepseek-c",
+  doubao: "bytedance-c",
+  glm: "zai",
+  kimi: "kimi-c",
+  minimax: "minimax-c",
 };
 const glyph = computed(() => glyphs[props.family ?? ""]);
 </script>

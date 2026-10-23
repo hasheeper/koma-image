@@ -52,7 +52,7 @@ Profile 从登记表按 ID 查找，未登记的协议不能保存或恢复。�
 
 全应用共用任务调度器和 Web Locks 槽位，默认 N=1，忙时提示返回；批次占同一槽位直到结束，不自动排队。后续可扩展并发与在途 max_cost 预占，本阶段不启用。
 
-数据库使用 koma-image-favorites、koma-chat、koma-handoff；偏好、连接与凭据采用 koma.\*；同步频道为 koma-sync。数据锁为 koma-image-data-v1，任务门为 koma-image-generation-v1，槽位为 koma-image-generation-slot-v1:1..N。命名集中管理，避免组件硬编码。
+数据库使用 koma-image-favorites、koma-chat、koma-handoff，以及仅存 ASK 收藏会话的 koma-ask；偏好、连接与凭据采用 koma.\*；同步频道为 koma-sync。数据锁为 koma-image-data-v1，任务门为 koma-image-generation-v1，槽位为 koma-image-generation-slot-v1:1..N。命名集中管理，避免组件硬编码。
 
 ### 数据兼容范围（已裁撤旧数据迁移）
 

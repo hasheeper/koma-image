@@ -1,3 +1,5 @@
+import { activeCharacters, readCharacters } from "../domain/characters.ts";
+import type { Character, Placement } from "../domain/characters.ts";
 import type { ApplicationServices } from "./application";
 import { profileFor, STANDARD_PROFILE_ID } from "../gateway/profile.ts";
 import type { Ui } from "../app/ui";
@@ -55,6 +57,9 @@ export interface EditorSession {
   strength: Record<EditMode, number>;
   noise: Record<EditMode, number>;
   options: Record<string, Record<string, string>>;
+  characters: Character[];
+  placement: Placement;
+  provenance: Fields;
   fields: {
     prompt: string;
     negative_prompt: string;
@@ -86,6 +91,7 @@ const session = (
   strength: { img2img: 0.5, inpaint: 1 },
   noise: { img2img: 0, inpaint: 0 },
   options: {},
+  characters: [], placement: "auto", provenance: {},
   fields: {
     prompt: "",
     negative_prompt: "",
@@ -257,6 +263,7 @@ export function createEditor(
     if (!v || !m) throw new Error("请先选择底图和模型");
     const w = warning(key);
     if (w) throw new Error(w);
+    const owner = current, characters = structuredClone(current.characters), placement = current.placement;
     const f: EditorFields = {
       ...current.fields,
       seed:
@@ -285,11 +292,13 @@ export function createEditor(
             })),
           };
     return {
-      payload: buildEditorPayload(mode, m, encoded, f, mask),
+      payload: { ...buildEditorPayload(mode, m, encoded, f, mask), ...(mode !== "upscale" && activeCharacters(characters, m.id).length ? { characters: activeCharacters(characters, m.id), placement } : {}) },
       model: m,
       parent: v,
       mode,
-      owner: current,
+      owner,
+      localCharacters: characters,
+      provenance: structuredClone(owner.provenance),
     };
   }
   function scheduleQuote(key: Job = "edit", delay = 400) {
@@ -493,7 +502,7 @@ export function createEditor(
             const params: Fields =
               p.mode === "upscale"
                 ? { model: p.model.id, tool: "upscale", via: output.via }
-                : ({ ...settings, tool: p.mode, via: output.via } as Fields);
+                : ({ ...settings, ...p.provenance, localCharacters: p.localCharacters, tool: p.mode, via: output.via } as Fields);
             last = addVersion(p.owner, {
               kind: "result",
               blob: block.blob,
@@ -671,16 +680,24 @@ export function createEditor(
       upscaleOpen = false;
       router.openOverlay("editor");
       emit();
+      const initialDrawing = drawing.snapshot(), initialForm = structuredClone(initialDrawing.form);
+      const initialBoard = structuredClone(initialDrawing.boards.find(b => b.id === initialDrawing.activeBoardId));
+      const initialSettings = options.settings ? structuredClone(options.settings) : null;
       const revision = ++openSequence;
       await catalog();
       if (revision !== openSequence || !open) return;
-      const form = drawing.snapshot().form;
+      const form = initialForm;
       const settings: Fields | null =
-        options.settings ||
+        initialSettings ||
         (!current.initialized && origin === "image"
           ? { ...form, negative_prompt: form.negative }
           : null);
       if (settings && options.mode !== "upscale") {
+        current.characters = readCharacters(settings.localCharacters ?? settings.characters);
+        current.placement = settings.placement === "manual" ? "manual" : "auto";
+        const board = initialBoard;
+        current.provenance = Object.fromEntries(["boardId", "boardName", "boardColor"].flatMap(k => typeof settings[k] === "string" ? [[k, settings[k]]] : [])) as Fields;
+        if (!options.settings && origin === "image" && board) current.provenance = { boardId: board.id, boardName: board.name, boardColor: board.color };
         for (const key of [
           "prompt",
           "negative_prompt",

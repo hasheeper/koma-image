@@ -6,6 +6,7 @@ interface Entry {
   readonly createdAt: number;
   readonly favoritedAt?: number;
 }
+export interface IdSnapshot { readonly history: readonly string[]; readonly favorites: readonly string[] }
 /** `#h12`, `#f3`, `#c4.2`, `#a1` as they appear in questions and replies. */
 export const idPattern = /#(?:h\d+|f\d+|a\d+|c\d+\.\d+)(?!\w)/g;
 
@@ -22,6 +23,13 @@ export function createIds() {
   let seenHistory: readonly Entry[] | null = null,
     seenFavorites: readonly Entry[] | null = null;
   return {
+    snapshot(): IdSnapshot { return { history: [...history.keys()], favorites: [...favorites.keys()] }; },
+    /** Favorites from the same page share a growing registry; deleted images keep their slots. */
+    restore(saved: IdSnapshot) {
+      for (const [prefix, map, entries] of [["h", history, saved.history], ["f", favorites, saved.favorites]] as const)
+        entries.forEach((id, i) => { if (!map.has(id)) { map.set(id, i + 1); labels.set(`#${prefix}${i + 1}`, id); } });
+      seenHistory = null; seenFavorites = null;
+    },
     /** `historyList` is newest first, as the drawing service keeps it. */
     sync(historyList: readonly Entry[], favoriteList: readonly Entry[]) {
       if (historyList !== seenHistory) {

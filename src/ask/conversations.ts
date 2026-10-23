@@ -1,4 +1,4 @@
-/** Page-memory conversations (doc ask-window-v5 §5.1); plain data, no Vue. */
+/** Live conversations; selected favorites can be restored from local storage. */
 export const CONVERSATION_LIMIT = 20;
 export const UNTITLED = "新对话";
 
@@ -24,14 +24,19 @@ export function createConversations<T extends ConversationCore>(options: {
   limit?: number;
 }) {
   const limit = options.limit ?? CONVERSATION_LIMIT, items: T[] = [];
-  let sequence = 0;
   const add = (build: (id: string) => T) => {
-    const conversation = build(`conversation-${++sequence}`);
+    const conversation = build(crypto.randomUUID());
     items.push(conversation);
     return conversation;
   };
   let current = add(options.make);
   return {
+    /** Startup only: stored order is oldest first, just like the live list. */
+    restore(saved: readonly T[]) {
+      if (!saved.length) return;
+      items.splice(0, items.length, ...saved);
+      current = items.at(-1)!;
+    },
     get current() {
       return current;
     },

@@ -51,13 +51,13 @@
 
 “提示词 L0”指静态宪章；“状态摘要 L0”指每轮 user 消息中的 `<workspace_state>`。六维指导属于前者，原始表单属于后者。不得为了瘦身把动态表单移进 System。
 
-R1 曾将摘要从 `v:2` 升为 `v:3`；2026-10-23 按用户实机反馈升为 `v:4`，当前契约如下：
+R1 曾将摘要从 `v:2` 升为 `v:3`；2026-10-23 实机反馈修订为 `v:4`，随后多角色与画板接入升为 `v:5`。按用户明确修订，当前契约如下：
 
 - 删除 `image.prompt_sections`，不换名输出 `segments` 或另一份全文切片。
-- 无锚点时 `image.form.text_included=false`，省略 prompt/negative，保留模型、尺寸、参数与预留数组。`image.current` 仅含 ID，history 仅 mode/count/latest_id，favorites 仅 count；不预载历史文本、差异或聚类。显式历史／收藏锚点保留模式 A 与表单原文；附件或 CHAT ID 不隐式展开 IMAGE 原稿。
-- 根层 `base_hash` 继续由 prompt、negative、CHAT composer 计算，算法与草稿确认语义不变；不另加 form 内 hash。
-- `characters`、`vibes` 保留当前空数组预留；六维是模型理解方式，不新增六类 JSON 字段。
-- 初始快照在整轮冻结。`get_state` 默认 scope=initial，按需补齐本轮表单原文；scope=latest 才读取外部新改动。结果只追加在队尾，历史索引仍不展开；不能使新图进入本轮 library，也不能替换草稿使用的初始 hash。
+- 活动画板始终 `image.form.text_included=true`，直接包含完整 prompt/negative 和每角色 id/on/prompt/negative/position；其他画板只给目录。无锚点时 `image.current` 仅含 ID，history 仅 mode/count/latest_id，favorites 仅 count，不预载历史文本、差异或聚类。显式历史／收藏锚点保留模式 A；附件或 CHAT ID 不隐式展开 IMAGE 历史。
+- 根层 `base_hash` 覆盖源画板 ID、完整生成表单与 CHAT composer；不另加 form 内 hash。草稿继续绑定发送时的源板与快照。
+- `characters` 已接通真实角色组，`vibes` 仍为空预留；六维是模型理解方式，不新增六类 JSON 字段。
+- 初始快照在整轮冻结。`get_state` 默认 scope=initial，可通过 board_id 读取本轮其他画板完整表单；scope=latest 才读取外部新改动。结果只追加在队尾，历史索引仍不展开；不能使新图进入本轮 library，也不能替换草稿使用的初始 hash。
 
 ### 2.2 画师判断交给提示词与用户
 

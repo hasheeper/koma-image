@@ -133,13 +133,14 @@ test("real browser schemas, atomic chat transactions, original Blob bytes and on
       };
     });
     assert.deepEqual(result.known, [
+      "koma-ask",
       "koma-chat",
       "koma-handoff",
       "koma-image-favorites",
     ]);
     assert.deepEqual(
       result.details.map((d) => d.stores),
-      [["favorites"], ["assets", "conversations"], ["items"]],
+      [["favorites"], ["assets", "conversations"], ["items"], ["conversations"]],
     );
     assert.ok(result.details.every((d) => d.version === 1));
     assert.deepEqual(result.bytes, [0, 128, 255, 10]);

@@ -58,11 +58,11 @@ test("digest: same workbench, same bytes; no binary data; base hash tracks only 
   assert.deepEqual(state.image.current, { id: "#h3" });
   assert.equal(state.image.form.seed, "random");
   assert.deepEqual(state.image.form.characters, []);
-  assert.equal(state.v, 4);
-  assert.equal(state.image.form.text_included, false);
-  assert.equal(state.image.form.prompt, undefined);
-  assert.equal(state.image.form.negative, undefined);
-  assert.ok(!first.json.includes(form.prompt) && !first.json.includes("red eyes") && !first.json.includes("lowres"));
+  assert.equal(state.v, 5);
+  assert.equal(state.image.form.text_included, true);
+  assert.equal(state.image.form.prompt, form.prompt);
+  assert.equal(state.image.form.negative, form.negative);
+  assert.ok(first.json.includes(form.prompt) && !first.json.includes("red eyes"));
   assert.doesNotMatch(first.json, /"(?:prompt_sections|segments)"\s*:/);
   assert.equal(state.chat, undefined);
   assert.equal(first.cursor, 3);
@@ -84,7 +84,7 @@ test("digest: user text cannot close the state tag", () => {
   assert.ok(JSON.parse(block.slice("<workspace_state>\n".length, -"\n</workspace_state>".length)).image.form.prompt.startsWith("</workspace_state>"));
 });
 
-test("digest: full form is opt-in, explicit workspace anchors keep diagnosis metadata, attachment anchors stay lean", () => {
+test("digest: active form is always present, explicit workspace anchors keep diagnosis metadata, attachment anchors stay lean", () => {
   const args = input(), lean = buildDigest(args), full = buildDigest(args, { formText: true });
   const state = JSON.parse(full.json);
   assert.equal(full.baseHash, lean.baseHash);
@@ -101,10 +101,21 @@ test("digest: full form is opt-in, explicit workspace anchors keep diagnosis met
   assert.deepEqual(anchored.image.current, { id: "#h3" }, "an unrelated canvas doesn't preload its text");
   const attachment = JSON.parse(buildDigest({ ...args, anchor: "#a1" }).json);
   assert.equal(attachment.image.history.mode, "B");
-  assert.equal(attachment.image.form.prompt, undefined);
+  assert.equal(attachment.image.form.prompt, form.prompt);
   assert.deepEqual(JSON.parse(buildDigest(input({ history: [], current: null })).json).image.history, { mode: "B", count: 0, latest_id: null });
 });
 
+test('ids: favorite restoration reserves old history labels before new images arrive', () => {
+  const original = createIds();
+  original.sync([{ id: 'old', createdAt: 1 }], [{ id: 'favorite', createdAt: 1, favoritedAt: 2 }]);
+  const restored = createIds(); restored.restore(original.snapshot());
+  restored.sync([{ id: 'new', createdAt: 3 }], [{ id: 'favorite', createdAt: 1, favoritedAt: 2 }]);
+  assert.equal(restored.history('new'), '#h2');
+  assert.equal(restored.resolve('#h1'), 'old');
+  assert.equal(restored.favorite('favorite'), '#f1');
+  restored.restore(original.snapshot());
+  assert.equal(restored.history('new'), '#h2', 'an older sibling snapshot never replaces newer labels');
+});
 test("ids: history in arrival order, favorites by time, never reused within the page", () => {
   const ids = createIds();
   let history = [image("b", 2, ""), image("a", 1, "")];

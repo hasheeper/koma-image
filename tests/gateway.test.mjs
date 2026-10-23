@@ -10,7 +10,7 @@ import { normalizeQuota, quotaPolicy, quotaGauge, creditBalance } from "../src/d
 import { normalizeCatalog, sourceState, validateCatalog } from "../src/domain/catalog.ts";
 import { MODELS } from "../src/domain/models.ts";
 import { createQuotePreview } from "../src/services/quote-preview.ts";
-import { toNativePayload } from "../src/gateway/routes.ts";
+import { toNativePayload, toStandardPayload } from "../src/gateway/routes.ts";
 
 const connection = (id = "primary") => ({ id, name: "测试连接", baseUrl: "https://gateway.example.test", profileId: standardProfile.id,
   credentialRef: `key-${id}`, revision: "initial" });
@@ -92,6 +92,46 @@ test("execution requotes the exact snapshot, maps model IDs, and preserves all t
   assert.ok(calls.every(call => call.redirect === "error"));
   assert.equal(payload.max_cost, undefined);
   assert.equal(toNativePayload({ ...payload, prompt: "", seed: -1 }, () => 0.5).parameters.seed, 2147483648);
+});
+
+test("C2 standard roles: one snapshot feeds quote, native, Studio and tools without losing negatives or coordinates", async () => {
+  const calls=[];let cost=0;
+  const {gateway}=await setup(async(url,init)=>{
+    calls.push({path:url.pathname,body:init.body&&JSON.parse(init.body)});
+    return json(url.pathname.endsWith('models')?raw:url.pathname.endsWith('estimate')?{cost}:{ok:true});
+  });
+  await gateway.catalog();
+  const input={model:'nai-diffusion-5-full',prompt:'2people, outdoors',negative_prompt:'lowres',seed:42,placement:'manual',characters:[
+    {id:'c7',on:true,prompt:'girl, red hair',negative:'',centers:[{x:.24,y:.76}]},
+    {id:'c3',on:true,prompt:'boy, blue hair',negative:'red hair',centers:[{x:.8,y:.3}]},
+    {id:'c4',on:false,prompt:'other, unused',negative:'unused',centers:[]}
+  ]};
+  const before=structuredClone(input),expected=[{prompt:'girl, red hair',uc:'',center:{x:.24,y:.76}},{prompt:'boy, blue hair',uc:'red hair',center:{x:.8,y:.3}}];
+  await gateway.estimate(input);
+  const preview=calls.at(-1).body;
+  assert.deepEqual(preview.characters,expected);assert.equal(preview.use_coords,true);assert.equal(preview.placement,undefined);
+  assert.equal(preview.model,'nai-diffusion-5-full@local');
+  await gateway.execute(input,r=>r.json());
+  assert.deepEqual(calls.at(-2).body,preview);
+  const native=calls.at(-1).body.parameters;
+  assert.deepEqual(native.v4_prompt.caption.char_captions,expected.map(c=>({char_caption:c.prompt,centers:[c.center]})));
+  assert.deepEqual(native.v4_negative_prompt.caption.char_captions,expected.map(c=>({char_caption:c.uc,centers:[c.center]})));
+  assert.equal(native.v4_prompt.use_coords,true);
+  cost=3;
+  await gateway.execute(input,r=>r.json(),{onQuote:()=>{input.characters[0].negative='later';input.characters[1].centers[0].x=.1;}});
+  assert.equal(calls.at(-1).path,'/v1/studio/image/generate');
+  assert.deepEqual(calls.at(-2).body,preview);assert.deepEqual(calls.at(-1).body,{...preview,max_cost:3});
+  cost=0;
+  await gateway.execute({...before,cache:true,placement:'auto'},r=>r.json());
+  assert.equal(calls.at(-1).path,'/v1/studio/image/generate');assert.equal(calls.at(-1).body.use_coords,false);assert.deepEqual(calls.at(-1).body.characters,expected);
+  await gateway.execute({...before,tool:'img2img',init_image:'synthetic'},r=>r.json());
+  assert.equal(calls.at(-1).path,'/v1/image/tools/run');assert.equal(calls.at(-2).path,'/v1/image/tools/estimate');
+  assert.deepEqual(calls.at(-1).body.characters,expected);assert.deepEqual(calls.at(-2).body.characters,expected);
+  assert.deepEqual(toStandardPayload({...before,characters:[]}),Object.fromEntries(Object.entries(before).filter(([k])=>!['placement','characters'].includes(k))));
+  const multi=structuredClone(before);multi.characters[0].centers.push({x:.5,y:.5});
+  const count=calls.length;await assert.rejects(gateway.execute(multi,r=>r.json()),/单个位置/);assert.equal(calls.length,count);
+  assert.equal(toStandardPayload({...multi,placement:'auto'}).use_coords,false);
+  assert.equal(toNativePayload(multi).parameters.v4_prompt.caption.char_captions[0].centers.length,2);
 });
 
 test("quote failure/unsupported/changed credentials never become unprotected generation; no retries", async () => {
