@@ -66,10 +66,11 @@ const mode = computed(() => ask.visible.value ? "exp" : ask.running.value ? "run
   : ask.draftPlan.value ? "ready"
   : ask.appliedDraft.value && dismissedApplied.value !== ask.appliedDraft.value ? "done"
   : latest.value && latest.value.id > dismissedTurn.value ? "ready" : "idle");
-const tools = computed(() => (ask.live.value ?? latest.value)?.items.flatMap(i => i.kind === "tools" ? i.rows : []) ?? []);
+const tools = computed(() => ask.compacting.value ? [] : (ask.live.value ?? latest.value)?.items.flatMap(i => i.kind === "tools" ? i.rows : []) ?? []);
 const compactDraft = computed(() => !!ask.draftPlan.value);
 const completed = computed(() => tools.value.filter(t => t.state === "done").length);
 const activity = computed(() => {
+  if (ask.compacting.value) return { verb: "正在压缩", object: "上下文", stat: "", key: "compaction" };
   const row = tools.value.find(t => t.state === "run");
   if (row) return { verb: `正在${row.verb}`, object: row.object, stat: row.stat, key: row.id };
   if (ask.live.value?.items.at(-1)?.kind === "text") return { verb: "正在整理", object: "回复", stat: "", key: "reply" };
@@ -180,7 +181,7 @@ onBeforeUnmount(() => { clearTimeout(doneTimer); controller.abort(); ask.attach(
       </header>
       <AskStream @start="start" @focus="composer?.focus(true)" />
       <div class="ask-bottom"><div id="askFullDraft" class="ask-full-draft"></div><AskComposer ref="composer" /></div>
-      <AskAttachmentPreview v-if="ask.attachmentPreview.value" :key="ask.attachmentPreview.value.id" />
+      <AskAttachmentPreview v-if="ask.attachmentPreview.value && !ask.attachmentPreview.value.inline" :key="ask.attachmentPreview.value.id" />
       <div v-if="dropping" class="ask-drop" aria-hidden="true"><span>松开即可添加到这条提问</span></div>
     </div>
     <Teleport :to="mode === 'ready' && compactDraft ? '#askCompactDraft' : '#askFullDraft'" defer><DraftCard :compact="mode === 'ready'" @review="ask.show()" /></Teleport>
@@ -230,7 +231,7 @@ onBeforeUnmount(() => { clearTimeout(doneTimer); controller.abort(); ask.attach(
 .ask-run-grip, .ask-done-grip { display: flex; flex: 1; align-items: center; gap: 10px; min-width: 0; height: 100%; text-align: left; }
 .ask-activity { display: flex; flex: 1; align-items: baseline; gap: 6px; min-width: 0; overflow: hidden; font-size: 13px; line-height: 1; white-space: nowrap; animation: ask-activity-in .22s var(--e); }
 .ask-verb { flex: none; color: var(--fg-3); font-weight: var(--fw-regular); }
-.ask-object { min-width: 0; overflow: hidden; font-weight: var(--fw-medium); text-overflow: ellipsis; background: linear-gradient(90deg, var(--fg-3), var(--fg), var(--fg-3)); background-size: 250% 100%; background-clip: text; color: transparent; animation: ask-shimmer 2.4s ease-in-out infinite; }
+.ask-object { min-width: 0; overflow: hidden; font-weight: var(--fw-medium); text-overflow: ellipsis; background: linear-gradient(90deg, var(--fg-3) 0% 26%, color-mix(in srgb, var(--fg) 22%, var(--fg-3)) 35%, color-mix(in srgb, var(--fg) 72%, var(--fg-3)) 44%, var(--fg) 50%, color-mix(in srgb, var(--fg) 72%, var(--fg-3)) 56%, color-mix(in srgb, var(--fg) 22%, var(--fg-3)) 65%, var(--fg-3) 74% 100%) 130% 0 / 200% 100%; background-clip: text; color: transparent; animation: ask-shimmer 2.4s linear infinite; }
 .ask-stat { flex: none; color: var(--fg-4); font: var(--fw-regular) 11.5px/1 var(--mono); font-variant-numeric: tabular-nums; }
 /* Status only: stopping and undoing live in the window, never on the island. */
 .ask-progress { display: grid; flex: none; place-items: center; width: 34px; height: 20px; padding: 0 4px; color: var(--fg-3); font: var(--fw-medium) 11px/1 var(--mono); font-variant-numeric: tabular-nums; background: var(--ask-hover); border-radius: 10px; transition: opacity .15s var(--e); }
@@ -278,7 +279,9 @@ onBeforeUnmount(() => { clearTimeout(doneTimer); controller.abort(); ask.attach(
 @keyframes ask-idle-corner { 0%, 100% { opacity: .24; } 3% { opacity: calc(.24 + .5 * var(--ask-idle-amp)); } 10% { opacity: .24; } }
 @keyframes ask-idle-awake { 0%, 100% { opacity: .9; } 50% { opacity: 1; } }
 @keyframes ask-activity-in { from { opacity: 0; transform: translateY(2px); } }
-@keyframes ask-shimmer { from { background-position: 100% 0; } to { background-position: -150% 0; } }
+/* One loop moves the 200% tile exactly one tile width; at the loop point the
+   band is just entering from the left, so repeats and restarts have no seam. */
+@keyframes ask-shimmer { from { background-position: 130% 0; } to { background-position: -70% 0; } }
 @keyframes ask-ready-ping { from { box-shadow: 0 0 0 1px var(--a), 0 0 0 0 color-mix(in srgb, var(--a) 35%, transparent), 0 10px 32px rgba(0, 0, 0, .45); } to { box-shadow: 0 0 0 1px var(--line-2), 0 0 0 14px transparent, 0 10px 32px rgba(0, 0, 0, .45); } }
 @media (prefers-reduced-motion: reduce) {
   .ask-island[data-mode] { transition-property: none; animation: none; }

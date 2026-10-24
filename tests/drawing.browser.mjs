@@ -969,7 +969,10 @@ test('C1/C3 boards: approved capsule, role controls and four-width layout; copy,
       assert.ok(await page.evaluate(()=>document.documentElement.scrollWidth<=innerWidth));
       await page.screenshot({path:`.local/multi-char/implementation/ui/board-${width}.png`});
       await page.locator('.bd-switch').click();await page.locator('#boardMenu:popover-open').waitFor();
-      await page.waitForFunction(()=>Math.abs(document.querySelector('#boardMenu').getBoundingClientRect().width-document.querySelector('.bd-pill').getBoundingClientRect().width)<1);
+      // The menu fits its longest row between the footer's 216px and the pill, so short names leave no empty band.
+      await page.waitForFunction(()=>{const m=document.querySelector('#boardMenu').getBoundingClientRect().width,p=document.querySelector('.bd-pill').getBoundingClientRect().width;return m<=p+1&&m>=Math.min(216,p)-1;});
+      assert.ok(await page.locator('#boardMenu .bd-menu-name').evaluateAll(els=>els.every(el=>el.scrollWidth<=el.clientWidth)),'short board names are never cut');
+      if(width===1440)assert.ok(await page.evaluate(()=>document.querySelector('#boardMenu').getBoundingClientRect().width<document.querySelector('.bd-pill').getBoundingClientRect().width-40));
       const bounds=await page.locator('#boardMenu').boundingBox();assert.ok(bounds.x>=0&&bounds.x+bounds.width<=width+1);
       await page.screenshot({path:`.local/multi-char/implementation/ui/menu-${width}.png`});await page.keyboard.press('Escape');
     }

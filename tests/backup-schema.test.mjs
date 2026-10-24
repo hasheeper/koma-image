@@ -32,13 +32,14 @@ test("ASK settings travel as a validated logical field; the adult confirmation n
   assert.deepEqual(Object.keys(preferences), ["ask"]);
   assert.ok(!read.includes(names.askAdult));
   // A single older model ID becomes its connection's only pick.
-  assert.deepEqual(JSON.parse(preferences.ask), { version: 1, connectionId: "connection-a", model: "reasoning-model", models: { "connection-a": ["reasoning-model"] }, images: false, textAttachments: { chars: 50_000, totalChars: 100_000 }, preference: "先说结论", words: ["soft light", "new topic", "自由设定"], replacements: [{ from: "red coat", to: "blue dress" }], alwaysCodec: true });
+  assert.deepEqual(JSON.parse(preferences.ask), { version: 1, connectionId: "connection-a", model: "reasoning-model", models: { "connection-a": ["reasoning-model"] }, images: false, textAttachments: { chars: 50_000, totalChars: 100_000 }, compaction: { highWaterTokens: 64_000 }, preference: "先说结论", words: ["soft light", "new topic", "自由设定"], replacements: [{ from: "red coat", to: "blue dress" }], alwaysCodec: true });
   const restored = validateBackupManifest({ ...manifest(), preferences: { ask: stored[names.ask], askAdult: "true" } });
   assert.deepEqual(Object.keys(restored.preferences), ["ask"]);
   assert.deepEqual(JSON.parse(restored.preferences.ask).replacements, [{ from: "red coat", to: "blue dress" }]);
-  const custom = { ...JSON.parse(preferences.ask), textAttachments: { chars: 80_000, totalChars: 160_000 } };
+  const custom = { ...JSON.parse(preferences.ask), textAttachments: { chars: 80_000, totalChars: 160_000 }, compaction: { highWaterTokens: 96_000 } };
   const roundTrip = validateBackupManifest({ ...manifest(), preferences: { ask: JSON.stringify(custom) } });
   assert.deepEqual(JSON.parse(roundTrip.preferences.ask).textAttachments, custom.textAttachments);
+  assert.deepEqual(JSON.parse(roundTrip.preferences.ask).compaction, custom.compaction);
   for (const ask of ["[]", "null", "\"text\""]) assert.throws(() => validateBackupManifest({ ...manifest(), preferences: { ask } }));
 });
 

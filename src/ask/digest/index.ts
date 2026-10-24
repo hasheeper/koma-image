@@ -40,6 +40,7 @@ export interface DigestChat {
   readonly model: string | null;
 }
 export interface DigestInput {
+  readonly askTurnId?: string;
   readonly workspace: "image" | "chat" | "tags";
   readonly anchor: string | null;
   readonly form: DigestForm;
@@ -142,6 +143,7 @@ export function buildDigest(input: DigestInput, _options: { readonly formText?: 
   const base = workspaceHash(form, input.composer, input.boardId);
   const state: Record<string, unknown> = {
     v: 5,
+    ...(input.askTurnId ? { ask_turn_id: input.askTurnId } : {}),
     workspace: input.workspace,
     anchor: input.anchor,
     history_cursor: ids.cursor(),

@@ -38,7 +38,7 @@ const marked = (items: Wire[]) =>
   items.map((item, i) => (i === items.length - 1 ? { ...item, cache_control: ephemeral } : item));
 /**
  * Breakpoints: #1 the last tool, #2 the last system block, #3 the last block
- * of the newest message, so each tool step extends the cached prefix.
+ * of the newest message. #4 marks the actual session-memory message, if any.
  */
 export function body(request: AskRequest): Wire {
   const messages = request.messages.map((m) => ({
@@ -50,6 +50,8 @@ export function body(request: AskRequest): Wire {
   const system = request.system.filter(Boolean).map((text) => ({ type: "text", text })),
     last = messages.at(-1);
   if (last) last.content = marked(last.content);
+  const memory = request.messages.findIndex(m => m.kind === "session_memory");
+  if (memory >= 0 && memory !== messages.length - 1) messages[memory].content = marked(messages[memory].content);
   return {
     model: request.model,
     max_tokens: request.maxTokens,
@@ -81,10 +83,13 @@ export function reader() {
     started = false,
     finished = false;
   const tally = { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 };
+  let reported = false;
   let cacheUsage: CacheUsage = { read: null, write: null };
   // message_start carries input counts; message_delta updates the cumulative ones.
   function record(value: unknown) {
     const u = object(value);
+    reported ||= [u.input_tokens, u.output_tokens, u.cache_read_input_tokens, u.cache_creation_input_tokens]
+      .some(v => reportedCount(v) !== null);
     if (u.input_tokens !== undefined) tally.input = count(u.input_tokens);
     if (u.output_tokens !== undefined) tally.output = count(u.output_tokens);
     if (u.cache_read_input_tokens !== undefined) tally.cacheRead = count(u.cache_read_input_tokens);
@@ -95,7 +100,7 @@ export function reader() {
     };
   }
   const usage = (): AskUsage | null =>
-    started ? { ...tally, input: tally.input + tally.cacheRead + tally.cacheWrite } : null;
+    started && reported ? { ...tally, input: tally.input + tally.cacheRead + tally.cacheWrite } : null;
   function finish(): AskEvent[] {
     finished = true;
     return [{ type: "done", stop: stop ?? "other", usage: usage() }];

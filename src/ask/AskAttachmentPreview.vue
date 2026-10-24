@@ -19,6 +19,7 @@ onBeforeUnmount(() => { removeLayer(); document.removeEventListener("pointerdown
   <div v-if="ask.attachmentPreview.value" ref="root" class="ask-attachment-peek" role="dialog" :aria-label="ask.attachmentPreview.value.name" tabindex="-1">
     <div class="ask-peek-head"><b>{{ ask.attachmentPreview.value.name }}</b><small>{{ charLabel(ask.attachmentPreview.value.text.length) }}</small></div>
     <pre>{{ ask.attachmentPreview.value.text }}</pre>
+    <button v-if="ask.attachmentPreview.value.turnId" class="btn btn-quiet btn-sm" type="button" :disabled="!ask.canManage.value || !!ask.preparing.value" @click="ask.referenceTurn()">引用到输入框</button>
   </div>
 </template>
 <style scoped>

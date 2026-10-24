@@ -32,7 +32,7 @@ export function encodeRequest(request: AskRequest, codec: Codec): AskRequest {
   return {
     ...request,
     system: [codec.encode(request.system[0]), [preferences, codec.table()].filter(Boolean).join("\n\n")],
-    messages: request.messages.map((m) => ({ role: m.role, content: m.content.map(encode) })),
+    messages: request.messages.map((m) => ({ ...m, content: m.content.map(encode) })),
   };
 }
 /** The exact JSON body for a reasoning profile; tests compare these bytes. */
@@ -128,8 +128,8 @@ export function createProvider(
         }
         observe?.({ type: "response", stop: event.stop, usage: event.usage, cache: events.cacheUsage });
         if (event.stop === "refusal") throw new ProviderError("rejected", "模型拒绝了这次请求");
-        // Only the runner's post-tool continuation may accept a completed
-        // empty response. Still emit usage; incomplete streams remain errors.
+        // Post-tool continuation and compaction validate empty replies themselves.
+        // Still emit usage; incomplete streams remain errors.
         if (!output && !allowEmpty) throw new ProviderError("empty");
         done = true;
         return [...out, event];

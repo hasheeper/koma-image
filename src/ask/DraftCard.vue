@@ -95,7 +95,7 @@ function apply(event: MouseEvent) {
           <span class="draft-heading"><span class="draft-title"><strong>{{ plan.title }}</strong><span class="draft-stat" :title="`新增 ${view.added} 项 · 删除 ${view.removed} 项`"><span v-if="view.added" class="i">+{{ view.added }}</span><span v-if="view.removed" class="d">−{{ view.removed }}</span></span></span><span v-if="plan.newBoardName" class="draft-destination" :title="`新画板 · ${plan.newBoardName}`"><span>新画板</span><span aria-hidden="true">·</span><span class="draft-board-name">{{ plan.newBoardName }}</span></span></span>
         </button>
         <div class="draft-actions">
-          <button class="btn btn-sm draft-ignore" type="button" title="忽略 · Esc" :disabled="ask.writingDraft.value" @click="ask.ignoreDraft()">忽略</button>
+          <button class="btn btn-sm draft-ignore" type="button" title="忽略 · Esc" :disabled="ask.writingDraft.value || ask.running.value" @click="ask.ignoreDraft()">忽略</button>
           <div class="draft-apply-group" :class="{ split: hasApplyMenu }">
             <button class="btn btn-primary btn-sm ask-draft-apply" type="button" :title="applyTitle" :data-fingerprint="plan.fingerprint" :disabled="blocked" :aria-disabled="blocked" @click="apply"><AppIcon :name="plan.newBoardName ? 'i-copy' : 'i-check'" /><span>{{ ask.writingDraft.value ? '写入中…' : ask.draftApplyLabel.value }}</span></button>
             <button v-if="hasApplyMenu" ref="menuTrigger" class="btn btn-primary btn-sm draft-apply-more" type="button" aria-label="选择应用方式" title="选择应用方式" :popovertarget="menuId" aria-haspopup="menu" :aria-expanded="menuOpen" :disabled="blocked" @click.prevent="toggleMenu"><AppIcon name="i-chevron" /></button>
@@ -133,7 +133,7 @@ function apply(event: MouseEvent) {
               </div>
               <p v-else class="draft-note">{{ s.text }}</p>
               <p v-if="s.step.issue" class="draft-issue">{{ s.step.issue }}</p>
-              <button v-if="toggles && !s.step.locked" class="draft-undo" type="button" :disabled="!!s.step.issue || ask.writingDraft.value" :aria-label="`${s.step.enabled ? '撤回' : '恢复'} ${s.step.label}`" :title="s.step.enabled ? '撤回此处' : '恢复此处'" @click="ask.toggleDraftStep(s.step.id)"><AppIcon :name="s.step.enabled ? 'i-undo' : 'i-redo'" /></button>
+              <button v-if="toggles && !s.step.locked" class="draft-undo" type="button" :disabled="!!s.step.issue || ask.writingDraft.value || ask.running.value" :aria-label="`${s.step.enabled ? '撤回' : '恢复'} ${s.step.label}`" :title="s.step.enabled ? '撤回此处' : '恢复此处'" @click="ask.toggleDraftStep(s.step.id)"><AppIcon :name="s.step.enabled ? 'i-undo' : 'i-redo'" /></button>
             </div>
           </div>
         </section>

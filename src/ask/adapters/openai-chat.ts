@@ -90,9 +90,10 @@ export function body(request: AskRequest): Record<string, unknown> {
 }
 const count = (value: unknown) =>
   typeof value === "number" && Number.isFinite(value) && value >= 0 ? value : 0;
-function usage(value: unknown): AskUsage {
+function usage(value: unknown): AskUsage | null {
   const u = object(value),
     details = object(u.prompt_tokens_details);
+  if (![u.prompt_tokens, u.completion_tokens, details.cached_tokens, u.prompt_cache_hit_tokens].some(v => reportedCount(v) !== null)) return null;
   return {
     input: count(u.prompt_tokens),
     output: count(u.completion_tokens),

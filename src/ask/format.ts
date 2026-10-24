@@ -42,9 +42,31 @@ class AskTokenizer extends Tokenizer {
   }
 }
 
+// CommonMark lets `**` beside punctuation open or close only with a space or
+// punctuation on its outer side, so 用**（注）**点 never pairs: CJK has no
+// spaces. Count a CJK letter there as such a boundary (the markdown-cjk-friendly
+// rule). Same capture groups as Marked 18's GFM rules; only the CJK cases differ.
+const cjk = String.raw`[\p{Script=Han}\p{Script=Hiragana}\p{Script=Katakana}\p{Script=Hangul}]`,
+  punct = String.raw`(?!~)[\p{P}\p{S}]`, punctSpace = String.raw`(?!~)[\s\p{P}\p{S}]`, word = String.raw`(?:[^\s\p{P}\p{S}]|~)`;
+const cjkRules = {
+  // Groups 1–2 close only, 3–4 open only, 5–6 do both.
+  emStrongRDelimAst: new RegExp([String.raw`^[^_*]*?__[^_*]*?\*[^_*]*?(?=__)`, String.raw`[^*]+(?=[^*])`,
+    String.raw`(?!\*)${punct}(\*+)(?=[\s]|$)`,
+    String.raw`(?:(?!${cjk})${word}|${cjk}(?=\*+(?:[\s]|$)))(\*+)(?!\*)(?=${punctSpace}|$)`,
+    String.raw`(?:[\s]|(?!\*)${punct}(?!\*+${cjk}))(\*+)(?=${word})`,
+    String.raw`[\s](\*+)(?!\*)(?=${punct})`,
+    String.raw`(?!\*)${punct}(\*+)(?!\*)(?=${punct})`,
+    String.raw`(?:${word}(?=\*+${word})|(?!\*)${punct}(?=\*+${cjk})|${cjk}(?=\*+(?!\*)${punct}))(\*+)`].join("|"), "gu"),
+  // The character before an opener followed by punctuation.
+  punctuation: new RegExp(String.raw`^((?![*_])(?:[\s\p{P}\p{S}]|${cjk}))`, "u"),
+};
 // New lexer per message: reference definitions and streaming fragments cannot
 // leak between turns. Single newlines remain visible, as in the ASK composer.
-const options = () => ({ gfm: true, breaks: true, tokenizer: new AskTokenizer() });
+function lexer() {
+  const tokenizer = new AskTokenizer(), lexer = new Lexer({ gfm: true, breaks: true, tokenizer });
+  tokenizer.rules = { ...tokenizer.rules, inline: { ...tokenizer.rules.inline, ...cjkRules } };
+  return lexer;
+}
 function ids(text: string, refs: boolean): Leaf[] {
   if (!refs) return [{ t: "text", v: text }];
   const out: Leaf[] = [];
@@ -94,7 +116,7 @@ function inlineTokens(tokens: readonly Token[], refs = true): Inline[] {
   }
   return out;
 }
-export const inline = (text: string): Inline[] => inlineTokens(Lexer.lexInline(text, options()));
+export const inline = (text: string): Inline[] => inlineTokens(lexer().inlineTokens(text));
 
 function blockTokens(tokens: readonly Token[]): Block[] {
   const out: Block[] = [];
@@ -116,7 +138,7 @@ function blockTokens(tokens: readonly Token[]): Block[] {
   }
   return out;
 }
-export const blocks = (text: string): Block[] => blockTokens(Lexer.lex(text, options()));
+export const blocks = (text: string): Block[] => blockTokens(lexer().lex(text));
 
 function leaves(parts: readonly Inline[]): Leaf[] {
   return parts.flatMap(part => "v" in part ? [part]

@@ -9,6 +9,7 @@ import AskMarkdown from "./AskMarkdown.vue";
 import AskCheckpoint from "./AskCheckpoint.vue";
 import AskEdit from "./AskEdit.vue";
 import AskAttachments from "./AskAttachments.vue";
+import AskMemory from "./AskMemory.vue";
 import type { AskEntry, AskTurnView, RetryMode, ToolRow } from "./service.ts";
 
 const ask = useAsk(), ui = useUi();
@@ -27,7 +28,7 @@ function edit(id: number) {
 }
 function fork(id: number) { if (ask.forkTurn(id) === true) emit("focus"); }
 
-const icons: Record<string, string> = { get_state: "i-layers", search_history: "i-search", get_meta: "i-info", diff_meta: "i-layers", view_image: "i-image", view_sheet: "i-layers", search_tags: "i-search", propose_draft: "i-edit", get_chat_context: "i-layers", get_model_manual: "i-info" };
+const icons: Record<string, string> = { get_state: "i-layers", search_history: "i-search", get_meta: "i-info", diff_meta: "i-layers", view_image: "i-image", view_sheet: "i-layers", search_tags: "i-search", propose_draft: "i-edit", get_chat_context: "i-layers", get_model_manual: "i-info", get_turn: "i-layers" };
 const rowText = (row: ToolRow) =>
   row.state === "run"
     ? `正在${row.verb} ${row.object}`
@@ -132,10 +133,14 @@ function scrolled() {
   else if (el.scrollTop < placed - 2) follow = false;
 }
 watch(ask.running, (on) => {
-  if (on) { editing.value = null; follow = true; }
+  if (on) {
+    if (!ask.compacting.value) editing.value = null;
+    follow = true;
+  }
   wake();
 });
-watch([ask.live, ask.entries], wake, { flush: "post" });
+watch(ask.live, value => { if (value) editing.value = null; });
+watch([ask.live, ask.entries, ask.memory, ask.compacting], wake, { flush: "post" });
 // Another conversation opens at its end, without the follow animation.
 watch(ask.conversationId, () => {
   editing.value = null;
@@ -173,7 +178,13 @@ onBeforeUnmount(() => { resized.disconnect(); cancelAnimationFrame(frame); clear
       </div>
     </div>
     <template v-for="entry in all" :key="entry.id">
-      <p v-if="entry.type === 'note'" class="ask-note">{{ entry.text }}</p>
+      <template v-if="entry.type === 'note'">
+        <details v-if="entry.compactRetry" class="ask-compaction-failure">
+          <summary class="ask-compaction-line"><AppIcon name="i-alert" /><span>压缩未完成</span><span class="ask-compaction-rule" aria-hidden="true"></span><button type="button" :disabled="!!ask.compaction.value.reason" :title="ask.compaction.value.reason || undefined" @click.stop.prevent="ask.compactContext()">重试压缩</button></summary>
+          <p>{{ entry.text }}</p>
+        </details>
+        <p v-else class="ask-note">{{ entry.text }}</p>
+      </template>
       <section
         v-else
         v-memo="[entry, ask.adult.value, codecAvailable, ask.codecActive.value, ask.libraryRevision.value, opened.get(entry.id), copied.slice(1) === String(entry.id) && copied, revealed === entry.id, editing === entry.id, ask.undoId.value, ask.redoId.value, ask.writingDraft.value, ask.running.value]"
@@ -199,7 +210,7 @@ onBeforeUnmount(() => { resized.disconnect(); cancelAnimationFrame(frame); clear
         </div>
         <template v-for="(item, i) in entry.turn.items" :key="i">
           <template v-if="item.kind === 'tools'">
-            <button class="ask-tools-line" type="button" :aria-expanded="isOpen(entry.id, i, item.rows)" @click="toggleTools(entry.id, i, item.rows)"><span class="ask-tools-summary" :class="{ run: item.rows.some(r => r.state === 'run') }">{{ summary(item.rows) }}</span><AppIcon name="i-chevron" /></button>
+            <button class="ask-tools-line" type="button" :aria-expanded="isOpen(entry.id, i, item.rows)" @click="toggleTools(entry.id, i, item.rows)"><span :key="item.rows.find(r => r.state === 'run')?.id ?? 'settled'" class="ask-tools-summary" :class="{ run: item.rows.some(r => r.state === 'run') }">{{ summary(item.rows) }}</span><AppIcon name="i-chevron" /></button>
             <div v-show="isOpen(entry.id, i, item.rows)" class="ask-tools">
               <div v-for="row in item.rows" :key="row.id" class="ask-tool" :data-state="row.state">
                 <div class="ask-tool-head">
@@ -254,7 +265,9 @@ onBeforeUnmount(() => { resized.disconnect(); cancelAnimationFrame(frame); clear
           <button v-if="entry.turn.status === 'done' && entry.turn.committed !== null" class="ask-act" type="button" aria-label="从此处分支" title="分支" :disabled="!ask.canManage.value" @click="fork(entry.id)"><AppIcon name="i-branch" /></button>
         </div>
       </section>
+      <AskMemory v-if="entry.type === 'turn' && entry.turn.turnId === ask.memory.value?.after" :key="`${ask.conversationId.value}-${ask.memory.value.through}`" />
     </template>
+    <div v-if="ask.compacting.value" class="ask-organizing ask-compaction-line" role="status"><AppIcon name="i-layers" /><span class="ask-compaction-label">正在压缩上下文</span><span class="ask-compaction-rule" aria-hidden="true"></span></div>
   </div>
 </template>
 <style scoped>
@@ -299,7 +312,6 @@ onBeforeUnmount(() => { resized.disconnect(); cancelAnimationFrame(frame); clear
 .ask-turn > .ask-tools-line { margin-top: 8px; }
 .ask-tools-line:hover { color: var(--fg-2); background: var(--ask-hover, var(--hover)); }
 .ask-tools-summary { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.ask-tools-summary.run { color: transparent; background: linear-gradient(90deg, var(--fg-3) 0%, var(--fg) 50%, var(--fg-3) 100%) 100% 0 / 250% 100%; background-clip: text; animation: ask-sheen 2.4s ease-in-out infinite; }
 .ask-tools-line .ico { flex: none; width: 12px; height: 12px; transition: transform var(--t1) var(--e); }
 .ask-tools-line[aria-expanded="true"] .ico { transform: rotate(90deg); }
 .ask-tools { display: flex; flex-direction: column; }
@@ -322,8 +334,24 @@ onBeforeUnmount(() => { resized.disconnect(); cancelAnimationFrame(frame); clear
 .ask-tool[data-state="done"]:has(.ask-tool-reason) .ico { color: var(--warn); }
 .ask-tool-reason { display: block; min-width: 0; padding: 0 0 4px 20px; color: var(--fg-3); font-size: var(--fz-xs); line-height: 1.5; overflow-wrap: anywhere; white-space: pre-wrap; }
 .ask-tool[data-state="done"] .ask-tool-text { animation: ask-fade var(--t2) cubic-bezier(.4, 0, .2, 1) both; }
-.ask-tool[data-state="run"] .ask-tool-text { color: transparent; background: linear-gradient(90deg, var(--fg-3) 0%, var(--fg) 50%, var(--fg-3) 100%) 100% 0 / 250% 100%; background-clip: text; animation: ask-sheen 2.4s ease-in-out infinite; }
+/* Running text: a soft band sweeps at constant speed over a dim plateau.
+   The summary is keyed by its running tool, so each new tool starts a fresh pass. */
+.ask-tools-summary.run, .ask-tool[data-state="run"] .ask-tool-text, .ask-compaction-label { color: transparent; background: linear-gradient(90deg, var(--fg-3) 0% 26%, color-mix(in srgb, var(--fg) 22%, var(--fg-3)) 35%, color-mix(in srgb, var(--fg) 72%, var(--fg-3)) 44%, var(--fg) 50%, color-mix(in srgb, var(--fg) 72%, var(--fg-3)) 56%, color-mix(in srgb, var(--fg) 22%, var(--fg-3)) 65%, var(--fg-3) 74% 100%) 130% 0 / 200% 100%; background-clip: text; animation: ask-sheen 2.4s linear infinite; }
 .ask-note { margin: 30px 0 16px; color: var(--fg-4); font-size: var(--fz-sm); }
+.ask-note button { margin-left: 6px; }
+.ask-organizing, .ask-compaction-failure { margin: 20px 0; }
+.ask-compaction-line { display: flex; align-items: center; gap: 8px; min-height: 32px; color: var(--fg-2); font-size: 14px; line-height: 20px; }
+.ask-compaction-line > .ico { display: block; flex: none; width: 16px; height: 16px; color: var(--fg-3); }
+.ask-compaction-line > span:not(.ask-compaction-rule) { flex: none; }
+.ask-compaction-rule { position: relative; flex: 1; min-width: 16px; height: 1px; overflow: hidden; background: var(--line-2); }
+.ask-organizing .ask-compaction-rule::after { position: absolute; inset: 0; width: 30%; content: ""; background: linear-gradient(90deg, transparent, var(--a), transparent); opacity: .7; animation: ask-compaction-sweep 1.8s ease-in-out infinite; }
+.ask-compaction-failure summary { list-style: none; cursor: pointer; }
+.ask-compaction-failure summary::-webkit-details-marker { display: none; }
+.ask-compaction-failure button { flex: none; color: var(--a); font-size: 13px; }
+.ask-compaction-failure button:disabled { color: var(--fg-4); }
+.ask-compaction-failure button:hover:not(:disabled) { text-decoration: underline; text-underline-offset: 3px; }
+.ask-compaction-failure p { margin: 4px 0 0 24px; color: var(--fg-3); font-size: 12px; overflow-wrap: anywhere; }
+.ask-compaction-failure :is(summary, button):focus-visible { outline: 1px solid var(--a); outline-offset: 2px; border-radius: 2px; }
 .ask-meta { color: var(--fg-4); font-size: var(--fz-xs); }
 .ask-fail { display: flex; flex-direction: column; gap: var(--sp-2); }
 .ask-fail-text { display: flex; align-items: flex-start; gap: var(--sp-2); color: var(--fg-2); font-size: var(--fz-sm); line-height: 1.5; }
@@ -341,11 +369,17 @@ onBeforeUnmount(() => { resized.disconnect(); cancelAnimationFrame(frame); clear
 @media (max-width: 860px) { .ask-starter { min-height: 44px; } }
 @keyframes ask-fade { from { opacity: 0; } }
 @keyframes ask-rise { from { transform: translateY(4px); } }
-@keyframes ask-sheen { from { background-position: 100% 0; } to { background-position: -150% 0; } }
+/* One loop moves the 200% tile exactly one tile width; at the loop point the
+   band is just entering from the left, so repeats and restarts have no seam. */
+@keyframes ask-sheen { from { background-position: 130% 0; } to { background-position: -70% 0; } }
+@keyframes ask-compaction-sweep { from { transform: translateX(-100%); } to { transform: translateX(340%); } }
 @media (prefers-reduced-motion: reduce) {
   .ask-turn > *, .ask-tool { animation: ask-fade var(--t1) linear both; }
   .ask-tool[data-state="run"] .ask-tool-text, .ask-tools-summary.run { color: var(--fg-3); background: none; animation: none; }
   .ask-tool[data-state="run"] .ask-tool-text::after { content: "…"; }
   .ask-tools-line .ico { transition: none; }
+  .ask-compaction-label { color: var(--fg-3); background: none; animation: none; }
+  .ask-compaction-label::after { content: "…"; }
+  .ask-organizing .ask-compaction-rule::after { animation: none; }
 }
 </style>

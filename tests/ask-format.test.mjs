@@ -50,10 +50,31 @@ test('ASK Markdown: quote compatibility preserves code, escapes, links and incom
   assert.deepEqual(quoted[1].parts[1],{t:'code',v:'”**'});
   const link=inline('[参考](https://example.test/** "** “原样” **")')[0];
   assert.equal(link.href,'https://example.test/**');assert.equal(link.title,'** “原样” **');
-  for(const value of ['前**“未结束”','前** “未结束” *','前**“未结束”\\**','前**“引号不配对"**'])
+  for(const value of ['前**“未结束”','前** “未结束” *','前**“未结束”\\**'])
     assert.equal(inline(value).some(p=>p.t==='strong'),false,value);
+  // Unpadded delimiters follow the CJK-adjacent rule even when the quotes differ.
+  assert.equal(inline('前**“引号不配对"**')[1].t,'strong');
   const full='前** “带 *斜体* 与 `code` 的引用” **后';
   for(let i=0;i<=full.length;i++)assert.doesNotThrow(()=>blocks(full.slice(0,i)));
+});
+test('ASK Markdown: strong beside CJK text opens and closes at full-width punctuation', () => {
+  const shape=parts=>parts.map(p=>p.parts?`<${p.t}>${shape(p.parts)}</${p.t}>`:p.v??'').join('');
+  for(const [text,expected] of [
+    ['**青蓝/荧光晶石（luminescent crystals）**点缀在岩壁上','<strong>青蓝/荧光晶石（luminescent crystals）</strong>点缀在岩壁上'],
+    ['使用**（注意）**为准','使用<strong>（注意）</strong>为准'],
+    ['**晶石（crystals）**与**苔藓（moss）**交错','<strong>晶石（crystals）</strong>与<strong>苔藓（moss）</strong>交错'],
+    ['**晶石（crystals）**与**苔藓**交错','<strong>晶石（crystals）</strong>与<strong>苔藓</strong>交错'],
+    ['光は**「青」**です','光は<strong>「青」</strong>です'],
+    ['색은**（파랑）**이다','색은<strong>（파랑）</strong>이다'],
+    ['用*（备注）*说明','用<em>（备注）</em>说明'],
+  ]){
+    assert.equal(shape(inline(text)),expected,text);
+    assert.equal(summary(text).map(p=>p.v).join(''),text.replace(/\*/g,''));
+  }
+  // Latin text keeps CommonMark: punctuation inside needs a space or punctuation outside.
+  assert.equal(shape(inline('word**(note)**word')),'word**(note)**word');
+  assert.equal(shape(inline('`**（原样）**`中')),'**（原样）**中');
+  assert.equal(shape(inline('\\**（原样）**中')),'**（原样）**中');
 });
 test('ASK Markdown: code is literal, GFM tables/tasks and quote blocks survive', () => {
   const parsed = blocks(sample), code = parsed.find(b=>b.t==='pre'), table = parsed.find(b=>b.t==='table');

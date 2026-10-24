@@ -10,6 +10,10 @@ export interface AskTool {
 export interface AskText {
   readonly type: "text";
   readonly text: string;
+  /** Local provenance only; adapters serialize just type/text. */
+  readonly source?: { readonly kind: "attachment"; readonly id: string; readonly archived?: boolean; readonly heading?: string }
+    | { readonly kind: "workspace_state" }
+    | { readonly kind: "recall"; readonly archived?: boolean };
 }
 export interface AskImage {
   readonly type: "image";
@@ -37,6 +41,8 @@ export type AskBlock = AskText | AskImage | AskCall | AskResult;
 export interface AskMessage {
   readonly role: "user" | "assistant";
   readonly content: readonly AskBlock[];
+  /** Local marker for the fourth Anthropic breakpoint; never inferred from user prose. */
+  readonly kind?: "session_memory";
 }
 /**
  * Payload order follows the cache layout: tools, system block 1 (constitution,

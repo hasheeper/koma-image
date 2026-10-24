@@ -145,7 +145,7 @@ test("ids: history in arrival order, favorites by time, never reused within the 
 });
 
 test("prompts and replies: versioned layers, adult clause gated, replies parsed into text only", () => {
-  assert.match(promptVersion, /^c\d+\.w\d+\.m\d+$/);
+  assert.match(promptVersion, /^c\d+\.w\d+\.m\d+\.k\d+$/);
   const neutral = systemCore({ adult: false }),
     adult = systemCore({ adult: true });
   assert.equal(neutral, systemCore({ adult: false }));

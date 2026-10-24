@@ -11,6 +11,8 @@ export interface CallInfo {
   readonly protocol: "openai-chat" | "anthropic-messages";
   readonly model: string;
   readonly promptVersion: string;
+  readonly purpose?: "compaction";
+  readonly afterCompaction?: boolean;
 }
 export interface CallSummary extends CallInfo {
   readonly id: number;

@@ -40,6 +40,7 @@ export interface ToolContext {
   readonly draftBase?: DraftState;
   readonly question?: string;
   readonly chatContext?: unknown;
+  readonly recall?: (input: Readonly<Record<string, unknown>>) => unknown;
 }
 export interface ToolEntry {
   readonly tool: AskTool;
@@ -196,7 +197,20 @@ const readModelManual: ToolEntry = {
     return reply({ id, version: models.version, ...manual }, "本地手册");
   },
 };
+const readTurn: ToolEntry = {
+  tool: { name: "get_turn", description: "召回本会话成功轮次 T1、T2…或附件 text-N / #aN。turns 一次1–3个；attachments 一次1–2个。include 默认 draft：用户原话、草稿与回复；full 增加工具记录和当轮实际发送的状态文本。文本附件每次最多8000字符，按 next_offset 续读；显式传 offset 时只允许一个文本附件。图片只返回元信息，看图另用视觉工具。", schema: schema({
+    turns: { type: "array", minItems: 1, maxItems: 3, items: { type: "string" } },
+    attachments: { type: "array", minItems: 1, maxItems: 2, items: { type: "string" } },
+    include: { type: "string", enum: ["draft", "full"] },
+    offset: { type: "integer", minimum: 0 },
+  }) },
+  verb: "回顾", object: input => [...(Array.isArray(input.turns) ? input.turns : []), ...(Array.isArray(input.attachments) ? input.attachments : [])].join(" · ") || "对话记录",
+  run(input, context) {
+    if (!context.recall) throw new Error("本会话的召回记录未就绪");
+    return { content: [{ type: "text", text: dataBlock(canonical(context.recall(input))), source: { kind: "recall" } }], stat: "原文" };
+  },
+};
 /** Only read ports enter these tools; no generating or form-writing service. */
 export function createTools(): ToolRegistry {
-  return new Map([getState, searchHistory, readMeta, diffMeta, viewImage, viewSheet, searchTags, readChat, readModelManual, proposeDraft].map((entry) => [entry.tool.name, entry]));
+  return new Map([getState, searchHistory, readMeta, diffMeta, viewImage, viewSheet, searchTags, readChat, readModelManual, proposeDraft, readTurn].map((entry) => [entry.tool.name, entry]));
 }

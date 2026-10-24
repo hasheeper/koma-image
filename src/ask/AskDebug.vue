@@ -54,7 +54,7 @@ onBeforeUnmount(() => dialog.value?.close());
           <label class="sr-only" for="askDebugCall">选择调用</label>
           <select id="askDebugCall" v-model="selected" :disabled="!calls.length">
             <option v-if="!calls.length" :value="0">暂无调用</option>
-            <option v-for="call in calls" :key="call.id" :value="call.id">#{{ call.id }} · 第 {{ call.step }} 次 · {{ status[call.status] }} · {{ call.question.slice(0, 45) }}</option>
+            <option v-for="call in calls" :key="call.id" :value="call.id">#{{ call.id }} · {{ call.purpose === 'compaction' ? '压缩' : call.afterCompaction ? '压缩后首次' : `第 ${call.step} 次` }} · {{ status[call.status] }} · {{ call.question.slice(0, 45) }}</option>
           </select>
           <div class="debug-actions">
             <button class="btn btn-quiet btn-xs" type="button" :disabled="!record" @click="copy">复制请求 JSON</button>
@@ -67,7 +67,7 @@ onBeforeUnmount(() => dialog.value?.close());
         <div class="debug-scroll">
           <template v-if="record && inspection">
             <p class="debug-meta">{{ record.protocol }} · {{ record.model }} · {{ new Date(record.started).toLocaleTimeString() }} · {{ (record.bytes / 1024).toFixed(1) }} KB<template v-if="record.ended !== null"> · {{ ((record.ended - record.started) / 1000).toFixed(2) }} s</template> · {{ record.promptVersion }}<template v-if="record.stop"> · {{ record.stop }}</template></p>
-            <p class="debug-question">{{ record.question }}</p>
+            <p class="debug-question">{{ record.afterCompaction ? '压缩后首次调用 · ' : '' }}{{ record.question }}</p>
             <p v-if="turnStatus" class="debug-note">{{ turnStatus }}；调用记录仍保留供检查。</p>
             <dl class="debug-usage" aria-label="上游返回的 token 用量">
               <div><dt>输入</dt><dd>{{ number(record.usage?.input) }}</dd></div>

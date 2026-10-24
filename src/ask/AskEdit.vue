@@ -23,8 +23,9 @@ function key(event: KeyboardEvent) {
   void submit();
 }
 // Registered only while mounted; later-opened popovers take Esc first.
-const stopLayer = ask.layer(() => { cancel(); return true; });
+const stopLayer = ask.layer(() => { if (ask.running.value) return false; cancel(); return true; });
 watch(text, () => nextTick(resize));
+watch(ask.running, on => { if (!on) void nextTick(() => field.value?.focus({ preventScroll: true })); });
 onMounted(() => {
   resize();
   field.value?.focus({ preventScroll: true });
@@ -34,7 +35,7 @@ onMounted(() => {
 onBeforeUnmount(stopLayer);
 </script>
 <template>
-  <form class="ask-edit" :aria-busy="ask.writingDraft.value" @submit.prevent="submit">
+  <form class="ask-edit" :aria-busy="ask.writingDraft.value || ask.running.value" @submit.prevent="submit">
     <textarea ref="field" v-model="text" aria-label="编辑提问" rows="1" maxlength="4000" :disabled="!ask.canManage.value" @keydown="key"></textarea>
     <div class="ask-edit-bar">
       <button class="ask-edit-cancel" type="button" :disabled="!ask.canManage.value" @click="cancel">取消</button>

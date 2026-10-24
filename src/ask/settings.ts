@@ -1,6 +1,7 @@
 import { object } from "../domain/value.ts";
 import { checkReplacement, checkWord } from "./codec.ts";
 import type { Replacement } from "./codec.ts";
+import { DEFAULT_HIGH_WATER, highWater } from "./compact/trigger.ts";
 
 export interface TextAttachmentLimits { chars: number; totalChars: number }
 export const DEFAULT_TEXT_ATTACHMENT_LIMITS: Readonly<TextAttachmentLimits> = Object.freeze({ chars: 50_000, totalChars: 100_000 });
@@ -23,6 +24,7 @@ export interface AskSettings {
   models: Record<string, string[]>;
   images: boolean;
   textAttachments: TextAttachmentLimits;
+  compaction: { highWaterTokens: number };
   preference: string;
   words: string[];
   replacements: Replacement[];
@@ -38,6 +40,7 @@ export const defaultAskSettings = (): AskSettings => ({
   models: {},
   images: true,
   textAttachments: { ...DEFAULT_TEXT_ATTACHMENT_LIMITS },
+  compaction: { highWaterTokens: DEFAULT_HIGH_WATER },
   preference: "",
   words: [],
   replacements: [],
@@ -85,6 +88,7 @@ export function readAskSettings(value: unknown): AskSettings {
   }
   if (typeof v.images === "boolean") out.images = v.images;
   out.textAttachments = readTextAttachmentLimits(v.textAttachments);
+  out.compaction = { highWaterTokens: highWater(object(v.compaction).highWaterTokens) };
   if (typeof v.preference === "string")
     out.preference = v.preference.slice(0, PREFERENCE_LIMIT);
   if (Array.isArray(v.words))

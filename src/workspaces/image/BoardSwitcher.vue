@@ -5,12 +5,16 @@ import { message, useUi } from "../../app/ui";
 import AppIcon from "../../shared/AppIcon.vue";
 import AiNameButton from "../../shared/AiNameButton.vue";
 import { menuKeys, placeMenu } from "../../shared/popover";
+import { findModel } from "../../domain/models";
 const { drawing, view } = useDrawing(), ui = useUi();
 const pill = ref<HTMLElement>(), menu = ref<HTMLElement>(), nameInput = ref<HTMLInputElement>();
 const open = ref(false), renaming = ref<string | null>(null), actions = ref<string | null>(null), name = ref("");
 let actionScroll = 0;
 const current = computed(() => view.value.boards.find(b => b.id === view.value.activeBoardId)!);
 const index = computed(() => view.value.boards.findIndex(b => b.id === view.value.activeBoardId) + 1);
+function modelTag(id: string) { return id.includes("4-5") ? "V4.5" : id.includes("diffusion-5") ? "V5" : findModel(id)?.name ?? id; }
+// The menu is as wide as its longest row, between the footer's need and the pill.
+function fit(el: HTMLElement, r: DOMRect) { const max = Math.min(r.width, innerWidth - 16); Object.assign(el.style, { width: "", maxWidth: `${max}px`, minWidth: `${Math.min(216, max)}px` }); }
 function hideActions() { menu.value?.querySelector<HTMLElement>('.bd-actions:popover-open')?.hidePopover(); actions.value = null; }
 function listScrolled(event: Event) {
   // A click can follow an automatic scroll before that scroll event is delivered.
@@ -29,14 +33,15 @@ function beforeToggle(event: ToggleEvent) {
   if (!open.value) { renaming.value = null; actions.value = null; }
   if (!open.value || !menu.value || !pill.value) return;
   const r = pill.value.getBoundingClientRect();
-  Object.assign(menu.value.style, { width: `${Math.min(r.width, innerWidth - 16)}px`, left: `${Math.max(8, r.left)}px`, top: `${r.bottom + 6}px` });
+  fit(menu.value, r);
+  Object.assign(menu.value.style, { left: `${Math.max(8, r.left)}px`, top: `${r.bottom + 6}px` });
 }
 function toggle() {
   open.value = !!menu.value?.matches(":popover-open");
   window.removeEventListener("resize", close); window.removeEventListener("scroll", outsideScroll, true);
   if (!open.value || !menu.value || !pill.value) return;
   const r = pill.value.getBoundingClientRect(), el = menu.value;
-  el.style.width = `${Math.min(r.width, innerWidth - 16)}px`;
+  fit(el, r);
   el.style.left = `${Math.max(8, Math.min(r.left, innerWidth - el.offsetWidth - 8))}px`;
   el.style.top = `${Math.max(8, Math.min(r.bottom + 6, innerHeight - el.offsetHeight - 8))}px`;
   window.addEventListener("resize", close); window.addEventListener("scroll", outsideScroll, true);
@@ -60,6 +65,8 @@ function actionToggle(event: ToggleEvent) {
 }
 async function rename(id: string) {
   const board = view.value.boards.find(b => b.id === id); if (!board) return;
+  // Hold the width the rows gave so the inline field cannot resize the open menu.
+  if (menu.value) menu.value.style.width = `${menu.value.offsetWidth}px`;
   hideActions(); name.value = board.name; renaming.value = id;
   await nextTick();
   nameInput.value = menu.value?.querySelector<HTMLInputElement>('.bd-rename input') ?? undefined;
@@ -106,7 +113,7 @@ onDeactivated(cleanup); onBeforeUnmount(cleanup);
           </form>
           <template v-else>
             <button class="bd-item" role="menuitemradio" :aria-checked="board.id === view.activeBoardId" type="button" @click="run(() => drawing.switchBoard(board.id))">
-              <i class="bd-dot" :style="{ '--c': board.color }"></i><span class="bd-menu-name" :title="board.name">{{ board.name }}</span><small>{{ board.form.model.includes('4-5') ? 'V4.5' : board.form.model.includes('diffusion-5') ? 'V5' : board.form.model }}<template v-if="board.form.characters.length"> · {{ board.form.characters.length }} 角色</template></small><AppIcon v-if="board.id === view.activeBoardId" name="i-check" class="bd-check" />
+              <i class="bd-dot" :style="{ '--c': board.color }"></i><span class="bd-menu-name" :title="board.name">{{ board.name }}</span><span class="bd-tags"><span>{{ modelTag(board.form.model) }}</span><span v-if="board.form.characters.length">{{ board.form.characters.length }} 角色</span></span><AppIcon v-if="board.id === view.activeBoardId" name="i-check" class="bd-check" />
             </button>
             <button class="bd-more" type="button" :popovertarget="`boardActions-${board.id}`" :aria-label="`管理 ${board.name}`" title="管理画板" aria-haspopup="menu" :aria-expanded="actions === board.id"><AppIcon name="i-more" /></button>
             <div :id="`boardActions-${board.id}`" popover="auto" class="switch-menu bd-actions" role="menu" :aria-label="`管理 ${board.name}`" @beforetoggle="actionBefore($event, board.id)" @toggle="actionToggle" @keydown.stop="actionKeys">
@@ -117,8 +124,8 @@ onDeactivated(cleanup); onBeforeUnmount(cleanup);
         </div>
       </div>
       <div class="bd-footer">
-        <button class="btn btn-sm" role="menuitem" type="button" @click="run(() => drawing.createBoard(false))"><AppIcon name="i-plus" />新建空白</button>
-        <button class="btn btn-sm" role="menuitem" type="button" @click="run(() => drawing.createBoard(true))"><AppIcon name="i-copy" />复制当前</button>
+        <button role="menuitem" type="button" @click="run(() => drawing.createBoard(false))"><AppIcon name="i-plus" />新建空白</button>
+        <button role="menuitem" type="button" @click="run(() => drawing.createBoard(true))"><AppIcon name="i-copy" />复制当前</button>
       </div>
     </div>
   </div>
@@ -143,40 +150,53 @@ onDeactivated(cleanup); onBeforeUnmount(cleanup);
 .bd[data-open="true"] .bd-pill { border-color: var(--a-line); box-shadow: var(--sh-lip), 0 0 0 3px color-mix(in srgb, var(--a) 10%, transparent); }
 .bd[data-open="true"] .bd-switch { background: color-mix(in srgb, var(--a) 10%, var(--raised)); }
 .bd[data-open="true"] .bd-caret { color: var(--a); transform: rotate(-90deg); }
-.bd-menu { position: fixed; inset: auto; max-height: min(70dvh, 540px); min-width: 0; padding: 6px; overflow: hidden; border-radius: 12px; }
+.bd-menu { position: fixed; inset: auto; width: max-content; max-height: min(70dvh, 540px); padding: 6px; overflow: hidden; border-radius: 12px; }
 .bd-menu:popover-open { display: flex; flex-direction: column; gap: 0; }
 .bd-list { min-height: 0; overflow: auto; overscroll-behavior: contain; }
-.bd-row { display: flex; align-items: center; min-width: 0; border-radius: 8px; }
+/* ✓ and ⋯ share one end slot: ⋯ takes the check's place on hover or focus. */
+.bd-row { --end: 20px; position: relative; display: flex; align-items: center; min-width: 0; border-radius: 8px; transition: background var(--t1) var(--e); }
 .bd-row + .bd-row { margin-top: 2px; }
-.bd-row[data-selected="true"] { background: var(--a-dim); }
-.bd-item { display: flex; flex: 1; align-items: center; gap: 8px; min-width: 0; height: 36px; padding: 0 8px 0 10px; border-radius: 8px; text-align: left; font-size: var(--fz-sm); }
-.bd-item:hover { background: var(--hover); }
-.bd-menu-name { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.bd-item small { flex: none; color: var(--fg-3); font-size: var(--fz-2xs); }
-.bd-check { flex: none; width: 13px; height: 13px; color: var(--a); }
-.bd-more { display: grid; place-items: center; flex: none; width: 28px; height: 28px; margin-right: 4px; color: var(--fg-3); border-radius: 6px; }
+.bd-row:is(:hover, :focus-within) { background: var(--hover); }
+.bd-item { display: flex; flex: 1; align-items: center; gap: 8px; min-width: 0; height: 36px; padding: 0 40px 0 12px; color: var(--fg-2); font-size: var(--fz-sm); text-align: left; border-radius: inherit; }
+.bd-row:is(:hover, :focus-within) .bd-item, .bd-item[aria-checked="true"] { color: var(--fg); }
+.bd-item .bd-dot { margin-right: 2px; }
+.bd-menu-name { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.bd-item[aria-checked="true"] .bd-menu-name { font-weight: var(--fw-medium); }
+.bd-tags { display: flex; flex: none; gap: 4px; }
+.bd-tags span { display: inline-flex; align-items: center; height: 18px; padding: 0 6px; color: var(--fg-3); font-size: var(--fz-2xs); white-space: nowrap; background: color-mix(in srgb, var(--fg) 6%, transparent); border-radius: 5px; }
+.bd-check { position: absolute; top: 50%; right: calc(var(--end) - 7px); width: 14px; height: 14px; color: var(--a); translate: 0 -50%; transition: opacity var(--t1) var(--e); }
+.bd-more { position: absolute; top: 50%; right: 6px; display: grid; place-items: center; width: 28px; height: 28px; color: var(--fg-3); border-radius: 6px; opacity: 0; translate: 0 -50%; transition: opacity var(--t1) var(--e), background var(--t1) var(--e), color var(--t1) var(--e); }
 .bd-more .ico { width: 16px; height: 16px; }
-.bd-more:is(:hover, [aria-expanded="true"]) { color: var(--fg); background: var(--hover); }
+.bd-row:is(:hover, :focus-within) .bd-more { opacity: 1; }
+.bd-row:is(:hover, :focus-within) .bd-check { opacity: 0; }
+.bd-more:is(:hover, [aria-expanded="true"]) { color: var(--fg); background: color-mix(in srgb, var(--fg) 6%, var(--hover)); }
 .bd-actions { position: fixed; inset: auto; width: 144px; min-width: 0; padding: 4px; border-radius: 9px; }
 .bd-actions button { display: flex; align-items: center; gap: 8px; height: 32px; padding: 0 9px; color: var(--fg-2); font-size: var(--fz-sm); text-align: left; border-radius: 5px; }
 .bd-actions .ico, .bd-footer .ico, .bd-rename .ico { flex: none; width: 14px; height: 14px; }
 .bd-actions button:hover:not(:disabled) { color: var(--fg); background: var(--hover); }
 .bd-actions .bd-delete:hover:not(:disabled) { color: var(--err); }
 .bd-actions button:disabled { opacity: 0.35; cursor: default; }
-.bd-footer { display: flex; flex: none; gap: 8px; margin: 5px 2px 0; padding-top: 4px; border-top: 1px solid var(--line); }
-.bd-footer button { flex: 1; height: 32px; padding: 0 8px; color: var(--fg-2); background: var(--hover); }
-.bd-footer button:hover { color: var(--fg); background: color-mix(in srgb, var(--fg) 5%, var(--hover)); }
-.bd-footer button:active { background: var(--raised); }
-.bd-rename { display: flex; align-items: center; gap: 8px; width: 100%; min-height: 36px; padding: 3px 4px 3px 10px; }
+.bd-footer { display: grid; grid-template-columns: 1fr 1fr; gap: 4px; flex: none; margin: 5px -6px -6px; padding: 4px 6px 6px; border-top: 1px solid var(--line); }
+.bd-footer button { display: flex; align-items: center; justify-content: center; gap: 7px; height: 34px; color: var(--fg-3); font-size: var(--fz-xs); border-radius: 8px; transition: background var(--t1) var(--e), color var(--t1) var(--e); }
+.bd-footer button:hover { color: var(--fg); background: var(--hover); }
+.bd-rename { display: flex; align-items: center; gap: 8px; width: 100%; min-height: 36px; padding: 3px 4px 3px 12px; }
 .bd-rename input { min-width: 0; width: 100%; height: 28px; padding: 3px 6px; font-size: var(--fz-sm); }
 .bd-rename button { display: grid; place-items: center; flex: none; width: 28px; height: 28px; color: var(--a); border-radius: 6px; }
 .bd-rename button:hover { background: var(--hover); }
 @media (pointer: coarse), (max-width: 860px) {
   .bd-pill { height: 44px; } .bd-new { width: 46px; }
   .bd-item, .bd-footer button, .bd-actions button, .bd-rename { min-height: 44px; }
-  .bd-more { width: 40px; height: 44px; }
+  .bd-row { --end: 24px; }
+  .bd-item { padding-right: 48px; }
+  .bd-more { right: 4px; width: 40px; height: 44px; }
   .bd-rename button { width: 40px; height: 38px; } .bd-rename input { height: 34px; }
 }
 @container (max-width: 300px) { .bd-switch { gap: 8px; padding-left: 12px; } }
-@media (max-width: 340px) { .bd-item small { display: none; } }
+/* Touch has no hover: ⋯ stays out and the current row keeps a quiet surface. */
+@media (hover: none) {
+  .bd-more { color: var(--fg-4); opacity: 1; }
+  .bd-check { display: none; }
+  .bd-row[data-selected="true"] { background: color-mix(in srgb, var(--fg) 4%, transparent); }
+}
+@media (max-width: 340px) { .bd-tags { display: none; } }
 </style>

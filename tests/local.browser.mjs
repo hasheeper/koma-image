@@ -461,7 +461,7 @@ test('ASK A4 production local: both inference protocols stream tools and drafts 
   assert.equal(await p.locator('#askConnection option').count(),3);
   for(const protocol of ['openai','anthropic']){
    await route(p,'#/image/settings/ask');await p.locator('#askConnection').selectOption(`local-ask-${protocol}`);
-   await p.getByRole('button',{name:'选择模型',exact:true}).click();const list=p.locator('#askModelDialog');
+   await p.locator('#askModels').click();const list=p.locator('#askModelDialog');
    await list.getByRole('button',{name:'选用 local-test-model',exact:true}).click();
    await p.waitForFunction(id=>{const s=JSON.parse(localStorage.getItem('koma.ask.v1'));return s.connectionId===id&&s.model==='local-test-model';},`local-ask-${protocol}`);
    await p.keyboard.press('Escape');await list.waitFor({state:'hidden'});

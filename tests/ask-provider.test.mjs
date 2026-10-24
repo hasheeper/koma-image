@@ -109,7 +109,7 @@ test("ASK tool schemas: full registry avoids uniqueItems rejected by Gemini rela
   for (const profile of [chat, anthropic]) {
     const payload = wireBody(profile, request);
     const definitions = payload.tools.map((t) => t.function ?? { ...t, parameters: t.input_schema });
-    assert.equal(definitions.length, 10);
+    assert.equal(definitions.length, 11);
     assert.doesNotMatch(JSON.stringify(definitions), /"uniqueItems"\s*:/);
     const sheet = definitions.find((t) => t.name === "view_sheet").parameters;
     assert.equal(sheet.properties.ids.minItems, 2);

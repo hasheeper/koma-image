@@ -25,6 +25,8 @@ async function images() {
       <button class="ask-menu-item" type="button" role="menuitemcheckbox" :aria-checked="ask.settings.value.images" @click="images"><AppIcon name="i-image" /><span class="ask-menu-label">发送图片给模型</span><AppIcon name="i-check" class="ask-menu-check" /></button>
       <button v-if="ask.settings.value.preference" class="ask-menu-item" type="button" role="menuitemcheckbox" :aria-checked="!ask.preferencePaused.value" :title="`${ask.settings.value.preference}\n（停用只对本次有效）`" @click="ask.togglePreference()"><AppIcon name="i-star" /><span class="ask-menu-label">使用个人偏好</span><AppIcon name="i-check" class="ask-menu-check" /></button>
       <hr role="separator" />
+      <button class="ask-menu-item" type="button" role="menuitem" :disabled="!!ask.compaction.value.reason" :title="ask.compaction.value.reason || '压缩较早的对话，保留原文供召回'" @click="close(true); ask.compactContext()"><AppIcon name="i-layers" /><span class="ask-menu-label">压缩上下文</span></button>
+      <small v-if="ask.compaction.value.reason" class="ask-menu-group" role="presentation">{{ ask.compaction.value.reason }}</small>
       <button class="ask-menu-item" type="button" role="menuitem" :title="spent?.title" @click="close(); emit('debug')"><AppIcon name="i-history" /><span class="ask-menu-label">调用上下文</span><small v-if="spent?.label">{{ spent.label }}</small></button>
       <button class="ask-menu-item" type="button" role="menuitem" @click="close(); ask.openSettings()"><AppIcon name="i-settings" /><span class="ask-menu-label">ASK 设置</span></button>
     </template>

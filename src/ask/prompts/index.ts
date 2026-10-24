@@ -1,9 +1,10 @@
 import { constitution } from "./constitution.ts";
 import { workspaces } from "./workspaces.ts";
 import { models } from "./models.ts";
+import { compactionPrompt } from "./compaction.ts";
 
 /** One label for the whole prompt stack; recorded with golden-sample runs. */
-export const promptVersion = `c${constitution.version}.w${workspaces.version}.m${models.version}`;
+export const promptVersion = `c${constitution.version}.w${workspaces.version}.m${models.version}.k${compactionPrompt.version}`;
 
 /**
  * System block 1: invariant L0/L1/L2 core, then the optional adult context.

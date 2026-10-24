@@ -19,6 +19,12 @@ import { createProvider, ProviderError } from "./provider.ts";
 import type { AskMessage, AskUsage, AskRequest, AskEvent, ProviderErrorKind } from "./provider.ts";
 import { approxTokens, createSession, estimateRequest } from "./session.ts";
 import type { Session } from "./session.ts";
+import type { SessionData } from "./session.ts";
+import { runCompaction } from "./compact/run.ts";
+import { archiveCount, shouldCompact } from "./compact/trigger.ts";
+import { attachmentIndex } from "./compact/archive.ts";
+import { recordDraft } from "./compact/ledger.ts";
+import type { TurnId } from "./compact/ledger.ts";
 import { createConversations, titleOf, UNTITLED } from "./conversations.ts";
 import type { ConversationCore } from "./conversations.ts";
 import { run } from "./runner.ts";
@@ -43,7 +49,7 @@ import type { AttachmentView } from "./attachments.ts";
 import { boardNameContent, conversationNameContent, namingRequest, readGeneratedName } from "./naming.ts";
 import type { NamingTarget } from "./naming.ts";
 import { namingPromptVersion } from "./prompts/naming.ts";
-import { createAskFavorites } from "./favorites.ts";
+import { createAskFavorites, restoreSavedSession } from "./favorites.ts";
 import type { SavedConversation } from "./favorites.ts";
 import type { Writer } from "../services/data-lease.ts";
 
@@ -77,12 +83,14 @@ export interface AskTurnView {
   readonly truncated: boolean;
   readonly metadataOnly: boolean;
   readonly committed: number | null;
+  /** Successful conversation turn ID, independent of the UI row and undo record. */
+  readonly turnId: TurnId | null;
   readonly checkpoint: CheckpointView | null;
   readonly attachments: readonly AttachmentView[];
 }
 export type AskEntry =
   | { readonly type: "turn"; readonly id: number; readonly turn: AskTurnView }
-  | { readonly type: "note"; readonly id: number; readonly text: string };
+  | { readonly type: "note"; readonly id: number; readonly text: string; readonly compactRetry?: boolean };
 export type RetryMode = "plain" | "metadata" | "codec";
 interface ConversationScope {
   readonly id: string;
@@ -188,7 +196,9 @@ export function createAsk(deps: {
     appliedDraft = shallowRef<{ id: number; workspace: "image" | "chat" } | null>(null),
     writingDraft = shallowRef(false);
   const tray = shallowRef<readonly string[]>([]), preparing = shallowRef(0);
-  const attachmentPreview = shallowRef<{ id: string; name: string; text: string } | null>(null);
+  const compacting = shallowRef(false), dispatching = shallowRef(false);
+  let compactingOwner: string | null = null;
+  const attachmentPreview = shallowRef<{ id: string; name: string; text: string; turnId?: TurnId; inline?: boolean } | null>(null);
   let importing = Promise.resolve();
   // Usage is counted for the whole page; deleting a conversation keeps it.
   const total = { ...usage.value };
@@ -262,7 +272,7 @@ export function createAsk(deps: {
   }
   const editorOpen = computed(() => router.route.value.overlay === "editor"),
     visible = computed(() => open.value && !editorOpen.value),
-    running = computed(() => live.value !== null),
+    running = computed(() => live.value !== null || compacting.value || dispatching.value),
     connection = computed(
       () =>
         reasoningConnections(routing.value).find(
@@ -345,6 +355,8 @@ export function createAsk(deps: {
     const view: CheckpointView = { id: record.id, title: record.plan.title, status: record.status, added, removed };
     const next = (owner === conversations.current ? entries.value : owner.entries).map((e) =>
       e.type === "turn" && e.id === record.turnId ? { ...e, turn: { ...e.turn, checkpoint: view } } : e);
+    const turn = next.find(e => e.type === "turn" && e.id === record.turnId);
+    if (turn?.type === "turn" && turn.turn.turnId) owner.session.updateDraft(turn.turn.turnId, record.status, record.plan);
     owner.entries = next;
     if (owner === conversations.current) entries.value = next;
     saveFavorite(owner);
@@ -419,7 +431,9 @@ export function createAsk(deps: {
   const undoDraft = (id = undoTarget.value?.id) => id === undefined ? Promise.resolve() : moveDraft(id, false);
   const restoreDraft = (id: number) => moveDraft(id, true);
   function ignoreDraft() {
-    if (!draft.value || writingDraft.value) return;
+    if (!draft.value || writingDraft.value || controller || disposed) return;
+    const entry = entries.value.find(e => e.type === "turn" && e.id === draft.value?.turnId);
+    if (entry?.type === "turn" && entry.turn.turnId) conversations.current.session.updateDraft(entry.turn.turnId, "dismissed");
     draft.value = null; notice.value = ""; say("已忽略草稿，内容未修改");
   }
 
@@ -429,6 +443,7 @@ export function createAsk(deps: {
       workspace = router.route.value.workspace,
       conversation = c.current;
     const digest = buildDigest({
+      askTurnId: conversations.current.session.nextTurnId,
       workspace,
       anchor: anchorLabel,
       form: d.form,
@@ -493,7 +508,7 @@ export function createAsk(deps: {
   const dirtyFavorites = new Set<string>();
   let favoriteTimer: ReturnType<typeof setTimeout> | undefined, savingFavorites = Promise.resolve();
   let saveWarned = false;
-  function savedConversation(c: Conversation): SavedConversation {
+  function savedConversation(c: Conversation, session = c.session.snapshot()): SavedConversation {
     const source = c === conversations.current && live.value
       ? [...c.entries, { type: "turn" as const, id: live.value.id, turn: live.value }] : c.entries;
     const savedEntries = source.map(e => e.type === "note" ? e : { ...e, turn: {
@@ -503,9 +518,9 @@ export function createAsk(deps: {
       attachments: e.turn.attachments.map(({ url: _url, ...a }) => a),
     } });
     return { version: 1, id: c.id, title: c.title, named: c.named, origin: c.origin, createdAt: c.createdAt,
-      scope: { id: c.scope.id, labels: c.scope.ids.snapshot() }, session: c.session.snapshot(), entries: savedEntries,
+      scope: { id: c.scope.id, labels: c.scope.ids.snapshot() }, session, entries: savedEntries,
       input: c.input, anchor: c.anchor, tray: c.tray,
-      attachments: c.scope.attachments.snapshot([...c.tray, ...entryAttachments(savedEntries)]),
+      attachments: c.scope.attachments.snapshot([...c.tray, ...entryAttachments(savedEntries), ...session.archive.flatMap(t => t.attachments)]),
       draft: c.draft ? { value: c.draft.draft, off: [...c.draft.off], turnId: c.draft.turnId } : null };
   }
   function saveFavorite(c = conversations.current) {
@@ -518,7 +533,11 @@ export function createAsk(deps: {
     clearTimeout(favoriteTimer);
     if (!favoritesReady.value || !dirtyFavorites.size) return savingFavorites.catch(() => {});
     stash();
-    const pending = [...dirtyFavorites]; dirtyFavorites.clear();
+    // A compaction candidate owns this record until its durable commit. Other
+    // favorites may still flush, but cannot queue a stale copy of this owner.
+    const pending = [...dirtyFavorites].filter(id => id !== compactingOwner);
+    if (!pending.length) return savingFavorites.catch(() => {});
+    pending.forEach(id => dirtyFavorites.delete(id));
     const records: SavedConversation[] = [], remove: string[] = [];
     for (const id of pending) {
       const c = conversations.get(id);
@@ -548,7 +567,9 @@ export function createAsk(deps: {
         if (!context) { context = scope(); restoredScopes.set(record.scope.id, context); }
         context.ids.restore(record.scope.labels);
         context.attachments.restore(record.attachments, [...record.tray, ...entryAttachments(record.entries)]);
+        const session = restoreSavedSession(record, addUsage);
         const restoredEntries = record.entries.map(e => e.type === "note" ? e : { ...e, turn: { ...e.turn,
+          turnId: e.turn.turnId ?? (e.turn.committed ? session.records[e.turn.committed - 1]?.turnId ?? null : null),
           // Historical checkpoints remain visible, but can never alias a new page's undo record.
           checkpoint: e.turn.checkpoint ? { ...e.turn.checkpoint, id: --checkpointId } : null,
           attachments: context.attachments.read(e.turn.attachments.map(a => a.id)).map(attachmentView),
@@ -557,7 +578,7 @@ export function createAsk(deps: {
         const pending = record.draft ? history.create(record.draft.value, record.id, record.draft.turnId) : null;
         if (pending && record.draft) pending.off = new Set(record.draft.off);
         return { id: record.id, title: record.title, named: record.named, favorite: true, createdAt: record.createdAt, origin: record.origin,
-          scope: context, session: createSession(addUsage, record.session.turns, record.session.usage), entries: restoredEntries,
+          scope: context, session, entries: restoredEntries,
           input: record.input, anchor: record.anchor, tray: record.tray, draft: pending, preparing: 0 };
       });
       conversations.restore(restored);
@@ -592,7 +613,7 @@ export function createAsk(deps: {
           tools: [],
           system: ["", ""],
           messages: [
-            ...conversations.current.session.messages,
+            ...conversations.current.session.requestHistory(!settings.value.images),
             { role: "user", content: [{ type: "text", text: stateBlock(digestNow(anchor.value)) }, ...attachmentBlocks(attachments.read(tray.value), !settings.value.images)] },
           ],
         })
@@ -602,6 +623,37 @@ export function createAsk(deps: {
   const estimate = computed(() =>
     stateTokens.value ? staticTokens.value + stateTokens.value + approxTokens(input.value) : 0,
   );
+  const memory = computed(() => {
+    void stateRevision.value; void entries.value; void draftRevision.value; void conversationId.value;
+    const owner = conversations.current, session = owner.session, value = session.memory;
+    if (!value) return null;
+    const archived = new Set(session.archive.map(t => t.turnId)), boards = drawing.snapshot().boards;
+    // The row stays where the compaction ran: after the last turn it saw, not at the archive boundary.
+    const after = session.records.at(-1 - session.turnsSinceCompaction)?.turnId ?? value.through;
+    return { through: value.through, after, count: session.archive.length, tokens: approxTokens(value.text), memo: value.memo,
+      ledger: session.ledger.filter(e => archived.has(e.turnId)).map(e => ({ ...e,
+        context: [...e.targets, ...e.boards.map(id => boards.find(b => b.id === id)?.name ?? "已删除的画板")].join(" · ") })),
+      attachments: attachmentIndex(session.archive, owner.scope.attachments.get) };
+  });
+  const compaction = computed(() => {
+    void stateRevision.value; void entries.value; void draftRevision.value; void conversationId.value;
+    const session = conversations.current.session;
+    const count = archiveCount(session.retained, settings.value.compaction.highWaterTokens,
+      session.ledger.filter(e => e.draft?.status === "pending").map(e => e.turnId));
+    const reason = !favoritesReady.value || favoriteBusy.value ? "正在保存会话" : running.value ? "请求进行中"
+      : writingDraft.value ? "正在写入草稿" : preparing.value ? "正在准备附件"
+      : ready.value !== "ok" ? "请先配置模型" : session.turns < 4 ? "至少需要 4 轮对话"
+      : !count ? "没有可压缩的完整轮次" : "";
+    return { reason, count, lastInputTokens: session.lastInputTokens, highWaterTokens: settings.value.compaction.highWaterTokens };
+  });
+  function needsCompaction() {
+    const session = conversations.current.session;
+    return shouldCompact({ lastInputTokens: session.lastInputTokens, totalTurns: session.turns,
+      turnsSinceCompaction: session.turnsSinceCompaction, archiveCount: compaction.value.count,
+      highWaterTokens: settings.value.compaction.highWaterTokens,
+      ...(session.archiveRebuild ? { archiveRebuild: { estimatedTokens: estimateRequest({ tools: toolList, system: system.value,
+        messages: session.requestHistory(!settings.value.images) }) } } : {}) });
+  }
 
   function push(entry: AskEntry) {
     entries.value = [...entries.value, entry];
@@ -627,21 +679,117 @@ export function createAsk(deps: {
       return;
     }
   }
-  type SendOptions = { metadataOnly?: boolean; anchor?: string | null; preserveInput?: boolean; attachments?: readonly string[] };
+  type SendOptions = { metadataOnly?: boolean; anchor?: string | null; preserveInput?: boolean; attachments?: readonly string[]; replaceId?: number };
   async function send(text = input.value, options: SendOptions = {}) {
     if ((!text.trim() && !(options.attachments ?? tray.value).length) || !manageable() || preparing.value) return;
     if (draft.value) { notice.value = "请先应用或忽略当前草稿"; return; }
     const provider = providerForSend();
-    if (provider) await runTurn(text, options, provider);
+    if (provider) await dispatch(text, options, provider);
   }
-  async function runTurn(text: string, options: SendOptions, provider: ReturnType<typeof createProvider>) {
+  /** One controller covers pre-send compaction, persistence and the following answer. */
+  async function dispatch(text: string, options: SendOptions, provider: ReturnType<typeof createProvider>) {
+    const owner = conversations.current, abort = new AbortController(), fromTray = options.attachments === undefined;
+    const selected = [...(options.attachments ?? tray.value)], pool = owner.scope.attachments;
+    const captured = { ...options, attachments: selected, anchor: options.anchor !== undefined ? options.anchor
+      : [...text.matchAll(idPattern)][0]?.[0] ?? anchor.value };
+    // Keep the intended attachments alive if the user changes the tray while organizing.
+    pool.retain(selected);
+    let transferred = false;
+    controller = abort; dispatching.value = true;
+    try {
+      if (needsCompaction()) {
+        await compact(owner, provider, abort);
+        if (abort.signal.aborted) return;
+        const current = providerForSend();
+        if (!current) return;
+        provider = current;
+      }
+      if (abort.signal.aborted || disposed) return;
+      owner.session.checkedArchive();
+      await runTurn(text, captured, provider, abort, () => {
+        transferred = true;
+        if (fromTray) {
+          const consumed = owner.tray.filter(id => selected.includes(id));
+          setTray(owner.tray.filter(id => !selected.includes(id)), owner); pool.release(consumed);
+        }
+        if (options.replaceId !== undefined) {
+          const replaced = entries.value.filter(e => e.id === options.replaceId);
+          entries.value = entries.value.filter(e => e.id !== options.replaceId);
+          pool.release(entryAttachments(replaced));
+        }
+      });
+    } finally {
+      if (!transferred) pool.release(selected);
+      await finishRequest(owner, abort);
+    }
+  }
+  async function finishRequest(owner: Conversation, abort: AbortController) {
+    stateRevision.value++;
+    usage.value = { ...total }; conversationUsage.value = owner.session.usage;
+    saveFavorite(owner);
+    if (owner.favorite) await flushFavorites().catch(() => {});
+    if (controller === abort) controller = null;
+    dispatching.value = false;
+  }
+  async function compactContext() {
+    if (!manageable() || compaction.value.reason) return "skipped" as const;
+    const provider = providerForSend();
+    if (!provider) return "failed" as const;
+    const owner = conversations.current, abort = new AbortController();
+    controller = abort; dispatching.value = true;
+    try { return await compact(owner, provider, abort); }
+    finally { await finishRequest(owner, abort); }
+  }
+  async function compact(owner: Conversation, provider: ReturnType<typeof createProvider>, abort: AbortController) {
+    const config = settings.value;
+    const codec = codecFor({ adult: adult.value, enabled: codecActive.value, words: config.words, replacements: config.replacements });
+    compactingOwner = owner.id; compacting.value = true; notice.value = "";
+    say("正在压缩上下文");
+    let call = 0;
+    async function persist(candidate: SessionData, signal: AbortSignal) {
+      const job = savingFavorites.catch(() => {}).then(async () => {
+        signal.throwIfAborted(); stash();
+        await favorites.write([savedConversation(owner, candidate)], [], services.data.write, signal);
+      });
+      savingFavorites = job;
+      await job;
+    }
+    try {
+      const result = await runCompaction({ session: owner.session, provider,
+        request: { model: config.model, tools: toolList, system: system.value }, codec, signal: abort.signal,
+        attachments: id => owner.scope.attachments.get(id), metadataOnly: !config.images, highWaterTokens: config.compaction.highWaterTokens,
+        ...(owner.favorite ? { persist } : {}), observe(event) {
+          if (event.type === "request") call = callLog.start({ conversation: owner.id, turn: 0, step: 1,
+            question: "压缩上下文", purpose: "compaction", connection: config.connectionId,
+            protocol: provider!.profile.protocol === "anthropic-messages" ? "anthropic-messages" : "openai-chat",
+            model: config.model, promptVersion }, event.body);
+          else if (call) callLog.finish(call, event);
+        } });
+      if (result.status === "compacted") say("上下文已压缩");
+      return result.status;
+    } catch (error) {
+      if (call) callLog.fail(call, abort.signal.aborted);
+      if (!abort.signal.aborted) {
+        notice.value = `压缩失败：${message(error)}`;
+        push({ type: "note", id: ++sequence, text: notice.value, compactRetry: true });
+      }
+      else say("已停止压缩，待发内容已保留");
+      return abort.signal.aborted ? "stopped" as const : "failed" as const;
+    } finally {
+      compactingOwner = null; compacting.value = false; stateRevision.value++;
+      usage.value = { ...total }; conversationUsage.value = owner.session.usage;
+    }
+  }
+  async function runTurn(text: string, options: SendOptions, provider: ReturnType<typeof createProvider>, abort: AbortController, transfer: () => void) {
     const question = text.trim();
     notice.value = "";
     // The compact success pill belongs to the write, not later replies.
     appliedDraft.value = null;
     const owner = conversations.current;
     const attached = attachments.read(options.attachments ?? tray.value);
-    if (!entries.value.length && !owner.named) { owner.title = titleOf(question, attached[0]?.name); listRevision.value++; }
+    if (!entries.value.some(e => e.id !== options.replaceId) && !owner.named) {
+      owner.title = titleOf(question, attached[0]?.name); listRevision.value++;
+    }
     const config = settings.value,
       turnAnchor = options.anchor !== undefined ? options.anchor : [...question.matchAll(idPattern)][0]?.[0] ?? anchor.value,
       metadataOnly = !!options.metadataOnly || !config.images,
@@ -655,21 +803,19 @@ export function createAsk(deps: {
       known = owner.session.viewed(),
       turnViewed = new Set(known),
       draftBase = readDraftState();
+    const readBoards = new Set(draftBase.boardId ? [draftBase.boardId] : []);
     if (!metadataOnly) for (const a of attached) if (a.kind === "image") turnViewed.add(a.id);
     const user: AskMessage = {
       role: "user",
       content: [
-        { type: "text", text: stateBlock(digest) },
+        { type: "text", text: stateBlock(digest), source: { kind: "workspace_state" } },
         ...attachmentBlocks(attached, metadataOnly),
         { type: "text", text: question },
       ],
     };
-    const turn = owner.session.begin(user, { metadataOnly }),
-      abort = new AbortController(),
-      pacer = createPacer();
+    const turn = owner.session.begin(user, { metadataOnly }), pacer = createPacer();
     abort.signal.addEventListener("abort", pacer.cancel, { once: true });
-    controller = abort;
-    if (options.attachments === undefined) setTray([]); // Transfer the tray's references into this view turn.
+    transfer();
     if (!options.preserveInput && text === input.value) input.value = "";
     const working: WorkingTurn = {
       id: ++sequence,
@@ -681,6 +827,7 @@ export function createAsk(deps: {
       truncated: false,
       metadataOnly,
       committed: null,
+      turnId: null,
       checkpoint: null,
       attachments: attached.map(attachmentView),
     };
@@ -697,17 +844,21 @@ export function createAsk(deps: {
     saveFavorite(owner);
     if (owner.favorite) void flushFavorites().catch(() => {});
     let last: "text" | "start" | "end" | null = null;
+    const readTargets = new Set<string>(), toolTargets = new Map<string, string[]>();
     const rows = new Map<string, Mutable<ToolRow>>();
     async function* tracedStream(request: AskRequest, signal: AbortSignal): AsyncGenerator<AskEvent> {
       let call = 0;
+      let observedUsage: AskUsage | null = null, done = false;
       try {
-        yield* provider.stream(request, { codec, signal, allowEmpty: turn.budget.toolCalls > 0, observe(event) {
+        for await (const event of provider.stream(request, { codec, signal, allowEmpty: turn.budget.toolCalls > 0, observe(event) {
           if (event.type === "request") call = callLog.start({ conversation: owner.id, turn: working.id, step: turn.budget.requests, question,
+            ...(owner.session.takeAfterCompaction() ? { afterCompaction: true } : {}),
             connection: config.connectionId, protocol: provider.profile.protocol === "anthropic-messages" ? "anthropic-messages" : "openai-chat",
             model: request.model, promptVersion }, event.body);
-          else if (call) callLog.finish(call, event);
-        } });
+          else { observedUsage = event.usage; if (call) callLog.finish(call, event); }
+        } })) { if (event.type === "done") done = true; yield event; }
       } catch (error) {
+        if (!done) turn.record(observedUsage);
         if (call) callLog.fail(call, signal.aborted);
         throw error;
       }
@@ -729,11 +880,13 @@ export function createAsk(deps: {
           chatContext: turnChatContext,
           draftBase,
           question,
+          recall: input => owner.session.recall(input, id => owner.scope.attachments.get(id)),
           state: (scope, boardId) => {
             if (boardId) {
               const boards = scope === "latest" ? drawing.snapshot().boards : frozenBoards;
               const board = boards.find(b => b.id === boardId);
               if (!board) throw new Error("画板不在该状态快照中");
+              readBoards.add(board.id);
               return { text: JSON.stringify({ board_id: board.id, name: board.name, form: { ...board.form, characters: board.form.characters.map(c => ({ ...characterSummary(c, board.form.placement, board.form.model), centers: c.centers })) }, character_capability: characterCapability(board.form.model), draft_base_hash: digest.baseHash }), images: snapshot.history.length };
             }
             return scope === "latest" ? {
@@ -754,6 +907,7 @@ export function createAsk(deps: {
             schedule();
           });
         } else if (event.type === "tool-start") {
+          toolTargets.set(event.id, event.object.match(idPattern) ?? []);
           const gap = last === "text" ? PACE.afterText : last === "end" ? PACE.betweenTools : 0;
           last = "start";
           pacer.push(() => {
@@ -766,6 +920,7 @@ export function createAsk(deps: {
             commit();
           }, gap);
         } else if (event.type === "tool-end") {
+          if (event.ok) for (const id of toolTargets.get(event.id) ?? []) readTargets.add(id);
           if (event.draft) proposed = event.draft;
           last = "end";
           pacer.push(() => {
@@ -784,7 +939,11 @@ export function createAsk(deps: {
       if (proposed) pacer.push(() => {}, PACE.beforeDraft);
       await pacer.settled();
       abort.signal.throwIfAborted();
-      turn.commit({ viewed: [...turnViewed].filter((id) => !known.has(id)) });
+      working.turnId = turn.commit({ viewed: [...turnViewed].filter((id) => !known.has(id)), question,
+        attachments: attached.map(a => a.id), targets: [...new Set([...(`${turnAnchor ?? ""} ${question}`.match(idPattern) ?? []),
+          ...attached.filter(a => a.kind === "image").map(a => a.id), ...readTargets])],
+        boards: [...readBoards],
+        ...(proposed ? { draft: recordDraft(proposed, validateDraft(proposed, draftBase, { off: new Set() })) } : {}) });
       working.committed = owner.session.turns;
       if (proposed) draft.value = history.create(proposed, owner.id, working.id);
       working.status = "done";
@@ -808,11 +967,8 @@ export function createAsk(deps: {
     } finally {
       abort.signal.removeEventListener("abort", pacer.cancel);
       cancelAnimationFrame(frame);
-      if (controller === abort) controller = null;
       usage.value = { ...total };
       conversationUsage.value = owner.session.usage;
-      saveFavorite(owner);
-      if (owner.favorite) await flushFavorites().catch(() => {});
     }
   }
   function settle(working: WorkingTurn) {
@@ -952,17 +1108,21 @@ export function createAsk(deps: {
       // Credentials/settings can change during persistence; never delete before ready.
       const provider = providerForSend();
       if (!provider) return false;
-      conversations.current.session.truncate(retained);
+      conversations.current.session.truncate(retained, attachments.get);
       const originalAttachments = entry.turn.attachments.map(a => a.id);
       attachments.retain(originalAttachments);
       attachments.release(entryAttachments(removed));
-      entries.value = entries.value.slice(0, index);
+      // Keep an editable stopped row until a normal request actually starts.
+      // Stopping pre-send compaction must not discard the edited text/attachments.
+      entries.value = [...entries.value.slice(0, index), { ...entry, turn: { ...entry.turn, question: text,
+        status: "stopped", items: [], failure: null, truncated: false, committed: null, turnId: null, checkpoint: null } }];
       history.removeTurns(conversationId.value, turnIds);
       if (draft.value && turnIds.has(draft.value.turnId)) draft.value = null;
       appliedDraft.value = null;
       if (order.length) deps.ui.toast(`已撤回 ${order.length} 份草稿`);
       writingDraft.value = false;
-      void runTurn(text, { anchor: entry.turn.anchor, metadataOnly: entry.turn.metadataOnly, preserveInput: true, attachments: originalAttachments }, provider);
+      void dispatch(text, { anchor: entry.turn.anchor, metadataOnly: entry.turn.metadataOnly, preserveInput: true,
+        attachments: originalAttachments, replaceId: entry.id }, provider);
       return true;
     } catch (error) {
       notice.value = `回退失败：${message(error)}`;
@@ -979,7 +1139,7 @@ export function createAsk(deps: {
     const fork = conversations.fork(newId => ({
       id: newId, title: source.title, named: source.named, origin: { conversationId: source.id, turnId: id },
       favorite: false, createdAt: Date.now(), scope: source.scope,
-      session: source.session.fork(count),
+      session: source.session.fork(count, attachments.get),
       entries: entries.value.slice(0, index + 1).flatMap(e => e.type === "turn" ? [{ ...e, turn: { ...e.turn, checkpoint: null } }] : []),
       anchor: entry.turn.anchor, input: "", draft: null, tray: [], preparing: 0,
     }));
@@ -998,15 +1158,15 @@ export function createAsk(deps: {
     }
     const provider = providerForSend();
     if (!provider) return;
-    entries.value = entries.value.filter((e) => e !== entry);
-    void runTurn(entry.turn.question, { metadataOnly: mode === "metadata" || entry.turn.metadataOnly, anchor: entry.turn.anchor, preserveInput: true, attachments: entry.turn.attachments.map(a => a.id) }, provider);
+    void dispatch(entry.turn.question, { metadataOnly: mode === "metadata" || entry.turn.metadataOnly, anchor: entry.turn.anchor,
+      preserveInput: true, attachments: entry.turn.attachments.map(a => a.id), replaceId: entry.id }, provider);
   }
   /** Esc: popovers, then the draft (A2), then the running turn, then the drawer. */
   function escape() {
     for (const layer of [...layers].reverse()) if (layer()) return;
     if (writingDraft.value) return;
-    if (draft.value) ignoreDraft();
-    else if (controller) stop();
+    if (controller) stop();
+    else if (draft.value) ignoreDraft();
     else { open.value = false; dismissCompact(); }
   }
   function onKey(event: KeyboardEvent) {
@@ -1080,6 +1240,10 @@ export function createAsk(deps: {
     expand() { inline.value = null; },
     visible,
     running,
+    compacting,
+    compactContext,
+    compaction,
+    memory,
     entries: entries as Readonly<ShallowRef<readonly AskEntry[]>>,
     live: live as Readonly<ShallowRef<AskTurnView | null>>,
     input: input as Readonly<ShallowRef<string>>,
@@ -1111,7 +1275,27 @@ export function createAsk(deps: {
     addPastedText(text: string) { return addFiles([new File([text], "粘贴的文本", { type: "text/plain" })], true); },
     removeAttachment,
     attachmentPreview,
-    openAttachment(id: string) { const a = attachments.get(id); if (a?.kind === "text") attachmentPreview.value = { id, name: a.name, text: a.text }; },
+    openAttachment(id: string, inline = false) { const a = attachments.get(id); if (a?.kind === "text") attachmentPreview.value = { id, name: a.name, text: a.text, inline }; },
+    openTurn(id: TurnId, inline = false) {
+      try {
+        const turn = conversations.current.session.recall({ turns: [id], include: "full" }, attachments.get).turns[0];
+        attachmentPreview.value = { id, turnId: id, inline, name: `${id} · 原文`, text: [
+          `提问\n${turn.question}`, `回复\n${turn.reply}`,
+          ...(turn.draft ? [`草稿\n${JSON.stringify(turn.draft, null, 2)}`] : []),
+          `工具与状态原文\n${JSON.stringify(turn.messages, null, 2)}`,
+        ].join("\n\n") };
+      } catch (error) { deps.ui.toast(message(error), "err"); }
+    },
+    async referenceTurn() {
+      const preview = attachmentPreview.value;
+      if (!preview?.turnId || !manageable()) return;
+      const owner = conversationId.value;
+      await addFiles([new File([preview.text], `${preview.turnId}-原文.txt`, { type: "text/plain" })]);
+      if (owner === conversationId.value) {
+        attachmentPreview.value = null;
+        await nextTick(); document.getElementById("askPrompt")?.focus({ preventScroll: true });
+      }
+    },
     closeAttachment() { attachmentPreview.value = null; },
     attachmentText(id: string) { const a = attachments.get(id); return a?.kind === "text" ? a.text : null; },
     referenceHistory(id: string) {
@@ -1134,7 +1318,7 @@ export function createAsk(deps: {
     restoreDraft,
     ignoreDraft,
     toggleDraftStep(id: string) {
-      if (writingDraft.value || !draft.value) return;
+      if (writingDraft.value || controller || disposed || !draft.value) return;
       const next = new Set(draft.value.off);
       if (next.has(id)) next.delete(id); else next.add(id);
       draft.value.off = next;

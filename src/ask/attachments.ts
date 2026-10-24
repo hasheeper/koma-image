@@ -148,7 +148,7 @@ export function createAttachments(onRelease: (id: string) => void = () => {}) {
 }
 export function attachmentBlocks(items: readonly Attachment[], metadataOnly: boolean): AskBlock[] {
   return [...items.filter(a => a.kind === "image"), ...items.filter(a => a.kind === "text")].flatMap<AskBlock>(a => {
-    if (a.kind === "text") return [{ type: "text", text: `${dataText(`附件 · ${a.name} · ${a.text.length} 字`)}\n${dataBlock(a.text)}` }];
+    if (a.kind === "text") return [{ type: "text", source: { kind: "attachment", id: a.id }, text: `${dataText(`附件 ${a.id} · ${a.name} · ${a.text.length} 字`)}\n${dataBlock(a.text)}` }];
     return [
       { type: "text", text: dataText(`附件 ${a.id} · ${a.name} · ${a.size.width}×${a.size.height} → ${a.sentSize.width}×${a.sentSize.height}${metadataOnly ? " · 本轮仅元数据，未发送图片" : ""}`) },
       ...(!metadataOnly ? [{ ...a.sent, viewed: { ids: [a.id], spec: "attachment", bytes: a.sentBytes } }] : []),
