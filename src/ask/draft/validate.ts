@@ -5,8 +5,10 @@ import { resolveModel } from "../../domain/catalog.ts";
 import { canonical } from "../canonical.ts";
 import { workspaceHash, hash } from "../digest/index.ts";
 import type { Picture } from "../library.ts";
+import { chatImage, chatTurn } from "../chat-context.ts";
+import { chatOptionLabel, chatOptionNames, chatSizeKeys } from "../../domain/chat-options.ts";
 import { restoreKeys } from "./types.ts";
-import type { CheckedStep, Draft, DraftPlan, DraftState, Field, RestoreKey, TextMode, TextTarget, ValidateOptions } from "./types.ts";
+import type { CheckedStep, Draft, DraftPlan, DraftState, Field, HandoffImage, RestoreKey, TextMode, TextTarget, ValidateOptions } from "./types.ts";
 
 const record = (value: unknown): Record<string, unknown> => {
   if (!value || typeof value !== "object" || Array.isArray(value)) throw new Error("草稿结构无效");
@@ -17,6 +19,21 @@ const text = (value: unknown, max = 24000) => {
   return value;
 };
 export const stateHash = (s: DraftState) => workspaceHash(s.form, s.composer, s.boardId);
+/** Asked outside CHAT, a CHAT write always opens a new conversation. */
+const outsideChat = (base: DraftState) => {
+  if (base.workspace && base.workspace !== "chat") throw new Error("在 IMAGE／TAGS 提问时，写入 CHAT 一律新开会话：请改用 chat_handoff");
+};
+function handoffImage(label: string, base: DraftState, library: readonly Picture[]): HandoffImage {
+  if (label.startsWith("#a")) throw new Error("附件不能作为交接图片");
+  if (label.startsWith("#c")) {
+    const image = base.chat ? chatImage(base.chat, label) : null;
+    if (!image) throw new Error(`${label} 不在当前分支或没有已完成图片`);
+    return { label, source: "chat", ref: image.assetId };
+  }
+  const picture = library.find((p) => p.aliases.includes(label)), origin = picture?.origins.find((o) => o.label === label);
+  if (!picture || (origin?.source !== "history" && origin?.source !== "favorites")) throw new Error(`${label} 不在本轮图片快照中`);
+  return { label, source: origin.source, ref: picture.id };
+}
 export function parseDraft(input: Readonly<Record<string, unknown>>, base: DraftState, library: readonly Picture[], question = ""): Draft {
   // Keep in-flight responses and earlier tool turns using `title` readable.
   const title = text(input.draft_title ?? input.title, 120).trim();
@@ -28,6 +45,7 @@ export function parseDraft(input: Readonly<Record<string, unknown>>, base: Draft
     if (step.kind === "prompt_patch") {
       const target = text(step.target, 80), mode = text(step.mode, 20);
       if (!/^(?:image\.(?:prompt|negative|char\.c[1-9]\d*\.(?:prompt|negative))|chat\.composer)$/.test(target)) throw new Error("草稿目标无效");
+      if (target === "chat.composer") outsideChat(base);
       if (!["replace", "before", "after", "append", "rewrite"].includes(mode)) throw new Error("草稿修改方式无效");
       const anchor = step.anchor === undefined ? "" : text(step.anchor);
       if (!["append", "rewrite"].includes(mode) && !anchor.trim()) throw new Error("局部修改需要非空 anchor");
@@ -51,11 +69,36 @@ export function parseDraft(input: Readonly<Record<string, unknown>>, base: Draft
       return result;
     }
     if (step.kind === "chat_distill_branch") {
+      outsideChat(base);
       if (rawSteps.length !== 1 || !base.chat) throw new Error("分支草稿需要当前会话快照，且必须独立提交");
-      const source = text(step.source, 30);
-      if (!base.chat.sources.some((s) => s.label === source && s.assetId)) throw new Error("分支起点不在当前分支或没有已完成图片");
-      if (!Array.isArray(step.exclude) || step.exclude.some((id) => !base.chat!.sources.some((s) => s.label === id))) throw new Error("排除轮次不在本轮分支快照中");
+      const source = text(step.source, 30), image = chatImage(base.chat, source);
+      if (!image) throw new Error("分支起点不在当前分支或没有已完成图片");
+      if (!image.selected) throw new Error("分支起点须在该轮当前选中的版本中；请让用户先在 CHAT 切换版本，或改用 chat_handoff 新开会话");
+      if (!Array.isArray(step.exclude) || step.exclude.some((id) => typeof id !== "string" || !chatTurn(base.chat!, id))) throw new Error("排除轮次不在本轮分支快照中");
       return { kind: "chat_distill_branch" as const, source, exclude: [...new Set(step.exclude as string[])], text: text(step.text) };
+    }
+    if (step.kind === "chat_handoff") {
+      const model = base.chatModel;
+      if (rawSteps.length !== 1) throw new Error("交接草稿必须独立提交");
+      if (!model) throw new Error("CHAT 模型目录未就绪，暂不能交接；请让用户打开对话页或检查连接后再提议");
+      if (!Array.isArray(step.images) || step.images.some((id) => typeof id !== "string")) throw new Error("images 需要图片 ID 列表");
+      const images: HandoffImage[] = [];
+      for (const label of step.images as string[]) {
+        const image = handoffImage(text(label, 30), base, library);
+        if (!images.some((i) => i.ref === image.ref)) images.push(image);
+      }
+      if (images.length > model.maxImages) throw new Error(`当前 CHAT 模型最多使用 ${model.maxImages} 张图`);
+      const options: Record<string, string> = {};
+      for (const [key, value] of Object.entries(record(step.options ?? {}))) {
+        if (!chatSizeKeys.includes(key)) throw new Error(`${key} 不能由草稿写入；需要时在回复中提醒用户手动调整`);
+        const field = model.writable[key];
+        if (!field) throw new Error(`当前 CHAT 模型没有 ${key} 选项`);
+        if (typeof value !== "string" || !field.options.includes(value)) throw new Error(`${key} 只能取 ${field.options.join("、")}`);
+        options[key] = value;
+      }
+      const body = text(step.text);
+      if (!body.trim()) throw new Error("交接需要非空的输入框文字");
+      return { kind: "chat_handoff" as const, images, options, text: body };
     }
     if (step.kind !== "restore_partial") throw new Error("此阶段不支持该草稿类型");
     const source = text(step.source, 30), image = library.find((p) => p.aliases.includes(source));
@@ -72,7 +115,7 @@ export function parseDraft(input: Readonly<Record<string, unknown>>, base: Draft
     if (p.batchTotal === undefined && p.batchCount === undefined) delete values.batchCount;
     return { kind: "restore_partial" as const, source, fields: [...new Set(step.fields as RestoreKey[])], values };
   });
-  const workspaces = new Set(steps.map((s) => (s.kind === "chat_distill_branch" || s.kind === "prompt_patch" && s.target.startsWith("chat.")) ? "chat" : "image"));
+  const workspaces = new Set(steps.map((s) => (s.kind === "chat_distill_branch" || s.kind === "chat_handoff" || s.kind === "prompt_patch" && s.target.startsWith("chat.")) ? "chat" : "image"));
   if (workspaces.size !== 1) throw new Error("一份草稿只能写入一个工作区");
   const newBoardName = input.new_board_name === undefined ? undefined : text(input.new_board_name, 80).trim();
   if (newBoardName !== undefined && (!newBoardName || !workspaces.has("image") || !base.boardId)) throw new Error("new_board_name 需要非空名称，且仅用于有来源画板的 IMAGE 草稿");
@@ -112,6 +155,7 @@ const labels: Partial<Record<Field, string>> = { prompt: "Prompt", negative: "Ne
 
 export function validateDraft(draft: Draft, now: DraftState, options: ValidateOptions): DraftPlan {
   if (draft.steps[0].kind === "chat_distill_branch") return validateBranch(draft, now, options);
+  if (draft.steps[0].kind === "chat_handoff") return validateHandoff(draft, now, options);
   const workspace: "image" | "chat" = draft.steps[0].kind === "prompt_patch" && draft.steps[0].target.startsWith("chat.") ? "chat" : "image";
   const initial = structuredClone({ ...now.form, characters: now.form.characters ?? [], composer: now.composer }), working = structuredClone(initial);
   let allocation = Math.max(now.nextCharacterId ?? 1, draft.base.nextCharacterId ?? 1, nextCharacterId(draft.base.form.characters ?? []));
@@ -237,11 +281,12 @@ export function validateDraft(draft: Draft, now: DraftState, options: ValidateOp
 function validateBranch(draft: Draft, now: DraftState, options: ValidateOptions): DraftPlan {
   const step = draft.steps[0];
   if (step.kind !== "chat_distill_branch" || !draft.base.chat) throw new Error("分支草稿无效");
-  const base = draft.base.chat, source = base.sources.find((s) => s.label === step.source)!;
+  const base = draft.base.chat, image = chatImage(base, step.source);
+  if (!image) throw new Error("分支起点不在本轮快照中");
   const issue = now.conversationId !== draft.base.conversationId ? "当前对话已切换" : now.chat?.key !== base.key ? "会话或上下文已变化，请重新提议" : "";
   const exclude = options.off.has("0:exclude") ? [] : step.exclude;
-  const before = base.selection, after = { ...before, headId: source.turnId, mainId: source.assetId,
-    skipTurnIds: [...new Set([...before.skipTurnIds, ...base.sources.filter((s) => exclude.includes(s.label)).map((s) => s.turnId)])],
+  const before = base.selection, after = { ...before, headId: image.source.turnId, mainId: image.assetId,
+    skipTurnIds: [...new Set([...before.skipTurnIds, ...exclude.flatMap((id) => chatTurn(base, id)?.turnId ?? [])])],
     prompt: options.off.has("0:text") ? before.prompt : step.text };
   const steps: CheckedStep[] = [
     { id: "0:source", label: `从 ${step.source} 准备新分支`, kind: "branch", locked: true, enabled: true, issue, aligned: false, before: "当前起点", after: step.source },
@@ -251,5 +296,31 @@ function validateBranch(draft: Draft, now: DraftState, options: ValidateOptions)
   const branch = !issue && canonical(before) !== canonical(after) ? { before, after, key: base.key } : undefined;
   const plan = { title: draft.title, workspace: "chat" as const, conversationId: draft.base.conversationId, steps,
     changes: branch && before.prompt !== after.prompt ? [{ field: "composer" as const, before: before.prompt, after: after.prompt }] : [], aligned: !!issue, ...(branch ? { branch } : {}) };
+  return { ...plan, fingerprint: hash(canonical(plan)) };
+}
+
+function validateHandoff(draft: Draft, now: DraftState, options: ValidateOptions): DraftPlan {
+  const step = draft.steps[0], model = draft.base.chatModel, live = now.chatModel;
+  if (step.kind !== "chat_handoff" || !model) throw new Error("交接草稿无效");
+  const stale = !live || live.id !== model.id ? "对话模型已变化，请重新提议" : "", on = (id: string) => !options.off.has(id);
+  const steps: CheckedStep[] = [
+    { id: "0:new", label: "新开对话", kind: "handoff", locked: true, enabled: true, issue: stale, aligned: false, before: "", after: model.name },
+    ...step.images.map((image, i): CheckedStep => ({ id: `0:image:${i}`, label: "参考图", kind: "handoff", enabled: on(`0:image:${i}`),
+      issue: stale || (options.has?.(image) === false ? "图片已移除" : ""), aligned: false, before: "", after: image.label })),
+    ...Object.entries(step.options).map(([key, value]): CheckedStep => {
+      const field = live?.writable[key];
+      return { id: `0:option:${key}`, label: chatOptionNames[key] ?? key, kind: "parameter", enabled: on(`0:option:${key}`),
+        issue: stale || (field?.options.includes(value) ? "" : "当前模型不支持此值"), aligned: false, before: field?.value ?? "", after: value,
+        displayBefore: field ? chatOptionLabel(field.value) : "—", displayAfter: chatOptionLabel(value) };
+    }),
+    { id: "0:text", label: "对话输入框", kind: "rewrite", enabled: on("0:text"), issue: stale, aligned: false, before: "", after: step.text },
+  ];
+  const usable = (id: string) => steps.some((s) => s.id === id && s.enabled && !s.issue);
+  const images = step.images.filter((_, i) => usable(`0:image:${i}`)), body = usable("0:text") ? step.text : "";
+  const handoff = body || images.length
+    ? { model: model.id, options: Object.fromEntries(Object.entries(step.options).filter(([key]) => usable(`0:option:${key}`))), text: body, images }
+    : undefined;
+  const plan = { title: draft.title, workspace: "chat" as const, conversationId: draft.base.conversationId, steps,
+    changes: body ? [{ field: "composer" as const, before: "", after: body }] : [], aligned: !!stale, ...(handoff ? { handoff } : {}) };
   return { ...plan, fingerprint: hash(canonical(plan)) };
 }

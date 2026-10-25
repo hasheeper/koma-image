@@ -226,7 +226,7 @@ onBeforeUnmount(pause);
 }
 .home-fav:hover { opacity: 1; transform: translateY(-2px); }
 .home-all { display: inline-flex; align-items: center; gap: 2px; margin-top: 18px; font-size: var(--fz-sm); color: var(--fg-3); }
-.home-all .ico { --ico: 13px; }
+.home-all .ico { --ico: var(--ico-sm); }
 .home-all:hover { color: var(--fg); }
 
 /* A narrow stage (a phone, or a desktop squeezed by both side panels). */

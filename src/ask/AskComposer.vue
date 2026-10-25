@@ -193,13 +193,13 @@ defineExpose({
 .ask-cbar { display: flex; flex-wrap: wrap; align-items: center; gap: 4px 6px; margin-top: 2px; color: var(--fg-3); font-size: 12px; }
 .ask-add { display: grid; flex: none; place-items: center; width: 28px; height: 28px; margin-left: -6px; color: var(--fg-3); border-radius: 8px; }
 .ask-add:hover { color: var(--fg); background: var(--ask-hover); }
-.ask-add .ico { width: 16px; height: 16px; }
+.ask-add .ico { --ico: var(--ico-md); }
 .ask-capsule { display: inline-flex; align-items: center; gap: 2px; height: 24px; padding: 0 8px; background: color-mix(in srgb, var(--a) 10%, transparent); border-radius: 7px; }
 .ask-capsule:has(.ask-capsule-clear) { padding-right: 2px; }
 .ask-capsule-id { color: var(--a); font: var(--fw-regular) 12px/1 var(--mono); }
 .ask-capsule-clear { display: grid; place-items: center; width: 20px; height: 20px; color: var(--fg-4); border-radius: 5px; }
 .ask-capsule-clear:hover { color: var(--fg); background: var(--ask-hover, var(--hover)); }
-.ask-capsule-clear .ico { width: 11px; height: 11px; }
+.ask-capsule-clear .ico { --ico: var(--ico-xs); }
 /* Only exceptions show beside the capsule; a click restores the default. */
 .ask-flag { flex: none; height: 24px; padding: 0 8px; color: var(--warn); font-size: 12px; line-height: 24px; background: color-mix(in srgb, var(--warn) 10%, transparent); border-radius: 7px; }
 .ask-flag:hover { background: color-mix(in srgb, var(--warn) 16%, transparent); }
@@ -207,9 +207,9 @@ defineExpose({
 .ask-model { display: inline-flex; align-items: center; gap: 2px; min-width: 0; height: 28px; padding: 0 0 0 8px; color: var(--fg-3); font: var(--fw-regular) 12px/1 var(--sans); border-radius: 8px; transition: color var(--t1) var(--e), background var(--t1) var(--e); }
 .ask-model:hover { color: var(--fg); background: var(--ask-hover, var(--hover)); }
 .ask-model-name { min-width: 0; overflow: hidden; line-height: 1.4; text-overflow: ellipsis; white-space: nowrap; }
-.ask-model-chev { flex: none; width: 12px; height: 12px; color: var(--fg-4); transform: rotate(90deg); }
+.ask-model-chev { flex: none; --ico: var(--ico-xs); color: var(--fg-4); transform: rotate(90deg); }
 .ask-context { position: relative; display: grid; flex: none; place-items: center; width: 24px; height: 28px; color: var(--fg-2); border-radius: 6px; }
-.ask-context-ring { display: block; width: 14px; height: 14px; fill: none; stroke: currentColor; stroke-width: 2.5; }
+.ask-context-ring { display: block; width: 14px; height: 14px; fill: none; stroke: currentColor; stroke-width: 2.5; } /* stylelint-disable-line declaration-property-value-allowed-list -- A progress ring in its own viewBox, not a sprite glyph. */
 .ask-context-track { opacity: .28; }
 .ask-context:hover { color: var(--fg); }
 .ask-context:focus-visible { color: var(--fg-2); outline: 1px solid var(--a); outline-offset: 1px; }
@@ -228,8 +228,8 @@ defineExpose({
 .ask-send-slot { display: grid; flex: none; margin-left: 4px; }
 .ask-send-slot > .btn { grid-area: 1 / 1; width: 28px; height: 28px; min-height: 0; padding: 0; border-radius: 50%; transition: opacity var(--t2) var(--e), transform var(--t2) var(--e-out), visibility 0s, color var(--t2) var(--e), background-color var(--t2) var(--e); }
 .ask-send-slot > .btn[hidden] { display: inline-flex; visibility: hidden; pointer-events: none; opacity: 0; transform: scale(.72); transition: opacity var(--t1) var(--e), transform var(--t1) var(--e), visibility 0s linear var(--t1); }
-.ask-send .ico, .ask-stop .ico { width: 15px; height: 15px; }
-.ask-send .ico { stroke-width: 2; }
+.ask-send .ico, .ask-stop .ico { --ico: var(--ico-sm); }
+.ask-send .ico { stroke-width: var(--ico-stroke-strong); }
 .ask-send:disabled { color: var(--fg-4); background: rgba(255, 255, 255, .07); }
 .ask-send-slot > .ask-stop { color: var(--fg); background: var(--ask-hover, var(--hover)); border-radius: 8px; }
 .ask-stop .ico { fill: currentColor; stroke: none; }

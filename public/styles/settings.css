@@ -16,17 +16,17 @@
 .set-ui [hidden] { display: none !important; } /* stylelint-disable-line declaration-no-important -- Hidden state must override settings display rules. */
 
 .set-bar { gap: var(--sp-3); }
-.set-back { width: 34px; height: 34px; margin-right: -4px; --ico: 20px; color: var(--fg-2); }
+.set-back { width: 34px; height: 34px; margin-right: -4px; --ico: var(--ico-lg); color: var(--fg-2); }
 .set-back[data-tip]::after { left: 0; transform: translate(0, -3px); }
 .set-back[data-tip]:hover::after { transform: translate(0, 0); }
 .set-title { margin: 0; font: inherit; }
 .set-saved { display: inline-flex; align-items: center; gap: 6px; margin-left: auto; font-size: var(--fz-2xs); color: var(--fg-4); white-space: nowrap; }
-.set-saved .ico { --ico: 13px; color: var(--ok); stroke-width: 2; }
+.set-saved .ico { --ico: var(--ico-sm); color: var(--ok); }
 /* An index on the left, one section at a time beside it. */
 .set-lay { display: grid; grid-template-columns: 200px minmax(0, 1fr); min-height: 0; }
 .set-nav { display: grid; align-content: start; gap: 2px; padding: 18px 10px; background: var(--chrome); border-right: 1px solid var(--line); overflow: auto; }
 .set-nav button { display: flex; align-items: center; gap: 10px; height: 36px; padding: 0 10px; font-size: var(--fz-sm); color: var(--fg-2); border-radius: 6px; white-space: nowrap; }
-.set-nav button .ico { --ico: 16px; color: var(--fg-3); }
+.set-nav button .ico { --ico: var(--ico-md); color: var(--fg-3); }
 .set-nav button:hover { color: var(--fg); background: var(--raised); }
 .set-nav button[aria-current="true"] { color: var(--fg); background: var(--raised); box-shadow: inset 0 0 0 1px var(--line-2); }
 .set-nav button[aria-current="true"] .ico { color: var(--a); }
@@ -46,7 +46,7 @@
 .set-ui .vl { width: 1em; height: 1em; flex: none; color: var(--fg-2); }
 .set-ui .vl-novelai { color: color-mix(in srgb, #f5f3c2 65%, var(--fg-3)); }
 .set-ui .vtile { display: grid; place-items: center; width: 18px; height: 26px; flex: none; font-size: 15px; }
-.set-ui .vtile .ico { --ico: 15px; color: var(--fg-4); }
+.set-ui .vtile .ico { --ico: var(--ico-sm); color: var(--fg-4); }
 /* A connection avatar keeps its own tile. */
 .set-ui .vtile.connection-avatar { width: 26px; overflow: hidden; border-radius: 7px; background: color-mix(in srgb, var(--fg) 3%, transparent); box-shadow: inset 0 0 0 1px var(--line); }
 .set-ui .vtile.connection-avatar img { width: 100%; height: 100%; object-fit: cover; }
@@ -80,7 +80,7 @@
 .set-ui .md-gtitle b { font-size: var(--fz-sm); font-weight: var(--fw-medium); color: var(--fg-2); white-space: nowrap; }
 .set-ui .md-chev { display: grid; place-items: center; width: 26px; height: 26px; flex: none; color: var(--fg-4); border-radius: 6px; }
 .set-ui .md-chev:hover { color: var(--fg); background: var(--hover); }
-.set-ui .md-chev .ico { --ico: 14px; stroke-width: 2; transition: transform var(--t2) var(--e); }
+.set-ui .md-chev .ico { --ico: var(--ico-sm); transition: transform var(--t2) var(--e); }
 .set-ui :is(.md-group, .sm-model)[data-open="true"] > :is(.md-ghead, .md-row) .md-chev .ico { transform: rotate(90deg); }
 
 .set-ui .md-row { display: flex; align-items: center; gap: 12px; min-height: 52px; padding: 6px 8px 6px 12px; }
@@ -95,14 +95,13 @@
 /* Capabilities: generate, edit, inpaint, upscale. */
 .set-ui .caps { display: flex; gap: 4px; flex: none; }
 .set-ui .cp { display: grid; place-items: center; width: 18px; height: 18px; color: var(--fg-4); }
-.set-ui .cp .ico { --ico: 14px; }
+.set-ui .cp .ico { --ico: var(--ico-sm); }
 
 .set-ui .md-act { display: grid; place-items: center; width: 30px; height: 30px; flex: none; color: var(--fg-4); border-radius: 8px; }
 .set-ui .md-act:hover { color: var(--fg); background: var(--hover); }
 .set-ui .md-act:disabled { opacity: 0.35; cursor: default; background: none; }
-.set-ui .md-act .ico { --ico: 16px; stroke-width: 1.7; }
+.set-ui .md-act .ico { --ico: var(--ico-md); }
 .set-ui .md-act[aria-pressed="true"] { color: color-mix(in srgb, var(--a) 85%, var(--fg-4)); }
-.set-ui .md-act[aria-pressed="true"] .ico { stroke-width: 2; }
 .set-ui .md-act-gap { width: 30px; flex: none; }
 .set-ui .md-miss { font-size: var(--fz-xs); color: var(--fg-4); }
 /* Quiet until hovered: a dozen unmatched rows shouldn't read as a dozen form fields. */
@@ -173,13 +172,13 @@
 .set-ui .conn-top > .st[data-s="err"] { color: var(--err); }
 .set-ui .conn-acts { grid-area: acts; display: flex; gap: 6px; }
 .set-ui .conn-acts .btn { height: 30px; padding-block: 0; }
-.set-ui .conn-acts .conn-more { width: 30px; padding: 0; justify-content: center; --ico: 15px; }
+.set-ui .conn-acts .conn-more { width: 30px; padding: 0; justify-content: center; --ico: var(--ico-sm); }
 .set-ui .conn-meters { display: grid; grid-template-columns: repeat(auto-fill, minmax(112px, 1fr)); gap: 16px 20px; padding: 14px 16px 16px; border-top: 1px solid var(--line); }
 .set-ui .conn-meter { display: grid; align-content: start; gap: 7px; min-width: 0; }
 .set-ui .conn-meter > span:first-child { display: flex; align-items: center; gap: 6px; font-size: var(--fz-2xs); color: var(--fg-3); white-space: nowrap; }
 .set-ui .conn-meter .vl { font-size: 12px; }
 .set-ui .conn-meter .vl:not(.vl-novelai) { color: var(--fg-3); }
-.set-ui .conn-meter .ico { --ico: 12px; color: var(--fg-3); }
+.set-ui .conn-meter .ico { --ico: var(--ico-xs); color: var(--fg-3); }
 .set-ui .conn-meter b { font: 14px/1 var(--mono); color: var(--fg); white-space: nowrap; }
 .set-ui .conn-meter b i { margin-left: 2px; font-size: 11px; font-style: normal; color: var(--fg-4); }
 .set-ui .conn-bar { height: 2px; overflow: hidden; border-radius: 2px; background: var(--line-2); }
@@ -192,7 +191,7 @@
 .set-ui .conn-models:disabled { cursor: default; }
 .set-ui .conn-models span:first-child { flex: none; }
 .set-ui .conn-models span:last-of-type { min-width: 0; margin-left: auto; overflow: hidden; font-size: var(--fz-xs); color: var(--fg-3); text-overflow: ellipsis; white-space: nowrap; }
-.set-ui .conn-models .ico { flex: none; --ico: 14px; color: var(--fg-4); }
+.set-ui .conn-models .ico { flex: none; --ico: var(--ico-sm); color: var(--fg-4); }
 .set-ui .conn-top:has(.conn-menu:popover-open) .conn-more { color: var(--fg); background: var(--hover); border-color: var(--line-2); }
 /* The card's ⋯ menu: a popover in the top layer, placed beside its button once it opens. */
 .set-ui .conn-menu {
@@ -209,7 +208,7 @@
   display: flex; align-items: center; gap: 10px; min-height: 32px; padding: 0 10px;
   font-size: var(--fz-sm); color: var(--fg-2); text-align: left; border-radius: var(--r1);
 }
-.set-ui .conn-menu button .ico { --ico: 16px; color: var(--fg-3); }
+.set-ui .conn-menu button .ico { --ico: var(--ico-md); color: var(--fg-3); }
 .set-ui .conn-menu button:is(:hover, :focus-visible) { color: var(--fg); background: var(--hover); outline: none; }
 .set-ui .conn-menu button:is(:hover, :focus-visible) .ico { color: currentColor; }
 .set-ui .conn-menu button small { margin-left: auto; padding-left: 16px; font: 11px var(--mono); color: var(--fg-4); }
@@ -256,7 +255,7 @@
 .plist .md-head .ibtn { margin-left: auto; }
 .plist .md-tools { display: flex; gap: 8px; padding: 0 16px 0 20px; }
 .plist .md-search { position: relative; flex: 1; min-width: 0; }
-.plist .md-search .ico { position: absolute; left: 11px; top: 50%; translate: 0 -50%; --ico: 15px; color: var(--fg-4); pointer-events: none; }
+.plist .md-search .ico { position: absolute; left: 11px; top: 50%; translate: 0 -50%; --ico: var(--ico-sm); color: var(--fg-4); pointer-events: none; }
 .plist .md-search input { width: 100%; height: 36px; padding-left: 34px; }
 .plist .md-tools .ibtn { width: 36px; height: 36px; flex: none; border-radius: var(--r2); box-shadow: inset 0 0 0 1px var(--line-2); }
 .plist .md-tabs { display: flex; gap: 2px; margin-top: 12px; padding: 0 16px 0 14px; border-bottom: 1px solid var(--line); overflow-x: auto; scrollbar-width: none; }

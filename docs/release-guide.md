@@ -42,7 +42,7 @@ npm start
 
 源码仓库为 `hasheeper/koma-image`，生产分支 `main`；Pages 项目名为 `koma-image`，上传目录由 `wrangler.jsonc` 固定为 `dist/`。Git 推送和站点发布是两步独立操作，不存在 Git 自动部署。
 
-在源码工程完成 `npm run check` 和相关浏览器验收，确认源码、提交历史与构建产物不含私有渠道标识或凭据后，推送生产分支，再执行 `npm run deploy:pages`。该命令使用固定版本 Wrangler 重新构建并上传静态目录；首次使用可执行 `npx --yes wrangler@4.151.1 login`。发布后核对生产域名实际加载的脚本及工作区导航。登录凭据保存在本机，不写入仓库。
+每次推送和部署前取得用户明确授权。在源码工程完成 `npm run check` 和相关浏览器验收，确认源码、提交历史与构建产物不含私有渠道标识或凭据后，推送生产分支，再执行 `npm run deploy:pages`。该命令使用固定版本 Wrangler 重新构建并上传静态目录；首次使用可执行 `npx --yes wrangler@4.151.1 login`。发布后核对生产域名实际加载的脚本及工作区导航。登录凭据保存在本机，不写入仓库。
 
 ## 数据、更新和回退
 

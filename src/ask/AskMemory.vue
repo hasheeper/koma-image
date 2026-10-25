@@ -87,11 +87,11 @@ onBeforeUnmount(() => { stopLayer(); if (preview.value) ask.closeAttachment(); }
 .ask-memory { container-type: inline-size; margin: 20px 0; color: var(--fg-2); font-size: 13px; line-height: 22px; }
 .ask-memory summary { display: flex; align-items: center; gap: 8px; min-height: 32px; list-style: none; border-radius: 6px; font-size: 14px; line-height: 20px; cursor: pointer; }
 .ask-memory summary::-webkit-details-marker { display: none; }
-.ask-memory summary > .ico { display: block; flex: none; width: 16px; height: 16px; color: var(--fg-3); }
+.ask-memory summary > .ico { display: block; flex: none; --ico: var(--ico-md); color: var(--fg-3); }
 .memory-label, .memory-tokens { display: block; flex: none; white-space: nowrap; }
 .memory-tokens { color: var(--fg-3); font-size: 12px; line-height: 20px; font-variant-numeric: tabular-nums; }
 .memory-line { flex: 1; min-width: 16px; height: 1px; background: var(--line-2); }
-.ask-memory summary > .memory-chevron { width: 14px; height: 14px; transition: transform var(--t1) var(--e); }
+.ask-memory summary > .memory-chevron { --ico: var(--ico-sm); transition: transform var(--t1) var(--e); }
 .ask-memory summary:hover .memory-label { color: var(--fg); }
 .ask-memory[open] .memory-chevron { transform: rotate(90deg); }
 .memory-body { margin: 4px 0 6px 8px; padding-left: 15px; border-left: 1px solid var(--line-2); }
@@ -111,12 +111,12 @@ onBeforeUnmount(() => { stopLayer(); if (preview.value) ask.closeAttachment(); }
 .memory-entry { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .memory-status, .memory-file small { flex: none; color: var(--fg-3); font-size: 12px; }
 .memory-go { display: flex; flex: none; align-items: center; gap: 2px; color: var(--fg-3); font-size: 12px; opacity: 0; }
-.memory-go .ico { width: 12px; height: 12px; }
+.memory-go .ico { --ico: var(--ico-xs); }
 :is(.memory-turn, .memory-file):is(:hover, :focus-visible) .memory-go { opacity: 1; }
 .memory-preview-head { display: flex; align-items: center; gap: 8px; margin-bottom: 6px; }
 .memory-preview-head > span { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .memory-back { display: flex; flex: none; align-items: center; gap: 2px; color: var(--fg-3); }
-.memory-back .ico { width: 12px; height: 12px; transform: rotate(180deg); }
+.memory-back .ico { --ico: var(--ico-xs); transform: rotate(180deg); }
 .memory-preview pre { max-height: 240px; margin: 0; overflow: auto; font: 13px/22px var(--sans); white-space: pre-wrap; overflow-wrap: anywhere; overscroll-behavior: contain; }
 .memory-reference { margin-top: 6px; color: var(--a); }
 :is(.memory-tab, .memory-more, .memory-back):hover { color: var(--fg); }

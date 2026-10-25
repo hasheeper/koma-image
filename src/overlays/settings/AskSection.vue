@@ -429,7 +429,7 @@ async function removeReplacement(rule: Replacement) {
   transition: color var(--t1) var(--e), background-color var(--t1) var(--e);
 }
 .ask-link > span { overflow: hidden; text-overflow: ellipsis; }
-.ask-link .ico { position: absolute; top: 50%; right: 9px; translate: 0 -50%; --ico: 13px; color: var(--fg-3); }
+.ask-link .ico { position: absolute; top: 50%; right: 9px; translate: 0 -50%; --ico: var(--ico-sm); color: var(--fg-3); }
 .ask-link:disabled, .ask-link:disabled .ico { color: var(--fg-4); cursor: default; }
 .ask-reset { height: 28px; padding: 0 8px; font-size: var(--fz-xs); color: var(--fg-3); }
 /* The connection's picked models, the current one checked. */
@@ -445,7 +445,7 @@ async function removeReplacement(rule: Replacement) {
 .ask-picks button:hover:not([aria-current]) { color: var(--fg); background-color: var(--hover); }
 .ask-picks button[aria-current] { color: var(--fg); cursor: default; }
 .ask-picks button b { flex: 1; min-width: 0; overflow: hidden; font-weight: var(--fw-regular); text-overflow: ellipsis; white-space: nowrap; }
-.ask-current { --ico: 15px; flex: none; color: var(--a); }
+.ask-current { --ico: var(--ico-sm); flex: none; color: var(--a); }
 .ask-limit { position: relative; width: 128px; }
 .ask-limit input { height: 32px; padding: 0 44px 0 10px; color: var(--fg); text-align: right; box-shadow: inset 0 1px 2px rgba(0, 0, 0, 0.28); }
 .ask-limit input:focus { box-shadow: var(--ring); }
@@ -466,7 +466,7 @@ async function removeReplacement(rule: Replacement) {
   background: var(--raised); border-radius: 999px; box-shadow: inset 0 0 0 1px var(--line-2);
 }
 .ask-chips li:has(button) { padding-right: 3px; }
-.ask-chips button { display: grid; place-items: center; width: 18px; height: 18px; --ico: 11px; color: var(--fg-4); border-radius: 50%; }
+.ask-chips button { display: grid; place-items: center; width: 18px; height: 18px; --ico: var(--ico-xs); color: var(--fg-4); border-radius: 50%; }
 .ask-chips button:hover { color: var(--fg); background: var(--hover); }
 .s-row .ask-error { margin-top: -4px; font-size: var(--fz-xs); color: var(--err); }
 .ask-rules { display: grid; gap: 6px; margin: 0; padding: 0; list-style: none; }

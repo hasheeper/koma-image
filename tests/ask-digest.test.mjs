@@ -40,6 +40,7 @@ function input(over = {}) {
     generation: { state: "done", busy: false },
     composer: "",
     chat: null,
+    chatModel: { ready: false },
     ids: createIds(),
     ...over,
   };
@@ -58,7 +59,8 @@ test("digest: same workbench, same bytes; no binary data; base hash tracks only 
   assert.deepEqual(state.image.current, { id: "#h3" });
   assert.equal(state.image.form.seed, "random");
   assert.deepEqual(state.image.form.characters, []);
-  assert.equal(state.v, 5);
+  assert.equal(state.v, 6);
+  assert.deepEqual(state.chat_model, { ready: false });
   assert.equal(state.image.form.text_included, true);
   assert.equal(state.image.form.prompt, form.prompt);
   assert.equal(state.image.form.negative, form.negative);

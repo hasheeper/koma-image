@@ -138,7 +138,18 @@
   --fw-semibold: 600;
   --fw-bold: 700;
 
-  --ico: 16px;
+  /* Icon tiers. Components pick a tier through --ico and never a raw size:
+     xs keycaps and corner badges, sm menus and inline hints, md the default
+     28/32px buttons and rows, lg the primary toolbars. Strokes are
+     non-scaling in the sprite, so one width holds at every tier; the strong
+     width is for glyphs on solid buttons and display icons. */
+  --ico-xs: 11px;
+  --ico-sm: 14px;
+  --ico-md: 16px;
+  --ico-lg: 18px;
+  --ico: var(--ico-md);
+  --ico-stroke: 1.3px;
+  --ico-stroke-strong: 1.6px;
 
   --e: cubic-bezier(0.32, 0.72, 0.28, 1);
   --e-out: cubic-bezier(0.16, 1, 0.3, 1);

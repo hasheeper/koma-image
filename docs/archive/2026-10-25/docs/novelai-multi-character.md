@@ -1,3 +1,5 @@
+> 历史归档 · 2026-10-25 整理前快照（源码基线 `219463c`）。本文保留当时的设计、授权与验收范围，不作为现行规则或本次发布授权。现行入口见[文档索引](../../../README.md)。
+
 # NovelAI 多角色分区：能力勘探与接入范围
 
 日期：2026-10-23。状态：角色 A、画板胶囊 A 与 C1–C5 基础代码已完成本地收口，实施与验收见[基础实施计划 §9](multi-character-boards-plan.md#9-本轮落地记录2026-10-23)。实际接口探测已观察到标准网关的角色结构（§3.4），C2 映射已接入并模拟验证（§3.5）；生成端采用情况仍未实测，不能将报价成功当作生成联调通过。
@@ -138,13 +140,13 @@ V4.5 手动与自动各一个样例；V5 手动样例的 0.24／0.76 连续坐�
 
 | 环节 | 当前实现 | 接入时需补齐 |
 | --- | --- | --- |
-| 绘图表单与提交 | [`domain/drawing.ts`](../src/domain/drawing.ts) 的 `DrawingForm`、`collect`、`drawingPayload` 没有角色结构 | 表单、提交快照、报价失效与批量参数一致携带角色数据 |
-| 官方与原生请求 | [`gateway/routes.ts`](../src/gateway/routes.ts) 的 `toNativePayload` 固定 `char_captions: []`、`use_coords: false`；官方分支复用该转换 | 将同一领域结构分别映射为正负角色数组与定位参数 |
-| 标准网关请求 | [`gateway/client.ts`](../src/gateway/client.ts) 能复制已有 payload，但绘图提交没有提供角色字段 | 核验标准字段，并保证报价、免费原生与 Studio 执行内容一致 |
-| 图片导入 | [`native/image-meta.ts`](../src/native/image-meta.ts) 仅把角色与 Negative 输出为额外信息；只将第一个中心换算成 5×5 标签 | 解析为可复用的结构，保留角色顺序、原始坐标及可识别的多中心信息 |
+| 绘图表单与提交 | [`domain/drawing.ts`](../../../../src/domain/drawing.ts) 的 `DrawingForm`、`collect`、`drawingPayload` 没有角色结构 | 表单、提交快照、报价失效与批量参数一致携带角色数据 |
+| 官方与原生请求 | [`gateway/routes.ts`](../../../../src/gateway/routes.ts) 的 `toNativePayload` 固定 `char_captions: []`、`use_coords: false`；官方分支复用该转换 | 将同一领域结构分别映射为正负角色数组与定位参数 |
+| 标准网关请求 | [`gateway/client.ts`](../../../../src/gateway/client.ts) 能复制已有 payload，但绘图提交没有提供角色字段 | 核验标准字段，并保证报价、免费原生与 Studio 执行内容一致 |
+| 图片导入 | [`native/image-meta.ts`](../../../../src/native/image-meta.ts) 仅把角色与 Negative 输出为额外信息；只将第一个中心换算成 5×5 标签 | 解析为可复用的结构，保留角色顺序、原始坐标及可识别的多中心信息 |
 | 参数复用与保存 | `reuseFields` 等恢复路径没有角色字段；收藏参数虽可装 JSON，也不会自动得到完整角色内容 | 草稿保存、历史、收藏、新版备份、复用与编辑交接保持角色参数往返 |
-| ASK 状态与工具 | [`ask/digest/index.ts`](../src/ask/digest/index.ts) 固定 `characters: []` | 按现有按需读取规则提供真实角色结构；历史读取、差异与检索同步检查 |
-| ASK 草稿 | [`ask/draft/types.ts`](../src/ask/draft/types.ts) 预留 `image.char.N.prompt/negative`；校验器实际返回“目标不存在” | 校验、写入、冲突检查、diff、检查点、撤销与恢复一起接通 |
+| ASK 状态与工具 | [`ask/digest/index.ts`](../../../../src/ask/digest/index.ts) 固定 `characters: []` | 按现有按需读取规则提供真实角色结构；历史读取、差异与检索同步检查 |
+| ASK 草稿 | [`ask/draft/types.ts`](../../../../src/ask/draft/types.ts) 预留 `image.char.N.prompt/negative`；校验器实际返回“目标不存在” | 校验、写入、冲突检查、diff、检查点、撤销与恢复一起接通 |
 
 ## 5. 后续实现应保持的语义
 

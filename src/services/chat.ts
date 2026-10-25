@@ -23,7 +23,7 @@ import { idbRequest, transactionDone } from "../storage/databases";
 import type { Writer } from "./data-lease";
 import { AssetStore } from "./assets";
 import { consumeMedia } from "./media-response";
-import { createHandoff } from "./handoff";
+import { createHandoff, fitReference } from "./handoff";
 import { imageConnections } from "../config/connections.ts";
 
 export const chatOptions = (c: ConversationRecord) =>
@@ -62,7 +62,15 @@ export function createChat(services: ApplicationServices, ui: Ui) {
     quoteAbort: AbortController | undefined,
     catalogAbort: AbortController | undefined;
   let saving = Promise.resolve(),
-    loading: Promise<void> | undefined;
+    loading: Promise<void> | undefined,
+    restoring: Promise<void> | undefined,
+    warming: Promise<void> | undefined,
+    // Quote and quota requests belong to CHAT itself; ASK only warms it.
+    entered = false,
+    // After an ASK write, quoting waits for the user's next CHAT action.
+    held = false;
+  /** Conversations opened by an ASK handoff on this page, for exact undo. */
+  const handoffs = new Map<string, { before: ConversationRecord | null; source: string }>();
   const reads = new Set<Promise<unknown>>();
   const emit = () => {
     if (!disposed) for (const f of listeners) f();
@@ -95,7 +103,8 @@ export function createChat(services: ApplicationServices, ui: Ui) {
       .then(async () => {
         if (!loaded) return;
         const put = conversations
-          .filter((c) => written.get(c.id) !== JSON.stringify(c))
+          // ASK warming never stores the blank placeholder CHAT would create.
+          .filter((c) => written.get(c.id) !== JSON.stringify(c) && (entered || written.has(c.id) || !conversation.isBlank(c)))
           .map((c) => structuredClone(c));
         const remove = [...removed];
         if (!put.length && !remove.length) return;
@@ -209,13 +218,32 @@ export function createChat(services: ApplicationServices, ui: Ui) {
     normalize();
     ready = !!models.length;
     emit();
+    if (!entered || held) return;
     scheduleQuote();
     void refreshQuota();
   }
+  const restored = () => (restoring ??= restore());
+  /** Stored conversations and the model list, without quote or quota requests.
+     The catalog wait is capped; an unready list is reported as such. */
+  async function warm() {
+    try {
+      await restored();
+      if (ready || disposed) return;
+      const capped = new Promise((resolve) => setTimeout(resolve, 2000));
+      warming ??= (entered ? loading! : refreshCatalog()).finally(() => (warming = undefined));
+      await Promise.race([warming, capped]);
+      // CHAT opening mid-warm supersedes this catalog request.
+      if (!ready && entered) await Promise.race([loading, capped]);
+    } catch (e) {
+      error = message(e);
+      emit();
+    }
+  }
   async function start() {
+    entered = true;
     return (loading ??= (async () => {
       try {
-        await restore();
+        await restored();
         await refreshCatalog();
         save();
       } catch (e) {
@@ -229,6 +257,10 @@ export function createChat(services: ApplicationServices, ui: Ui) {
     clearTimeout(quoteTimer);
     quoteAbort?.abort();
     quote = null;
+  }
+  function hold() {
+    cancelQuote();
+    held = true;
   }
   async function prepare(c: ConversationRecord, turn?: ConversationTurn) {
     const settings = structuredClone(turn?.settings || c.settings),
@@ -257,6 +289,7 @@ export function createChat(services: ApplicationServices, ui: Ui) {
   }
   function scheduleQuote() {
     cancelQuote();
+    held = false;
     error = "";
     emit();
     const c = current,
@@ -312,6 +345,13 @@ export function createChat(services: ApplicationServices, ui: Ui) {
     scheduleQuote();
     collect();
     emit();
+  }
+  /** Switch without quoting; ASK writes leave that to the user. */
+  function show(c: ConversationRecord) {
+    current = c;
+    void services.preferences
+      .set(names.chatCurrent, c.id)
+      .catch((e) => ui.toast(message(e), "err"));
   }
   function switchConversation(c: ConversationRecord) {
     if (!mutable() || !conversations.includes(c)) return;
@@ -558,6 +598,7 @@ export function createChat(services: ApplicationServices, ui: Ui) {
       return Date.now() - (finished.get(id) || 0) < 2000;
     },
     start,
+    warm,
     flush,
     refreshCatalog,
     refreshQuota,
@@ -609,7 +650,7 @@ export function createChat(services: ApplicationServices, ui: Ui) {
     async writeDraft(text: string, conversationId: string, expected: string) {
       if (!mutable() || current.id !== conversationId || current.prompt !== expected) throw new Error("对话已变化，草稿未写入");
       const owner = current;
-      cancelQuote();
+      hold();
       owner.prompt = text;
       save();
       emit();
@@ -623,7 +664,7 @@ export function createChat(services: ApplicationServices, ui: Ui) {
       if (!mutable() || busy || conversation.chatDraftKey(current) !== expected) throw new Error("会话或上下文已变化，草稿未写入");
       if (next.mainId && !assets.assets.has(next.mainId)) throw new Error("分支底图已不可用");
       const owner = current, before = conversation.chatSelection(owner);
-      cancelQuote();
+      hold();
       const turn = owner.turns.find((t) => t.id === next.headId);
       if (turn && next.mainId) conversation.selectSource(owner, turn, next.mainId);
       else owner.selectionRevision += 1;
@@ -636,6 +677,129 @@ export function createChat(services: ApplicationServices, ui: Ui) {
         save(); emit(); throw error;
       }
       return applied;
+    },
+    /** Like →对话: the blank conversation is reused, otherwise a new one opens. Nothing is sent. */
+    async writeHandoffDraft(draft: {
+      model: string;
+      options: Readonly<Record<string, string>>;
+      text: string;
+      images: readonly ({ asset: string } | { blob: Blob; name: string })[];
+    }) {
+      const model = () => models.find((m) => m.id === draft.model),
+        missing = () => draft.images.some((i) => "asset" in i && !assets.assets.has(i.asset));
+      if (!mutable() || uploading) throw new Error("对话正在导入图片或暂不可写入，草稿未写入");
+      if (!model()) throw new Error("对话模型已变化，草稿未写入");
+      if (draft.images.length > model()!.maxImages) throw new Error(`该模型最多使用 ${model()!.maxImages} 张图`);
+      if (missing()) throw new Error("参考图已不可用");
+      hold();
+      const ids: string[] = [];
+      let failure: unknown = null;
+      uploading++;
+      emit();
+      const work = (async () => {
+        for (const image of draft.images) {
+          if ("asset" in image) ids.push(image.asset);
+          else {
+            const fitted = await fitReference(image.blob, image.name);
+            ids.push((await assets.add(fitted.blob, fitted.name, undefined, "image")).id);
+          }
+        }
+      })();
+      reads.add(work);
+      try {
+        await work;
+      } catch (error) {
+        failure = error;
+      } finally {
+        reads.delete(work);
+        uploading--;
+      }
+      const m = model();
+      if (failure || !mutable() || !m || missing()) {
+        collect();
+        emit();
+        throw failure ?? new Error(!m ? "对话模型已变化，草稿未写入" : "参考图已不可用");
+      }
+      const source = current,
+        blank = conversations.find(conversation.isBlank),
+        before = blank ? structuredClone(blank) : null,
+        target = blank ?? conversation.newConversation();
+      if (!blank) conversations.push(target);
+      target.settings = { model: m.id, options: normalizeOptions(m, { ...chatOptions(source), ...draft.options }) };
+      for (const id of ids) conversation.attachUpload(target, id);
+      target.prompt = draft.text;
+      target.selectionRevision++;
+      target.updatedAt = Date.now();
+      show(target);
+      const applied = conversation.chatDraftKey(target);
+      emit();
+      try {
+        await flush();
+      } catch (error) {
+        if (conversation.chatDraftKey(target) === applied) {
+          if (before) Object.assign(target, before, { selectionRevision: target.selectionRevision + 1 });
+          else conversations = conversations.filter((c) => c !== target);
+          if (current === target && conversations.includes(source)) show(source);
+        }
+        collect();
+        save();
+        emit();
+        throw error;
+      }
+      handoffs.set(target.id, { before, source: source.id });
+      return applied;
+    },
+    /** Removes the opened conversation, or empties the reused blank one, only while unchanged. */
+    async undoHandoffDraft(receipt: string) {
+      const id = String(JSON.parse(receipt)[0]),
+        target = conversations.find((c) => c.id === id),
+        origin = handoffs.get(id);
+      if (!mutable()) throw new Error("对话暂不可写入");
+      if (!target) throw new Error("新对话已删除");
+      if (conversation.chatDraftKey(target) !== receipt) throw new Error("新对话已继续编辑");
+      hold();
+      const list = conversations,
+        shown = current,
+        fields = structuredClone(target),
+        dropped = !origin?.before;
+      if (origin?.before) Object.assign(target, structuredClone(origin.before), { selectionRevision: target.selectionRevision + 1 });
+      else {
+        conversations = conversations.filter((c) => c !== target);
+        removed.add(id);
+      }
+      if (current === target || !conversations.includes(current)) {
+        const next =
+          conversations.find((c) => c.id === origin?.source) ??
+          conversation.sortConversations(conversations)[0];
+        if (next) show(next);
+        else {
+          const blank = conversation.newConversation(services.preferences.get(names.chatSettings, {}));
+          conversations.push(blank);
+          normalize(blank);
+          show(blank);
+        }
+      }
+      emit();
+      try {
+        await flush();
+      } catch (error) {
+        conversations = list;
+        // The exact applied state, so the same receipt can retry this undo.
+        if (dropped) removed.delete(id);
+        else Object.assign(target, fields);
+        show(shown);
+        save();
+        emit();
+        throw error;
+      }
+      handoffs.delete(id);
+      collect();
+      return conversation.chatDraftKey(current);
+    },
+    /** Read-only for the writer's synchronous undo preflight. */
+    handoffOrigin: (id: string) => {
+      const o = handoffs.get(id);
+      return o ? { before: o.before && structuredClone(o.before), source: o.source } : null;
     },
     setModel(id: string) {
       if (!mutable()) return;

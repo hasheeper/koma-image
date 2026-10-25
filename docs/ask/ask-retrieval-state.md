@@ -1,49 +1,12 @@
-# ASK 检索工具与状态感知：修订规范与勘探
+# ASK 检索与状态
 
-日期：2026-10-22。状态：R1–R4 已完成并通过模拟验收。勘探基线：`fc6d527`；当前行为按下文最新用户确认执行。
+更新：2026-10-25。R1–R4 已完成本地模拟收口。本文维护当前快照、历史检索、词典查询与消歧；勘探差异、原修订补丁与阶段证据见[归档](../archive/2026-10-25/README.md)。现行决策以[ASK 维护入口](ask-implementation-plan.md)为准。
 
-来源：用户同日提供的《Koma ASK：检索工具与状态感知技术规范（修订补丁）》。本文保留取消语义分区、关键词检索、批量查词三项方向，并修正与代码及数据来源不符的细节。文档 4 [§2.8](ask-implementation-plan.md#28-检索工具与状态感知修订)采纳本文作为本专题的目标契约；实施与验收记录见本文 §5。其余工程边界仍按文档 4 与 `AGENTS.md`。
+## 1. 状态与展示边界
 
-## 1. 勘探基线：修订前的差异
+活动画板完整基础 Prompt／Negative 与角色原文始终随初始状态提供；其他画板只传目录，无锚点历史图原文按需读取。`get_state({ board_id })` 默认读取 initial 冻结原文，latest 只追加最新读取结果，不改变本轮草稿基底。
 
-### 1.1 修订前十个工具与本次调整
-
-| 工具 | 修订前实现 | 本次调整 |
-| --- | --- | --- |
-| `get_state` | 追加最新摘要，包含 `image.prompt_sections` | 去掉语义分区；不扩张本轮图片快照 |
-| `search_history` | 单一子串匹配；已有 scope、Jaccard 与 picks | 多词命中排序、明确来源/时间/前序、紧凑结果 |
-| `get_meta` | 完整参数、无图片 | 继续作为检索后的详情入口 |
-| `diff_meta` | 参数变化与提示词 diff | 保留；复用差异算法 |
-| `view_image` | glance/look/crop、前置查看与预算 | 保留 |
-| `view_sheet` | 2–6 张本地拼图 | 保留 |
-| `search_tags` | 同步单词查询 `localTags` 页面缓存 | 异步批量调用站内词典查询管线 |
-| `get_chat_context` | 锁定当前分支文本、底图、勾选与已有额度 | 保留；无图片轮次仍由它读取 |
-| `get_model_manual` | 三份内置手册，按需只读加载 | 保留；更新其中旧查词说明 |
-| `propose_draft` | 校验后展示，用户确认才写入 | 保留确认写入；按最新决策删除代码级画师判断 |
-
-### 1.2 代码证据与实际缺口
-
-| 主题 | 修订前代码事实 | 修订结论 |
-| --- | --- | --- |
-| 状态分区 | `digest/index.ts` 在 **`image.prompt_sections`** 输出五类切片；不是 `form.segments`；`base_hash` 在根层 | 删除实际字段，保留原始表单、其他状态和根层 hash |
-| 六维理解 | `prompts/constitution.ts` 已有六个视觉维度 | 已实现，不重复建设；L1 仍描述分区，需同步移除 |
-| 画师保护 | `draft/validate.ts` 已在校验层比较修改前后全文的画师、顺序与有效权重；`segments.ts` 同时供 `.keep` 使用 | 按用户最新确认删除程序拦截，仅保留 `.keep` 文本解析 |
-| 关键词 | `tools.ts` 对序列化 metadata 做完整子串 `includes`；大小写与下划线已归一 | 乱序多词、OR-Hit、操作符清理和相关性排序未实现 |
-| 参数 | 默认 `scope=history`、`limit=10`，最大 20；有 `min_sim`，默认 .9；没有 `size` 变化别名 | 新默认 all、8/15；移除公开 `min_sim`；补 size |
-| 排序/变化 | 无时间次排序；`changed_field` 与过滤后混合列表的下一条比较 | 应先在各来源内部建立前序，再过滤与排序，不能跨历史/收藏/CHAT 比较 |
-| 来源成员 | `snapshotPictures` 以 ID 注册表的 aliases 判断历史/收藏；被移出普通历史但仍在收藏的记录可能保留旧 `#h` | scope 依据本轮真实列表成员关系；历史别名用于解析，不用它推断当前来源 |
-| CHAT | service 的 library 已含当前分支所选完成版本的第一张图；`scope=all` 会搜到 `#c`，却没有 chat scope；时间被填为 0 | 明确增加 chat scope；不声称检索所有会话、版本或无图轮次；未知时间返回 null |
-| 返回值 | `{total,matches}`，每条附完整 metadata；无来源、片段、时间和变化摘要 | 改为紧凑契约，详情用 get_meta，减少重复发送全文 |
-| 消歧 | search_history 返回多条即生成前 3 个 `ToolOutcome.picks`；runner/service 转为 `.pick`；正文 ID 只变成引用 | 复用已有结构化 picks，不能宣称“正文列 ID 就会生成缩略选择器” |
-| 查词 | `service.ts` 注入 `localTags`；缓存最多 4000 条，未访问过词典的新词可能永远查不到 | 接入共享 `services.tags`；分类判断已取消，无消费者的 tag-memory 一并删除 |
-| 数据源 | `tag-search.ts` 的 suggest/page 共用双语在线候选接口，英文可回退 Danbooru；主源每次最多 30 候选，无服务器分页 | 是同一查询管线，不是完整本地词库、穷尽检索或离线服务 |
-| 词条字段 | `TagItem` 只有 name/cnName/category/count/source；无 aliases；缺失 count/category 目前折成 0 | 不改 TagItem；透传共享数值，说明缺失值可能已归零；别名/释义不编造 |
-| 热度/语义 | 无代码或实测证明 300/3000 能预测 NAI 激活强度 | 删除硬阈值和“低频必须放弃”的规则，只作收录量参考 |
-| Embedding | 没有检索设置、模型连接、向量索引或生命周期 | 单列后续研究，不列入本轮实现或现有能力 |
-
-本次复现：用合成快照调用现有工具，`white_hair` 命中，`hair white` 与 `white AND hair` 均不命中；省略 scope 只返回 `#h`，all 可返回 `#h/#f/#c`。27 项现有 digest/tools/draft/prompts 单元测试通过，**只证明旧实现基线**，不是下述新契约验收。
-
-用户随后确认的简化已覆盖早期规划：不建立 artists.ts、不保留代码级画师拦截或自然语言授权识别、取消原验收 #4；不扩展 TagItem，以 Promise.allSettled 并发批量查词，不建立队列或额外批次定时器。用户修改后的提示词正文保持原样。
+程序不发送猜测的提示词语义分类，不建立代码级画师识别或授权判断。文本结构校验、唯一锚点与参数边界保留，字段差异由 `draft/view.ts` 展示。
 
 ## 2. 原始状态与文本校验
 
@@ -51,19 +14,18 @@
 
 “提示词 L0”指静态宪章；“状态摘要 L0”指每轮 user 消息中的 `<workspace_state>`。六维指导属于前者，原始表单属于后者。不得为了瘦身把动态表单移进 System。
 
-R1 曾将摘要从 `v:2` 升为 `v:3`；2026-10-23 实机反馈修订为 `v:4`，随后多角色与画板接入升为 `v:5`。按用户明确修订，当前契约如下：
+当前摘要版本为 `v:6`，契约如下：
 
 - 删除 `image.prompt_sections`，不换名输出 `segments` 或另一份全文切片。
 - 活动画板始终 `image.form.text_included=true`，直接包含完整 prompt/negative 和每角色 id/on/prompt/negative/position；其他画板只给目录。无锚点时 `image.current` 仅含 ID，history 仅 mode/count/latest_id，favorites 仅 count，不预载历史文本、差异或聚类。显式历史／收藏锚点保留模式 A；附件或 CHAT ID 不隐式展开 IMAGE 历史。
 - 根层 `base_hash` 覆盖源画板 ID、完整生成表单与 CHAT composer；不另加 form 内 hash。草稿继续绑定发送时的源板与快照。
+- 每个工作区都附 `chat_model`：目录就绪时为当前 CHAT 模型的显示名、`max_images`、可写尺寸项 `writable`（`size`／`aspect_ratio`／`image_size` 中模型声明者的当前值与可选值）与只读项 `read_only`（`quality`）；未就绪为 `{ready:false}`。不含连接、上游模型 ID 或其他设置，不进入 `base_hash`；草稿本地另存模型 ID，用于发现模型已切换。`get_chat_context` 同样返回 `chat_model`，并附 `available_models` 名称列表与各轮版本的图片 ID。
 - `characters` 已接通真实角色组，`vibes` 仍为空预留；六维是模型理解方式，不新增六类 JSON 字段。
 - 初始快照在整轮冻结。`get_state` 默认 scope=initial，可通过 board_id 读取本轮其他画板完整表单；scope=latest 才读取外部新改动。结果只追加在队尾，历史索引仍不展开；不能使新图进入本轮 library，也不能替换草稿使用的初始 hash。
 
 ### 2.2 画师判断交给提示词与用户
 
 是否修改画师由系统提示词「画风与基底配方」原则约束，用户通过草稿卡目视确认。前端不识别画师分类，不检查名字、次序或权重，不分析用户是否点名授权，也不建立 artists.ts。
-
-删除 digest/segments.ts、artistProblem、namedForChange 及分类回调。src/ask/prompt-text.ts 只提取原文跨度与去除权重符号后的词组，供 .keep 下划线使用，不进行语义分类。原先仅服务 ASK 的 tag-memory.ts 已无消费者，一并删除；站内查询服务本身的缓存继续使用。
 
 validate.ts 保留目标存在性、两级锚点匹配、base_hash 与内容冲突、参数范围和模式组合等结构校验。修改仍先预览、再由用户确认，之后可撤销。草稿记录原问题只用于用户点击「重新提议」，不用于自然语言授权判断。
 
@@ -99,7 +61,7 @@ interface SearchHistoryArgs {
 - 在筛选前建立每个来源的序列：history 用历史到达顺序；favorites 用记录 createdAt（不是收藏时间）；chat 用当前分支轮序。前序指同来源中仍保留的上一条，不代表完整生成历史。
 - `compared_to` 不跨来源，查 query 或 limit 不改变比较对象。只比较双方确实有值的参数；缺失字段不能解释为用户删除。size 在宽或高改变时出现，width/height 保留独立过滤。
 - 同一底层记录在历史和收藏中只返回一次；all 优先仍属于本轮 history 的标签，其次 favorites。限定 favorites 时必须返回 `#f` 标签。scope 按本轮列表成员关系判断，不能因 ID 注册表保留了旧 `#h` 就把仅在收藏的图片归入 history。返回 aliases，按记录 ID 去重，不按图片内容哈希合并；相似检索排除基准的所有别名。
-- CHAT 目前只携带 prompt 和图片尺寸，缺失 seed/model/negative 等不补值。以后若需要这些字段，应从真实轮次 settings 显式提取，不能从当前表单推断。
+- CHAT 携带 prompt、图片尺寸、版本序号、版本内图序、是否选中，以及该轮模型名与已知选项值（`chat_options`，仅尺寸类与 quality）；缺失 seed/negative 等不补值，不从当前表单推断。
 
 ```ts
 interface HistorySearchResult {
@@ -128,7 +90,7 @@ interface HistorySearchResult {
 
 搜索结果本身不在轮内切换摘要模式 A。选择后由下一轮发送时的 anchor 构建模式 A；同轮用 get_meta 获取候选详情即可。`#c` 当前不进入绘图历史同心圆，使用 CHAT 上下文工具，不声称具有 CHAT 的模式 A。
 
-本轮只做纯本地关键词与 Jaccard 检索，不承诺“零延迟”。Embedding/RAG、索引持久化、全历史扫描和对应设置均不在 R1–R4；未来须另定数据范围、连接、费用、删除更新与取消策略。
+当前使用纯本地关键词与 Jaccard 检索，不承诺“零延迟”。Embedding/RAG、索引持久化、全历史扫描和对应设置均不在当前范围；未来须另定数据范围、连接、费用、删除更新与取消策略。
 
 ## 4. search_tags 契约
 
@@ -138,7 +100,7 @@ interface HistorySearchResult {
 - 需要核对角色/作品标准词、容易混淆的专有词，或用户明确要求查词：按需核验；检索结果是候选，不能保证模型训练收录或出图表现。
 - 面向 OpenAI Images/Gemini 等的自然语言创作，不为其主动转换整套 Danbooru 词表。**按任务意图而不是当前路由禁用工具**：用户在 CHAT 中明确查词或准备 NAI 提示词仍可用；静态工具集不随工作区切换。
 - 删除“这些模型不认下划线”“角色只认 ASCII/罗马音”“大模型已掌握绝大部分词”等无依据的绝对说法。标准词与自然语言各按实际目标使用。
-- `post_count` 仅反映词典来源的帖子收录量；不等于 NAI 数据集量、激活概率或权重建议。删除 300/3000 的硬分档，不因低频或未命中强制弃词。
+- `post_count` 仅反映词典来源的帖子收录量；不等于 NAI 数据集量、激活概率或权重建议。不使用 300/3000 的硬分档，不因低频或未命中强制弃词。
 
 ### 4.2 查询接口与数据边界
 
@@ -173,7 +135,7 @@ interface TagsSearchResult {
 
 ### 4.3 复用完整查询管线，不承诺完整词库
 
-通过只读异步端口调用应用已有的 `services.tags.suggest`。目标选项为 `{ broad:true, categories:[0,1,3,4,5], limit:30, exactFirst:true, signal }`，其中 **exactFirst 是 R3 新增的可选项**，默认关闭。与词典页的 page 共用主数据源、英文回退和缓存，不另建 fetch 入口、不要求用户先打开词典。显式传全分类，避免用户的默认分类 `[0,3,4]` 把画师和 meta 隐藏。
+通过只读异步端口调用应用已有的 `services.tags.suggest`。调用选项为 `{ broad:true, categories:[0,1,3,4,5], limit:30, exactFirst:true, signal }`，其中 **exactFirst 为可选项**，默认关闭。与词典页的 page 共用主数据源、英文回退和缓存，不另建 fetch 入口、不要求用户先打开词典。显式传全分类，避免用户的默认分类 `[0,3,4]` 把画师和 meta 隐藏。
 
 rankTags 默认按收录量优先，精确词可能被高热度近似词挤出。ASK 查询让共享服务在返回候选截断前按英文/中文归一后的精确匹配置顶，其余沿用现有顺序，再由包装层按 limit_per_query 截取。exactFirst 已进入查询结果缓存键，避免影响同词的 UI 查询；主源原始候选缓存仍可共用。只对上游实际返回的候选重排，不承诺穷尽精确匹配。词典 UI/补全的默认排序、分页与偏好不变。
 
@@ -190,21 +152,8 @@ rankTags 默认按收录量优先，精确词可能被高热度近似词挤出�
 - 区分 no_match、网络/429/超时/格式错误；部分成功保留有效结果并逐项标错，全失败标记工具失败并展示原因。结果以 canonical JSON 包 `<data>`，词典文本不能关闭包裹或成为指令。
 - 英文回退也失败时区分“中英词典未命中”与“主源失败”，分别给出两个来源的结果；读取响应体期间仍保留超时、取消与网络错误，JSON 语法或结构不符才报格式异常。失败结果附 note，提示模型保留有效结果、基于已有知识继续，不因服务故障连续换近义词重查；失败不等于词条不存在。
 - 草稿校验不依赖词典查询，始终同步；应用前仍检查内容冲突。
+## 5. 维护与验证
 
-## 5. 接入与验收边界
+实现入口为 `digest/`、`search-history.ts`、`search-tags.ts`、`tools.ts` 及共享 `services/tag-search.ts`。模型工具描述与实际 Schema 同步，不以工作区切换动态改变工具集合。
 
-实施顺序见文档 4 的 R0–R4。两个工具 Schema 与专项手册接口说明在同一批次更新；保留用户编辑的 L0/L1/L2 正文，仅升版本为 c5.w4.m4，工具顺序固定且仍为十个；成人模式附加块、词表编解码、六次工具预算、视觉预算与草稿确认出口不变。提示词/Schema 版本升级可能改变前缀，缓存命中以实际 usage 为准。
-
-本次验收覆盖新状态的字段缺席与原文/hash 保真、全部草稿模式的结构校验与确认撤销、检索的排序/去重/前序/无效参数、空缓存中英文批量查词、实际 HTTP 参数、取消与部分失败、两种推理协议工具结果、候选选择与调用调试。mock 返回的词条和热度不能作为真实数据源支持证据。
-
-新增 `tests/ask-retrieval.test.mjs` 的 7 项测试覆盖确定性检索、真实共享查词管线与模拟 fetch、批量预算、来源与取消；`ask.browser.mjs` 增加两协议检索/查词和取消回滚的 3 项测试。应用测试使用独立浏览器与合成数据，未刷新用户当前页面。
-
-2026-10-22 集中验收结果：
-
-| 命令 | 结果 | 本地日志 |
-| --- | --- | --- |
-| `npm run check` | 133/133 单元测试通过；字体、样式、严格类型检查与生产构建通过 | `.local/ask/retrieval/check.log` |
-| `npm run test:ask` | 35/35 通过；含 OpenAI Chat、Anthropic Messages、四视口、请求调试及取消回滚 | `.local/ask/retrieval/ask-browser.log` |
-| `npm run test:shared` | 13/13 通过；共享词典与补全回归通过 | `.local/ask/retrieval/shared-browser.log` |
-
-三份 L0/L1/L2 文件与开工时留存的用户版本在忽略版本号后逐字一致；版本升为 `c5.w4.m4`；随后用户修订 `view_sheet` 用途说明，当前为 `c6.w4.m4`（见 [提示词分层记录](ask-prompts.md)）。生产构建已更新，构建保留既有的 chunk 大小提示。上述结果只证明模拟接口与本地流程；未执行真实收费生成，不据此评价供应商接入或用户提示词质量。本次未推送或部署。
+模拟验证覆盖冻结来源、别名去重、时间与缺失字段、OR 关键词、相似度、前序变化、词典逐项失败／取消和候选选择。真实图片诊断及供应商效果仍需独立验证；当前检查入口见[项目说明](../../README.md#开发与检查)。

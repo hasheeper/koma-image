@@ -362,29 +362,6 @@ function openAsk() {
           <div class="result-group">
             <button
               class="ibtn"
-              id="reuseBtn"
-              type="button"
-              data-tip="复用参数"
-              aria-label="复用参数"
-              :hidden="params.tool === 'upscale'"
-              @click="drawing.reuse"
-            >
-              <AppIcon name="i-reuse" /></button
-            ><button
-              class="ibtn"
-              id="copyBtn"
-              type="button"
-              data-tip="复制 Tag"
-              aria-label="复制 Tag"
-              :hidden="!params.prompt"
-              @click="copy(params.basePrompt ?? params.prompt, 'Tag')"
-            >
-              <AppIcon name="i-copy" />
-            </button>
-          </div>
-          <div class="result-group">
-            <button
-              class="ibtn"
               id="favoriteBtn"
               type="button"
               :data-tip="saved ? '取消收藏' : '收藏'"

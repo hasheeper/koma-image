@@ -115,7 +115,7 @@ test('board writer and W4: source-bound edits, new-board apply/undo/redo and suf
   const current=newConversation(), writes=[];
   const drawing={snapshot:()=>({boards:items,form:{...DEFAULTS,...items.find(b=>b.id===active).form}}),writeDraft:async(values,expected,id)=>{const b=items.find(b=>b.id===id);assert.ok(b);assert.ok(Object.entries(expected).every(([k,v])=>sameValue(b.form[k],v)));Object.assign(b.form,structuredClone(values));active=id;writes.push(id);},insertBoardDraft:async b=>{items.push(structuredClone(b));active=b.id;},removeBoardDraft:async(id,_expected,source)=>{items.splice(items.findIndex(b=>b.id===id),1);active=source;}};
   const router={route:{value:{workspace:'image',overlay:null}},switchWorkspace(w){this.route.value.workspace=w;}};
-  const writer=createDraftWriter(drawing,{snapshot:()=>({current})},router), stack=createDraftStack(writer);
+  const writer=createDraftWriter(drawing,{snapshot:()=>({current,conversations:[current]})},router), stack=createDraftStack(writer);
   const da=propose(s,[patch('c4','prompt','blue eyes','green eyes')]), pa=check(da), ra=stack.create(da,'ask',1);await stack.apply(ra,pa);
   assert.equal(writes[0],'a');assert.equal(items[1].form.prompt,'B');
   const sb={...s,boardId:'b',form:{...DEFAULTS,...structuredClone(items[1].form)}};

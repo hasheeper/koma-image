@@ -97,7 +97,7 @@ function inlineTokens(tokens: readonly Token[], refs = true): Inline[] {
         break;
       case "escape": case "html": out.push({ t: "text", v: token.text }); break;
       case "codespan":
-        out.push({ t: refs && /^#(?:h\d+|f\d+|a\d+|c\d+\.\d+)$/.test(token.text) ? "id" : "code", v: token.text });
+        out.push({ t: refs && /^#(?:h\d+|f\d+|a\d+|c\d+\.\d+(?:\.\d+)?)$/.test(token.text) ? "id" : "code", v: token.text });
         break;
       case "strong": case "em": case "del": out.push({ t: token.type, parts: inlineTokens(token.tokens, refs) }); break;
       case "br": out.push({ t: "br" }); break;

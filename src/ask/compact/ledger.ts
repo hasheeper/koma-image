@@ -57,7 +57,8 @@ export function summarizePlan(plan: DraftPlan) {
     delta: [...(view.added || view.removed ? [`+${view.added} −${view.removed}`] : []),
       ...(enabled.some(s => s.kind === "rewrite") ? ["rewrite"] : []),
       ...(enabled.some(s => s.kind === "parameter") ? ["params"] : []),
-      ...(enabled.some(s => s.kind === "branch") ? ["branch"] : [])].join(" · "),
+      ...(enabled.some(s => s.kind === "branch") ? ["branch"] : []),
+      ...(enabled.some(s => s.kind === "handoff") ? ["handoff"] : [])].join(" · "),
   };
 }
 export function recordDraft(draft: Draft, plan: DraftPlan): TurnDraft {

@@ -213,9 +213,11 @@ body > .topbar { margin-right: var(--hist); transition: margin-right var(--t3) v
 
 /* Image library uses the site's recessed buttons and segmented selection. */
 .library-head { padding: 16px var(--sp-2) 12px; flex: none; min-width: 0; }
-.library-foot { display: flex; justify-content: space-between; padding: var(--sp-2); flex: none; margin-top: auto; }
-.gallery .library-clear,
-.gallery .library-fold { width: 28px; height: 28px; padding: 0; justify-content: center; }
+/* The foot is a primary toolbar like the result bar beside it: the same tier,
+   rest colour and centreline (the extra bottom padding lands it on the bar's). */
+.library-foot { display: flex; justify-content: space-between; padding: var(--sp-2) var(--sp-2) var(--sp-3); flex: none; margin-top: auto; }
+.library-foot .ibtn { width: 36px; height: 36px; --ico: var(--ico-lg); color: var(--fg-2); }
+.library-foot .ibtn:hover { color: var(--fg); }
 /* The sidebar glyph, mirrored: this panel sits on the right. */
 .library-fold .ico { transform: scaleX(-1); }
 .library-tabs {
@@ -225,7 +227,7 @@ body > .topbar { margin-right: var(--hist); transition: margin-right var(--t3) v
 }
 .gallery .library-tabs .library-tab {
   display: flex; justify-content: center; align-items: center; gap: 3px;
-  width: auto; min-width: 0; height: 34px; padding: 0 2px; --ico: 18px;
+  width: auto; min-width: 0; height: 34px; padding: 0 2px; --ico: var(--ico-lg);
   color: var(--fg-3); background: transparent; box-shadow: none; border-radius: var(--r1);
 }
 .gallery .library-tabs .library-tab:hover { color: var(--fg); background: var(--hover); }
@@ -237,7 +239,8 @@ body > .topbar { margin-right: var(--hist); transition: margin-right var(--t3) v
 .library-foot [data-tip]::after { top: auto; bottom: calc(100% + 6px); left: auto; right: 0; transform: translate(0, 3px); }
 .library-foot [data-tip]:hover::after { transform: translate(0, 0); }
 .library-foot .library-fold[data-tip]::after { right: auto; left: 0; }
-.result-actions #favoriteBtn[aria-pressed="true"] { color: var(--a); background: var(--a-dim); border-color: var(--a-line); }
+/* A toggle reads from its glyph alone: purple, filled where the glyph has a filled form. */
+.result-actions #favoriteBtn[aria-pressed="true"] { color: var(--a); }
 #favoriteBtn[aria-pressed="true"] .ico { fill: currentColor; }
 .tile-favorite {
   position: absolute; right: 5px; bottom: 5px;
@@ -245,7 +248,7 @@ body > .topbar { margin-right: var(--hist); transition: margin-right var(--t3) v
   color: var(--a); background: color-mix(in srgb, var(--chrome) 72%, transparent);
   border-radius: var(--r1); backdrop-filter: blur(3px); pointer-events: none;
 }
-.tile-favorite .ico { width: 12px; height: 12px; fill: currentColor; }
+.tile-favorite .ico { --ico: var(--ico-xs); fill: currentColor; }
 #trayEmptyIcon { justify-self: center; color: var(--fg-4); }
 #trayEmptyIcon[hidden], .tray-ghosts[hidden] { display: none; }
 #trayEmptyTitle { color: var(--fg-3); }
@@ -306,7 +309,7 @@ body > .topbar { margin-right: var(--hist); transition: margin-right var(--t3) v
 .size-fields .fld-inline input { height: 34px; padding: 0 22px 0 8px; border-radius: var(--r1); background: var(--chrome); border-color: var(--line-2); }
 .size-fields .fld-inline input:focus { border-color: var(--a-line); background: var(--well-focus); box-shadow: 0 0 0 2px var(--a-dim); }
 .size-fields .fld-inline > span { right: 8px; font: 10px var(--mono); }
-.size-fields .ibtn { width: 24px; height: 28px; --ico: 16px; }
+.size-fields .ibtn { width: 24px; height: 28px; --ico: var(--ico-md); }
 .size-preview { display: grid; place-items: center; height: 28px; color: var(--a); }
 .size-preview i { display: block; border: 1.5px solid currentColor; border-radius: 2px; }
 .size-preview[data-custom="true"] i { border-style: dashed; }
@@ -400,7 +403,7 @@ body[data-import="open"] #importSheet > .import-card { transform: none; }
   min-width: 0; height: 52px; padding: 0 var(--sp-2) 0 var(--sp-4);
   border-bottom: 1px solid var(--line);
 }
-.import-head > .ico { --ico: 18px; color: var(--a); }
+.import-head > .ico { --ico: var(--ico-lg); color: var(--a); }
 .import-head h1 { font-size: var(--fz-md); font-weight: var(--fw-semibold); letter-spacing: -0.01em; white-space: nowrap; }
 .import-source {
   min-width: 0; margin-left: var(--sp-1); padding: 3px 9px;
@@ -587,13 +590,13 @@ body[data-drop="on"] .dropzone-card { transform: none; }
 /* ── Tablet / narrow desktop ──────────────────────────────────── */
 @media (max-width: 1080px) {
   :root { --rail: 280px; --hist: 112px; }
-  .gallery .library-tabs .library-tab { --ico: 16px; }
+  .gallery .library-tabs .library-tab { --ico: var(--ico-md); }
   .library-tab b { font-size: 10px; }
 }
 
 /* ── Mobile: single column, stage first, controls in a sheet ───── */
 @media (max-width: 860px) {
-  :root { --bar-h: 54px; --ico: 16px; }
+  :root { --bar-h: 54px; --ico: var(--ico-md); }
 
   /* Infrequent tools move into an off-canvas rail, leaving the image width
      untouched while the point balance remains comfortably readable. */
@@ -612,7 +615,7 @@ body[data-drop="on"] .dropzone-card { transform: none; }
   .topbar-menu-toggle {
     display: inline-grid;
     width: 38px; height: 38px;
-    --ico: 20px;
+    --ico: var(--ico-lg);
     color: var(--fg-2);
   }
   .topbar-menu-toggle .menu-close { display: none; }
@@ -656,7 +659,7 @@ body[data-drop="on"] .dropzone-card { transform: none; }
     justify-content: flex-start;
     gap: var(--sp-3);
     padding: 0 var(--sp-3);
-    --ico: 17px;
+    --ico: var(--ico-md);
     color: var(--fg-2);
     background: transparent;
     box-shadow: none;
@@ -822,7 +825,7 @@ body[data-drop="on"] .dropzone-card { transform: none; }
   .brand { gap: 6px; }
   .brand-wordmark { gap: 6px; }
   .topbar { padding-inline: 10px; gap: 6px; }
-  .topbar-menu-toggle { width: 36px; height: 36px; --ico: 19px; }
+  .topbar-menu-toggle { width: 36px; height: 36px; --ico: var(--ico-lg); }
 
   .ratios { grid-template-columns: repeat(4, 1fr); gap: 5px; }
   .pair { grid-template-columns: 1fr 1fr; }
@@ -857,7 +860,7 @@ body[data-drop="on"] .dropzone-card { transform: none; }
 /* The existing phone drawer contains the same complete library panel. */
 @media (max-width: 860px) {
   .topbar-history-slot .gallery .library-clear { width: 44px; height: 44px; }
-  .topbar-history-slot .gallery .library-tabs .library-tab { height: 44px; --ico: 18px; }
+  .topbar-history-slot .gallery .library-tabs .library-tab { height: 44px; --ico: var(--ico-lg); }
   .topbar-history-slot .library-tab b { font-size: 12px; }
   .result-actions .ibtn { flex: 0 1 auto; width: 44px; min-width: 32px; height: 44px; }
 }

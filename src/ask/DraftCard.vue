@@ -2,6 +2,7 @@
 import { computed, nextTick, onBeforeUnmount, shallowRef, useId, watch } from "vue";
 import { useAsk } from "../app/ask";
 import AppIcon from "../shared/AppIcon.vue";
+import AskReference from "./AskReference.vue";
 import { draftView } from "./draft/view.ts";
 import type { FieldKey } from "./draft/view.ts";
 import { menuKeys, placeMenu } from "../shared/popover";
@@ -16,7 +17,7 @@ watch(() => !!plan.value, () => { fulls.value = new Set(); });
 const view = computed(() => plan.value ? draftView(plan.value) : null);
 const issues = computed(() => plan.value?.steps.some((s) => !!s.issue));
 const toggles = computed(() => (plan.value?.steps.length ?? 0) > 1);
-const blocked = computed(() => !plan.value || (!plan.value.changes.length && !plan.value.branch) || ask.writingDraft.value || ask.running.value);
+const blocked = computed(() => !plan.value || (!plan.value.changes.length && !plan.value.branch && !plan.value.handoff) || ask.writingDraft.value || ask.running.value);
 const menuId = `draftApply-${useId()}`;
 const menu = shallowRef<HTMLElement | null>(null), menuTrigger = shallowRef<HTMLButtonElement | null>(null), menuOpen = shallowRef(false);
 const hasApplyMenu = computed(() => plan.value?.workspace === "image" && !plan.value.newBoardName && !props.compact);
@@ -24,7 +25,12 @@ const destinations = [
   { newBoard: false, label: "应用到来源画板" },
   { newBoard: true, label: "应用到新画板" },
 ];
-const applyTitle = computed(() => plan.value?.newBoardName ? `新建画板「${plan.value.newBoardName}」并应用，不会生成 · Tab` : `${plan.value?.workspace === 'image' ? '写入来源画板，不会生成' : '写入输入框，不会发送'} · Tab`);
+const applyTitle = computed(() => plan.value?.newBoardName ? `新建画板「${plan.value.newBoardName}」并应用，不会生成 · Tab`
+  : view.value?.destination ? "新开对话写入参考图、画幅和输入框，不会发送 · Tab"
+  : `${plan.value?.workspace === 'image' ? '写入来源画板，不会生成' : '写入输入框，不会发送'} · Tab`);
+const applyIcon = computed(() => plan.value?.newBoardName ? "i-copy" : view.value?.destination ? "i-compose" : "i-check");
+/** Thumbnail and size of a handoff image; null once it left history, favorites or CHAT. */
+function picture(label: string) { void ask.libraryRevision.value; return ask.pictureInfo(label); }
 let stopLayer = () => {};
 function closeMenu(refocus = false) {
   menu.value?.hidePopover();
@@ -84,20 +90,20 @@ function apply(event: MouseEvent) {
 }
 </script>
 <template>
-  <section v-if="plan && view" class="ask-draft" :class="{ compact, open: open && !compact, 'has-destination': !!plan.newBoardName }" aria-label="待确认草稿" data-status="pending" :aria-busy="ask.writingDraft.value">
+  <section v-if="plan && view" class="ask-draft" :class="{ compact, open: open && !compact, 'has-destination': !!view.destination }" aria-label="待确认草稿" data-status="pending" :aria-busy="ask.writingDraft.value">
       <header class="draft-head">
         <button v-if="compact" class="draft-toggle draft-review" type="button" aria-label="查看草稿修改" :title="plan.title" @click="review">
           <AppIcon name="i-edit" class="draft-lead" />
-          <span class="draft-heading"><span class="draft-title"><strong>{{ plan.title }}</strong><span class="draft-stat"><span v-if="view.added" class="i">+{{ view.added }}</span><span v-if="view.removed" class="d">−{{ view.removed }}</span></span></span><span v-if="plan.newBoardName" class="draft-destination" :title="`新画板 · ${plan.newBoardName}`"><span>新画板</span><span aria-hidden="true">·</span><span class="draft-board-name">{{ plan.newBoardName }}</span></span></span>
+          <span class="draft-heading"><span class="draft-title"><strong>{{ plan.title }}</strong><span class="draft-stat"><span v-if="view.added" class="i">+{{ view.added }}</span><span v-if="view.removed" class="d">−{{ view.removed }}</span></span></span><span v-if="view.destination" class="draft-destination" :title="`${view.destination.label} · ${view.destination.name}`"><span>{{ view.destination.label }}</span><span aria-hidden="true">·</span><span class="draft-board-name">{{ view.destination.name }}</span></span></span>
         </button>
         <button v-else class="draft-toggle" type="button" :aria-expanded="open" aria-controls="askDraftBody" :title="plan.title" @click="open = !open">
           <AppIcon name="i-chevron" class="draft-chev" />
-          <span class="draft-heading"><span class="draft-title"><strong>{{ plan.title }}</strong><span class="draft-stat" :title="`新增 ${view.added} 项 · 删除 ${view.removed} 项`"><span v-if="view.added" class="i">+{{ view.added }}</span><span v-if="view.removed" class="d">−{{ view.removed }}</span></span></span><span v-if="plan.newBoardName" class="draft-destination" :title="`新画板 · ${plan.newBoardName}`"><span>新画板</span><span aria-hidden="true">·</span><span class="draft-board-name">{{ plan.newBoardName }}</span></span></span>
+          <span class="draft-heading"><span class="draft-title"><strong>{{ plan.title }}</strong><span class="draft-stat" :title="`新增 ${view.added} 项 · 删除 ${view.removed} 项`"><span v-if="view.added" class="i">+{{ view.added }}</span><span v-if="view.removed" class="d">−{{ view.removed }}</span></span></span><span v-if="view.destination" class="draft-destination" :title="`${view.destination.label} · ${view.destination.name}`"><span>{{ view.destination.label }}</span><span aria-hidden="true">·</span><span class="draft-board-name">{{ view.destination.name }}</span></span></span>
         </button>
         <div class="draft-actions">
           <button class="btn btn-sm draft-ignore" type="button" title="忽略 · Esc" :disabled="ask.writingDraft.value || ask.running.value" @click="ask.ignoreDraft()">忽略</button>
           <div class="draft-apply-group" :class="{ split: hasApplyMenu }">
-            <button class="btn btn-primary btn-sm ask-draft-apply" type="button" :title="applyTitle" :data-fingerprint="plan.fingerprint" :disabled="blocked" :aria-disabled="blocked" @click="apply"><AppIcon :name="plan.newBoardName ? 'i-copy' : 'i-check'" /><span>{{ ask.writingDraft.value ? '写入中…' : ask.draftApplyLabel.value }}</span></button>
+            <button class="btn btn-primary btn-sm ask-draft-apply" type="button" :title="applyTitle" :data-fingerprint="plan.fingerprint" :disabled="blocked" :aria-disabled="blocked" @click="apply"><AppIcon :name="applyIcon" /><span>{{ ask.writingDraft.value ? '写入中…' : ask.draftApplyLabel.value }}</span></button>
             <button v-if="hasApplyMenu" ref="menuTrigger" class="btn btn-primary btn-sm draft-apply-more" type="button" aria-label="选择应用方式" title="选择应用方式" :popovertarget="menuId" aria-haspopup="menu" :aria-expanded="menuOpen" :disabled="blocked" @click.prevent="toggleMenu"><AppIcon name="i-chevron" /></button>
           </div>
         </div>
@@ -131,6 +137,10 @@ function apply(event: MouseEvent) {
                 <AppIcon :name="s.icon" /><span class="draft-key" :title="s.source ? `来自 ${s.source}` : undefined">{{ s.name }}</span>
                 <span class="draft-value"><template v-if="s.before !== s.after"><del>{{ s.before }}</del><AppIcon name="i-chevron" class="draft-arrow" /></template><b>{{ s.after }}</b></span>
               </div>
+              <div v-else-if="s.kind === 'ref'" class="draft-kv draft-ref">
+                <AppIcon name="i-image" /><span class="draft-key">{{ s.step.label }}</span>
+                <span class="draft-value"><span class="draft-thumb" :class="{ gone: !picture(s.label) }"><img v-if="picture(s.label)" :src="picture(s.label)!.url" alt="" /></span><AskReference :label="s.label" /><span v-if="picture(s.label)" class="draft-dim">{{ picture(s.label)!.width }}×{{ picture(s.label)!.height }}</span></span>
+              </div>
               <p v-else class="draft-note">{{ s.text }}</p>
               <p v-if="s.step.issue" class="draft-issue">{{ s.step.issue }}</p>
               <button v-if="toggles && !s.step.locked" class="draft-undo" type="button" :disabled="!!s.step.issue || ask.writingDraft.value || ask.running.value" :aria-label="`${s.step.enabled ? '撤回' : '恢复'} ${s.step.label}`" :title="s.step.enabled ? '撤回此处' : '恢复此处'" @click="ask.toggleDraftStep(s.step.id)"><AppIcon :name="s.step.enabled ? 'i-undo' : 'i-redo'" /></button>
@@ -146,10 +156,10 @@ function apply(event: MouseEvent) {
 .ask-draft { --draft-a: 12px; --draft-b: 34px; --draft-r: 8px; --draft-del: rgba(232, 135, 135, .1); --draft-ins: rgba(116, 207, 155, .085); --draft-del-hi: rgba(232, 135, 135, .17); --draft-ins-hi: rgba(116, 207, 155, .15); display: flex; flex: 0 1 auto; flex-direction: column; min-height: 0; margin-bottom: 8px; overflow: hidden; color: var(--fg-2); background: var(--ask-layer, var(--raised)); border: 1px solid var(--line-2); border-radius: 14px; }
 .draft-head { display: flex; flex: none; flex-wrap: wrap; align-items: center; gap: 0 8px; min-height: 44px; padding: 6px var(--draft-r) 6px 0; }
 .draft-toggle { display: flex; flex: 1; align-items: center; gap: 8px; min-width: min(140px, 100%); min-height: 32px; align-self: stretch; padding-left: var(--draft-a); text-align: left; }
-.draft-chev { flex: none; width: 14px; height: 14px; color: var(--fg-3); transform: rotate(-90deg); transition: transform var(--t1) var(--e), color var(--t1) var(--e); }
+.draft-chev { flex: none; --ico: var(--ico-sm); color: var(--fg-3); transform: rotate(-90deg); transition: transform var(--t1) var(--e), color var(--t1) var(--e); }
 .open .draft-chev { transform: rotate(90deg); }
 .draft-toggle:hover .draft-chev { color: var(--fg); }
-.draft-lead { flex: none; width: 14px; height: 14px; color: var(--a); }
+.draft-lead { flex: none; --ico: var(--ico-sm); color: var(--a); }
 .draft-heading { display: grid; flex: 1; gap: 3px; min-width: 0; }
 .has-destination .draft-toggle { padding-block: 4px; }
 .draft-destination { display: flex; align-items: baseline; gap: 5px; color: var(--fg-3); font-size: 12px; font-weight: var(--fw-regular); }
@@ -168,7 +178,7 @@ function apply(event: MouseEvent) {
 .draft-ignore:disabled { opacity: .4; cursor: default; }
 .draft-apply-group { display: flex; align-items: stretch; min-width: 0; border-radius: 8px; background: var(--a); }
 .draft-actions .ask-draft-apply { gap: 4px; padding-inline: 10px; white-space: normal; overflow-wrap: anywhere; }
-.draft-apply-group .ico { width: 14px; height: 14px; }
+.draft-apply-group .ico { --ico: var(--ico-sm); }
 .split .ask-draft-apply:not(:disabled) { background: transparent; }
 .split .ask-draft-apply { border-radius: 8px 0 0 8px; }
 .split .ask-draft-apply:hover:not(:disabled) { background: var(--a-hover); }
@@ -182,14 +192,14 @@ function apply(event: MouseEvent) {
 .draft-apply-menu button { display: flex; align-items: center; gap: 8px; min-height: 34px; padding: 0 9px; color: var(--fg); text-align: left; font-size: 13px; border-radius: 5px; }
 .draft-apply-menu button:is(:hover, :focus-visible):not(:disabled) { background: rgb(255 255 255 / 5.5%); outline: none; }
 .draft-apply-menu button:disabled { color: var(--fg-4); cursor: default; }
-.draft-apply-menu .ico { flex: none; width: 14px; height: 14px; }
+.draft-apply-menu .ico { flex: none; --ico: var(--ico-sm); }
 .draft-aligned { flex: none; padding: 0 var(--draft-r) 8px var(--draft-b); color: var(--warn); font-size: var(--fz-xs); }
 .draft-body { display: grid; flex: 0 1 auto; grid-auto-rows: max-content; min-height: 0; max-height: min(44dvh, 340px); padding: 4px 0 10px; overflow-y: auto; overscroll-behavior: contain; border-top: 1px solid var(--line); }
 .draft-body.more { -webkit-mask-image: linear-gradient(to bottom, #000 calc(100% - 28px), transparent); mask-image: linear-gradient(to bottom, #000 calc(100% - 28px), transparent); }
 .draft-field + .draft-field { margin-top: 6px; }
 .draft-field-head { display: flex; align-items: center; justify-content: space-between; gap: 8px; height: 36px; padding: 0 var(--draft-r) 0 var(--draft-a); }
 .draft-name { display: flex; align-items: center; gap: calc(var(--draft-b) - var(--draft-a) - 14px); min-width: 0; color: var(--fg-2); font-size: 13px; font-weight: var(--fw-medium); }
-.draft-name .ico, .draft-kv > .ico { flex: none; width: 14px; height: 14px; color: var(--fg-3); }
+.draft-name .ico, .draft-kv > .ico { flex: none; --ico: var(--ico-sm); color: var(--fg-3); }
 /* The site's .seg language: a well with one raised pill. */
 .draft-seg { display: inline-grid; grid-auto-flow: column; gap: 2px; padding: 2px; background: var(--ask-field, var(--well)); border: 1px solid var(--line); border-radius: var(--r2); }
 .draft-seg button { height: 22px; padding: 0 9px; color: var(--fg-3); font-size: 12px; border-radius: var(--r1); }
@@ -218,11 +228,19 @@ function apply(event: MouseEvent) {
 .draft-value { display: flex; flex-wrap: wrap; align-items: center; gap: 2px 6px; min-width: 0; font-variant-numeric: tabular-nums; overflow-wrap: anywhere; }
 .draft-value del { color: var(--fg-3); text-decoration-color: var(--fg-4); }
 .draft-value b { color: var(--fg); font-weight: var(--fw-medium); }
-.draft-arrow { flex: none; width: 12px; height: 12px; color: var(--fg-4); }
+.draft-arrow { flex: none; --ico: var(--ico-xs); color: var(--fg-4); }
+/* A handoff image: the ASK attachment tile at row size, then its live ID and size. */
+.draft-ref .draft-value { flex-wrap: nowrap; gap: 8px; }
+.draft-thumb { flex: none; width: 26px; height: 26px; overflow: hidden; background: var(--ask-field); border: 1px solid var(--line-2); border-radius: 7px; }
+.draft-thumb img { display: block; width: 100%; height: 100%; object-fit: cover; }
+.draft-thumb.gone { border-style: dashed; }
+/* AskReference has two roots (button and Teleport), so it does not take this scope. */
+.draft-ref :deep(.ask-id) { flex: none; margin-left: -3px; white-space: nowrap; }
+.draft-dim { min-width: 0; overflow: hidden; color: var(--fg-3); font-size: 12px; text-overflow: ellipsis; white-space: nowrap; }
 .draft-issue { padding: 0 34px 2px calc(var(--draft-b) - var(--draft-a) + 6px); color: var(--warn); font-size: var(--fz-xs); line-height: 1.5; overflow-wrap: anywhere; }
 .draft-step.invalid { opacity: .6; }
 .draft-undo { position: absolute; top: 3px; right: 3px; display: grid; place-items: center; width: 28px; height: 28px; color: var(--fg-3); border-radius: 6px; opacity: 0; transition: opacity var(--t1) var(--e); }
-.draft-undo .ico { width: 14px; height: 14px; }
+.draft-undo .ico { --ico: var(--ico-sm); }
 .draft-step:is(:hover, .off, :focus-within) .draft-undo { opacity: 1; }
 .draft-undo:hover { color: var(--fg); background: var(--ask-hover, var(--hover)); }
 .draft-undo:disabled { display: none; }

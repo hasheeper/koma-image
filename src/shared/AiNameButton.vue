@@ -16,7 +16,7 @@ const label = computed(() => busy.value ? "取消命名" : `AI 命名${props.kin
 </template>
 <style scoped>
 .ai-name { display: grid; place-items: center; flex: none; width: 30px; height: 30px; padding: 0; color: var(--fg-3); border-radius: 8px; transition: color var(--t1) var(--e), background var(--t1) var(--e); }
-.ai-name .ico { width: 16px; height: 16px; }
+.ai-name .ico { --ico: var(--ico-md); }
 .ai-name:hover:not(:disabled) { color: var(--a); background: var(--hover); }
 .ai-name:disabled { opacity: 0.35; cursor: default; }
 .ai-name.busy { color: var(--a); background: var(--a-dim); }

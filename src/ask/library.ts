@@ -28,7 +28,7 @@ export function metadata(image: DigestImage): Record<string, unknown> {
     height: image.size.height,
   };
   // All parameters currently persisted by drawing/editor; omit routing and binary inputs.
-  for (const key of ["model", "modelName", "seed", "steps", "scale", "cfg", "sampler", "strength", "noise", "noise_schedule", "cfg_rescale", "tool", "transparentBg", "optimize", "cache", "transform_prompt", "transform_mode", "randomSeed", "batchCount", "batchIndex", "batchTotal", "isComparison", "comparisonTotal", "seedStart"])
+  for (const key of ["model", "modelName", "seed", "steps", "scale", "cfg", "sampler", "strength", "noise", "noise_schedule", "cfg_rescale", "tool", "transparentBg", "optimize", "cache", "transform_prompt", "transform_mode", "randomSeed", "batchCount", "batchIndex", "batchTotal", "isComparison", "comparisonTotal", "seedStart", "version", "image_index", "selected"])
     if (image.params[key] === null || ["string", "number", "boolean"].includes(typeof image.params[key])) out[key] = image.params[key];
   if (Array.isArray(image.params.characters)) {
     out.characters = readCharacters(image.params.characters);
@@ -36,6 +36,8 @@ export function metadata(image: DigestImage): Record<string, unknown> {
   }
   if (Array.isArray(image.params.localCharacters)) out.local_characters = readCharacters(image.params.localCharacters);
   for (const key of ["boardId", "boardName", "boardColor"]) if (typeof image.params[key] === "string") out[key] = image.params[key];
+  // CHAT turns record option values (size, quality…) instead of drawing fields.
+  if (image.params.chat_options && typeof image.params.chat_options === "object") out.chat_options = image.params.chat_options;
   // Preserve the effective prompt and requested size only when they differ.
   if (typeof image.params.prompt === "string" && image.params.prompt !== out.prompt) out.sent_prompt = image.params.prompt;
   if (typeof image.params.width === "number" && typeof image.params.height === "number" &&

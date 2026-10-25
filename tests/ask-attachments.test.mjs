@@ -110,7 +110,7 @@ test('attachments: IDs and read tools accept #a; search excludes them; partial r
   const h={...a,id:'h1',label:'#h1',aliases:['#h1'],attachment:undefined,origins:[{source:'history',label:'#h1',order:1}],params:{prompt:'blue sky',seed:4}};
   const registry=createTools(), context={library:[a,h],snapshotTime:0};
   const parsed=result=>JSON.parse(result.content[0].text.slice(7,-8));
-  assert.deepEqual('#a1 #h2 #c1.2 #a12x'.match(idPattern),['#a1','#h2','#c1.2']);
+  assert.deepEqual('#a1 #h2 #c1.2 #c1.2.3 #a12x'.match(idPattern),['#a1','#h2','#c1.2','#c1.2.3']);
   assert.equal(parsed(await registry.get('get_meta').run({id:'#a1'},context)).name,'参考.png');
   assert.equal(parsed(await registry.get('diff_meta').run({a:'#a1',b:'#h1'},context)).changes.seed.after,4);
   const results=parsed(await registry.get('search_history').run({},context));

@@ -83,7 +83,7 @@ const string = (input: Readonly<Record<string, unknown>>, key: string, optional 
   return value.trim();
 };
 const picture = (id: string, context: ToolContext) => {
-  if (!/^#(?:(?:h|f|a)\d+|c\d+\.\d+)$/.test(id)) throw new Error("请使用本页图片 ID，如 #h1、#f1 或附件 #a1");
+  if (!/^#(?:(?:h|f|a)\d+|c\d+\.\d+(?:\.\d+)?)$/.test(id)) throw new Error("请使用本页图片 ID，如 #h1、#f1 或附件 #a1");
   const found = context.library?.find((p) => p.aliases.includes(id));
   if (!found) throw new Error(`${id} 不在本轮图片快照中，可能已移除；新图请在下一轮查看`);
   return found;
@@ -92,7 +92,7 @@ const reply = (value: unknown, stat: string, picks?: readonly string[]): ToolOut
   content: [{ type: "text", text: dataBlock(canonical(value)) }], stat, ...(picks ? { picks } : {}),
 });
 const schema = (properties: Record<string, unknown>, required: string[] = []) => ({ type: "object", properties, required, additionalProperties: false });
-const idField = { type: "string", description: "图片 ID，如 #h12、#f3、当前 CHAT 分支的 #c2.1、本对话附件 #a1" };
+const idField = { type: "string", description: "图片 ID，如 #h12、#f3、当前 CHAT 分支的 #c2.1（多图版本逐张为 #c2.1.2）、本对话附件 #a1" };
 const readMeta: ToolEntry = {
   tool: { name: "get_meta", description: "读取图片完整参数，不发送图片。", schema: schema({ id: idField }, ["id"]) },
   verb: "读取", object: (input) => String(input.id ?? "图片参数"),
@@ -161,7 +161,7 @@ const viewSheet: ToolEntry = {
   },
 };
 const readChat: ToolEntry = {
-  tool: { name: "get_chat_context", description: "读取本轮锁定的当前 CHAT 分支：文字勾选、底图、图片数量限制、已有额度与实际发送文字。不包含其他分支；不请求报价或发送。", schema: schema({}) },
+  tool: { name: "get_chat_context", description: "读取本轮锁定的当前 CHAT 分支：文字勾选、各轮版本与图片 ID、底图、图片数量限制、当前模型与尺寸类选项（chat_model）、已有额度与实际发送文字。不包含其他分支；不请求报价或发送。", schema: schema({}) },
   verb: "读取", object: () => "对话上下文",
   run(_input, context) {
     if (!context.chatContext) throw new Error("当前会话尚未就绪");

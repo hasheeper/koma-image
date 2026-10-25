@@ -333,7 +333,7 @@ async function preview(item: ImageRecord, e: Event) {
     <footer class="library-foot">
       <button
         id="histToggle"
-        class="ibtn ibtn-xs library-fold"
+        class="ibtn library-fold"
         type="button"
         aria-controls="tray"
         :aria-expanded="image.historyOpen"
@@ -346,7 +346,7 @@ async function preview(item: ImageRecord, e: Event) {
         <AppIcon name="i-sidebar" /></button
       ><button
         v-if="image.historyOpen || narrow"
-        class="ibtn ibtn-xs library-compare"
+        class="ibtn library-compare"
         type="button"
         :aria-pressed="comparing"
         :aria-label="comparing ? '退出对比' : '对比'"
@@ -356,7 +356,7 @@ async function preview(item: ImageRecord, e: Event) {
         <AppIcon name="i-compare" /></button
       ><button
         id="clearHist"
-        class="ibtn ibtn-xs library-clear"
+        class="ibtn library-clear"
         type="button"
         :hidden="image.library !== 'history' || !view.history.length"
         aria-label="清空历史，收藏仍保留"
@@ -395,8 +395,7 @@ async function preview(item: ImageRecord, e: Event) {
 /* Fold on the left; compare and clear share the right, clear at the edge. */
 .library-foot { justify-content: flex-end; gap: 2px; }
 .library-foot:has(.library-compare) .library-fold { margin-right: auto; }
-.gallery .library-compare { flex: none; padding: 0; justify-content: center; }
-.library-foot .library-compare[aria-pressed="true"] { color: var(--a); background: var(--a-dim); }
+.library-foot .library-compare[aria-pressed="true"] { color: var(--a); }
 @media (min-width: 861px) {
   :global(body[data-hist="off"]) .library-item { display: contents; }
 }

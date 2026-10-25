@@ -51,6 +51,6 @@ onBeforeUnmount(stopLayer);
 .ask-edit-cancel { height: 28px; padding: 0 10px; color: var(--fg-2); font-size: 13px; border-radius: 8px; }
 .ask-edit-cancel:hover { color: var(--fg); background: var(--ask-hover); }
 .ask-edit-send { display: grid; place-items: center; width: 28px; height: 28px; min-height: 0; padding: 0; border-radius: 50%; }
-.ask-edit-send .ico { width: 16px; height: 16px; stroke-width: 2; }
+.ask-edit-send .ico { --ico: var(--ico-md); stroke-width: var(--ico-stroke-strong); }
 @media (hover: none) { .ask-edit-cancel { height: 36px; } .ask-edit-send { width: 36px; height: 36px; } }
 </style>

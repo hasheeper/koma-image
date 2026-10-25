@@ -348,7 +348,7 @@
   border-top: 1px solid var(--line);
 }
 .tag-cart-foot-row { display: grid; grid-template-columns: 1fr 1fr; gap: var(--sp-2); }
-.tag-cart-apply .ico { width: 13px; height: 13px; }
+.tag-cart-apply .ico { --ico: var(--ico-sm); }
 
 .tag-cart-fab,
 .tag-cart-backdrop { display: none; }
@@ -437,7 +437,7 @@
     transition: background var(--t1) var(--e), transform var(--t1) var(--e);
   }
   .tag-cart-fab:active { transform: scale(0.96); }
-  .tag-cart-fab .ico { width: 16px; height: 16px; }
+  .tag-cart-fab .ico { --ico: var(--ico-md); }
   .tag-cart-fab span { font: var(--fw-semibold) var(--fz-2xs)/1 var(--mono); }
 }
 

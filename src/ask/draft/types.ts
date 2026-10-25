@@ -1,4 +1,5 @@
-import type { ChatDraftSnapshot } from "../chat-context.ts";
+import type { ChatDraftSnapshot, ChatOptionState } from "../chat-context.ts";
+import type { WorkspaceId } from "../../app/routes.ts";
 import type { ChatSelection } from "../../domain/conversation.ts";
 import type { DrawingBoard, DrawingForm } from "../../domain/drawing.ts";
 import type { CatalogModel } from "../../domain/catalog.ts";
@@ -27,6 +28,26 @@ export interface BranchStep {
   readonly exclude: readonly string[];
   readonly text: string;
 }
+/** A serializable reference; the Blob is read from IMAGE or CHAT only when writing. */
+export interface HandoffImage {
+  readonly label: string;
+  readonly source: "history" | "favorites" | "chat";
+  /** Drawing record ID for `#h`/`#f`, CHAT asset ID for `#c`. */
+  readonly ref: string;
+}
+export interface HandoffStep {
+  readonly kind: "chat_handoff";
+  readonly images: readonly HandoffImage[];
+  readonly options: Readonly<Record<string, string>>;
+  readonly text: string;
+}
+/** The current CHAT model as a handoff may use it; absent while the catalog is not ready. */
+export interface ChatModelDraft {
+  readonly id: string;
+  readonly name: string;
+  readonly maxImages: number;
+  readonly writable: Readonly<Record<string, ChatOptionState>>;
+}
 export interface CharacterStep {
   readonly kind: "character_edit";
   readonly op: "add" | "remove" | "reorder" | "set_enabled" | "set_position" | "set_placement";
@@ -46,6 +67,9 @@ export interface DraftState {
   readonly boardPresent?: boolean;
   readonly nextCharacterId?: number;
   readonly chat?: ChatDraftSnapshot;
+  /** Where the question was asked; absent in drafts saved before handoffs. */
+  readonly workspace?: WorkspaceId;
+  readonly chatModel?: ChatModelDraft | null;
   readonly form: Readonly<DrawingForm>;
   readonly composer: string;
   readonly conversationId: string;
@@ -60,7 +84,7 @@ export interface Draft {
   readonly baseHash: string;
   /** Original request, reused by the explicit “重新提议” action. */
   readonly question: string;
-  readonly steps: readonly (TextStep | RestoreStep | BranchStep | CharacterStep)[];
+  readonly steps: readonly (TextStep | RestoreStep | BranchStep | CharacterStep | HandoffStep)[];
   readonly base: DraftState;
 }
 export type Field = "composer" | keyof DrawingForm;
@@ -70,7 +94,7 @@ export interface CheckedStep {
   readonly characterLabel?: string;
   readonly id: string;
   readonly label: string;
-  readonly kind: "patch" | "rewrite" | "parameter" | "branch";
+  readonly kind: "patch" | "rewrite" | "parameter" | "branch" | "handoff";
   readonly enabled: boolean;
   readonly locked?: boolean;
   readonly issue: string;
@@ -88,6 +112,8 @@ export interface DraftPlan {
   readonly newBoardName?: string;
   readonly createdBoard?: DrawingBoard;
   readonly branch?: { readonly before: ChatSelection; readonly after: ChatSelection; readonly key: string };
+  /** Enabled handoff content; writing always opens a new CHAT conversation. */
+  readonly handoff?: { readonly model: string; readonly options: Readonly<Record<string, string>>; readonly text: string; readonly images: readonly HandoffImage[] };
   readonly title: string;
   readonly workspace: "image" | "chat";
   readonly conversationId: string;
@@ -96,4 +122,8 @@ export interface DraftPlan {
   readonly aligned: boolean;
   readonly fingerprint: string;
 }
-export interface ValidateOptions { readonly off: ReadonlySet<string> }
+export interface ValidateOptions {
+  readonly off: ReadonlySet<string>;
+  /** Live availability of a handoff image; unknown counts as available. */
+  readonly has?: (image: HandoffImage) => boolean;
+}

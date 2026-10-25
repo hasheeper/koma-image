@@ -62,7 +62,7 @@ onBeforeUnmount(() => {
 /* Anchored to the dock: it rises over the stream, right-aligned with the composer. */
 .ask-menu.up { top: auto; right: 0; bottom: calc(100% + 6px); max-width: 100%; max-height: min(360px, 60dvh); overflow-y: auto; }
 .ask-menu :deep(.ask-menu-item) { display: flex; flex: none; align-items: center; gap: 10px; min-width: 0; min-height: 32px; padding: 0 10px; color: var(--fg-2); font-size: var(--fz-sm); text-align: left; border-radius: var(--r1); }
-.ask-menu :deep(.ask-menu-item :is(.ico, .vl)) { flex: none; width: 16px; height: 16px; color: var(--fg-3); }
+.ask-menu :deep(.ask-menu-item :is(.ico, .vl)) { flex: none; width: var(--ico-md); height: var(--ico-md); color: var(--fg-3); }
 .ask-menu :deep(.ask-menu-item:is(:hover, :focus-visible):not(:disabled)) { color: var(--fg); background: var(--hover); outline: none; }
 .ask-menu :deep(.ask-menu-item:is(:hover, :focus-visible):not(:disabled) :is(.ico, .vl)) { color: currentColor; }
 .ask-menu :deep(.ask-menu-item:disabled) { color: var(--fg-4); cursor: default; }

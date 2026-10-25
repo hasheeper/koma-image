@@ -284,7 +284,7 @@ onBeforeUnmount(() => { resized.disconnect(); cancelAnimationFrame(frame); clear
 .ask-starters { display: grid; width: min(100%, 300px); overflow: hidden; background: var(--ask-field, var(--well)); border: 1px solid var(--line); border-radius: 12px; }
 .ask-starter { display: flex; align-items: center; gap: 10px; min-height: 40px; padding: 0 12px; color: var(--fg-2); font-size: 13px; line-height: 1.4; text-align: left; }
 .ask-starter + .ask-starter { border-top: 1px solid var(--line); }
-.ask-starter .ico { flex: none; width: 16px; height: 16px; color: var(--fg-3); }
+.ask-starter .ico { flex: none; --ico: var(--ico-md); color: var(--fg-3); }
 .ask-starter:hover { color: var(--fg); background: var(--ask-hover, var(--hover)); }
 .ask-starter:hover .ico { color: var(--a); }
 .ask-turn { display: flex; flex-direction: column; }
@@ -304,7 +304,7 @@ onBeforeUnmount(() => { resized.disconnect(); cancelAnimationFrame(frame); clear
 .ask-turn > .ask-checkpoint { margin-top: 8px; }
 .ask-turn > .ask-checkpoint + .ask-a-acts { margin-top: 4px; }
 .ask-act { display: grid; place-items: center; width: 28px; height: 28px; color: var(--fg-3); border-radius: 8px; opacity: 0; transition: opacity var(--t1) var(--e); }
-.ask-act .ico { width: 15px; height: 15px; }
+.ask-act .ico { --ico: var(--ico-sm); }
 .ask-act:hover { color: var(--fg); background: var(--ask-hover, var(--hover)); }
 .ask-u:hover + .ask-q-acts .ask-act, .ask-acts:is(:hover, :focus-within) .ask-act, .ask-turn:hover > .ask-a-acts .ask-act, .ask-turn:last-of-type > .ask-a-acts .ask-act { opacity: 1; }
 /* Tool groups: one disclosure line each, opening directly beneath it. */
@@ -312,7 +312,7 @@ onBeforeUnmount(() => { resized.disconnect(); cancelAnimationFrame(frame); clear
 .ask-turn > .ask-tools-line { margin-top: 8px; }
 .ask-tools-line:hover { color: var(--fg-2); background: var(--ask-hover, var(--hover)); }
 .ask-tools-summary { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.ask-tools-line .ico { flex: none; width: 12px; height: 12px; transition: transform var(--t1) var(--e); }
+.ask-tools-line .ico { flex: none; --ico: var(--ico-xs); transition: transform var(--t1) var(--e); }
 .ask-tools-line[aria-expanded="true"] .ico { transform: rotate(90deg); }
 .ask-tools { display: flex; flex-direction: column; }
 .ask-turn > .ask-tools-line + .ask-tools { margin: 0 0 6px; padding-left: 12px; border-left: 1px solid var(--line-2); }
@@ -325,7 +325,7 @@ onBeforeUnmount(() => { resized.disconnect(); cancelAnimationFrame(frame); clear
 .ask-pick img { width: 64px; height: 86px; object-fit: cover; border-radius: 7px; }
 .ask-tool { min-width: 0; min-height: 22px; color: var(--fg-3); font-size: 12px; line-height: 22px; }
 .ask-tool-head { display: flex; align-items: baseline; gap: 6px; min-width: 0; min-height: 22px; }
-.ask-tool .ico { flex: none; align-self: center; width: 14px; height: 14px; }
+.ask-tool .ico { flex: none; align-self: center; --ico: var(--ico-sm); }
 .ask-tool-text { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .ask-tool:not([data-state="run"]) .ask-tool-text { flex: none; }
 .ask-tool-object { min-width: 0; overflow: hidden; color: var(--fg-2); font-weight: var(--fw-medium); text-overflow: ellipsis; white-space: nowrap; }
@@ -341,7 +341,7 @@ onBeforeUnmount(() => { resized.disconnect(); cancelAnimationFrame(frame); clear
 .ask-note button { margin-left: 6px; }
 .ask-organizing, .ask-compaction-failure { margin: 20px 0; }
 .ask-compaction-line { display: flex; align-items: center; gap: 8px; min-height: 32px; color: var(--fg-2); font-size: 14px; line-height: 20px; }
-.ask-compaction-line > .ico { display: block; flex: none; width: 16px; height: 16px; color: var(--fg-3); }
+.ask-compaction-line > .ico { display: block; flex: none; --ico: var(--ico-md); color: var(--fg-3); }
 .ask-compaction-line > span:not(.ask-compaction-rule) { flex: none; }
 .ask-compaction-rule { position: relative; flex: 1; min-width: 16px; height: 1px; overflow: hidden; background: var(--line-2); }
 .ask-organizing .ask-compaction-rule::after { position: absolute; inset: 0; width: 30%; content: ""; background: linear-gradient(90deg, transparent, var(--a), transparent); opacity: .7; animation: ask-compaction-sweep 1.8s ease-in-out infinite; }
@@ -355,7 +355,7 @@ onBeforeUnmount(() => { resized.disconnect(); cancelAnimationFrame(frame); clear
 .ask-meta { color: var(--fg-4); font-size: var(--fz-xs); }
 .ask-fail { display: flex; flex-direction: column; gap: var(--sp-2); }
 .ask-fail-text { display: flex; align-items: flex-start; gap: var(--sp-2); color: var(--fg-2); font-size: var(--fz-sm); line-height: 1.5; }
-.ask-fail-text .ico { flex: none; width: 15px; height: 15px; margin-top: 2px; color: var(--err); }
+.ask-fail-text .ico { flex: none; --ico: var(--ico-sm); margin-top: 2px; color: var(--err); }
 .ask-turn[data-status="stopped"] .ask-fail-text .ico { color: var(--fg-4); }
 .ask-fail-actions { display: flex; flex-wrap: wrap; gap: var(--sp-2); }
 @media (hover: none) {

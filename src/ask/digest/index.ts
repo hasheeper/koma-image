@@ -4,6 +4,7 @@ import type { Character, Placement } from "../../domain/characters.ts";
 import { canonical } from "../canonical.ts";
 import { finite, object } from "../../domain/value.ts";
 import type { Ids } from "../ids.ts";
+import type { ChatModelState } from "../chat-context.ts";
 import { historyIndex } from "./history.ts";
 import type { Fields } from "../../storage/records.ts";
 
@@ -60,6 +61,8 @@ export interface DigestInput {
   /** Present in every digest so a changed chat composer also moves base_hash. */
   readonly composer: string;
   readonly chat: DigestChat | null;
+  /** Sent from every workspace so IMAGE can plan a CHAT handoff. */
+  readonly chatModel: ChatModelState;
   readonly ids: Ids;
 }
 export interface Digest {
@@ -142,7 +145,7 @@ export function buildDigest(input: DigestInput, _options: { readonly formText?: 
   if (input.generation.error) generation.error = input.generation.error;
   const base = workspaceHash(form, input.composer, input.boardId);
   const state: Record<string, unknown> = {
-    v: 5,
+    v: 6,
     ...(input.askTurnId ? { ask_turn_id: input.askTurnId } : {}),
     workspace: input.workspace,
     anchor: input.anchor,
@@ -176,6 +179,7 @@ export function buildDigest(input: DigestInput, _options: { readonly formText?: 
     base_hash: base,
   };
   if (input.chat) state.chat = input.chat;
+  state.chat_model = input.chatModel;
   return { json: canonical(state), baseHash: base, cursor: ids.cursor() };
 }
 /** `<` never reaches the model raw, so state text cannot close the tag. */

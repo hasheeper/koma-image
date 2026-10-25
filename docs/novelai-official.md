@@ -1,43 +1,29 @@
-# P3：NovelAI 官方连接
+# NovelAI 官方基础接入
 
-更新于 2026-10-23。NovelAI 官方 API 作为独立 Gateway Profile 适配，用户添加连接和 Key，地址固定为官方地址。其他兼容服务由用户选择其实际提供的公开协议，不按渠道名称或域名判断。跨协议实现见[原生图像协议](native-image-protocols.md)。多角色能力已完成[资料与代码勘探](novelai-multi-character.md)，角色 A、画板胶囊 A、官方与标准网关映射及 ASK 配合已完成本地模拟验收，见[基础实施计划](multi-character-boards-plan.md)；真实生成效果仍待核验。
+更新：2026-10-25。官方 API 作为独立 `nai-official-v1` Profile；用户单独添加连接和 Key。基础协议、角色参数和响应处理已模拟验证，真实型号、账户、生成和扣费尚待核验。历史接口来源与阶段证据见[归档](archive/2026-10-25/README.md)。
 
-## 状态
+## 已接入能力
 
-| 阶段 | 内容 | 状态 |
-| --- | --- | --- |
-| P3.0 连接管理 | 改名、删除、连接诊断、无模型提示 | 已完成，见 [P3.0 记录](shared-settings-tags.md#p30-连接管理) |
-| P3.1 Profile 泛化 | 登记表、可声明能力、无报价分支 | 已完成，见 [P3.1 记录](gateway-data-scheduler.md#p31-profile-泛化) |
-| P3.2 生图与钱包 | 官方 Profile、静态目录、基础生图、订阅与 Anlas | 已实现并模拟验证；官方型号与生成、扣费尚未实测 |
-| P3.3 编辑 | 图生图、重绘、放大 | 仅基础图生图已实现并模拟验证；官方重绘／放大未开放 |
-| P3.4 实测 | 具体型号、参数、格式、CORS、订阅与扣费 | 待实际连接核验；真实生成需明确授权 |
+- **主机与鉴权**：图片固定为 `https://image.novelai.net`，订阅读取 `https://api.novelai.net/user/subscription`，Bearer Key。设置明确显示两个接收域名；不从另一主机的连接自动转发已有 Key。
+- **目录**：订阅验证后提供本地静态 V5／V4.5 Full、Curated 表；界面保持「基础接入」「生图尚未实测」。本地目录不等于所有型号已经实测。
+- **基础生图／图生图**：`POST /ai/generate-image`，`input/model/action/parameters`；图生图提交单张 PNG 底图和 strength／noise，读取 ZIP 原图。
+- **多角色**：按同一领域快照生成 `v4_prompt`／`v4_negative_prompt`，正负数组同序；自动定位关闭 `use_coords`，V4.5 发送格中心，V5 保留自由坐标。见[角色映射](multi-character-boards-plan.md#协议映射与元数据)。
+- **额度**：读取订阅中的 `fixedTrainingStepsLeft` 与 `purchasedTrainingSteps`，有效值相加显示 Anlas，缺失显示未知。不推断本次扣费、免费额度、订阅优惠或 V5 用量。
 
-此前等待 Key 的暂停范围已按用户新要求调整：先完成可模拟验证的基础适配，保留实际供应商联调边界，不把“订阅读取成功”视为“模型生成成功”。
+## 当前边界
 
-## 当前实现
+不提供预报价或费用上限，不发送 `max_cost`，不预占；费用为未知。仅声明已接入的基础 img2img 工具，官方蒙版重绘与放大未开放。它们出现在官方文档或 Schema 中不代表本工程已完成联调。
 
-- **连接。** Profile ID 为 `nai-official-v1`。图片固定发往 `https://image.novelai.net`，订阅固定读取 `https://api.novelai.net/user/subscription`。设置明确显示 Key 的两个接收域名；不自动将其他连接保存的 Key 转发给官方主机。
-- **目录。** 官方订阅验证后提供本地静态 V5／V4.5 Full、Curated 表，沿用现有型号，不宣称这些型号均已由官方 API 核验。界面标记“基础接入”“生图尚未实测”。
-- **执行。** 基础生图、图生图调用 `/ai/generate-image`，沿用现有 NAI 原生参数转换与 ZIP 原图解析；图生图提交单张 PNG 底图及 strength／noise。只声明 img2img 工具，不开放官方重绘和放大。
-- **费用。** 不支持预报价或费用上限，不发送 max_cost，不预占；费用显示“未知”，不会显示免费。订阅响应中的 fixedTrainingStepsLeft 与 purchasedTrainingSteps 相加显示 Anlas；缺少有效字段时显示未知，不推断本次扣费、订阅优惠或 V5 用量。
-- **原有规则。** 来源仍按连接顺序选择；任务继续共用 N=1、支持取消、失败停止且不自动重试；原标准网关的报价、分流、额度保护保持。新协议不改变存储命名，历史／对话中的空报价可正常保存和备份。
-- **本地模式。** `server.mjs` 仍只服务标准网关；本期原生协议为浏览器直连，依赖官方服务允许跨域。
+仅支持浏览器直连，依赖官方 CORS。本地代理支持标准网关和 ASK 两协议，不代理 NAI 官方。任务仍共用 N=1、支持取消、失败停止且不自动重试；标准网关原有报价与额度保护不变。
 
-## 文档依据与待核验
+## 后续核验
 
-2026-10-21 读取的账户主机 Swagger 列出 `/user/subscription`、`/ai/generate-image`、Bearer 鉴权、ZIP 响应，以及 generate／img2img／infill 动作；当时该来源模型枚举较旧、parameters 为不透明对象，也未列出 `/ai/upscale`。
+真实生成需明确授权，分别检查：
 
-2026-10-23 另行读取[图像主机 Schema](https://image.novelai.net/docs/doc.json)，已能看到 `image.RequestParameters`、多角色正负数组与坐标类型，以及 `/ai/upscale`。此前“Schema 未列出”的判断仅代表当时读取的来源，不代表当前官方 API 没有这些能力。新版字段与多角色产品说明见[多角色专题](novelai-multi-character.md)；本轮没有真实生成或放大，仍不据此开放尚未联调的工具或宣称具体型号接入成功。
+1. 订阅响应、CORS、鉴权及账户访问权限。
+2. 具体 V4.5／V5 型号、必需字段、尺寸限制、返回格式和角色采用效果；记录生成前后额度。
+3. 图生图对齐、强度与噪声；官方重绘模型、蒙版规格、请求参数与扣费。
+4. 放大路径、请求体、返回格式、倍数与价格，核验后才声明能力。
+5. 订阅优惠、V5 用量／回充及各档规则，未知时继续显示费用未知。
 
-后续用实际账户逐项核验，真实生成前取得明确授权：
-
-1. 订阅实际字段、CORS 与账户访问权限。
-2. 具体 V4.5／V5 型号、必需参数、分辨率限制、返回格式；记录生成前后余额及用量。
-3. 图生图参数、尺寸对齐、噪声和强度；官方重绘的模型 ID、蒙版格式与扣费。
-4. 官方放大的真实路径、请求体、返回格式、倍数和价格，确认后再声明工具能力。
-5. 订阅优惠、V5 用量／回充及 Medium 档位。只有规则核实后才考虑“不限量”“占用量”“扣 Anlas”等标签；未知时仍显示费用未知。
-
-当前验证仅使用合成图片、模拟凭据与拦截响应。不能用这些结果替代真实供应商联调，也不把完整 P3 标记为完成。
-
-
-2026-10-23 多角色基础适配已接入：沿用 `v4_prompt` / `v4_negative_prompt`，正负角色按同序对应，自动定位关闭 `use_coords`；V4.5 提交时投影格中心，V5 保留自由坐标。基础生图与已开放 img2img 使用显式来源快照，模拟验收见[多角色与画板](multi-character-boards-plan.md#9-本轮落地记录2026-10-23)。这没有扩展官方重绘／放大，也不代表真实账户验证。
+公开参考为[图片 Schema](https://image.novelai.net/docs/doc.json)、[账户 API](https://api.novelai.net/docs)及[产品说明](https://docs.novelai.net/en/image/)。本轮文档整理未重新访问这些来源，旧读取日期与证据保存在归档。

@@ -92,8 +92,8 @@ function blurred(event: FocusEvent) {
 .ask-conv-title { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .ask-conv .ico { flex: none; color: var(--fg-3); }
 .ask-conv .starred, .ask-menu-item .ico.starred { color: var(--a); fill: var(--a); }
-.ask-conv-fork { width: 14px; height: 14px; }
-.ask-conv-chev { width: 12px; height: 12px; transform: rotate(90deg); }
+.ask-conv-fork { --ico: var(--ico-sm); }
+.ask-conv-chev { --ico: var(--ico-xs); transform: rotate(90deg); }
 .ask-conv-list { display: flex; flex: 0 1 auto; flex-direction: column; gap: 1px; min-height: 0; overflow-y: auto; overscroll-behavior: contain; }
 .ask-conv-rename { display: flex; gap: 6px; padding: 4px 6px; }
 .ask-conv-rename input { width: 100%; min-width: 0; height: 30px; }
@@ -102,7 +102,7 @@ function blurred(event: FocusEvent) {
 /* Keep B v5's right-aligned check column; delete occupies that slot on hover. */
 @media (hover: hover) { .ask-conv-row:is(:hover, :focus-within):has(.ask-conv-del:not(:disabled)) > .ask-menu-item[aria-checked] .ask-menu-check { visibility: hidden; } }
 .ask-conv-del { position: absolute; top: 50%; right: 6px; display: grid; place-items: center; min-width: 24px; height: 24px; padding: 0 4px; color: var(--fg-3); font-size: var(--fz-xs); border-radius: 6px; opacity: 0; transform: translateY(-50%); }
-.ask-conv-del .ico { width: 13px; height: 13px; }
+.ask-conv-del .ico { --ico: var(--ico-sm); }
 .ask-conv-row:is(:hover, :focus-within) .ask-conv-del, .ask-conv-del:focus-visible { opacity: 1; }
 .ask-conv-del:hover:not(:disabled) { color: var(--fg); background: var(--ask-hover); }
 .ask-conv-del:disabled { display: none; }

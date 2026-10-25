@@ -22,6 +22,9 @@ export default {
     "declaration-property-value-allowed-list": {
       "font-family": [...inherited, `/^${fontRole}$/`],
       font: [...inherited, `/${fontRole}$/`],
+      // Icons pick a tier and a stroke token; raw sizes were how the glyphs drifted apart.
+      "--ico": [String.raw`/^var\(--ico-(?:xs|sm|md|lg)\)$/`],
+      "stroke-width": [String.raw`/^var\(--ico-stroke(?:-strong)?\)$/`],
     },
     "font-family-no-duplicate-names": true,
     "function-no-unknown": true,

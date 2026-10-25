@@ -209,10 +209,9 @@ body[data-gate="open"] .gate-card { transform: none; }
 /* Open, the raised fill and the flipped caret already say where focus is. */
 .switcher[aria-expanded="true"]:focus-visible { outline: none; }
 .switcher .sw-caret {
-  --ico: 14px;
+  --ico: var(--ico-sm);
   margin-left: -2px;
   color: var(--fg-4);
-  stroke-width: 2;
   transform: rotate(90deg);
   transition: transform var(--t2) var(--e);
 }
@@ -249,15 +248,15 @@ body[data-gate="open"] .gate-card { transform: none; }
 .switch-item:focus-visible { outline: 1px solid var(--a-line); outline-offset: -1px; border-radius: 6px; }
 .switch-item[aria-current="page"] { color: var(--fg); }
 .switch-item:disabled { opacity: 0.5; cursor: default; }
-.sw-glyph { justify-self: center; width: 16px; height: 16px; fill: currentColor; color: var(--fg-3); transition: color var(--t1) var(--e); }
+/* Koma marks are not .ico glyphs (AppIcon leaves mk-* unclassed), so they take the tier directly. */
+.sw-glyph { justify-self: center; width: var(--ico-md); height: var(--ico-md); fill: currentColor; color: var(--fg-3); transition: color var(--t1) var(--e); }
 .sw-text { display: flex; align-items: baseline; gap: 8px; min-width: 0; }
 .sw-text b { flex: none; font-size: var(--fz-sm); font-weight: var(--fw-medium); }
 .sw-text small { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: var(--fz-2xs); color: var(--fg-4); }
-.sw-end { --ico: 16px; color: var(--fg-4); stroke-width: 1.8; transition: color var(--t1) var(--e); }
+.sw-end { --ico: var(--ico-md); color: var(--fg-4); transition: color var(--t1) var(--e); }
 .switch-item:not(:disabled, [aria-current]):hover :is(.sw-glyph, .sw-end) { color: var(--fg-3); }
 .switch-item:not(:disabled, [aria-current]):hover .sw-glyph { color: var(--fg-2); }
 .switch-item[aria-current="page"] :is(.sw-glyph, .sw-end) { color: var(--a); }
-.switch-item[aria-current="page"] .sw-end { stroke-width: 2; }
 @media (pointer: coarse) { .switch-item { height: 44px; } }
 
 .topbar-menu { display: flex; align-items: center; margin-left: auto; flex: none; }
@@ -313,7 +312,7 @@ body[data-gate="open"] .gate-card { transform: none; }
 }
 button.w-seg:hover { background: var(--raised); }
 .w-ico {
-  width: 14px; height: 14px;
+  --ico: var(--ico-sm);
   flex: none;
   color: var(--lc);
   fill: currentColor;
@@ -335,7 +334,7 @@ button.w-seg:hover { background: var(--raised); }
    inside it; the ring lands where the bare mark's centre was. An unknown pool
    reads 0, so it shows the bare track. */
 .w-free { padding-left: 7px; transition: background var(--t1) var(--e), --gauge var(--t3) var(--e-out); }
-.w-free .w-ico { width: 10px; height: 10px; margin: 0 5px; }
+.w-free .w-ico { --ico: var(--ico-xs); margin: 0 5px; }
 .w-free::before {
   content: "";
   position: absolute; left: 7px; top: 50%; translate: 0 -50%;
@@ -417,7 +416,7 @@ button.w-seg:hover { background: var(--raised); }
 .result-actions .ibtn {
   width: 36px;
   height: 36px;
-  --ico: 17px;
+  --ico: var(--ico-lg);
   color: var(--fg-2);
   background: transparent;
   border: 1px solid transparent;
@@ -566,8 +565,7 @@ button.w-seg:hover { background: var(--raised); }
   letter-spacing: 0.01em;
 }
 .section-ico {
-  width: 16px;
-  height: 16px;
+  --ico: var(--ico-md);
   color: var(--fg-3);
   fill: currentColor;
   stroke: none;
@@ -612,7 +610,7 @@ button.w-seg:hover { background: var(--raised); }
 .ratio[aria-checked="true"] { color: var(--a); background: var(--a-dim); border-color: var(--a-line); }
 /* Radio-backed cards (the editor's modes) read the same as the role=radio ones. */
 .ratio input { position: absolute; opacity: 0; width: 0; height: 0; }
-.ratio .ico { width: 18px; height: 18px; }
+.ratio .ico { --ico: var(--ico-lg); }
 .ratio:has(input:checked) { color: var(--a); background: var(--a-dim); border-color: var(--a-line); }
 .ratio:has(input:focus-visible) { outline: 2px solid var(--a); outline-offset: 2px; }
 .ratio:has(input:disabled) { opacity: 0.4; cursor: not-allowed; transform: none; }
@@ -763,7 +761,7 @@ button.w-seg:hover { background: var(--raised); }
   border: 0; border-radius: 5px;
   box-shadow: inset 0 0 0 1px var(--line-2), inset 0 -1px 0 rgba(0, 0, 0, 0.35);
 }
-.blank-keys .ico { width: 11px; height: 11px; stroke-width: 2.2; }
+.blank-keys .ico { --ico: var(--ico-xs); }
 .blank-drop { margin-top: -2px; font-size: var(--fz-xs); color: var(--fg-4); }
 @media (hover: none) { .blank-keyed { display: none; } }
 .blank .btn { margin-top: var(--sp-1); }

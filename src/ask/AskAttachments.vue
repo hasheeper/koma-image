@@ -30,18 +30,18 @@ const props = defineProps<{ items: readonly AttachmentView[]; sent?: boolean; di
 .ask-att-open { display: flex; align-items: center; gap: 10px; height: 100%; max-width: 196px; padding: 0 14px 0 9px; text-align: left; border-radius: inherit; }
 .ask-att-open:hover { background: var(--ask-hover); }
 .ask-att-glyph { display: grid; flex: none; place-items: center; width: 32px; height: 32px; color: var(--fg-2); background: var(--ask-hover); border-radius: 8px; }
-.ask-att-glyph .ico { width: 17px; height: 17px; }
+.ask-att-glyph .ico { --ico: var(--ico-md); }
 .ask-att-words { display: grid; min-width: 0; line-height: 1.35; }
 .ask-att-name { overflow: hidden; color: var(--fg); font-size: 13px; text-overflow: ellipsis; white-space: nowrap; }
 .ask-att-meta { color: var(--fg-3); font-size: 12px; white-space: nowrap; }
 .ask-att-x { position: absolute; top: -7px; right: -7px; display: grid; place-items: center; width: 20px; height: 20px; color: var(--raised); background: var(--fg); border-radius: 50%; box-shadow: 0 1px 4px rgba(0, 0, 0, .3); opacity: 0; transition: opacity var(--t1) var(--e); }
-.ask-att-x .ico { width: 10px; height: 10px; stroke-width: 2.4; }
+.ask-att-x .ico { --ico: var(--ico-xs); }
 .ask-att:is(:hover, :focus-within) .ask-att-x { opacity: 1; }
 .ask-sent-att { display: flex; flex-wrap: wrap; align-items: flex-end; justify-content: flex-end; gap: 6px; margin-bottom: 6px; }
 .ask-sent-img { width: 64px; height: 64px; }
 .ask-sent-file { max-width: 100%; height: 32px; color: var(--fg-2); background: var(--ask-hover); border: 0; border-radius: 10px; }
 .ask-sent-file .ask-att-open { display: inline-flex; gap: 6px; max-width: 100%; padding: 0 12px 0 10px; }
-.ask-sent-file .ico { flex: none; width: 15px; height: 15px; color: var(--fg-3); }
+.ask-sent-file .ico { flex: none; --ico: var(--ico-sm); color: var(--fg-3); }
 .ask-sent-file .ask-att-name { color: var(--fg-2); }
 @media (max-width: 860px), (hover: none) { .ask-att-x { width: 24px; height: 24px; opacity: 1; } }
 </style>

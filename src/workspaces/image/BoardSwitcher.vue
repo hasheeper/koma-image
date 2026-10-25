@@ -141,9 +141,9 @@ onDeactivated(cleanup); onBeforeUnmount(cleanup);
 .bd-dot { display: inline-block; flex: none; width: 7px; height: 7px; border-radius: 50%; background: var(--c, var(--a)); }
 .bd-switch .bd-dot { width: 8px; height: 8px; box-shadow: 0 0 0 3px color-mix(in srgb, var(--c) 18%, transparent); }
 .bd-name { flex: 1 1 auto; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.bd-caret { flex: none; width: 16px; height: 16px; color: var(--fg-3); transform: rotate(90deg); transition: transform var(--t2) var(--e), color var(--t1) var(--e); }
+.bd-caret { flex: none; --ico: var(--ico-md); color: var(--fg-3); transform: rotate(90deg); transition: transform var(--t2) var(--e), color var(--t1) var(--e); }
 .bd-count { flex: none; padding: 2px 7px; color: var(--fg-3); font-size: var(--fz-2xs); font-weight: var(--fw-medium); line-height: 1.3; font-variant-numeric: tabular-nums; background: color-mix(in srgb, var(--fg) 6%, transparent); border-radius: 999px; }
-.bd-new { position: relative; display: grid; place-items: center; flex: none; width: 42px; color: var(--fg-3); border-radius: 0 999px 999px 0; --ico: 16px; }
+.bd-new { position: relative; display: grid; place-items: center; flex: none; width: 42px; color: var(--fg-3); border-radius: 0 999px 999px 0; --ico: var(--ico-md); }
 .bd-ai { align-self: center; margin-right: 4px; border-radius: 50%; }
 .bd-new::before { content: ""; position: absolute; left: 0; top: 10px; bottom: 10px; width: 1px; background: color-mix(in srgb, var(--fg-3) 30%, transparent); }
 .bd-new:hover { color: var(--fg); }
@@ -164,15 +164,15 @@ onDeactivated(cleanup); onBeforeUnmount(cleanup);
 .bd-item[aria-checked="true"] .bd-menu-name { font-weight: var(--fw-medium); }
 .bd-tags { display: flex; flex: none; gap: 4px; }
 .bd-tags span { display: inline-flex; align-items: center; height: 18px; padding: 0 6px; color: var(--fg-3); font-size: var(--fz-2xs); white-space: nowrap; background: color-mix(in srgb, var(--fg) 6%, transparent); border-radius: 5px; }
-.bd-check { position: absolute; top: 50%; right: calc(var(--end) - 7px); width: 14px; height: 14px; color: var(--a); translate: 0 -50%; transition: opacity var(--t1) var(--e); }
+.bd-check { position: absolute; top: 50%; right: calc(var(--end) - 7px); --ico: var(--ico-sm); color: var(--a); translate: 0 -50%; transition: opacity var(--t1) var(--e); }
 .bd-more { position: absolute; top: 50%; right: 6px; display: grid; place-items: center; width: 28px; height: 28px; color: var(--fg-3); border-radius: 6px; opacity: 0; translate: 0 -50%; transition: opacity var(--t1) var(--e), background var(--t1) var(--e), color var(--t1) var(--e); }
-.bd-more .ico { width: 16px; height: 16px; }
+.bd-more .ico { --ico: var(--ico-md); }
 .bd-row:is(:hover, :focus-within) .bd-more { opacity: 1; }
 .bd-row:is(:hover, :focus-within) .bd-check { opacity: 0; }
 .bd-more:is(:hover, [aria-expanded="true"]) { color: var(--fg); background: color-mix(in srgb, var(--fg) 6%, var(--hover)); }
 .bd-actions { position: fixed; inset: auto; width: 144px; min-width: 0; padding: 4px; border-radius: 9px; }
 .bd-actions button { display: flex; align-items: center; gap: 8px; height: 32px; padding: 0 9px; color: var(--fg-2); font-size: var(--fz-sm); text-align: left; border-radius: 5px; }
-.bd-actions .ico, .bd-footer .ico, .bd-rename .ico { flex: none; width: 14px; height: 14px; }
+.bd-actions .ico, .bd-footer .ico, .bd-rename .ico { flex: none; --ico: var(--ico-sm); }
 .bd-actions button:hover:not(:disabled) { color: var(--fg); background: var(--hover); }
 .bd-actions .bd-delete:hover:not(:disabled) { color: var(--err); }
 .bd-actions button:disabled { opacity: 0.35; cursor: default; }

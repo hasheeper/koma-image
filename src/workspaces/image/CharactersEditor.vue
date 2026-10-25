@@ -34,8 +34,8 @@ onDeactivated(cleanup); onBeforeUnmount(cleanup);
 </script>
 <template>
   <section class="fld mc" aria-label="角色">
-    <div class="fld-top"><span class="composer-heading"><svg class="section-ico mc-person" viewBox="0 0 24 24" aria-hidden="true"><circle cx="9" cy="7.4" r="3.6" /><path d="M2.4 20.2c0-4 2.9-6.9 6.6-6.9s6.6 2.9 6.6 6.9v.4H2.4z" /><circle cx="16.9" cy="8.5" r="2.9" /><path d="M15.7 13.3c.4-.1.8-.1 1.2-.1 2.9 0 5 2.3 5 5.5v1.9h-4.7c0-2.9-.5-5.3-1.5-7.3z" /></svg>角色<span v-if="f.characters.length" class="mc-count mono">{{ f.characters.length }}</span></span>
-      <span class="mc-head-end"><span v-if="cap.max && f.characters.length" class="seg mc-pos" role="group" aria-label="位置"><button v-for="mode in (['auto', 'manual'] as const)" :key="mode" type="button" :aria-pressed="f.placement === mode" @click="placement(mode)">{{ mode === 'auto' ? '自动' : '手动' }}</button></span><button v-if="cap.max" class="ibtn ibtn-xs mc-add" type="button" aria-label="添加角色" title="添加角色" :disabled="f.characters.length >= cap.max" @click="add"><AppIcon name="i-plus" /></button></span>
+    <div class="fld-top"><span class="composer-heading"><svg class="ico section-ico mc-person" viewBox="0 0 24 24" aria-hidden="true"><circle cx="9" cy="7.4" r="3.6" /><path d="M2.4 20.2c0-4 2.9-6.9 6.6-6.9s6.6 2.9 6.6 6.9v.4H2.4z" /><circle cx="16.9" cy="8.5" r="2.9" /><path d="M15.7 13.3c.4-.1.8-.1 1.2-.1 2.9 0 5 2.3 5 5.5v1.9h-4.7c0-2.9-.5-5.3-1.5-7.3z" /></svg>角色<span v-if="f.characters.length" class="mc-count mono">{{ f.characters.length }}</span></span>
+      <span class="mc-head-end"><span v-if="cap.max && f.characters.length" class="seg mc-pos" role="group" aria-label="位置"><button v-for="mode in (['auto', 'manual'] as const)" :key="mode" type="button" :aria-pressed="f.placement === mode" @click="placement(mode)">{{ mode === 'auto' ? '自动' : '手动' }}</button></span><button v-if="cap.max" class="ibtn mc-add" type="button" aria-label="添加角色" title="添加角色" :disabled="f.characters.length >= cap.max" @click="add"><AppIcon name="i-plus" /></button></span>
     </div>
     <p v-if="!cap.max && f.characters.length" class="hint">当前模型不支持角色，生成时不发送</p>
     <ol v-if="f.characters.length" class="mc-list" :data-muted="!cap.max || undefined">
@@ -52,44 +52,45 @@ onDeactivated(cleanup); onBeforeUnmount(cleanup);
 </template>
 <style scoped>
 .mc-person { fill: currentColor; stroke: none; }
-.mc-num { display: grid; place-items: center; flex: none; width: 18px; height: 18px; font: var(--fw-medium) 10.5px/1 var(--mono); color: var(--fg-3); border: 1px solid var(--line-2); border-radius: 50%; }
+/* A raised disc one step above the panel, so the column of numbers anchors the list. */
+.mc-num { display: grid; place-items: center; flex: none; width: 20px; height: 20px; font: var(--fw-medium) var(--fz-2xs)/1 var(--mono); color: var(--fg-2); background: var(--raised); border-radius: 50%; }
 .mc-count { margin-left: 1px; color: var(--fg-3); font-size: var(--fz-2xs); font-weight: var(--fw-regular); }
-.mc > .fld-top { min-height: 28px; }
+.mc > .fld-top { min-height: 32px; }
 .mc-head-end { display: inline-flex; align-items: center; gap: 6px; }
 .mc-pos.seg { display: inline-flex; padding: 2px; gap: 2px; }
-.mc-pos button { padding: 3px 9px; font-size: var(--fz-2xs); border-radius: var(--r1); color: var(--fg-3); }
+.mc-pos button { padding: 4px 10px; font-size: var(--fz-xs); border-radius: var(--r1); color: var(--fg-3); }
 .mc-pos button[aria-pressed="true"] { color: var(--fg); background: var(--raised); box-shadow: var(--sh-lip); }
-.mc-list { display: grid; gap: 1px; margin: 0; padding: 0; list-style: none; }
+.mc-list { display: grid; margin: 0; padding: 0; list-style: none; }
+.mc-item + .mc-item { border-top: 1px solid var(--line); }
 .mc-list[data-muted] { opacity: .5; }
-.mc-row { display: flex; align-items: center; gap: 2px; min-height: 34px; margin: 0 calc(-1 * var(--sp-2)); padding: 0 4px 0 var(--sp-2); border-radius: var(--r2); transition: background var(--t1) var(--e); }
+.mc-row { display: flex; align-items: center; gap: 2px; min-height: 40px; margin: 0 calc(-1 * var(--sp-2)); padding: 0 4px 0 var(--sp-2); border-radius: var(--r2); transition: background var(--t1) var(--e); }
 .mc-row:hover { background: var(--hover); }
 .mc-item[data-open] > .mc-row:hover { background: none; }
-.mc-toggle { display: flex; align-items: center; gap: 9px; flex: 1; min-width: 0; height: 34px; color: var(--fg-2); font-size: var(--fz-sm); text-align: left; }
+.mc-toggle { display: flex; align-items: center; gap: 10px; flex: 1; min-width: 0; height: 40px; color: var(--fg-2); font-size: var(--fz-sm); text-align: left; }
 .mc-text { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .mc-flag { flex: none; margin-left: auto; padding-right: 2px; color: var(--fg-4); font-size: var(--fz-2xs); }
 .mc-item[data-over] .mc-flag { color: var(--warn); }
 .mc-item[data-off] :is(.mc-text, .mc-num), .mc-item[data-over] :is(.mc-text, .mc-num) { opacity: .45; }
-.mc-item[data-open] .mc-toggle { color: var(--fg); font-weight: var(--fw-semibold); }
-.mc-item[data-open] .mc-num, .mc-stage-chip[aria-pressed="true"] .mc-num { color: var(--a); background: var(--a-dim); border-color: var(--a-line); }
+.mc-item[data-open] .mc-toggle { color: var(--fg); font-weight: var(--fw-medium); }
+.mc-item[data-open] .mc-num, .mc-stage-chip[aria-pressed="true"] .mc-num { color: var(--a); background: var(--a-dim); }
 .mc-caret { display: grid; place-items: center; flex: none; width: 24px; height: 28px; }
 .mc-caret .caret { margin: 0; }
 .mc-item[data-open] .caret { transform: rotate(225deg) translate(-1px, -1px); }
 .mc-tools { display: inline-flex; align-items: center; gap: 0; }
-.mc-tools .ibtn { --ico: 15px; }
 .mc-tools .ibtn:disabled { opacity: .3; cursor: default; }
 .mc-switch { position: relative; display: inline-flex; align-items: center; height: 28px; padding: 0 6px; cursor: pointer; }
 .mc-switch input { position: absolute; opacity: 0; width: 0; height: 0; }
-.mc-switch .switch { --sw-w: 24px; --sw-h: 14px; }
 .mc-body { display: grid; padding: 2px 0 var(--sp-2); }
 .mc-tabs { border-bottom: 1px solid var(--line); }
 .mc-tabs .tab { padding: 5px 10px 6px; }
 .mc-body :deep(.hl-wrap) { min-height: 92px; max-height: 240px; overflow-y: auto; }
 .mc-body :deep(textarea), .mc-body :deep(.hl-mirror) { font-size: var(--fz-sm); line-height: 1.6; padding: 10px 12px; }
 .mc-pad-row { display: flex; justify-content: center; margin-top: calc(var(--sp-1) * -1); }
-.mc-pad-wide { position: absolute; top: 2px; right: 2px; --ico: 15px; }
+.mc-pad-wide { position: absolute; top: 2px; right: 2px; --ico: var(--ico-sm); }
 .mc-stage { position: fixed; z-index: 40; border-radius: var(--r3); background: rgb(10 10 12 / 55%); box-shadow: 0 0 0 1px var(--a-line); }
 .mc-stage-bar { position: absolute; left: 50%; bottom: 12px; translate: -50% 0; display: flex; align-items: center; gap: 4px; max-width: calc(100% - 16px); padding: 4px; background: var(--raised); border-radius: var(--r3); box-shadow: inset 0 0 0 1px var(--line-2), var(--sh-2); }
 .mc-stage-chips { display: flex; gap: 4px; min-width: 0; overflow-x: auto; }
+.mc-stage-chip .mc-num { background: var(--hover); }
 .mc-stage-chip { display: inline-flex; align-items: center; gap: 6px; flex: none; height: 30px; padding: 0 10px 0 6px; color: var(--fg-3); font-size: var(--fz-xs); border-radius: var(--r2); }
 .mc-stage-chip[aria-pressed="true"] { color: var(--fg); background: var(--a-dim); }
 .mc-stage-bar > .btn { flex: none; }

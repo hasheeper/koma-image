@@ -115,7 +115,8 @@ test("ASK tool schemas: full registry avoids uniqueItems rejected by Gemini rela
     assert.equal(sheet.properties.ids.minItems, 2);
     assert.equal(sheet.properties.ids.maxItems, 6);
     const draft = definitions.find((t) => t.name === "propose_draft").parameters;
-    assert.equal(draft.properties.steps.items.anyOf.length, 4);
+    assert.equal(draft.properties.steps.items.anyOf.length, 5);
+    assert.deepEqual(Object.keys(draft.properties.steps.items.anyOf[4].properties.options.properties).sort(), ["aspect_ratio", "image_size", "size"]);
     assert.equal(draft.properties.steps.items.anyOf[1].properties.fields.minItems, 1);
     assert.deepEqual(draft.required, ["base_hash", "draft_title", "steps"]);
     assert.equal(JSON.stringify(wireBody(profile, request)), JSON.stringify(payload));

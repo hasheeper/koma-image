@@ -1,97 +1,70 @@
 # 架构规范
 
-状态：2026-10-19；M1–M7 已实现并完成本地验收与发布包，后续用户已授权脱敏复查后推送独立仓库并发布 Cloudflare Pages，发布方式见 [发布说明](release-guide.md)。已验证范围见 [外壳实现](app-shell.md)、[网关、数据和调度](gateway-data-scheduler.md)、[设置、备份和词典](shared-settings-tags.md)、[绘图工作区](drawing-workspace.md)、[对话和编辑工作区](chat-editor-workspaces.md) 与 [M7 本地验收](release-acceptance.md)。
+更新：2026-10-25。描述当前仓库结构。功能状态和真实待验项见[当前状态](implementation-plan.md)，产品和 UI 标准见[设计语言](design-language.md)，行为约束见[业务契约](business-contracts.md)。
 
-## 复刻原则
+## 单页外壳与所有权
 
-以既有应用的源码、实际界面和业务验证为依据，重新组织组件与服务。正式界面保留字体、尺寸、间距、布局、输入语义和动效；允许的变化是工作区原地切换、备份并入设置、默认头像、渠道信息脱敏、Koma 数据命名、取消旧数据迁移与专用 UI，以及用户后续要求的设置统一：绘图偏好移入通用，安全与备份合页；绘图空白页改为居中，品牌字「Koma」改用 Fredoka；界面中英文统一改用资源圆体（以 Koma Rounded 名称自托管）。
-
-原生绘制、蒙版、图片解析与纯参数算法可以在审查后复用。内部研究记录、旧应用、真实图片与备份、Git 历史及部署资料不复制进本工程。
-
-## App Shell 与工作区
-
-- 单入口 `index.html`，轻量 hash 路由使用 image／chat／tags 三个工作区。
-- 使用 KeepAlive，以工作区 ID 为稳定 key。切换保留草稿、附件、选图、列表与滚动；不取消或重复提交任务。
-- 编辑是单例全屏覆盖层；设置是弹窗，备份为其子页；已关闭编辑会话仍按原语义保留。
-- 共享数据、认证、图片资源和任务服务位于工作区缓存之外；隐藏工作区暂停界面事件和绘制，不干扰当前界面的全局状态。
-- 既有 HTML 地址仅保留中性重定向，保留业务查询参数；旧入口不得再启动独立应用。
+- 单入口 `index.html`，轻量 hash 路由为 `#/image`、`#/chat`、`#/tags`；三个工作区以稳定 ID 使用 KeepAlive。
+- 切换保留草稿、附件、选图、滚动和在途任务。编辑是单例全屏覆盖层，设置为单例弹窗，备份为其子页；旧 backup 路由仍可访问。
+- `src/app/presentation.ts` 管页面 class、data 属性、标题、favicon 与样式开关。隐藏工作区暂停界面事件和绘制，不取消后台任务。
+- 应用级服务在 KeepAlive 外持有数据、任务与资源。ASK 是全局浮层，不预留侧栏；编辑覆盖层打开时隐藏 ASK。
+- `chat.html`、`tags.html`、`transfer.html` 只重定向到同一应用并保留查询参数，不初始化另一套应用或访问旧数据。
 
 ## DOM 与高频驱动
 
-Vue 拥有节点创建、包裹、搬移和销毁。高亮组件模板包含包裹、镜像和 textarea；工具位置切换采用 Teleport，不执行外部节点移动脚本。
+Vue 创建、包裹、移动和销毁节点。高亮组件在模板中声明 mirror 与 textarea，移动宿主使用 Teleport。原生 dialog／popover 保留焦点、Esc 和顶层语义。
 
-原生绘制只操作独立宿主内部、Canvas 内容与明确委托的高频样式。指针坐标与逐帧进度不进入组件响应式更新链；操作结束时同步必要业务状态。Blob、ImageBitmap、DOM、AbortController、数据库连接和 CryptoKey 不放进深层 reactive。
+Canvas、指针、逐帧进度和明确委托的高频样式由原生驱动管理，结束时同步必要业务状态。Blob、ImageBitmap、DOM、数据库、AbortController 和 CryptoKey 不进入深层 reactive。监听器、Observer、rAF 与 Object URL 有明确的激活、暂停、引用和销毁责任。
 
-监听器、Observer、rAF、Object URL 和输入实例均有明确的激活、暂停与销毁责任。原生 dialog／popover 保留浏览器焦点与关闭语义。
+## 协议与连接
 
-## Gateway Profile
+依赖方向为工作区 → domain／services → Gateway Profile → transport。Profile 声明目录、鉴权、报价、额度、路线及图像／推理能力，不按连接名称或域名分支。
 
-依赖方向：工作区 → domain／services → Gateway Profile → transport。
+登记表包含六种协议：Koma 标准网关、OpenAI Images、Gemini 原生、NovelAI 官方、OpenAI Chat 兼容和 Anthropic Messages。前四种服务图像工作区，后两种仅服务 ASK 推理、命名和压缩。实现边界见[图像协议](native-image-protocols.md)和[ASK 运行契约](ask/ask-contracts-and-decisions.md)。
 
-Profile 明确声明以下能力，默认策略复刻现有业务，不按渠道名称或域名分支：
+标准网关保留防抖报价、执行前重报、`max_cost`、原生／Studio／工具分流和额度护栏。无报价能力显示费用未知，与报价失败、零值、加载分开。没有协议自动回退或生成自动重试。
 
-| 能力                  | 责任                                                                              |
-| --------------------- | --------------------------------------------------------------------------------- |
-| quote                 | 原预报价时序、防抖、失效请求与未知／零值区分                                      |
-| costCeiling           | 声明时执行前重报，携带 max_cost；涨价提示后继续、批量最多提示一次，无付费确认弹窗 |
-| executionRoutes       | 按原条件选择原生免费、Studio 与工具路线；无自动重试或回退                         |
-| quotaPolicy           | 原日额度、临时 Key、300 阈值、400 警示条件及未知额度处理                          |
-| quotaPresentation     | 原额度环、余额单位、零值和未知态，复用既有界面布局                                |
-| catalog／modelMapping | 规范模型、目录解析、手动来源与参数能力                                            |
-| auth／transport       | 显式连接上下文、认证、规范结果、错误及取消                                        |
+同一规范图像模型有多个连接来源时，按连接排列顺序取第一个启用来源。原生目录只提供 ID，规范模型匹配与手动来源由用户配置；ASK 模型能力由用户界定，不按型号名字限制。
 
-Profile 从登记表按 ID 查找，未登记的协议不能保存或恢复。目前登记 Koma 标准网关、OpenAI Images、Gemini 原生、NovelAI 官方四种协议。公开官方 API 可声明自己的目录、鉴权、额度与固定官方地址；兼容服务由用户显式选择实际支持的协议和 URL，不内置私有名称或地址，不按域名推断或自动回退。业务按 Profile 能力分支，新增原生协议不支持报价时费用为未知，标准网关继续执行原报价、max_cost 和额度保护。实现范围和实测边界见 [原生图像协议](native-image-protocols.md) 与 [P3 记录](novelai-official.md)。
+新环境连接为空；配置 URL／Key 后才能请求。兼容服务不内置私有地址，NovelAI 官方可以固定公开官方主机。直连依赖服务支持 CORS。
 
-同一规范模型由多个连接提供时，按设置中连接的排列顺序（即添加先后）取第一个启用的来源；要换来源，关闭前一个连接上的该来源。
+## 静态版与本地代理
 
-初始连接为空。用户配置 URL 和 Key 后才能请求上游；本地服务可使用 KOMA_GATEWAY_URL／KOMA_GATEWAY_KEY，环境变量不进入客户端产物。测试、示例、图标和默认头像不包含私有渠道指纹。用户自配直连地址可在其浏览器查看；如需隐藏实际上游，使用同源服务端网关。
+静态版不读取环境变量、不探测代理。可选 `server.mjs` 只监听回环地址，同时提供静态资源和固定路径转发；三组配置独立可选：
 
-本地 `server.mjs` 只监听回环地址，复用标准 Profile 的固定路径。两项环境变量齐全时才注入本地模式标记和临时请求令牌；地址与 Key 保留在服务端。客户端据文档路径解析同源 `/api/`，不自动探测或回退。连接与安全设置只读，模型来源存入独立的 `koma.local.models.v1`，以可选逻辑字段 `localModels` 纳入新版备份。运行时连接、令牌和服务端凭据不持久化；本地模式不恢复或共享浏览器 vault。
+| 用途 | 环境变量前缀 | 能力 |
+| --- | --- | --- |
+| 标准图像网关 | `KOMA_GATEWAY` | 标准网关固定目录、额度、报价及执行路径 |
+| ASK OpenAI Chat | `KOMA_ASK_OPENAI` | 固定目录与流式推理路径 |
+| ASK Anthropic Messages | `KOMA_ASK_ANTHROPIC` | 固定目录与流式推理路径 |
 
-## 任务与数据
+每组 URL／Key 成对设置；可只配置 ASK。网页只获得运行模式和临时令牌，服务端地址与 Key 不注入浏览器，不进入 `VITE_*`。只读运行时连接和令牌不持久化；图像模型来源另存 `koma.local.models.v1`。原生图像三协议目前仅浏览器直连。运行与打包步骤见[发布说明](release-guide.md)。
 
-全应用共用任务调度器和 Web Locks 槽位，默认 N=1，忙时提示返回；批次占同一槽位直到结束，不自动排队。后续可扩展并发与在途 max_cost 预占，本阶段不启用。
+## 调度与数据
 
-数据库使用 koma-image-favorites、koma-chat、koma-handoff，以及仅存 ASK 收藏会话的 koma-ask；偏好、连接与凭据采用 koma.\*；同步频道为 koma-sync。数据锁为 koma-image-data-v1，任务门为 koma-image-generation-v1，槽位为 koma-image-generation-slot-v1:1..N。命名集中管理，避免组件硬编码。
+图像任务共用应用级调度器和 Web Locks，默认 N=1；忙时返回提示，不自动排队。批次持续占槽直到图片解码与结果处理完成。ASK 推理不占生成锁。数据库写入统一经数据租约和 `data.write`，延迟保存与缓存提供 flush／reload。详细责任见[网关、数据与调度](gateway-data-scheduler.md)。
 
-### 数据兼容范围（已裁撤旧数据迁移）
+数据库为 `koma-image-favorites`、`koma-chat`、`koma-handoff`、`koma-ask`，偏好与凭据使用 `koma.*`，同步频道为 `koma-sync`。锁和键名集中于 `src/storage/names.ts`。ASK 收藏会话及附件、记忆和归档保存在独立库，不进入普通 ZIP；撤销执行记录和调用调试不持久化。
 
-用户确认目前用户少、尚未正式上线，取消此前的独立过渡桥方案。新应用直接初始化 Koma 数据，只读取自己的 schema；不检测、读取、转换或删除旧应用数据，不等待旧锁交接，也不检查迁移完成状态。
+普通备份使用 `app=koma-image`、`kind=backup`、`version=2`；数据库 schema version 与备份 envelope version 独立。普通历史、编辑会话、交接数据、Key 和派生密钥不导出。仅支持新版 Koma 格式，不检测、转换或清理旧应用数据。
 
-不实施逐库复制／哈希校验、可恢复阶段日志、凭据解锁续迁、旧备份转换、兼容窗口、迁移专用提示或恢复 UI；这些不保留为后续任务或发布门槛。连接 URL 与 Key 由用户重新配置，或由本地服务环境变量提供。
+## 代码与维护入口
 
-普通「备份与恢复」仍是设置子页，只支持新版 Koma schema：app=koma-image、kind=backup、version=2，偏好使用逻辑字段。保留新版作品的原图字节、合并、去重、冲突副本、导入校验与数据锁，继续排除 Key、派生密钥、普通历史、编辑会话和交接数据。旧格式不自动转换；一次性离线转换工具也不在当前范围内，有具体需求时另行处理。
+| 目录 | 责任 |
+| --- | --- |
+| `src/app` | 外壳、路由、保活、展示协调与服务注入 |
+| `src/workspaces`、`src/overlays`、`src/shared` | 工作区、编辑／设置和共享 Vue 控件 |
+| `src/ask` | 推理会话、只读工具、草稿、附件、收藏、提示词与压缩 |
+| `src/domain` | 纯业务、模型、参数和角色结构 |
+| `src/gateway` | Profile、请求转换、鉴权、连接诊断与传输 |
+| `src/services`、`src/storage` | 调度、数据租约、资源、连接、持久化和备份 |
+| `src/native` | 画布、蒙版、指针、图片解析和本地合成 |
+| `src/config` | 非秘密配置 schema 和运行时配置 |
 
-源码、构建产物及全新环境只使用 Koma 标识。已有浏览器中旧应用留下的数据不会由新应用自动清除；代码脱敏不等于清理用户浏览器。HTML 重定向仅保留地址与查询参数，不提供旧库、旧票据或旧备份的数据兼容。
+`src/` 自有逻辑使用严格 TS／Vue TS，类型来自实现，不增加 JS 配对声明。测试、服务器和工具保留原运行方式。
 
-## 目录结构
+字体由配置生成，公共 CSS 按 tokens／base／controls／ui 分层，组件私有样式回归对应 Vue；保留词典 image＋tags、高亮全局指标等已记录依赖。维护入口见[字体](font-style-governance.md)、[样式归属](style-ownership.md)与[检查](style-checks.md)。
 
-```text
-index.html
-src/
-  app/          外壳、路由、保活及全局样式协调
-  workspaces/   绘图、对话、词典
-  overlays/     编辑、设置及备份
-  shared/       通用界面与默认头像引用
-  domain/       纯业务、参数和模型
-  gateway/      Profile 登记表、能力校验、请求转换与连接诊断
-  services/     调度、资源和连接服务
-  storage/      Koma 持久化接口
-  native/       原生绘制驱动、图片解析和本地合成
-  config/       非秘密配置 schema
-public/         经审查的本地静态资源、样式及旧地址重定向页
-server.mjs      可选本地服务与固定协议代理
-scripts/        发布包脚本
-tests/          单元（*.test.mjs）、浏览器（*.browser.mjs）与发布包测试
-docs/           中性工程说明、业务契约和实施记录
-```
+## 验证边界
 
-目录随真实模块建立，不用占位实现冒充功能完成。App 直接挂载 body 并使用 Fragment；绘图顶栏仍是 body 直接子节点，对话仍保留 chat-app 容器。KeepAlive 只缓存三种工作区；覆盖层在其外侧持续挂载。绘图／对话／词典样式通过原 stylesheet 的 media 切换，避免全局选择器相互影响。
-
-字体与样式治理 G0–G4 已完成本地验收：字体配置集中生成，公共基础按 tokens／base／controls／ui 加载，组件私有样式归对应 Vue。现行入口、必要的全局结构、词典布局依赖与编辑版本栏边界见[样式归属](style-ownership.md)；Stylelint 已接入 `check`／CI，规则与例外见[检查说明](style-checks.md)。
-
-[TypeScript 迁移 T0–T5](typescript-migration-plan.md) 已完成本地收口。`src/` 自有逻辑由 TS 与 Vue TS 承载，九份手写配对声明已由实现内类型取代；原生驱动继续独立管理 Canvas 与高频状态。测试、服务器、工具和静态兼容脚本按现有运行方式保留 JS。
-
-## 验证范围
-
-业务以 [B01–B31](business-contracts.md) 为准，使用合成数据和模拟接口。基础视口仅 320／390／768／1440px；高频验证仅检查指针／逐帧操作不引起 Vue 重渲染，以及反复开关／切换无资源泄漏。保留新版备份的导入校验与写入安全检查，不设置跨版本迁移验收。
+用合成数据和模拟接口验证业务。UI 基础宽度为 320／390／768／1440px；高频检查只验证不触发 Vue 重渲染及无资源泄漏。历史验收在[归档](archive/2026-10-25/README.md)；真实供应商生成、效果、扣费和缓存命中仍需独立证据。

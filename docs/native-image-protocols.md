@@ -1,8 +1,9 @@
-# 原生图像协议接入
+# 图像协议能力与边界
 
-2026-10-21。新增 OpenAI Images、Gemini 原生和 NovelAI 官方基础接入。现有 Koma 标准网关继续保留报价、max_cost、原生／Studio／工具分流、额度护栏及 N=1 调度。
+更新：2026-10-25。基础适配已经完成代码和模拟验证；供应商型号、权限、CORS、实际生成与扣费仍待核验。当前请求结构不构成官方当日在线文档已复核或真实账户可用的证明。历史协议勘探和测试范围见[归档](archive/2026-10-25/README.md)。
 
 ## 接口能力与当前范围
+
 
 | 协议 | 模型与鉴权 | 基础生成与修改 | 费用与额度 | 当前边界 |
 | --- | --- | --- | --- | --- |
@@ -13,51 +14,26 @@
 
 这里的“协议”与连接名称、渠道无关。用户配置的兼容服务可以选择其真正提供的 OpenAI Images 或 Gemini 原生协议；不按域名推断，不在正式源码中内置私有服务名称、地址或 Key。新环境连接仍为空。
 
-2026-10-23 多角色 C2 已补齐：标准报价／Studio／工具发送 `characters: [{ prompt, uc, center }]` 与顶层 `use_coords`；免费原生与官方继续使用同一领域快照构造 `v4_prompt`／`v4_negative_prompt` 正负数组，避免标准转换影响原生内容。字段依据为实际只读解析与报价探测，请求及参数往返已模拟验证，真实生成仍待实测。详情见[多角色接入记录](multi-character-boards-plan.md#c2-标准网关补齐与收口)。
+多角色映射：标准报价／Studio／工具发送 `characters: [{ prompt, uc, center }]` 与顶层 `use_coords`；免费原生与官方继续使用同一领域快照构造 `v4_prompt`／`v4_negative_prompt` 正负数组，避免标准转换影响原生内容。字段依据为实际只读解析与报价探测，请求及参数往返已模拟验证，真实生成仍待实测。详情见[多角色与画板](multi-character-boards-plan.md#协议映射与元数据)。
 
 ## 已落地的结构
 
-- `gateway/profile.ts` 统一登记四种协议及鉴权、目录、报价、额度和路径能力。新增连接和现有连接均显式选择协议；未知 Profile 继续拒绝。
+- `gateway/profile.ts` 统一登记四种图像协议及两种 ASK 推理协议，声明鉴权、目录、报价、额度和路径能力。新增连接和现有连接均显式选择协议；未知 Profile 继续拒绝。
 - `gateway/native-protocols.ts` 分开处理原生 ID 列表与匹配后的执行能力；UI／领域层继续使用现有规范模型与参数。不要求目录返回 studio_features，不按 ID 的品牌前缀或 supportedGenerationMethods 筛掉模型；未匹配 ID 留在设置供用户选择，不自动变成可生图模型。
 - `gateway/transport.ts` 处理 Gemini 的安全模型路径、OpenAI 的 multipart 边界，以及官方 NAI 的账户／图片两主机。Gemini 单次请求最多 1000 条，不追读 nextPageToken；URL 不携带 Key，不跟随重定向，版本前缀不重复拼接。
 - 原生协议不支持报价时，对话与编辑不再把“没有报价接口”显示成连接错误；编辑执行条件仍校验所选模型、源图和操作能力。费用始终为未知，不伪装成免费。
 - NAI 官方只允许固定图片地址；添加时明确说明 Key 的两个官方接收域名。已有其他地址的连接不能通过切换协议把保存的 Key 自动发送到官方域名，需单独添加并填写 Key。
 - 所有任务继续走应用级 runTask，共用 N=1；保留取消、超时、失败停止、不自动重试及原图字节。不改变数据键名；新版连接配置和备份携带 profileId。
-- 本地 server.mjs 本轮仍仅代理 Koma 标准网关，不将其改为任意 URL 转发器。原生协议先用于浏览器直连；服务须允许跨域。
+- 本地 `server.mjs` 支持标准网关与两种 ASK 推理协议的固定路径，不是任意 URL 转发器。OpenAI Images、Gemini 原生与 NovelAI 官方仅用于浏览器直连，服务须允许跨域。
 
-## 文档依据与验证边界
+## 模型目录与来源
 
-- [OpenAI Image generation](https://developers.openai.com/api/docs/guides/image-generation) 与 [Images API](https://platform.openai.com/docs/api-reference/images)：本轮访问返回 403／连接中断，未完成当日在线文档复核。当前实现限于既有稳定 Images REST 请求形状；不据此宣称新的模型型号、定价或账户可用性。
-- [Gemini Image generation](https://ai.google.dev/gemini-api/docs/image-generation)：本轮访问超时；Discovery 服务亦未成功读取。已按原生 generateContent 的基础请求／响应结构实现模拟契约验证；实际服务的模型列表、可选参数与权限仍需真实连接核实。
-- 2026-10-21 读取的 [NovelAI API Swagger](https://api.novelai.net/docs)（swagger-ui-init.js 内的 OpenAPI）明确列出 /user/subscription、/ai/generate-image、Bearer，以及 generate／img2img／infill 动作；当时该来源模型枚举较旧、parameters 为不透明对象，也未列出 /ai/upscale。2026-10-23 另行读取的[图像主机 Schema](https://image.novelai.net/docs/doc.json)已有角色正负数组、坐标类型及 /ai/upscale；多角色资料与当前接入缺口见[专题](novelai-multi-character.md)，不代表高级功能已经实现或真实联调成功。
-- [NovelAI 图像说明](https://docs.novelai.net/en/image/)已读取，确认图生图强度／噪声等产品能力；产品文档不等同于最新版请求 Schema。不能仅凭订阅成功就声称具体模型生成成功。
+OpenAI／Gemini 每次拉取只发一次模型列表请求；Gemini 使用 `pageSize=1000`，不追读分页。列表只用来取得 ID，Gemini 去掉 `models/` 前缀；不按品牌、`studio_features` 或 `supportedGenerationMethods` 筛掉条目。未知 ID 留在设置中，用户可手动指定映射；仅有 ID 不自动成为可执行图像模型。
 
-实现验证使用合成图片、模拟 Key、拦截的网关响应，没有调用用户配置，也没有真实收费生成。模拟契约测试只能确认前端如何发请求、如何处理结果，不能替代供应商联调。
+能力来自用户选择的规范模型，实际请求保留所选上游 ID。目录、匹配和执行能力分开；关闭来源后不能继续使用该来源。模型存在于本地目录不代表真实型号能力或账户权限已经核验。
 
-## 本轮验收
+## 费用、运行与待验
 
-2026-10-21，本地完成：
+标准网关的报价、重报、`max_cost`、分流与额度保护保持。其他图像协议没有预报价时始终显示费用未知，不推算免费或每次实际扣费。所有图像任务共用 N=1，取消、超时、失败停止和不自动重试保持。
 
-- `npm run check` 通过：字体一致性、Stylelint、严格类型、65 项单元测试及生产构建。
-- `node --test --test-concurrency=2 tests/*.browser.mjs tests/release.package.mjs`：55 项通过，合计 120 项自动化测试。
-- 初次新增协议测试覆盖显式协议选择、版本路径去重、安全模型 ID、当时的 Gemini 分页、鉴权、JSON／multipart／inlineData、NAI ZIP 与图生图、未知费用保存与备份、不调用标准网关报价／额度接口，以及失败与取消不重试。ID 获取方式随后按下节调整。
-- 真实页面用合成响应完成两种对话协议的生成／参考图修改、NAI 绘图与编辑、协议保存／切换。禁止将已有其他地址连接的 Key 自动切到 NAI 官方，拒绝时控件恢复实际协议。未改原有标准网关回归断言。
-- 320／390／768／1440px 设置界面检查通过，复用原有样式，无横向溢出；截图位于忽略提交的 `.local/native-protocols/`。
-- 源码、文档、测试和构建产物的私有渠道标识／凭据模式扫描无命中。未增加依赖；此处记录本地验收，发布状态以实际 Git 提交与 Pages 部署为准。
-
-## 模型 ID 获取修正
-
-2026-10-21，按用户要求简化目录读取。旧版会追读分页，遇到重复 nextPageToken 或超过 20 个标记即抛出“模型列表分页异常”，导致已取得的 ID 也不可用。现在每次拉取只请求一次模型列表；Gemini 使用 pageSize=1000，不再追读分页或把分页标记作为连接成功条件。
-
-原生目录保留返回的 ID（Gemini 去掉协议的 models/ 前缀），无需额外能力字段。已有精确匹配继续可用；自定义 ID 在原模型页手动指定。能力选项来自用户选择的应用模型，发送时保留真正的上游 ID；没有匹配的条目只用于目录展示，不能直接当作图像模型执行。请求仍校验 ID 与路径安全，不自动试用另一协议。
-
-本次修正通过 `npm run check`（66 项单元测试、类型、样式及构建），以及原生协议／共享设置的 17 项页面测试。新增断言覆盖重复分页标记只请求一次、无能力字段的 ID 列表、自定义 ID 手动匹配与真实控件提交、关闭来源后不再可用；全部使用模拟响应，没有真实收费调用。
-
-同日按用户提供的型号加入 `gemini-nano-banana-2.1`（Nano Banana 2.1）。沿用现有 Gemini 基础参数和参考图流程，可由原生连接或标准网关提供，也可手动指定兼容服务的别名；真实型号能力与账户可用性仍以上游为准。
-
-## 后续步骤
-
-1. **基础接入（本轮）**：协议选择、目录归一化、OpenAI JSON／multipart、Gemini inlineData、NAI 基础生图／图生图、无报价状态、备份与已有网关回归。
-2. **协议联调**：用用户在设置中配置的目标地址与 Key 做只读目录／订阅检查；真实生成需单独明确授权，记录实际支持的型号、参数、图片格式、鉴权和 CORS。
-3. **NAI 完整能力**：核验 V4.5／V5 请求参数、infill 模型与蒙版规格、upscale 请求及扣费，之后才开放官方蒙版／放大。订阅优惠与费用估计不能用原网关规则代替。
-4. **可选后续**：OpenAI 蒙版、Responses；Gemini 原生多轮签名与流式结果；本地服务的多协议代理。各自独立验收，不混入基础接入。
+真实联调须分别记录目录／鉴权、参数、响应格式、CORS、生成效果及扣费；只读成功不能代替生成实测。NAI 高级能力见[官方接入](novelai-official.md)，其他未实现范围见[当前待办](implementation-plan.md)。

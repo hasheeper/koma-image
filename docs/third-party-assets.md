@@ -10,4 +10,4 @@ ASK 模型列表补充的 Claude、DeepSeek、Kimi、MiniMax（color 变体）�
 
 本工程的 `UNLICENSED` 不替代这些第三方许可。
 
-字体配置现集中于 `config/fonts.json` 与 `config/font-ranges/koma-rounded.json`，浏览器只加载由 Node 生成的 `public/fonts/index.css`。普通构建复用现有 WOFF2；上述 Python 脚本只用于主动离线重建，并继续保留原字形修改和许可。维护命令与 G0／G1 验证见[字体与样式治理记录](font-style-governance.md)。
+字体配置现集中于 `config/fonts.json` 与 `config/font-ranges/koma-rounded.json`，浏览器只加载由 Node 生成的 `public/fonts/index.css`。普通构建复用现有 WOFF2；上述 Python 脚本只用于主动离线重建，并继续保留原字形修改和许可。维护命令与 G0／G1 验证见[字体维护](https://github.com/hasheeper/koma-image/blob/main/docs/font-style-governance.md)。

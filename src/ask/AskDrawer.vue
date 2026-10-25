@@ -238,7 +238,7 @@ onBeforeUnmount(() => { clearTimeout(doneTimer); controller.abort(); ask.attach(
 .ask-progress.empty { opacity: 0; }
 .ask-island :deep(.ibtn) { flex: none; width: 26px; height: 26px; border-radius: 13px; }
 .ask-island :deep(.ibtn:hover), .ask-island :deep(.btn-quiet:hover) { background: var(--ask-hover); }
-.ask-island :deep(.ibtn .ico) { width: 13px; height: 13px; }
+.ask-island :deep(.ibtn .ico) { --ico: var(--ico-sm); }
 .ask-ready { max-height: calc(var(--ask-available-height, 100dvh) - 16px); padding: 10px 12px 12px 10px; overflow-y: auto; overscroll-behavior: contain; }
 .ask-result-head { display: flex; align-items: center; gap: 10px; height: 20px; margin-bottom: 10px; }
 .ask-result-grip { display: flex; flex: 1; align-items: center; gap: 10px; min-width: 0; color: var(--fg-4); font-size: 12px; line-height: 1; }
@@ -253,12 +253,12 @@ onBeforeUnmount(() => { clearTimeout(doneTimer); controller.abort(); ask.attach(
 .ask-compact-notice { margin-top: 8px; color: var(--warn); font-size: var(--fz-xs); overflow-wrap: anywhere; }
 .ask-done { gap: 8px; padding: 0 14px 0 12px; color: var(--fg-3); font-size: 13px; line-height: 1; }
 .ask-done-grip { gap: 8px; white-space: nowrap; }
-.ask-done :deep(.ico) { flex: none; width: 16px; height: 16px; color: var(--ok); }
+.ask-done :deep(.ico) { flex: none; --ico: var(--ico-md); color: var(--ok); }
 .ask-done b { color: var(--fg); font-weight: var(--fw-semibold); }
 .ask-window { position: relative; display: flex; flex-direction: column; height: 100%; }
 .ask-head { display: flex; flex: none; align-items: center; gap: 4px; height: 48px; padding: 0 10px 0 14px; }
 .ask-head :deep(.ibtn) { width: 30px; height: 30px; color: var(--fg-3); border-radius: 8px; }
-.ask-head :deep(.ibtn .ico) { width: 16px; height: 16px; }
+.ask-head :deep(.ibtn .ico) { --ico: var(--ico-md); }
 .ask-head :deep(.ibtn:hover) { color: var(--fg); }
 .ask-handle { display: flex; flex: none; align-items: center; align-self: stretch; padding: 0 2px; }
 /* The title is a button, so the empty head after it is a second grip. */

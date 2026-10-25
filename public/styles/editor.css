@@ -33,7 +33,7 @@
 
 /* ── Top bar: a way back, the EDIT mark, the tools and the balances ── */
 .editor-bar { gap: var(--sp-3); }
-.editor-back { width: 34px; height: 34px; margin-right: -4px; --ico: 20px; color: var(--fg-2); }
+.editor-back { width: 34px; height: 34px; margin-right: -4px; --ico: var(--ico-lg); color: var(--fg-2); }
 .editor-back[data-tip]::after { left: 0; transform: translate(0, -3px); }
 .editor-back[data-tip]:hover::after { transform: translate(0, 0); }
 .editor-title { margin: 0; font: inherit; }
@@ -124,7 +124,7 @@
 .editor-info-meta .mono { color: var(--fg-3); overflow: hidden; text-overflow: ellipsis; }
 .editor-info[data-compare="on"] .editor-info-meta b { color: var(--a); }
 .editor-info-actions { display: flex; align-items: center; gap: 2px; flex: none; }
-.editor-info-actions .ibtn { width: 32px; height: 32px; --ico: 17px; color: var(--fg-2); }
+.editor-info-actions .ibtn { width: 32px; height: 32px; --ico: var(--ico-md); color: var(--fg-2); }
 .editor-info-actions .ibtn:hover { color: var(--fg); background: var(--hover); }
 .editor-info-actions .ibtn:disabled { opacity: 0.45; pointer-events: none; }
 .editor-info-actions [data-tip]::after { left: auto; right: 0; transform: translate(0, -3px); }
@@ -159,7 +159,7 @@
 .editor-tool {
   display: inline-flex; align-items: center; gap: 6px; flex: none;
   height: 32px; padding: 0 10px 0 8px;
-  --ico: 17px;
+  --ico: var(--ico-md);
   font-size: var(--fz-xs); font-weight: var(--fw-medium); white-space: nowrap;
   color: var(--fg-2); border-radius: var(--r2);
   transition: color var(--t1) var(--e), background var(--t1) var(--e);
@@ -171,7 +171,7 @@
 .editor-tool:disabled { opacity: 0.4; pointer-events: none; }
 .editor-tool .caret { width: 5px; height: 5px; margin: -3px 0 0 1px; border-color: currentColor; opacity: 0.7; }
 .editor-tool[aria-expanded="true"] .caret { margin-top: 3px; transform: rotate(225deg) translate(-1px, -1px); }
-.editor-toolbar .ibtn { width: 32px; height: 32px; --ico: 17px; color: var(--fg-2); }
+.editor-toolbar .ibtn { width: 32px; height: 32px; --ico: var(--ico-md); color: var(--fg-2); }
 .editor-toolbar .ibtn:hover { color: var(--fg); background: var(--hover); }
 .editor-toolbar .ibtn[aria-pressed="false"] { color: var(--fg-3); }
 .editor-toolbar .ibtn[aria-pressed="true"] { color: var(--a); background: var(--a-dim); }
@@ -257,11 +257,10 @@
   position: absolute; top: 3px; left: 3px;
   width: 17px; height: 17px;
   display: grid; place-items: center;
-  --ico: 11px;
+  --ico: var(--ico-xs);
   color: var(--a-ink); background: var(--a);
   border-radius: 5px;
 }
-.tile-pin .ico { stroke-width: 2.2; }
 
 /* ── Phones and small tablets: one scrolling column ─────────── */
 @media (max-width: 860px) {

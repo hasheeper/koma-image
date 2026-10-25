@@ -15,6 +15,7 @@ before(async () => {
   await mkdir(".local/ask/a3", { recursive: true });
   await mkdir(".local/ask/a2", { recursive: true });
   await mkdir(".local/ask/a1", { recursive: true });
+  await mkdir(".local/ask/h4", { recursive: true });
   server = await createServer({ server: { host: "127.0.0.1", port: 0, open: false } });
   await server.listen();
   origin = `http://127.0.0.1:${server.httpServer.address().port}`;
@@ -24,7 +25,7 @@ after(async () => { await browser?.close(); await server?.close(); });
 
 const hosts = { image: "gateway.example.test", chat: "chat.example.test", claude: "claude.example.test" };
 const reasoning = /^\/v1\/(?:chat\/completions|messages)$/;
-async function open(hash, { ready = "#settingsPanel[open]", ask = null, standard = false, touch = false } = {}) {
+async function open(hash, { ready = "#settingsPanel[open]", ask = null, standard = false, chatModel = false, touch = false } = {}) {
   const context = await browser.newContext({ viewport: { width: 1440, height: 900 }, reducedMotion: "reduce", hasTouch: touch });
   const page = await context.newPage(), requests = [], errors = [], llm = [], calls = [];
   page.setDefaultTimeout(12000);
@@ -52,7 +53,9 @@ async function open(hash, { ready = "#settingsPanel[open]", ask = null, standard
     if (standard && url.hostname === hosts.image) {
       if (url.pathname.endsWith("/image/models")) return route.fulfill({ json: {
         studio_features: { version: 2, max_cost: true }, valid_samplers: ["k_euler_ancestral", "k_euler"],
-        models: { "nai-diffusion-5-full": { name: "NAI V5", provider: "novelai", max_resolution: 2200000, quota_group: "novelai" }, "nai-diffusion-4-5-full": { name: "NAI V4.5", provider: "novelai", max_resolution: 1048576, quota_group: "novelai" } },
+        models: { "nai-diffusion-5-full": { name: "NAI V5", provider: "novelai", max_resolution: 2200000, quota_group: "novelai" }, "nai-diffusion-4-5-full": { name: "NAI V4.5", provider: "novelai", max_resolution: 1048576, quota_group: "novelai" },
+          ...(chatModel ? { "gpt-image-2": { name: "GPT Image 2", provider: "openai", operations: ["generate", "edit"], tools: ["image-edit"], quota_group: "openai",
+            image_capabilities: { fields: { quality: { options: ["auto", "low", "high"], default: "auto" }, size: { options: ["1024x1024", "1536x1024"], default: "1024x1024" } } } } } : {}) },
       } });
       if (url.pathname.endsWith("/media/quota")) return route.fulfill({json:{credits:{remaining:100},images:{novelai:{used:0,remaining:100,limit:100}}}});
       if (url.pathname.endsWith("/token_stats_data")) return route.fulfill({json:{temp_limits:{is_temp:false}}});
@@ -1607,7 +1610,10 @@ test('ASK A2: cross-workspace application reveals destination, chat composer sta
     assert.match(await page.locator('.ask-draft-apply').textContent(),/切回绘图并应用/);
     await applyDraft(page);assert.equal(await page.evaluate(()=>location.hash),'#/image');
     await page.evaluate(()=>chat.setPrompt('original chat text'));
+    // Asked outside CHAT, a composer patch is redirected to chat_handoff; propose it in CHAT, apply from IMAGE.
+    await route(page,'#/chat');await page.locator('#chatPrompt').waitFor();
     await askDraft(page,llm,[patchStep('rewrite','','composed description','chat.composer')],'整理对话输入');
+    await route(page,'#/image');await page.waitForFunction(()=>location.hash==='#/image');
     assert.match(await page.locator('.ask-draft-apply').textContent(),/切回对话并应用/);
     await applyDraft(page);assert.equal(await page.evaluate(()=>location.hash),'#/chat');
     await page.waitForFunction(()=>document.activeElement?.id==='chatPrompt');
@@ -1615,6 +1621,155 @@ test('ASK A2: cross-workspace application reveals destination, chat composer sta
     await page.keyboard.press('Control+z');await reverted(page);
     assert.equal(await page.locator('#chatPrompt').inputValue(),'original chat text');
     assert.equal(generation(requests).length,0);assert.deepEqual(errors,[]);
+  }finally{await context.close();}
+});
+
+test('ASK H0: unopened CHAT is read from storage; warming issues no quote or quota; opening CHAT resumes them',{timeout:45000},async()=>{
+  const {page,context,llm,calls,requests,errors}=await open('/#/chat',{ready:'#chatPrompt',ask:askSettings(),standard:true,chatModel:true});
+  try {
+    await bind(page);await page.waitForFunction(()=>chat.snapshot().ready);
+    await page.locator('#chatPrompt').fill('stored text');
+    await page.waitForFunction(()=>chat.snapshot().quote);
+    await page.evaluate(()=>chat.flush());
+    await page.evaluate(()=>{location.hash='#/image';});await page.reload();await page.waitForSelector('.switcher');
+    await bind(page);await page.waitForTimeout(800);
+    assert.equal(await page.evaluate(()=>chat.snapshot().loaded),false);
+    const start=requests.length;
+    llm.push({body:openai(tool('ctx','get_chat_context'),end('tool_calls'))},{body:openai(text('输入框里已有内容。'),end())});
+    await page.evaluate(()=>ask.show());await page.locator('#askPrompt').fill('对话输入框写了什么？');await page.locator('#askPrompt').press('Enter');
+    await page.waitForFunction(()=>!ask.running.value&&chat.snapshot().ready);
+    assert.match(JSON.stringify(calls[1].body.messages.at(-1)),/stored text/);
+    await page.waitForTimeout(800);
+    assert.deepEqual(billing(requests.slice(start)),[]);assert.equal(await page.evaluate(()=>location.hash),'#/image');
+    await route(page,'#/chat');await page.locator('#chatPrompt').waitFor();
+    assert.equal(await page.locator('#chatPrompt').inputValue(),'stored text');
+    await page.waitForFunction(()=>chat.snapshot().quote);
+    assert.ok(billing(requests.slice(start)).some(r=>r.path.endsWith('/estimate')));
+    assert.deepEqual(errors,[]);
+  }finally{await context.close();}
+});
+
+const billing=list=>list.filter(r=>/\/(estimate|media\/quota|token_stats_data)$/.test(r.path));
+const handoffStep=(images,text,options={size:'1536x1024'})=>({kind:'chat_handoff',images,options,text});
+test('ASK H3: IMAGE handoff opens a new CHAT conversation with #h, size and text; no quote until the user edits; undo removes it, redo reopens it',{timeout:60000},async()=>{
+  const {page,context,llm,requests,errors}=await open('/#/chat',{ready:'#chatPrompt',ask:askSettings(),standard:true,chatModel:true});
+  try {
+    await bind(page);await page.waitForFunction(()=>chat.snapshot().ready);
+    await page.locator('#chatPrompt').fill('old chat text');await page.waitForFunction(()=>chat.snapshot().quote);
+    await page.evaluate(()=>chat.flush());
+    await page.evaluate(()=>{location.hash='#/image';});await page.reload();await page.waitForSelector('.switcher');
+    await bind(page);await page.waitForFunction(()=>drawing.snapshot().models.length===2);
+    await addImage(page,'adult woman, red coat');
+    // IMAGE quotes its own form; let that settle so only ASK and CHAT are measured.
+    await page.waitForFunction(()=>drawing.snapshot().quote.status==='ready');await page.waitForTimeout(150);
+    const settings=await page.evaluate(()=>localStorage.getItem('koma.chat.settings.v1')),start=requests.length;
+    await askDraft(page,llm,[handoffStep(['#h1'],'改为两人脸贴脸的横版特写')],'把 #h1 交给对话改横版','交给对话');
+    const plan=await page.evaluate(()=>{const p=ask.draftPlan.value;return {ids:p.steps.map(s=>s.id),issues:p.steps.filter(s=>s.issue),handoff:p.handoff};});
+    assert.deepEqual(plan.ids,['0:new','0:image:0','0:option:size','0:text']);assert.deepEqual(plan.issues,[]);
+    assert.deepEqual(plan.handoff.images.map(i=>[i.label,i.source]),[['#h1','history']]);
+    const source=await page.evaluate(()=>chat.snapshot().current.id);
+    await applyDraft(page);assert.equal(await page.evaluate(()=>location.hash),'#/chat');
+    await page.waitForFunction(()=>document.activeElement?.id==='chatPrompt');
+    assert.equal(await page.locator('#chatPrompt').inputValue(),'改为两人脸贴脸的横版特写');
+    const opened=await page.evaluate(()=>{const s=chat.snapshot(),c=s.current;return {id:c.id,count:s.conversations.length,attachments:c.attachments.length,options:c.settings.options,origin:chat.assets.assets.get(c.attachments[0])?.origin};});
+    assert.notEqual(opened.id,source);assert.equal(opened.count,2);assert.equal(opened.attachments,1);assert.equal(opened.origin,'image');
+    assert.deepEqual(opened.options,{quality:'auto',size:'1536x1024'});
+    await page.waitForTimeout(1200);
+    assert.equal(await page.evaluate(()=>chat.snapshot().quote),null);
+    assert.equal(await page.evaluate(()=>localStorage.getItem('koma.chat.settings.v1')),settings);
+    await page.keyboard.press('Control+z');await reverted(page);
+    const back=await page.evaluate(()=>{const s=chat.snapshot();return {id:s.current.id,count:s.conversations.length};});
+    assert.deepEqual(back,{id:source,count:1});assert.equal(await page.locator('#chatPrompt').inputValue(),'old chat text');
+    await restoreCheckpoint(page);
+    assert.equal(await page.locator('#chatPrompt').inputValue(),'改为两人脸贴脸的横版特写');
+    assert.equal(await page.evaluate(()=>chat.snapshot().conversations.length),2);
+    await page.waitForTimeout(1200);
+    assert.deepEqual(billing(requests.slice(start)),[]);
+    assert.deepEqual(requests.slice(start).filter(r=>r.host===hosts.image&&!r.path.endsWith('/image/models')),[]);
+    await page.locator('#chatPrompt').press('End');await page.keyboard.type('，柔光');
+    await page.waitForFunction(()=>chat.snapshot().quote);
+    assert.equal(await page.evaluate(()=>ask.canUndoDraft.value),false);
+    assert.deepEqual(errors,[]);
+  }finally{await context.close();}
+});
+
+test('ASK H3: CHAT handoff reuses the blank conversation, references #c2.1.2 without copying, and undo empties it again',{timeout:60000},async()=>{
+  const {page,context,llm,requests,errors}=await open('/#/chat',{ready:'#chatPrompt',ask:askSettings(),standard:true,chatModel:true});
+  try {
+    await bind(page);await page.waitForFunction(()=>chat.snapshot().ready);
+    const ids=await page.evaluate(async()=>{
+      const d=await import('/src/domain/conversation.ts');
+      const canvas=new OffscreenCanvas(64,64),g=canvas.getContext('2d'),ids=[];
+      for(let i=0;i<3;i++){g.fillStyle=['#4b638b','#866152','#746085'][i];g.fillRect(0,0,64,64);ids.push((await chat.assets.add(await canvas.convertToBlob({type:'image/png'}),`synthetic${i}`,{width:64,height:64})).id);}
+      chat.mutate(c=>{
+        let r=d.beginTurn(c,d.contextSnapshot(c),'第 1 轮描述',{});d.completeVersion(c,r.turn,r.version,[{type:'image',assetId:ids[0]}],null,c.selectionRevision);
+        r=d.beginTurn(c,d.contextSnapshot(c),'第 2 轮描述',{});d.completeVersion(c,r.turn,r.version,[{type:'image',assetId:ids[1]},{type:'image',assetId:ids[2]}],null,c.selectionRevision);
+        c.prompt='原来的下一轮';
+      });
+      const seeded=chat.snapshot().current;
+      chat.addConversation();chat.switchConversation(chat.snapshot().conversations.find(c=>c.id===seeded.id));
+      await chat.flush();
+      return ids;
+    });
+    const before=await page.evaluate(()=>{const s=chat.snapshot();return {current:s.current.id,count:s.conversations.length,blank:s.conversations.find(c=>!c.turns.length&&!c.prompt).id};});
+    assert.equal(before.count,2);
+    await page.waitForTimeout(900);const start=requests.length;
+    await askDraft(page,llm,[handoffStep(['#c2.1.2'],'只保留第二张的构图')],'用 #c2.1.2 新开对话','交给新对话');
+    assert.equal(await page.locator('#askFullDraft .ask-draft-apply').textContent(),'新开对话并应用');
+    assert.deepEqual(await page.locator('#askFullDraft .draft-ref .ask-id').allTextContents(),['#c2.1.2']);
+    await applyDraft(page);
+    const opened=await page.evaluate(()=>{const s=chat.snapshot();return {current:s.current.id,count:s.conversations.length,attachments:[...s.current.attachments],prompt:s.current.prompt};});
+    assert.deepEqual(opened,{current:before.blank,count:2,attachments:[ids[2]],prompt:'只保留第二张的构图'});
+    await undoCheckpoint(page);
+    const back=await page.evaluate((blank)=>{const s=chat.snapshot(),c=s.conversations.find(c=>c.id===blank);return {current:s.current.id,count:s.conversations.length,blank:!!c&&!c.prompt&&!c.attachments.length};},before.blank);
+    assert.deepEqual(back,{current:before.current,count:2,blank:true});
+    assert.equal(await page.locator('#chatPrompt').inputValue(),'原来的下一轮');
+    await page.waitForTimeout(1200);
+    assert.deepEqual(billing(requests.slice(start)),[]);
+    assert.deepEqual(errors,[]);
+  }finally{await context.close();}
+});
+
+test('ASK H4: handoff card names the new conversation, shows reference rows and verbatim input at four widths; a removed image marks only its row',{timeout:60000},async()=>{
+  const {page,context,llm,errors}=await open('/#/image',{ready:'.switcher',ask:askSettings(),standard:true,chatModel:true});
+  try {
+    await bind(page);await page.waitForFunction(()=>drawing.snapshot().models.length===2);
+    const first=await addImage(page,'adult woman, red coat');await addImage(page,'two adult women, cheek to cheek');
+    const text='参考 #h1 的人物和 #h2 的构图，改成横版特写\n保持红色外套';
+    await askDraft(page,llm,[handoffStep(['#h1','#h2'],text)],'把两张交给对话','交给对话改横版');
+    const card=page.locator('#askFullDraft .ask-draft'),model=await page.evaluate(()=>chat.snapshot().model.name);
+    assert.equal(await card.locator('.draft-destination').textContent(),`新对话·${model}`);
+    assert.equal(await card.locator('.ask-draft-apply').textContent(),'切到对话并新开');
+    assert.match(await card.locator('.ask-draft-apply').getAttribute('title'),/^新开对话写入参考图、画幅和输入框，不会发送 · Tab$/);
+    assert.equal(await card.locator('[data-step="0:new"]').count(),0);
+    assert.deepEqual(await card.locator('.draft-ref .ask-id').allTextContents(),['#h1','#h2']);
+    await page.waitForFunction(()=>{const images=[...document.querySelectorAll('#askFullDraft .draft-thumb img')];return images.length===2&&images.every(i=>i.complete&&i.naturalWidth>0);});
+    assert.deepEqual(await card.locator('.draft-ref .draft-dim').allTextContents(),['256×384','256×384']);
+    assert.equal(await card.locator('[data-field="composer"] .draft-text').textContent(),text);
+    assert.equal(await card.locator('[data-field="composer"] .draft-seg').count(),0);
+    assert.match(await card.locator('[data-step="0:option:size"] .draft-value').textContent(),/横向$/);
+    for(const width of [320,390,768,1440]){
+      await page.setViewportSize({width,height:width>860?900:844});await page.waitForTimeout(150);
+      assert.ok(await card.evaluate(el=>{const r=el.getBoundingClientRect(),b=el.querySelector('.ask-draft-apply').getBoundingClientRect();
+        return el.scrollWidth<=el.clientWidth+1&&b.left>=r.left-1&&b.right<=r.right+1&&[...el.querySelectorAll('.draft-ref')].every(row=>row.scrollWidth<=row.clientWidth+1);}),`${width}px`);
+      await page.screenshot({path:`.local/ask/h4/handoff-${width}.png`});
+      await page.evaluate(()=>ask.hide());
+      const island=page.locator('#askIsland .ask-draft.compact');await island.waitFor();
+      assert.equal(await island.locator('.draft-destination').textContent(),`新对话·${model}`);
+      assert.equal(await island.locator('.ask-draft-apply').textContent(),'切到对话并新开');
+      assert.equal(await island.locator('.draft-apply-more').count(),0);
+      await page.screenshot({path:`.local/ask/h4/handoff-island-${width}.png`});
+      await page.evaluate(()=>ask.show());await card.waitFor();
+    }
+    await page.setViewportSize({width:1440,height:900});
+    await page.evaluate(id=>drawing.remove(id),first);
+    await page.locator('#askFullDraft [data-step="0:image:0"] .draft-thumb.gone').waitFor();
+    assert.equal(await card.locator('[data-step="0:image:0"] .draft-issue').textContent(),'图片已移除');
+    assert.ok(await card.locator('[data-step="0:image:0"] .ask-id').isDisabled());
+    assert.equal(await card.locator('[data-step="0:image:1"] .draft-issue').count(),0);
+    assert.equal(await card.locator('.ask-draft-apply').isEnabled(),true);
+    await page.screenshot({path:'.local/ask/h4/handoff-removed-1440.png'});
+    assert.deepEqual(errors,[]);
   }finally{await context.close();}
 });
 

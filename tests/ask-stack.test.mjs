@@ -1,30 +1,51 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { newConversation, chatDraftKey, chatSelection } from '../src/domain/conversation.ts';
+import { newConversation, chatDraftKey, chatSelection, isBlank } from '../src/domain/conversation.ts';
 import { DEFAULTS } from '../src/domain/drawing.ts';
 import { createDraftStack, UNDO_LIMIT } from '../src/ask/draft/stack.ts';
 import { createDraftWriter } from '../src/ask/draft/apply.ts';
 
 function fixture() {
-  let form = { ...DEFAULTS }, current = newConversation(), writes = 0, failure = '';
+  let form = { ...DEFAULTS }, current = newConversation(), conversations = [current], writes = 0, failure = '';
+  const origins = new Map();
   const router = { route: { value: { workspace: 'image', overlay: null } }, switchWorkspace(w) { this.route.value.workspace = w; } };
   const guard = () => { if (failure) throw new Error(failure); writes++; };
-  const writer = createDraftWriter({ snapshot: () => ({ form }), async writeDraft(values) { guard(); Object.assign(form, values); } }, {
-    snapshot: () => ({ current }),
+  const writer = createDraftWriter({ snapshot: () => ({ form, history: [], favorites: [] }), async writeDraft(values) { guard(); Object.assign(form, values); } }, {
+    snapshot: () => ({ current, conversations }),
     async writeDraft(text) { guard(); current.prompt = text; },
     async writeBranchDraft(next, expected) { assert.equal(chatDraftKey(current), expected); guard(); Object.assign(current, structuredClone(next)); current.selectionRevision++; return chatDraftKey(current); },
+    // Mirrors chat.writeHandoffDraft: reuse the blank conversation or open one, then show it.
+    async writeHandoffDraft(draft) {
+      guard();
+      const source = current, blank = conversations.find(isBlank), before = blank ? structuredClone(blank) : null, target = blank ?? newConversation();
+      if (!blank) conversations.push(target);
+      Object.assign(target, { prompt: draft.text, attachments: draft.images.map((i) => i.asset), settings: { model: draft.model, options: { ...draft.options } } });
+      target.selectionRevision++; current = target; origins.set(target.id, { before, source: source.id });
+      return chatDraftKey(target);
+    },
+    async undoHandoffDraft(receipt) {
+      const id = JSON.parse(receipt)[0], target = conversations.find((c) => c.id === id), origin = origins.get(id);
+      assert.equal(chatDraftKey(target), receipt); guard();
+      if (origin.before) Object.assign(target, structuredClone(origin.before), { selectionRevision: target.selectionRevision + 1 });
+      else conversations = conversations.filter((c) => c !== target);
+      if (current === target) current = conversations.find((c) => c.id === origin.source) ?? conversations[0];
+      return chatDraftKey(current);
+    },
+    handoffOrigin: (id) => origins.get(id) ?? null,
   }, router);
   const stack = createDraftStack(writer);
-  const make = (changes, workspace = 'image', branch) => ({ title: '测试草稿', workspace, conversationId: current.id, steps: [], changes, branch, fingerprint: 'fixture', aligned: false });
+  const make = (changes, workspace = 'image', branch, handoff) => ({ title: '测试草稿', workspace, conversationId: current.id, steps: [], changes, branch, handoff, fingerprint: 'fixture', aligned: false });
   const image = (values) => make(Object.entries(values).map(([field, after]) => ({ field, before: form[field], after })));
   const composer = (text) => make([{ field: 'composer', before: current.prompt, after: text }], 'chat');
   const branch = (text) => make([], 'chat', { key: chatDraftKey(current), before: chatSelection(current), after: { ...chatSelection(current), prompt: text, baseFollows: !current.baseFollows } });
+  const handoff = (text, images = []) => make([{ field: 'composer', before: '', after: text }], 'chat', undefined, { model: 'gpt-image', options: { size: '1536x1024' }, text, images });
   const apply = async (plan, owner = 'ask-a') => {
     const record = stack.create({ title: plan.title, steps: [], base: {}, question: '', baseHash: '' }, owner, 1);
     await stack.apply(record, plan);
     return record;
   };
-  return { stack, writer, image, composer, branch, apply, form, current, router, writes: () => writes, fail: (v) => failure = v };
+  return { stack, writer, image, composer, branch, handoff, apply, form, get current() { return current; }, set current(c) { current = c; },
+    get conversations() { return conversations; }, set conversations(list) { conversations = list; }, router, writes: () => writes, fail: (v) => failure = v };
 }
 
 test('W3 stack: shared LIFO, one redo, new applications clear redo and no old draft becomes pending', async () => {
@@ -162,4 +183,34 @@ test('W4 removal: clears removed turns and their redo, preserves unrelated histo
   f.stack.removeTurns('ask-a', new Set([99])); assert.equal(f.stack.top, a); assert.equal(f.stack.redo, b);
   f.stack.removeTurns('ask-b', new Set([1])); assert.equal(f.stack.top, a); assert.equal(f.stack.redo, null);
   assert.equal(f.writes(), 3); assert.equal(f.form.prompt, 'a');
+});
+
+test('H3 stack: a handoff opens its own conversation, undo returns to the source, and simulation matches', async () => {
+  const f = fixture(), source = f.current;
+  const a = await f.apply(f.composer('source text'));
+  const h = await f.apply(f.handoff('new text', [{ label: '#c1.1', source: 'chat', ref: 'asset-1' }]));
+  assert.notEqual(f.current, source); assert.equal(f.current.prompt, 'new text'); assert.equal(f.conversations.length, 2);
+  assert.equal(h.beforeReceipt, chatDraftKey(source)); assert.equal(JSON.parse(h.receipt)[0], f.current.id);
+  const snapshot = structuredClone({ conversations: f.conversations, current: f.current });
+  assert.deepEqual(f.stack.preflight([a.id, h.id]), [h.id, a.id]);
+  assert.deepEqual({ conversations: f.conversations, current: f.current }, snapshot);
+  await f.stack.undo(h.id); assert.equal(f.current, source); assert.equal(f.conversations.length, 1);
+  await f.stack.restore(h.id); assert.equal(f.current.prompt, 'new text'); assert.equal(f.conversations.length, 2);
+  await f.stack.undo(h.id); await f.stack.undo(a.id); assert.equal(source.prompt, '');
+});
+
+test('H3 stack: an edited or deleted handoff conversation cannot be undone; a reused blank one is emptied', async () => {
+  const f = fixture(), h = await f.apply(f.handoff('new text'));
+  assert.equal(f.conversations.length, 1, 'the blank conversation is reused');
+  f.current.settings = { model: 'gpt-image', options: { size: '1024x1024' } };
+  await assert.rejects(f.stack.undo(h.id), /新对话已继续编辑/);
+  assert.throws(() => f.stack.preflight([h.id]), /新对话已继续编辑/);
+  f.current.settings = { model: 'gpt-image', options: { size: '1536x1024' } };
+  await f.stack.undo(h.id); assert.equal(isBlank(f.current), true); assert.deepEqual(f.current.settings, {});
+  await f.stack.restore(h.id);
+  const opened = f.current;
+  f.conversations = [newConversation()]; f.current = f.conversations[0];
+  await assert.rejects(f.stack.undo(h.id), /新对话已删除/);
+  f.conversations = [opened]; f.current = opened;
+  assert.equal(f.writer.canUndo(h.plan, h.receipt), true);
 });

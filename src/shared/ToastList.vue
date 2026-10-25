@@ -132,7 +132,7 @@ onBeforeUnmount(() => {
 .toast[data-tone="warn"] { --tc: var(--warn); }
 .toast[data-tone="err"] { --tc: var(--err); }
 .toast:has(.toast-action, .toast-x) { padding-right: 8px; }
-.toast-ico { --ico: 18px; color: var(--tc); stroke-width: 1.7; }
+.toast-ico { --ico: var(--ico-lg); color: var(--tc); }
 .toast-spinner {
   flex: none; width: 18px; height: 18px;
   border: 2px solid var(--a-dim); border-top-color: var(--tc);
@@ -161,7 +161,7 @@ onBeforeUnmount(() => {
 }
 .toast-action + .toast-x { margin-left: -6px; }
 .toast-x:hover { color: var(--fg); background: var(--hover); }
-.toast-x-ico { --ico: 16px; }
+.toast-x-ico { --ico: var(--ico-md); }
 .toast-timer {
   position: absolute; left: 0; right: 0; bottom: 0; height: 2px;
   background: var(--tc); opacity: 0.5;

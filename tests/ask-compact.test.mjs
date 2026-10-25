@@ -200,7 +200,8 @@ test('CP1 memo v7: completed non-length memo required; scope instruction stays o
   assert.equal(extractCompletedMemo('开场\n<memo>原文 <tag></memo>\n结束', 'end'), '原文 <tag>');
   for (const [body, stop, calls] of [['<memo>x</memo>', 'length'], ['<memo>x</memo>', 'refusal'], ['<memo>x</memo>', 'end', true], ['<memo>x', 'end'], ['<memo> </memo>', 'end'], ['', 'other']])
     assert.throws(() => extractCompletedMemo(body, stop, calls));
-  assert.equal(compactionPrompt.version, 7); assert.match(promptVersion, /\.k7$/);
+  assert.equal(compactionPrompt.version, 8); assert.match(promptVersion, /\.k8$/);
+  assert.match(compactionPrompt.instruction, /成立的具体前提/); assert.match(compactionPrompt.instruction, /画风基底/);
   assert.match(compactionPrompt.instruction, /截至归档边界/); assert.doesNotMatch(compactionPrompt.instruction, /截至目前|尽量按原话复述/);
   assert.match(compactionPrompt.instruction, /不复述、引用或改写这些原话/);
   assert.match(compactionPrompt.instruction, /边界之后的轮次以原文保留，不在此整理/);

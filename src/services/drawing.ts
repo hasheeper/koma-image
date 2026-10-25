@@ -5,7 +5,6 @@ import {
   count,
   batchParams,
   drawingPayload,
-  reuseFields,
   sizeProblem,
   prepareDrawingFields,
   rollbackDrawingEdit,
@@ -1029,12 +1028,6 @@ export function createDrawing(
       reveal = fn;
     },
     toggleFavorite,
-    reuse() {
-      if (current) {
-        apply(reuseFields(current));
-        notify("已填入参数", "ok");
-      }
-    },
     remove(id: string) {
       history = history.filter((r) => r.id !== id);
       if (current?.id === id && !favorites.some((r) => r.id === id)) {

@@ -7,8 +7,8 @@ interface Entry {
   readonly favoritedAt?: number;
 }
 export interface IdSnapshot { readonly history: readonly string[]; readonly favorites: readonly string[] }
-/** `#h12`, `#f3`, `#c4.2`, `#a1` as they appear in questions and replies. */
-export const idPattern = /#(?:h\d+|f\d+|a\d+|c\d+\.\d+)(?!\w)/g;
+/** `#h12`, `#f3`, `#c4.2`, `#c4.2.1`, `#a1` as they appear in questions and replies. */
+export const idPattern = /#(?:h\d+|f\d+|a\d+|c\d+\.\d+(?:\.\d+)?)(?!\w)/g;
 
 /**
  * Display IDs for one page session. Numbers only grow: a removed image keeps

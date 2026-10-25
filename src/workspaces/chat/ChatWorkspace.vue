@@ -6,6 +6,7 @@ import { useServices } from "../../app/services";
 import { useUi } from "../../app/ui";
 import { useWorkspaceLifecycle } from "../../app/workspace-lifecycle";
 import { chatOptions } from "../../services/chat";
+import { chatOptionLabel, chatOptionNames } from "../../domain/chat-options";
 import { names } from "../../storage/names";
 import { quoteLabel } from "../../domain/quote";
 import WorkspaceSwitch from "../../shared/WorkspaceSwitch.vue";
@@ -48,24 +49,6 @@ const full = ref(""),
     return -1;
   }),
   options = computed(() => chatOptions(c.value));
-const labels: Record<string, string> = {
-    quality: "质量",
-    size: "画幅",
-    aspect_ratio: "比例",
-    image_size: "分辨率",
-    output_format: "格式",
-  },
-  values: Record<string, string> = {
-    auto: "自动",
-    low: "草稿",
-    medium: "标准",
-    high: "高质量",
-    xhigh: "超高",
-    max: "最高",
-    "1024x1024": "方形",
-    "1536x1024": "横向",
-    "1024x1536": "竖向",
-  };
 /* A starter only fills the composer; nothing is sent, or charged, until the
    user sends it. */
 const starters = [
@@ -82,11 +65,10 @@ const starters = [
     prompt: "水彩风格，森林深处的小木屋，清晨薄雾，柔和配色",
   },
 ];
-const label = (v: string) => values[v] || v.toUpperCase(),
-  summary = computed(() =>
+const summary = computed(() =>
     Object.entries(view.value.model?.fields || {})
       .filter(([k, f]) => options.value[k] !== f.default)
-      .map(([k]) => label(options.value[k] || ""))
+      .map(([k]) => chatOptionLabel(options.value[k] || ""))
       .join(" · "),
   );
 const groups = computed(() =>
@@ -771,9 +753,9 @@ onDeactivated(() => {
           :key="key"
           class="param-row"
           role="radiogroup"
-          :aria-label="labels[key] || key"
+          :aria-label="chatOptionNames[key] || key"
         >
-          <span class="param-name">{{ labels[key] || key }}</span>
+          <span class="param-name">{{ chatOptionNames[key] || key }}</span>
           <div class="param-chips">
             <label
               v-for="value in field.options"
@@ -784,7 +766,7 @@ onDeactivated(() => {
                 :name="`chatOption-${key}`"
                 :checked="options[key] === value"
                 @change="chat.setOption(key, value)"
-              /><span>{{ label(value) }}</span></label
+              /><span>{{ chatOptionLabel(value) }}</span></label
             >
           </div>
         </div>

@@ -1,7 +1,7 @@
 import { characterCapability, characterSummary, nextCharacterId } from "../domain/characters.ts";
 import { boardForm, boardColors } from "../domain/drawing.ts";
 import { stateHash } from "./draft/validate.ts";
-import { chatSnapshot, chatContext, chatPictures } from "./chat-context.ts";
+import { chatSnapshot, chatContext, chatDraftModel, chatImages, chatModelState, chatPictures } from "./chat-context.ts";
 import { computed, nextTick, shallowRef, watch } from "vue";
 import type { ShallowRef } from "vue";
 import type { ApplicationServices } from "../services/application.ts";
@@ -43,7 +43,7 @@ import { validateDraft } from "./draft/validate.ts";
 import { createDraftStack } from "./draft/stack.ts";
 import type { DraftRecord } from "./draft/stack.ts";
 import { draftView } from "./draft/view.ts";
-import type { Draft, DraftPlan, DraftState } from "./draft/types.ts";
+import type { Draft, DraftPlan, DraftState, HandoffImage } from "./draft/types.ts";
 import { ATTACHMENT_LIMITS, attachmentBlocks, attachmentCapacity, attachmentPictures, attachmentView, createAttachments, prepareAttachment } from "./attachments.ts";
 import type { AttachmentView } from "./attachments.ts";
 import { boardNameContent, conversationNameContent, namingRequest, readGeneratedName } from "./naming.ts";
@@ -329,11 +329,18 @@ export function createAsk(deps: {
   function readDraftState(boardId?: string): DraftState {
     const d = drawing.snapshot(), c = chat.snapshot().current;
     const board = d.boards.find(b => b.id === (boardId ?? d.activeBoardId));
-    return { boardId: boardId ?? d.activeBoardId, boardName: board?.name, boardPresent: !!board, nextCharacterId: board?.nextCharacterId, form: structuredClone({ ...d.form, ...board?.form }), composer: c.prompt, conversationId: c.id, chat: chatSnapshot(chat.snapshot()), models: [...d.models], samplers: [...d.samplers], samplersByModel: Object.fromEntries(d.models.map((m) => [m.id, drawing.samplersFor(m.id)])) };
+    return { boardId: boardId ?? d.activeBoardId, boardName: board?.name, boardPresent: !!board, nextCharacterId: board?.nextCharacterId, form: structuredClone({ ...d.form, ...board?.form }), composer: c.prompt, conversationId: c.id, chat: chatSnapshot(chat.snapshot()), models: [...d.models], samplers: [...d.samplers], samplersByModel: Object.fromEntries(d.models.map((m) => [m.id, drawing.samplersFor(m.id)])),
+      workspace: router.route.value.workspace, chatModel: chatDraftModel(chat.snapshot()) };
+  }
+  /** Handoff images are checked live: IMAGE records by ID, CHAT pictures by asset. */
+  function hasImage(image: HandoffImage) {
+    if (image.source === "chat") return chat.assets.assets.has(image.ref);
+    const d = drawing.snapshot();
+    return d.history.some((r) => r.id === image.ref) || d.favorites.some((r) => r.id === image.ref);
   }
   const draftPlan = computed(() => {
     void draftRevision.value;
-    return draft.value ? validateDraft(draft.value.draft, readDraftState(draft.value.draft.base.boardId), { off: draft.value.off }) : null;
+    return draft.value ? validateDraft(draft.value.draft, readDraftState(draft.value.draft.base.boardId), { off: draft.value.off, has: hasImage }) : null;
   });
   const undoTarget = computed(() => {
     void draftRevision.value;
@@ -363,6 +370,7 @@ export function createAsk(deps: {
   }
   const draftApplyLabel = computed(() => {
     const plan = draftPlan.value, workspace = plan?.workspace;
+    if (plan?.steps.some((s) => s.kind === "handoff")) return router.route.value.workspace === "chat" ? "新开对话并应用" : "切到对话并新开";
     if (workspace === "image" && plan?.newBoardName) return router.route.value.workspace === "image" ? "新建并应用" : "切回绘图并新建";
     if (workspace === "image" && plan?.boardId && drawing.snapshot().activeBoardId !== plan.boardId) return `切回${drawing.board(plan.boardId)?.name ?? "源画板"}并应用`;
     return workspace && router.route.value.workspace !== workspace ? `切回${workspace === "image" ? "绘图" : "对话"}并应用` : "应用";
@@ -393,9 +401,13 @@ export function createAsk(deps: {
   async function applyDraft(fingerprint: string, newBoard?: boolean) {
     const record = draft.value;
     if (!record || writingDraft.value || controller || disposed) return;
-    let plan = validateDraft(record.draft, readDraftState(record.draft.base.boardId), { off: record.off });
+    // A page that never opened CHAT has no restored conversation to write into.
+    writingDraft.value = true;
+    try { await chat.warm(); } finally { writingDraft.value = false; }
+    if (draft.value !== record || controller || disposed) return;
+    let plan = validateDraft(record.draft, readDraftState(record.draft.base.boardId), { off: record.off, has: hasImage });
     if (plan.fingerprint !== fingerprint) { draftRevision.value++; notice.value = "内容已变化，请核对更新后的草稿再应用"; return; }
-    if (!plan.changes.length && !plan.branch) return;
+    if (!plan.changes.length && !plan.branch && !plan.handoff) return;
     writingDraft.value = true; notice.value = "";
     try {
       if ((!!plan.newBoardName || newBoard === true) && plan.workspace === "image" && plan.boardId) {
@@ -408,7 +420,8 @@ export function createAsk(deps: {
       checkpoint(record);
       draft.value = null;
       appliedDraft.value = { id: record.id, workspace: plan.workspace };
-      say(`已应用草稿 ${plan.title} · ${plan.changes.length} 项 · ${plan.workspace === "image" ? "未生成" : "未发送"}`);
+      const count = plan.handoff ? plan.steps.filter((s) => s.enabled && !s.issue && !s.locked).length : plan.changes.length;
+      say(`已应用草稿 ${plan.title} · ${count} 项 · ${plan.workspace === "image" ? "未生成" : "未发送"}`);
       await focusWritten(plan);
     } catch (error) { notice.value = message(error); }
     finally { saveFavorite(); await flushFavorites().catch(() => {}); writingDraft.value = false; draftRevision.value++; }
@@ -418,6 +431,7 @@ export function createAsk(deps: {
     if (!record || record.id !== id || writingDraft.value || controller || disposed) return;
     writingDraft.value = true; notice.value = "";
     try {
+      await chat.warm();
       await (restore ? history.restore(id) : history.undo(id));
       checkpoint(record);
       appliedDraft.value = restore ? { id, workspace: record.plan!.workspace } : null;
@@ -476,6 +490,7 @@ export function createAsk(deps: {
               model: c.model?.name ?? null,
             }
           : null,
+      chatModel: chatModelState(c),
       ids,
     }, { formText });
     return inline.value ? { ...digest, json: JSON.stringify({ ...JSON.parse(digest.json), inline_selection: inline.value }) } : digest;
@@ -498,6 +513,7 @@ export function createAsk(deps: {
   const stops = [
     drawing.subscribe(syncDrawing),
     chat.subscribe(() => { draftRevision.value++; libraryRevision.value++; }),
+    watch(open, (shown) => { if (shown) void chat.warm(); }, { immediate: true }),
     preferences.subscribe((key) => {
       if (!key || key === names.ask) settings.value = readSettings();
       if (!key || key === names.askAdult) adult.value = readAdult();
@@ -704,6 +720,10 @@ export function createAsk(deps: {
         if (!current) return;
         provider = current;
       }
+      if (abort.signal.aborted || disposed) return;
+      // The CHAT snapshot must be the stored conversation, even if CHAT was never opened.
+      // Compaction reads no workspace state, so it starts without waiting.
+      await chat.warm();
       if (abort.signal.aborted || disposed) return;
       owner.session.checkedArchive();
       await runTurn(text, captured, provider, abort, () => {
@@ -943,7 +963,7 @@ export function createAsk(deps: {
         attachments: attached.map(a => a.id), targets: [...new Set([...(`${turnAnchor ?? ""} ${question}`.match(idPattern) ?? []),
           ...attached.filter(a => a.kind === "image").map(a => a.id), ...readTargets])],
         boards: [...readBoards],
-        ...(proposed ? { draft: recordDraft(proposed, validateDraft(proposed, draftBase, { off: new Set() })) } : {}) });
+        ...(proposed ? { draft: recordDraft(proposed, validateDraft(proposed, draftBase, { off: new Set(), has: hasImage })) } : {}) });
       working.committed = owner.session.turns;
       if (proposed) draft.value = history.create(proposed, owner.id, working.id);
       working.status = "done";
@@ -1100,6 +1120,7 @@ export function createAsk(deps: {
     const retained = entries.value.slice(0, index).reduce((count, e) => e.type === "turn" ? Math.max(count, e.turn.committed ?? 0) : count, 0);
     writingDraft.value = true; notice.value = "";
     try {
+      await chat.warm();
       const order = history.preflight(applied);
       for (const recordId of order) {
         checkpoint(await history.undo(recordId));
@@ -1364,10 +1385,9 @@ export function createAsk(deps: {
         return a?.kind === "image" ? { label, url: a.url, width: a.size.width, height: a.size.height } : null;
       }
       if (label.startsWith("#c")) {
-        const picture = chatPictures(chat.snapshot(), chat).find((p) => p.label === label);
-        const source = chatSnapshot(chat.snapshot()).sources.find((s) => s.label === label);
-        const asset = source?.assetId ? chat.assets.assets.get(source.assetId) : null;
-        return picture && asset ? { label, url: asset.url, width: asset.width, height: asset.height } : null;
+        const image = chatImages(chat.snapshot()).find((p) => p.aliases.includes(label));
+        const asset = image ? chat.assets.assets.get(image.assetId) : null;
+        return asset ? { label, url: asset.url, width: asset.width, height: asset.height } : null;
       }
       const id = ids.resolve(label), d = drawing.snapshot();
       const item = [...d.history, ...d.favorites].find((r) => r.id === id);
