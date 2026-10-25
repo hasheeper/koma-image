@@ -2,7 +2,7 @@ import { freeze } from "../domain/value.ts";
 
 export const STANDARD_PROFILE_ID = "koma-standard-v1";
 export type Protocol = "standard" | "openai-images" | "gemini-native" | "novelai" | "openai-chat" | "anthropic-messages";
-export type ProfilePath = "catalog" | "quota" | "stats" | "estimate" | "toolEstimate" | "generate" | "toolRun" | "native" | "reasoning";
+export type ProfilePath = "catalog" | "quota" | "stats" | "estimate" | "toolEstimate" | "generate" | "toolRun" | "native" | "reasoning" | "encodeVibe";
 export interface GatewayProfile {
   readonly id: string;
   readonly protocol?: Protocol;
@@ -77,7 +77,7 @@ export const NOVELAI_IMAGE_URL = "https://image.novelai.net";
 export const novelaiProfile: GatewayProfile = freeze({
   ...unquoted, id: "nai-official-v1", protocol: "novelai", label: "NovelAI 官方 · 基础接入",
   auth: { kind: "bearer" },
-  transport: { apiPrefix: "", paths: { catalog: "/user/subscription", quota: "/user/subscription", generate: "/ai/generate-image", toolRun: "/ai/generate-image" }, nativeHeaders: {}, pathBases: { catalog: "https://api.novelai.net", quota: "https://api.novelai.net" } },
+  transport: { apiPrefix: "", paths: { catalog: "/user/subscription", quota: "/user/subscription", generate: "/ai/generate-image", toolRun: "/ai/generate-image", encodeVibe: "/ai/encode-vibe" }, nativeHeaders: {} },
 });
 const reasoningOnly = {
   ...unquoted,

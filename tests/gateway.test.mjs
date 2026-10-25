@@ -4,10 +4,10 @@ import { createConnections } from "../src/services/connections.ts";
 import { createGateway, QuoteUnsupported } from "../src/gateway/client.ts";
 import { standardProfile, profileFor, profilePath } from "../src/gateway/profile.ts";
 import { apiBase } from "../src/gateway/transport.ts";
-import { validateRouting, normalizeBaseUrl } from "../src/config/connections.ts";
+import { validateRouting, normalizeBaseUrl, imageConnections, reasoningConnections } from "../src/config/connections.ts";
 import { createCostNotice } from "../src/domain/quote.ts";
 import { normalizeQuota, quotaPolicy, quotaGauge, creditBalance } from "../src/domain/quota.ts";
-import { normalizeCatalog, sourceState, validateCatalog } from "../src/domain/catalog.ts";
+import { normalizeCatalog, sourceState, validateCatalog, selectCatalogSources, modelSource } from "../src/domain/catalog.ts";
 import { MODELS } from "../src/domain/models.ts";
 import { createQuotePreview } from "../src/services/quote-preview.ts";
 import { toNativePayload, toStandardPayload } from "../src/gateway/routes.ts";
@@ -275,6 +275,99 @@ test("catalog auto/manual/disabled mappings and per-model limits preserve the so
   } } }, config(), "primary").models[0];
   assert.deepEqual(lite.fields.image_size.options, ["1K"]);
   assert.equal(lite.maxImages, 1);
+});
+
+test("source priority is independent of availability and follows the saved order", () => {
+  const routing = { ...config(), connections: { primary: connection(), secondary: connection("secondary") }, order: ["secondary", "primary"] };
+  const id = "nai-diffusion-5-full", identity = MODELS.find(m => m.id === id);
+  const catalogs = () => ["primary", "secondary"].flatMap(c => normalizeCatalog(raw, routing, c).models);
+  assert.equal(selectCatalogSources(routing, catalogs())[0].connection, "secondary");
+  assert.equal(modelSource(routing, { primary: raw, secondary: raw }, identity), "secondary");
+  assert.equal(sourceState(routing, "primary", identity, [{ id: "nai-diffusion-5-full@local" }]), "on");
+  routing.links.secondary = { [id]: { id: "nai-diffusion-5-full@local", manual: false, on: false } };
+  assert.equal(selectCatalogSources(routing, catalogs())[0].connection, "primary");
+  delete routing.connections.secondary;
+  assert.deepEqual(validateRouting(routing).order, ["primary"]);
+});
+
+test("source priority survives reload, completes new connections and invalidates captured contexts", async () => {
+  const { connections } = await setup(() => json(raw), { ...config(), connections: { primary: connection(), secondary: connection("secondary") } });
+  const before = connections.context("primary"), next = structuredClone(connections.configuration);
+  next.order = ["secondary", "primary"];
+  await connections.save(next);
+  assert.throws(before.assertCurrent, /改变/);
+  connections.reload();
+  assert.deepEqual(connections.configuration.order, next.order);
+  assert.deepEqual(validateRouting({ ...next, order: ["secondary"] }).order, next.order);
+  for (const order of [["bad/id"], ["primary", "primary"], "primary"])
+    assert.throws(() => validateRouting({ ...next, order }), /优先级/);
+  connections.dispose();
+});
+
+test("supplier sections are independent: shared supplier interfaces appear on both sides and LLM order stays unchanged", () => {
+  const routing = { version: 1, connections: {
+    llmA: { ...connection("llmA"), name: "综合供应商", profileId: "openai-chat-v1" },
+    imageA: { ...connection("imageA"), name: "综合供应商" },
+    llmB: { ...connection("llmB"), profileId: "anthropic-messages-v1" },
+    imageB: connection("imageB"),
+  }, links: {}, order: ["llmB", "imageB", "imageA", "llmA"] };
+  const valid = validateRouting(routing);
+  assert.deepEqual(imageConnections(valid).map(c => c.id), ["imageB", "imageA"]);
+  assert.deepEqual(reasoningConnections(valid).map(c => c.id), ["llmA", "llmB"]);
+  assert.ok(imageConnections(valid).some(c => c.name === "综合供应商"));
+  assert.ok(reasoningConnections(valid).some(c => c.name === "综合供应商"));
+});
+
+test("local source edits reuse raw metadata but remap models in a fresh execution context", async () => {
+  const { connections } = await setup(() => json(raw));
+  const shared = {}, calls = [];
+  const read = async url => { calls.push(url.pathname); return json(raw); };
+  const firstContext = connections.context("primary"), key = connections.catalogKey("primary");
+  const first = createGateway(firstContext, read, undefined, shared);
+  assert.equal((await first.catalog()).models.length, 1);
+  const next = structuredClone(connections.configuration);
+  next.links.primary = { "nai-diffusion-5-full": { id: "nai-diffusion-5-full@local", manual: false, on: false } };
+  await connections.save(next);
+  assert.equal(connections.catalogKey("primary"), key);
+  assert.throws(firstContext.assertCurrent, /改变/);
+  const second = createGateway(connections.context("primary"), read, undefined, shared);
+  assert.equal((await second.catalog()).models.length, 0);
+  assert.equal(calls.length, 1, "availability edits need no upstream catalog request");
+  await second.rawCatalog(true);
+  assert.equal(calls.length, 2, "explicit refresh still requests the catalog");
+  connections.dispose();
+});
+
+test("image subscriptions ignore labels and text connections, while order, source and Key changes remain observable", async () => {
+  const { connections } = await setup(() => json(raw), { ...config(), connections: {
+    primary: connection(), secondary: connection("secondary"), text: { ...connection("text"), profileId: "openai-chat-v1" },
+  } });
+  let changes = 0;
+  const stop = connections.subscribeImages(() => changes++);
+  const key = connections.catalogKey("primary"), revision = connections.configuration.connections.primary.revision;
+  let next = structuredClone(connections.configuration);
+  next.connections.primary.name = "新名称";
+  next.connections.text.baseUrl = "https://text.example.test";
+  await connections.save(next);
+  connections.supplyKey("key-text", "synthetic-text");
+  assert.equal(changes, 0);
+  assert.equal(connections.catalogKey("primary"), key);
+  assert.equal(connections.configuration.connections.primary.revision, revision);
+  next = structuredClone(connections.configuration); next.order = ["secondary", "primary", "text"];
+  await connections.save(next);
+  assert.equal(changes, 1);
+  next = structuredClone(connections.configuration);
+  next.links.primary = { "nai-diffusion-5-full": { id: "nai-diffusion-5-full@local", manual: false, on: false } };
+  await connections.save(next);
+  assert.equal(changes, 2);
+  await connections.save(connections.configuration);
+  assert.equal(changes, 2, "saving unchanged settings is a no-op");
+  connections.supplyKey("key-primary", "synthetic-updated");
+  assert.equal(changes, 3);
+  assert.notEqual(connections.catalogKey("primary"), key);
+  connections.reload();
+  assert.equal(changes, 4, "an explicit reload still refreshes image connections");
+  stop(); connections.dispose();
 });
 
 test("preview debounce invalidates late responses and retains the old displayed price", async t => {

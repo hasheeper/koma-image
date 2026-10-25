@@ -10,11 +10,15 @@ import {
 } from "vue";
 import { useShell } from "../app/shell";
 import { useServices } from "../app/services";
+import { useDrawing } from "../app/drawing";
+import { useChat } from "../app/chat";
+import { useEditor } from "../app/editor";
 import { useUi, message } from "../app/ui";
 import { useDialog } from "./use-dialog";
 import BrandMark from "../shared/BrandMark.vue";
 import AppIcon from "../shared/AppIcon.vue";
 import ModelIcon from "../shared/ModelIcon.vue";
+import ConnectionAvatar from "../shared/ConnectionAvatar.vue";
 import ModelsSection from "./settings/ModelsSection.vue";
 import ModelListDialog from "./settings/ModelListDialog.vue";
 import BackupSection from "./settings/BackupSection.vue";
@@ -28,12 +32,17 @@ import {
   validateRouting,
   validateModelLinks,
   LOCAL_CONNECTION_ID,
+  orderedConnections,
+  imageConnections,
+  reasoningConnections,
 } from "../config/connections.ts";
 import { STANDARD_PROFILE_ID, connectionProfiles, profileFor, NOVELAI_IMAGE_URL } from "../gateway/profile.ts";
 import { testConnection } from "../gateway/connection-test.ts";
+import { novelaiConnectionLabel } from "../gateway/native-protocols.ts";
 import { object } from "../domain/value.ts";
+import { novelaiUsage } from "../domain/quota.ts";
 import { MODELS } from "../domain/models.ts";
-import { catalogEntries, sourceState } from "../domain/catalog.ts";
+import { catalogEntries, sourceState, modelSource } from "../domain/catalog.ts";
 import { download } from "../shared/files";
 import { names } from "../storage/names.ts";
 import { readAskSettings } from "../ask/settings.ts";
@@ -43,6 +52,10 @@ const { router } = useShell(),
   services = useServices(),
   ui = useUi();
 const { connections, vault, preferences } = services;
+const { view: drawingView } = useDrawing(), { view: chatView } = useChat(), { view: editorView } = useEditor();
+const currentModel = computed(() => editorView.value.open
+  ? editorView.value.upscaleOpen ? editorView.value.upscaleModel : editorView.value.model
+  : router.route.value.workspace === "chat" ? chatView.value.model : drawingView.value.model);
 const local = connections.local;
 const dialog = useTemplateRef<HTMLDialogElement>("dialog"),
   form = useTemplateRef<HTMLDialogElement>("connectionForm");
@@ -87,7 +100,6 @@ const activeSection = computed(() =>
     ? "security"
     : router.route.value.section,
 );
-const avatar = `${import.meta.env.BASE_URL}assets/default-avatar.svg`;
 const mode = computed(() => {
   version.value;
   return vault.mode();
@@ -123,12 +135,27 @@ const amount = (n: unknown) =>
   typeof n === "number" && Number.isFinite(n)
     ? n.toLocaleString("zh-CN", { maximumFractionDigits: 2 })
     : "—";
-type Meter = { key: string; label: string; value: string; family?: string; limit?: string; ratio?: number };
+type Meter = { key: string; label: string; value: string; family?: string; limit?: string; ratio?: number; estimatedImages?: number; hints?: string[] };
 function meters(c: Connection): Meter[] {
   const media = balances.value[c.id], profile = profileFor(c.profileId);
   if (!media || (profile.quotaPolicy.supported === false && profile.protocol !== "novelai")) return [];
   const credits = amount(object(media.credits).remaining);
-  if (profile.protocol === "novelai") return [{ key: "anlas", label: "Anlas", value: credits }];
+  if (profile.protocol === "novelai") {
+    const result: Meter[] = [{ key: "anlas", label: "Anlas", value: credits }];
+    const usage = novelaiUsage(media.subscription);
+    if (!usage) return result;
+    const hints: string[] = [];
+    if (usage.entitlement === "inactive") hints.push("未订阅 · 不可用");
+    else if (usage.entitlement === "other") hints.push("非 Opus 订阅");
+    else if (usage.entitlement === "unknown") hints.push("订阅权益未知");
+    if (usage.unavailable === true) hints.push("额度暂不可用");
+    if (usage.percent === null) hints.push("用量未知");
+    else if (usage.unavailable === null) hints.push("可用状态未知");
+    result.push({ key: "nai-v5", label: "V5 额度", family: "novelai", value: usage.percent === null ? "—" : `${amount(usage.percent)}%`, ratio: usage.ratio, estimatedImages: usage.estimatedImages ?? undefined, hints });
+    if (usage.purchasedPercent !== null && usage.purchasedPercent > 0)
+      result.push({ key: "nai-v5-purchased", label: "V5 加购", family: "novelai", value: `${amount(usage.purchasedPercent)}%` });
+    return result;
+  }
   const images = object(media.images);
   return [
     { key: "credits", label: "媒体积分", value: credits },
@@ -143,15 +170,34 @@ function meters(c: Connection): Meter[] {
     }),
   ];
 }
-function used(id: string) {
+function availableModels(id: string) {
   return MODELS.filter(
     (m) =>
       sourceState(routing.value, id, m, catalogEntries(raw.value[id])) === "on",
-  ).length;
+  );
+}
+const activeModels = (id: string) => MODELS.filter(m => modelSource(routing.value, raw.value, m) === id).map(m => m.id);
+const imageSources = computed(() => imageConnections(routing.value));
+// Independent capability lists: a supplier with both configured interfaces belongs in both sections.
+const connectionGroups = computed(() => [
+  { id: "image", label: "图像", icon: "i-image", connections: imageSources.value },
+  { id: "llm", label: "文本", icon: "i-chat", connections: reasoningConnections(routing.value) },
+]);
+const priorityIndex = (id: string) => imageSources.value.findIndex(c => c.id === id);
+async function moveConnection(id: string, delta: number) {
+  if (local || busy.value) return;
+  const other = imageSources.value[priorityIndex(id) + delta];
+  if (!other) return;
+  const next = structuredClone(routing.value);
+  const order = orderedConnections(next).map(c => c.id), from = order.indexOf(id), to = order.indexOf(other.id);
+  [order[from], order[to]] = [order[to]!, order[from]!];
+  next.order = order;
+  busy.value = true;
+  try { await commit(next); } finally { busy.value = false; }
 }
 // One menu per card, opened by its own ⋯ button; it closes on scroll or resize like the chat menus.
 let openMenu: { pop: HTMLElement; off: AbortController } | undefined;
-const menuId = (id: string) => `connection-menu-${id}`;
+const menuId = (id: string, group: string) => `connection-menu-${group}-${id}`;
 function closeMenu() {
   if (openMenu?.pop.matches(":popover-open")) openMenu.pop.hidePopover();
   openMenu?.off.abort();
@@ -174,69 +220,81 @@ function toggleMenu(event: Event) {
   window.addEventListener("resize", close, { signal: off.signal });
   document.addEventListener("scroll", close, { capture: true, passive: true, signal: off.signal });
 }
-let sequence = 0,
-  controller: AbortController | undefined,
-  loadQueued = false,
-  disposed = false;
-function queueLoad() {
-  if (loadQueued || disposed) return;
+type ConnectionCheck = { controller: AbortController; contextKey: string; promise: Promise<void> };
+const checks = new Map<string, ConnectionCheck>(), queuedChecks = new Set<string>();
+let catalogKeys = new Map(Object.keys(routing.value.connections).map(id => [id, connections.catalogKey(id)]));
+let loadQueued = false, disposed = false;
+function stopChecks(ids: Iterable<string> = checks.keys()) {
+  for (const id of ids) { checks.get(id)?.controller.abort(); checks.delete(id); }
+}
+function queueLoad(ids: Iterable<string>) {
+  for (const id of ids) queuedChecks.add(id);
+  if (loadQueued || disposed || !queuedChecks.size) return;
   loadQueued = true;
   queueMicrotask(() => {
     loadQueued = false;
-    if (!disposed) void load();
+    const ids = [...queuedChecks];
+    queuedChecks.clear();
+    if (!disposed) void load(false, ids);
   });
 }
-async function load(force = false) {
-  if (
-    !dialog.value?.open ||
-    !["connections", "models"].includes(activeSection.value)
-  )
+async function loadConnection(id: string, force = false) {
+  const c = routing.value.connections[id], key = connections.catalogKey(id);
+  if (!c) return;
+  if (!key) {
+    statuses.value[id] = { s: "wait", text: mode.value === "empty" ? "未配置 Key" : "请先解锁 Key" };
     return;
-  controller?.abort();
-  const signal = (controller = new AbortController()).signal,
-    token = ++sequence;
-  await Promise.all(
-    Object.values(routing.value.connections).map(async (c) => {
-      if (!connections.hasCredential(c.credentialRef)) {
-        statuses.value[c.id] = {
-          s: "wait",
-          text: mode.value === "empty" ? "未配置 Key" : "请先解锁 Key",
-        };
-        return;
-      }
-      statuses.value[c.id] = { s: "wait", text: "检查中…" };
-      try {
-        const gateway = services.gateway(c.id);
-        const results = await Promise.allSettled([
-          gateway.rawCatalog(force, signal),
-          gateway.quota(undefined, signal),
-        ]);
-        if (token !== sequence || signal.aborted) return;
-        if (results[0].status === "fulfilled") {
-          raw.value = { ...raw.value, [c.id]: results[0].value };
-          statuses.value[c.id] = { s: "ok", text: gateway.profile.protocol === "novelai" ? "订阅可用 · 生图尚未实测" : gateway.profile.reasoning ? "可用 · 推理尚未实测" : "可用 · 刚刚检查" };
-        } else
-          statuses.value[c.id] = { s: "err", text: message(results[0].reason) };
-        if (results[1].status === "fulfilled")
-          balances.value = {
-            ...balances.value,
-            [c.id]: results[1].value.media,
-          };
-      } catch (error) {
-        if (token === sequence && !signal.aborted)
-          statuses.value[c.id] = { s: "err", text: message(error) };
-      }
-    }),
-  );
+  }
+  const contextKey = connections.context(id).cacheKey, previous = checks.get(id);
+  if (!force && previous?.contextKey === contextKey) return previous.promise;
+  previous?.controller.abort();
+  const controller = new AbortController(), { signal } = controller;
+  const check: ConnectionCheck = { controller, contextKey, promise: Promise.resolve() };
+  checks.set(id, check);
+  if (!raw.value[id]) statuses.value[id] = { s: "wait", text: "检查中…" };
+  check.promise = (async () => {
+    try {
+      const gateway = services.gateway(id);
+      const results = await Promise.allSettled([
+        gateway.rawCatalog(force, signal), gateway.quota(undefined, signal),
+      ]);
+      if (disposed || signal.aborted || checks.get(id) !== check || connections.catalogKey(id) !== key) return;
+      // A local source edit invalidates execution contexts, but must not replace a live list with an error.
+      if (connections.context(id).cacheKey !== contextKey) { queueLoad([id]); return; }
+      if (results[0].status === "fulfilled") {
+        raw.value = { ...raw.value, [id]: results[0].value };
+        statuses.value[id] = { s: "ok", text: gateway.profile.protocol === "novelai" ? novelaiConnectionLabel(results[0].value) : gateway.profile.reasoning ? "可用 · 推理尚未实测" : "可用 · 刚刚检查" };
+      } else statuses.value[id] = { s: "err", text: message(results[0].reason) };
+      if (results[1].status === "fulfilled") balances.value = { ...balances.value, [id]: results[1].value.media };
+    } catch (error) {
+      if (!disposed && !signal.aborted && checks.get(id) === check)
+        statuses.value[id] = { s: "err", text: message(error) };
+    } finally { if (checks.get(id) === check) checks.delete(id); }
+  })();
+  return check.promise;
 }
-const unconnections = connections.subscribe((kind) => {
+async function load(force = false, ids = Object.keys(routing.value.connections)) {
+  if (!dialog.value?.open) return;
+  const shown = ["connections", "models"].includes(activeSection.value) ? ids : ids.filter(id => id === askList.value);
+  await Promise.all(shown.map(id => loadConnection(id, force)));
+}
+const unconnections = connections.subscribe((_kind, change) => {
   routing.value = connections.configuration;
   version.value++;
-  if (kind === "configuration") {
-    raw.value = {};
-    balances.value = {};
+  const nextKeys = new Map(Object.keys(routing.value.connections).map(id => [id, connections.catalogKey(id)]));
+  const changed = [...new Set([...catalogKeys.keys(), ...nextKeys.keys()])]
+    .filter(id => change.refresh || catalogKeys.get(id) !== nextKeys.get(id));
+  if (changed.length) {
+    stopChecks(changed);
+    const nextRaw = { ...raw.value }, nextBalances = { ...balances.value };
+    for (const id of changed) { delete nextRaw[id]; delete nextBalances[id]; delete statuses.value[id]; }
+    raw.value = nextRaw;
+    balances.value = nextBalances;
   }
-  if (dialog.value?.open) queueLoad();
+  catalogKeys = nextKeys;
+  if (listConnection.value && !routing.value.connections[listConnection.value]) listConnection.value = null;
+  if (askList.value && !routing.value.connections[askList.value]) askList.value = null;
+  if (dialog.value?.open) queueLoad(changed);
 });
 // A reasoning card says whether ASK uses it, with which model ID, or how many it picked there.
 const readAsk = () => readAskSettings(preferences.get(names.ask, null));
@@ -255,19 +313,7 @@ const askModels = (id: string) => {
 async function loadAsk(force = false) {
   const c = askList.value ? routing.value.connections[askList.value] : undefined;
   if (!c || (raw.value[c.id] && !force)) return;
-  if (!connections.hasCredential(c.credentialRef)) {
-    statuses.value[c.id] = { s: "wait", text: mode.value === "empty" ? "未配置 Key" : "请先解锁 Key" };
-    return;
-  }
-  statuses.value[c.id] = { s: "wait", text: "检查中…" };
-  try {
-    const value = await services.gateway(c.id).rawCatalog(force);
-    if (disposed) return;
-    raw.value = { ...raw.value, [c.id]: value };
-    statuses.value[c.id] = { s: "ok", text: "可用 · 推理尚未实测" };
-  } catch (error) {
-    if (!disposed) statuses.value[c.id] = { s: "err", text: message(error) };
-  }
+  await loadConnection(c.id, force);
 }
 watch(askList, () => void loadAsk());
 // Ticks land before the write settles, so quick clicks build on each other.
@@ -282,16 +328,12 @@ async function saveAsk(next: AskSettings) {
 }
 const unvault = vault.subscribe(() => {
   version.value++;
-  raw.value = {};
-  balances.value = {};
-  if (dialog.value?.open) queueLoad();
 });
 watch(
   () => [router.route.value.overlay, router.route.value.section],
-  async ([overlay]) => {
+  async ([overlay], previous) => {
     if (overlay !== "settings") {
-      controller?.abort();
-      sequence++;
+      stopChecks();
       closeMenu();
       listConnection.value = null;
       askList.value = null;
@@ -299,13 +341,15 @@ watch(
       return;
     }
     await nextTick();
-    void load();
+    void load(false, previous?.[0] === "settings"
+      ? Object.keys(routing.value.connections).filter(id => !raw.value[id])
+      : Object.keys(routing.value.connections));
   },
   { immediate: true, flush: "post" },
 );
 onBeforeUnmount(() => {
   disposed = true;
-  controller?.abort();
+  stopChecks();
   unconnections();
   unvault();
   unask();
@@ -384,7 +428,9 @@ async function saveEdit(id: string) {
       next = structuredClone(routing.value),
       c = next.connections[id];
     if (c && (c.name !== name || c.baseUrl !== baseUrl || c.profileId !== formProfile.value)) {
-      if (c.profileId !== formProfile.value) next.links[id] = {};
+      if (c.profileId !== formProfile.value) {
+        next.links[id] = {};
+      }
       Object.assign(c, { name, baseUrl, profileId: formProfile.value });
       await connections.save(next);
     }
@@ -433,7 +479,7 @@ async function test(id: string) {
     const result = await testConnection(connections.context(id));
     statuses.value[id] = result;
     ui.toast(`${connection.name} · ${result.text}`, result.s, undefined, notice);
-    if (result.s === "ok") await load(true);
+    if (result.s === "ok") await load(true, [id]);
   } catch (error) {
     statuses.value[id] = { s: "err", text: message(error) };
     ui.toast(`${connection.name} · ${message(error)}`, "err", undefined, notice);
@@ -603,26 +649,22 @@ async function reveal(id: string) {
               v-if="!Object.keys(routing.connections).length"
               class="sp-empty conn-empty"
             >
-              <span class="vtile connection-avatar"
-                ><img
-                  :src="avatar"
-                  alt="默认头像"
-                  width="26"
-                  height="26" /></span
-              ><span>尚未配置连接</span
+              <ConnectionAvatar /><span>尚未配置连接</span
               ><button class="btn btn-quiet btn-sm" type="button" @click="add">
                 添加连接
               </button>
             </div>
-            <article
-              v-for="c in Object.values(routing.connections)"
+            <template v-else>
+            <section v-for="group in connectionGroups" :key="group.id" class="conn-group" :aria-label="`${group.label}供应商`" :data-kind="group.id">
+              <h4 class="conn-group-title"><AppIcon :name="group.icon" />{{ group.label }}<small>{{ group.connections.length }}</small></h4>
+              <div v-if="!group.connections.length" class="conn-group-empty">尚未配置{{ group.label }}供应商</div>
+              <article
+              v-for="c in group.connections"
               :key="c.id"
               class="conn-card"
             >
               <header class="conn-top">
-                <span class="vtile connection-avatar"
-                  ><img :src="avatar" alt="默认头像"
-                /></span>
+                <ConnectionAvatar :connection="c" />
                 <div class="conn-name">
                   <b>{{ c.name }}</b
                   ><span class="type">{{ profileFor(c.profileId).label }}</span>
@@ -634,7 +676,7 @@ async function reveal(id: string) {
                   class="st"
                   :data-s="testing === c.id ? 'wait' : statuses[c.id]?.s || 'wait'"
                   :title="statuses[c.id]?.text"
-                  >{{ testing === c.id ? "测试中…" : statusLabel(statuses[c.id]) }}</span
+                  >{{ testing === c.id ? "测试中…" : statusLabel(statuses[c.id]) }}<template v-if="group.id === 'image' && currentModel?.connection === c.id"> · 当前使用</template></span
                 >
                 <div class="conn-acts">
                   <button
@@ -652,12 +694,12 @@ async function reveal(id: string) {
                       type="button"
                       aria-label="更多操作"
                       aria-haspopup="menu"
-                      :popovertarget="menuId(c.id)"
+                      :popovertarget="menuId(c.id, group.id)"
                     >
                       <AppIcon name="i-more" />
                     </button>
                     <div
-                      :id="menuId(c.id)"
+                      :id="menuId(c.id, group.id)"
                       class="conn-menu"
                       popover="auto"
                       role="menu"
@@ -693,7 +735,7 @@ async function reveal(id: string) {
                   </template>
                 </div>
               </header>
-              <div v-if="meters(c).length" class="conn-meters">
+              <div v-if="group.id === 'image' && meters(c).length" class="conn-meters">
                 <div v-for="m in meters(c)" :key="m.key" class="conn-meter">
                   <span
                     ><ModelIcon v-if="m.family" :family="m.family" /><AppIcon
@@ -701,43 +743,63 @@ async function reveal(id: string) {
                       name="i-credit"
                     />{{ m.label }}</span
                   >
-                  <b
-                    >{{ m.value }}<i v-if="m.limit">/{{ m.limit }}</i></b
-                  >
+                  <div class="conn-meter-value">
+                    <b>{{ m.value }}<i v-if="m.limit">/{{ m.limit }}</i></b>
+                    <small
+                      v-if="m.estimatedImages !== undefined"
+                      class="conn-meter-estimate"
+                      title="按官方基准估算：23 步、约 1MP，100% 约 1,730 张；实际随尺寸、步数和 Effort 变化。"
+                    >约 {{ amount(m.estimatedImages) }} 张</small>
+                  </div>
                   <span
                     v-if="m.ratio !== undefined"
                     class="conn-bar"
                     :style="{ '--p': `${m.ratio * 100}%` }"
                   ></span>
+                  <small v-for="hint in m.hints" :key="hint" class="conn-meter-hint">{{ hint }}</small>
                 </div>
               </div>
               <!-- Reasoning connections serve ASK only; their list picks ASK's IDs. -->
+              <div v-if="group.id === 'llm'" class="conn-source-row">
               <button
-                v-if="profileFor(c.profileId).reasoning"
                 class="conn-models"
                 type="button"
                 @click="openAskModels(c.id)"
               >
-                <span>ASK 模型</span
+                <span class="conn-model-label">ASK 模型</span
                 ><span>{{ askModels(c.id) }}</span
                 ><AppIcon name="i-chevron" />
               </button>
-              <button
-                v-else
-                class="conn-models"
-                type="button"
-                :disabled="!raw[c.id]"
-                @click="listConnection = c.id"
-              >
-                <span>模型</span
-                ><span>{{
-                  raw[c.id]
-                    ? `${catalogEntries(raw[c.id]).length} 个 · 已用 ${used(c.id)} 个`
-                    : "—"
-                }}</span
-                ><AppIcon name="i-chevron" />
-              </button>
+              </div>
+              <div v-else class="conn-source-row">
+                <button
+                  class="conn-models"
+                  type="button"
+                  :disabled="!raw[c.id]"
+                  :aria-label="raw[c.id] ? `查看 ${c.name} 的模型列表：共 ${catalogEntries(raw[c.id]).length} 个，可用 ${availableModels(c.id).length} 个` : `${c.name} 模型列表尚未加载`"
+                  @click="listConnection = c.id"
+                >
+                  <span class="conn-model-label">模型</span>
+                  <span class="conn-model-count">
+                    <template v-if="raw[c.id]">
+                      <b>{{ availableModels(c.id).length === catalogEntries(raw[c.id]).length
+                        ? catalogEntries(raw[c.id]).length
+                        : `${availableModels(c.id).length}/${catalogEntries(raw[c.id]).length}` }}</b>
+                      {{ availableModels(c.id).length === catalogEntries(raw[c.id]).length ? '个可用' : '可用' }}
+                    </template>
+                    <template v-else>—</template>
+                  </span>
+                  <AppIcon name="i-chevron" />
+                </button>
+                <div class="conn-priority" role="group" :aria-label="`优先级，当前第 ${priorityIndex(c.id) + 1} 位`" :title="`优先级 ${priorityIndex(c.id) + 1}，越靠上越优先；明确额度不足时使用下一来源`">
+                  <small>优先级 <b>{{ priorityIndex(c.id) + 1 }}</b></small>
+                  <button class="md-act" type="button" :aria-label="`提高 ${c.name} 的优先级`" title="提高优先级" :disabled="local || busy || priorityIndex(c.id) === 0" @click="moveConnection(c.id, -1)"><AppIcon name="i-up" /></button>
+                  <button class="md-act" type="button" :aria-label="`降低 ${c.name} 的优先级`" title="降低优先级" :disabled="local || busy || priorityIndex(c.id) === imageSources.length - 1" @click="moveConnection(c.id, 1)"><AppIcon name="i-down" /></button>
+                </div>
+              </div>
             </article>
+            </section>
+            </template>
           </section>
           <ModelsSection
             v-show="router.route.value.section === 'models'"
@@ -745,6 +807,7 @@ async function reveal(id: string) {
             :routing="routing"
             :raw="raw"
             :statuses="statuses"
+            :current-model="currentModel"
             @change="commit"
             @reload="load(true)"
           />
@@ -937,7 +1000,7 @@ async function reveal(id: string) {
             placeholder="https://"
             autocomplete="off"
             spellcheck="false"
-          /><span v-if="profileFor(formProfile).protocol === 'novelai'" class="hint">基础生图与图生图；Key 发送到 image.novelai.net 与 api.novelai.net，生成尚未实测。</span
+          /><span v-if="profileFor(formProfile).protocol === 'novelai'" class="hint">基础生图与图生图；Key 仅发送到 image.novelai.net，生成尚未实测。</span
           ><span v-else class="hint"
             >Key 会发送到 {{ host(formUrl) || "填写的连接地址" }}</span
           >
@@ -959,8 +1022,9 @@ async function reveal(id: string) {
     :connection="listConnection"
     :routing="routing"
     :raw="raw[listConnection ?? '']"
+    :active-models="activeModels(listConnection ?? '')"
     @close="listConnection = null"
-    @refresh="load(true)"
+    @refresh="load(true, listConnection ? [listConnection] : [])"
     @change="commit"
     @reveal="reveal"
   />

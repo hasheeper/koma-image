@@ -1,8 +1,8 @@
 import { object } from "../domain/value.ts";
 import type { ConnectionContext } from "../services/connections.ts";
 import { profileFor, profilePath } from "./profile.ts";
-import { endpoint, authHeaders } from "./transport.ts";
-import { nativeCatalog } from "./native-protocols.ts";
+import { endpoint, authHeaders, errorMessage } from "./transport.ts";
+import { nativeCatalog, novelaiConnectionLabel } from "./native-protocols.ts";
 export async function testConnection(
   context: ConnectionContext,
   fetcher: typeof fetch = fetch,
@@ -28,18 +28,21 @@ export async function testConnection(
       signal: AbortSignal.timeout(timeout),
     });
     context.assertCurrent();
-    if ([401, 403].includes(response.status))
+    const data = await response.json().catch(() => null);
+    if (response.status === 401)
       return { s: "err", text: "Key 无效" };
+    if (response.status === 403)
+      return { s: "err", text: object(data).cloudflare_error === true
+        ? errorMessage(data) : "访问被拒绝（403），请检查 Key 权限" };
     if (response.status >= 500)
       return { s: "warn", text: `供应商暂时不可用（${response.status}）` };
-    const data = await response.json().catch(() => null);
     if (response.status === 404 || !data) return { s: "err", text: "地址错误" };
     if (!response.ok)
       return { s: "err", text: `请求失败（${response.status}）` };
     if (profile.protocol && profile.protocol !== "standard") {
       try {
         const catalog = nativeCatalog(profile, data);
-        return { s: "ok", text: profile.protocol === "novelai" ? "订阅可用 · 生图尚未实测"
+        return { s: "ok", text: profile.protocol === "novelai" ? novelaiConnectionLabel(catalog)
           : `可用，共 ${Object.keys(catalog.models).length} 个模型 ID${profile.reasoning ? " · 推理尚未实测" : ""}` };
       } catch (error) {
         return { s: "err", text: error instanceof Error ? error.message : "接口协议不匹配" };

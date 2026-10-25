@@ -21,6 +21,7 @@ import {
 } from "../domain/tags.ts";
 import type { TagItem } from "../domain/tags.ts";
 import AppIcon from "./AppIcon.vue";
+const props = defineProps<{ dataset?: "anime" | "furry" }>();
 const value = defineModel<string>({ required: true }),
   ui = useUi(),
   { router } = useShell(),
@@ -70,7 +71,7 @@ async function search() {
   const q = query.value.trim();
   if (q.length < (hasHan(q) ? 1 : 2)) {
     items.value = [];
-    status.value = q ? "再多输入一个字" : "输入中文或英文开始搜索";
+    status.value = q ? "再多输入一个字" : props.dataset === "furry" ? "输入英文搜索 Furry 标签" : "输入中文或英文开始搜索";
     tone.value = "";
     return;
   }
@@ -79,7 +80,7 @@ async function search() {
   status.value = "正在查词典…";
   tone.value = "load";
   try {
-    const found = await tags.suggest(q, { limit: 30, broad: true, signal });
+    const found = await tags.suggest(q, { limit: 30, broad: true, signal, dataset: props.dataset });
     if (current !== token || !ui.pickerOpen.value) return;
     items.value = found;
     selected.value = found.length ? 0 : -1;
@@ -143,11 +144,17 @@ async function keydown(event: KeyboardEvent) {
     if (items.value[selected.value]) toggle(items.value[selected.value].name);
   }
 }
+watch(() => props.dataset, () => {
+  abort(); items.value = []; selected.value = -1; tone.value = "";
+  status.value = props.dataset === "furry" ? "输入英文搜索 Furry 标签" : "输入中文或英文开始搜索";
+  if (ui.pickerOpen.value) void search();
+});
 watch(ui.pickerOpen, async (open) => {
   clearTimeout(hideTimer);
   abort();
   if (open) {
     lastFocus = document.activeElement as HTMLElement;
+    void search();
     visible.value = true;
     await nextTick();
     field.value?.focus();
@@ -211,7 +218,7 @@ function fullDictionary() {
             type="search"
             autocomplete="off"
             spellcheck="false"
-            placeholder="蓝发 / blue hair"
+            :placeholder="props.dataset === 'furry' ? 'wolf / fluffy tail' : '蓝发 / blue hair'"
             aria-label="搜索 Tag"
             @input="schedule"
             @compositionstart="startComposition"
@@ -269,7 +276,7 @@ function fullDictionary() {
                 :class="(CATEGORIES[item.category] || CATEGORIES[0]).className"
               ></i
               ><span
-                >{{ (CATEGORIES[item.category] || CATEGORIES[0]).label }} ·
+                >{{ item.source === "nai-furry" ? "Furry" : (CATEGORIES[item.category] || CATEGORIES[0]).label }} ·
                 {{ formatCount(item.count) }}</span
               ></span
             >

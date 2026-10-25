@@ -561,7 +561,7 @@ const number = (e: Event) => Number((e.target as HTMLInputElement).value);
       <div class="topbar-account">
         <WalletDisplay
           :quota="view.quota"
-          :model="view.upscaleOpen ? view.upscaleModel : view.model"
+          :model="view.upscaleOpen || view.busy && view.running === 'upscale' ? view.upscaleModel : view.model"
         />
       </div>
       <input
@@ -824,7 +824,7 @@ const number = (e: Event) => Number((e.target as HTMLInputElement).value);
                 view.busy ? `${modeNames[view.running]}中…` : modeNames[s.mode]
               }}</span
               ><span
-                v-if="!view.busy && (view.edit.quote || view.edit.price)"
+                v-if="!view.busy && (view.edit.quote || (view.edit.price && view.edit.price !== '费用未知'))"
                 class="cost-tag"
                 ><AppIcon name="i-points" /><b>{{
                   view.edit.quote

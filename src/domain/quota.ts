@@ -45,3 +45,24 @@ export function creditBalance(value: unknown) {
   return { remaining, text: remaining === null ? "—" : remaining.toLocaleString("zh-CN", { maximumFractionDigits: 2 }),
     level: remaining === null ? "unknown" : remaining <= 0 ? "crit" : "ok" };
 }
+
+/** Official V5 usage is a separate account meter, never a standard gateway quota guard. */
+export function novelaiUsage(subscription: unknown) {
+  const account = object(subscription), usage = object(account.usage);
+  const entitlement = account.active === false ? "inactive"
+    : account.active === true && account.tier === 3 ? "opus"
+    : account.active === true && typeof account.tier === "number" && [0, 1, 2].includes(account.tier) ? "other" : "unknown";
+  if (!Object.keys(usage).length && entitlement !== "opus") return null;
+  const number = (value: unknown) => typeof value === "number" && Number.isFinite(value) && value >= 0 ? value : null;
+  const percent = number(usage.percent);
+  const unavailable = typeof usage.isNegative === "boolean" ? usage.isNegative : null;
+  // Official FAQ baseline: 100% ≈ 1,730 images at 23 steps / 1 MP, not a quote for the current draft.
+  const estimate = entitlement === "opus" && unavailable === false && percent !== null ? Math.round(percent * 1730 / 100) : null;
+  return {
+    entitlement, percent, unavailable,
+    estimatedImages: estimate !== null && Number.isSafeInteger(estimate) ? estimate : null,
+    // Keep the provider's two percentages separate; do not invent a combined allowance.
+    purchasedPercent: number(usage.purchasedPercent),
+    ratio: percent === null ? undefined : unavailable === true ? 0 : Math.min(1, percent / 100),
+  };
+}

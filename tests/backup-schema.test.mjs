@@ -6,6 +6,14 @@ import { names } from "../src/storage/names.ts";
 const manifest = () => ({ app: "koma-image", kind: "backup", version: 2, id: "12345678-1234-1234-1234-123456789012",
   createdAt: new Date(0).toISOString(), favorites: [], conversations: [], assets: [], preferences: {} });
 
+test("image source priorities remain separate from available links in exported/restored preferences", () => {
+  const routing = { version: 1, connections: { official: { id: "official", name: "模拟官方", baseUrl: "https://image.novelai.net", profileId: "nai-official-v1", credentialRef: "official-key", revision: "r1" } }, links: {}, order: ["official"] };
+  const preferences = collectBackupPreferences({ getItem: key => key === names.routing ? JSON.stringify(routing) : null });
+  const restored = JSON.parse(validateBackupManifest({ ...manifest(), preferences }).preferences.routing);
+  assert.deepEqual(restored.order, routing.order);
+  assert.deepEqual(restored.links, {});
+});
+
 test("only the new Koma envelope is accepted, with logical allowlisted preference fields", () => {
   assert.equal(validateBackupManifest(manifest()).version, 2);
   for (const change of [{ version: 1 }, { app: "other-app" }, { kind: "routing" }, { id: "bad" }, { createdAt: "bad" }]) {

@@ -1,3 +1,6 @@
+import { readReferences, referenceModel, referencePlan, referenceSurcharge, activeReferences } from "../domain/nai-references.ts";
+import { insufficientFunds } from "../domain/source-funding.ts";
+import type { PreparedReferences } from "../domain/nai-references.ts";
 import type { ApplicationServices } from "./application.ts";
 import {
   DEFAULTS,
@@ -11,7 +14,8 @@ import {
 } from "../domain/drawing.ts";
 import type { DrawingForm, DrawingParams, ImageRecord } from "../domain/drawing.ts";
 import type { CatalogModel } from "../domain/catalog.ts";
-import { resolveModel } from "../domain/catalog.ts";
+import { resolveModel, selectCatalogSources } from "../domain/catalog.ts";
+import type { SourceSelection } from "./source-priority.ts";
 import { object } from "../domain/value.ts";
 import { quotaPolicy } from "../domain/quota.ts";
 import type { QuotaStatus } from "../domain/quota.ts";
@@ -32,6 +36,7 @@ import type { DrawingBoard } from "../domain/drawing.ts";
 import { characterCapability, nextCharacterId, sameValue } from "../domain/characters.ts";
 import type { Character } from "../domain/characters.ts";
 import { imageConnections } from "../config/connections.ts";
+import { naiCapabilities } from "../domain/nai.ts";
 
 export function createDrawing(
   services: ApplicationServices,
@@ -49,6 +54,7 @@ export function createDrawing(
   };
   // Persistent values are small JSON; records and binary resources stay plain.
   form.seed = String(form.seed ?? "");
+  form.naiReferences = readReferences(form.naiReferences);
   let models: CatalogModel[] = [],
     samplers = [DEFAULTS.sampler],
     model: CatalogModel | undefined;
@@ -90,6 +96,7 @@ export function createDrawing(
   let resetTimer: ReturnType<typeof setTimeout> | undefined;
   let reveal: ((record: ImageRecord) => Promise<void>) | undefined;
   const favoritePending = new Set<string>();
+  const referenceModels = new Set<string>();
   const connectionSamplers = new Map<string, string[]>();
   let catalogFingerprint = "",
     catalogQueued = false,
@@ -194,9 +201,11 @@ export function createDrawing(
       preview?.update(null);
       return;
     }
+    if (activeReferences(readReferences(form.naiReferences)).length) { preview?.pause(); quote={status:"unsupported",quote:null}; return; }
     const cap = characterCapability(form.model);
     if (cap.max && form.characters.filter(c => c.on).length > cap.max) { preview?.update(null); return; }
-    preview?.update(drawingPayload(collect(form, model, batchCount())));
+    try { preview?.update(drawingPayload(collect(form, model, batchCount()))); }
+    catch { preview?.update(null); }
   }
   function scheduleReset() {
     clearTimeout(resetTimer);
@@ -233,17 +242,14 @@ export function createDrawing(
     quotaLoading = true;
     emit();
     try {
-      const next = await services
-        .gateway(selected.connection)
-        .quota(
-          selected.quotaGroup,
-          signal ? AbortSignal.any([signal, abort.signal]) : abort.signal,
-        );
+      const source = await services.selectSource(selected, signal ? AbortSignal.any([signal, abort.signal]) : abort.signal, activeReferences(form.naiReferences).length ? drawingPayload(collect(form, selected, batchCount())) : undefined);
       if (token === revision && model === selected) {
-        quota = next;
+        const changed = model.connection !== source.model.connection;
+        applySource(source);
+        if (changed && !busy) bindPreview();
         quotaAt = Date.now();
       }
-      return next;
+      return source.quota;
     } catch (e) {
       signal?.throwIfAborted();
       if (token === revision && model === selected && !abort.signal.aborted) {
@@ -259,6 +265,31 @@ export function createDrawing(
       }
     }
   }
+  function applySource(source: SourceSelection) {
+    models = models.map(m => m.id === source.model.id ? source.model : m);
+    if (model?.id === source.model.id) {
+      model = source.model;
+      quota = source.quota;
+      quotaAt = Date.now();
+    }
+  }
+  function bindPreview() {
+    preview?.dispose();
+    if (!model) { preview = undefined; return; }
+    const wanted = model;
+    preview = createQuotePreview(services.gateway(wanted.connection).profile, "image", async (payload, signal) => {
+      const source = await services.selectSource(wanted, signal, payload);
+      signal.throwIfAborted();
+      applySource(source);
+      if (source.insufficient) throw new Error("所有可用来源的额度均不足");
+      return source.quote;
+    }, s => {
+      quote = s.status === "error" ? { ...s, quote: null } : s;
+      scheduleReset();
+      emit();
+    });
+    scheduleQuote();
+  }
   function bindModel() {
     if (services.data.phase !== "ready") {
       preview?.dispose();
@@ -272,33 +303,19 @@ export function createDrawing(
     quotaAt = 0;
     quote = { status: "idle", quote: null };
     revision++;
-    model =
-      resolveModel(models, form.model) ??
-      resolveModel(models, DEFAULTS.model) ??
-      models[0];
+    model = resolveModel(models, form.model) ?? (naiCapabilities(form.model).medium ? undefined : resolveModel(models, DEFAULTS.model) ?? models[0]);
     if (model) {
       samplers = connectionSamplers.get(model.connection) ?? [DEFAULTS.sampler];
       form = {
         ...form,
         model: model.id,
-        sampler: samplers.includes(form.sampler)
+        sampler: naiCapabilities(form.model).medium || samplers.includes(form.sampler)
           ? form.sampler
           : samplers.includes(DEFAULTS.sampler)
             ? DEFAULTS.sampler
             : samplers[0],
       };
-      const gateway = services.gateway(model.connection);
-      preview = createQuotePreview(
-        gateway.profile,
-        "image",
-        gateway.estimate,
-        (s) => {
-          quote = s.status === "error" ? { ...s, quote: null } : s;
-          scheduleReset();
-          emit();
-        },
-      );
-      scheduleQuote();
+      bindPreview();
       if (!draftQuotePaused) void refreshQuota(true);
     } else preview = undefined;
     emit();
@@ -310,8 +327,16 @@ export function createDrawing(
     const signal = refreshAbort.signal;
     catalogLoading = true;
     catalogError = "";
+    preview?.dispose();
+    preview = undefined;
+    quotaAbort?.abort();
+    quota = null;
+    quotaAt = 0;
+    quote = { status: "idle", quote: null };
+    revision++;
     emit();
-    const configured = imageConnections(services.connections.configuration),
+    const configuration = services.connections.configuration;
+    const configured = imageConnections(configuration),
       available = configured.filter((c) =>
         services.connections.hasCredential(c.credentialRef),
       ),
@@ -319,7 +344,7 @@ export function createDrawing(
     // Model-source edits and renames still refresh the catalog silently.
     // Only a new address/profile/credential, or an unfinished check, needs feedback.
     const fingerprint = JSON.stringify(
-      configured.map((c) => [
+      [...configured].sort((a, b) => a.id.localeCompare(b.id)).map((c) => [
         c.id, c.baseUrl, c.profileId, c.credentialRef,
         availableIds.has(c.id)
           ? services.connections.context(c.id).credentialRevision
@@ -362,14 +387,16 @@ export function createDrawing(
     }
     const next: CatalogModel[] = [];
     connectionSamplers.clear();
+    referenceModels.clear();
     for (const result of results)
       if (result.status === "fulfilled") {
-        for (const m of result.value.catalog.models)
-          if (m.provider === "novelai" && !next.some((v) => v.id === m.id))
-            next.push(m);
+        for (const m of result.value.catalog.models) {
+          next.push(m);
+          if (m.profileId === "nai-official-v1" && referenceModel(m.id) && m.upstreamId.replace(/@local$/, "") === m.id.replace(/@local$/, "")) referenceModels.add(m.id);
+        }
         connectionSamplers.set(result.value.id, result.value.catalog.samplers);
       } else catalogError = message(result.reason);
-    models = next.sort((a, b) =>
+    models = selectCatalogSources(configuration, next).filter(m => m.provider === "novelai").sort((a, b) =>
       b.id.localeCompare(a.id, undefined, { numeric: true }),
     );
     catalogLoading = false;
@@ -399,13 +426,13 @@ export function createDrawing(
         const reason = failed[0]?.reason,
           detail = message(reason);
         const hint =
-          /401|403|unauthorized|forbidden|invalid.*key|key.*invalid/i.test(detail)
+          /401|unauthorized|invalid.*key|key.*invalid/i.test(detail)
             ? "Key 无效"
             : reason instanceof DOMException && reason.name === "TimeoutError"
               ? "连接超时"
               : detail.includes("报价保护")
                 ? "网关协议不兼容"
-                : "请检查地址、Key 或网络";
+                : detail.slice(0, 160) || "请检查地址、Key 或网络";
         text =
           available.length === 1
             ? `连接 ${available[0]!.name} 失败 · ${hint}`
@@ -633,7 +660,9 @@ export function createDrawing(
     };
     emit();
     try {
-      let preflightQuota = await refreshQuota(true, selected, signal, true);
+      let preflightSource = await services.selectSource(selected, signal, activeReferences(base.naiReferences).length ? drawingPayload(base) : undefined);
+      selected = preflightSource.model;
+      let preflightQuota = preflightSource.quota;
       signal.throwIfAborted();
       // Preflight may observe edits on its source board, never another board.
       let source = boards.items.find(b => b.id === sourceBoardId);
@@ -641,15 +670,16 @@ export function createDrawing(
       const sourceModel = resolveModel(models, source.form.model);
       if (!sourceModel) throw new Error("来源画板的模型已不可用，请重新选择模型");
       if (sizeProblem(source.form.width, source.form.height, sourceModel.maxPixels).fatal) throw new Error("来源画板的画幅超出模型限制，请调整后重新生成");
-      if (selected !== sourceModel) {
+      if (selected.id !== sourceModel.id) {
         shownCost = null;
-        preflightQuota = await refreshQuota(true, sourceModel, signal, true);
+        preflightSource = await services.selectSource(sourceModel, signal, activeReferences(source.form.naiReferences).length ? drawingPayload(collect({ ...form, ...source.form }, sourceModel, count(source.form.batchCount))) : undefined);
+        selected = preflightSource.model;
+        preflightQuota = preflightSource.quota;
       }
       signal.throwIfAborted();
       source = boards.items.find(b => b.id === sourceBoardId);
       if (!source) throw new Error("来源画板已删除，本次生成已取消");
       if (source.form.model !== sourceModel.id) throw new Error("预检期间模型已再次变化，请重新生成");
-      selected = sourceModel;
       batchQuote = boards.activeId === sourceBoardId && quote.status === "ready" ? quote.quote : null;
       base = collect({ ...form, ...source.form }, selected, count(source.form.batchCount));
       if (quotaPolicy(preflightQuota, !usesNative(drawingPayload(base), batchQuote)).serialDisabled) base.batchCount = 1;
@@ -665,14 +695,32 @@ export function createDrawing(
       const result = await services.runTask(
         { id: crypto.randomUUID(), workspace: "image", snapshot: { ...base, ...provenance } },
         async (task) => {
-          const gateway = task.gateway(selected.connection);
-          await gateway.catalog(false, task.signal);
+          const plan = referencePlan(base.naiReferences);
+          let prepared: PreparedReferences | undefined;
+          let referenceGateway: ReturnType<typeof task.gateway> | undefined;
+          if (plan) {
+            const pendingCost = await services.references.pendingCost(plan, selected.id);
+            const source = await services.selectSource(selected, task.signal, { ...drawingPayload(base), referenceMinimum:referenceSurcharge(plan) + pendingCost });
+            if (source.insufficient) throw new Error(source.insufficient);
+            selected = source.model;
+            if (boards.activeId === sourceBoardId) { applySource(source); emit(); }
+            const client = task.gateway(selected.connection);
+            referenceGateway = client;
+            label = plan.kind === "vibe" ? "准备 Vibe…" : "准备 Precise…"; emit();
+            prepared = await services.references.prepare(plan, selected.id, task.signal, async (image, information) => {
+              const balance = await client.quota(selected.quotaGroup, task.signal).catch(() => { task.signal.throwIfAborted(); return null; });
+              const reason = insufficientFunds(selected, balance, null, { ...drawingPayload(base), referenceMinimum:2 + referenceSurcharge(plan) });
+              if (reason) throw new Error(reason);
+              return client.encodeVibe(selected.id, image, information, task.signal);
+            });
+          }
           // The batch owns one slot through its quota checks, decoding, reveal and comparison.
           const notice = createCostNotice(
             shownCost,
             base.batchCount > 1,
           );
           let quotaStopped = false;
+          const serialStop = new Error("额度保护已停止串行");
           for (let index = 0; index < base.batchCount; index++) {
             task.signal.throwIfAborted();
             pending = {
@@ -688,23 +736,35 @@ export function createDrawing(
             if (!browsing) live();
             else emit();
             const params = batchParams(base, index),
-              payload = drawingPayload(params);
-            if (index > 0) {
-              const status = await refreshQuota(true, selected, task.signal, true);
-              if (
-                quotaPolicy(status, !usesNative(payload, batchQuote))
-                  .serialDisabled
-              ) {
-                quotaStopped = true;
-                break;
-              }
-            }
-            const result = await gateway.execute(
-              payload,
+              payload = { ...drawingPayload(params), ...(prepared ? { preparedReferences:prepared } : {}) };
+            const consume = (response: Response, native: boolean, s: AbortSignal) => consumeImage(response, native, s, payload);
+            const options = { notice, onNotice: (text: string) => notify(text), signal:task.signal };
+            const result = await (prepared ? referenceGateway!.execute(payload, consume, {
+              ...options, beforeSubmit: async () => {
+                const balance = await referenceGateway!.quota(selected.quotaGroup, task.signal).catch(() => { task.signal.throwIfAborted(); return null; });
+                const reason = insufficientFunds(selected, balance, null, payload);
+                if (reason) throw new Error(reason);
+              },
+            }) : task.execute(
+              selected, payload,
               (response, native, s) =>
                 consumeImage(response, native, s, payload),
-              { notice, onNotice: (text) => notify(text), signal: task.signal },
-            );
+              { notice, onNotice: (text) => notify(text), signal: task.signal,
+                onSource: source => {
+                  if (index > 0 && quotaPolicy(source.quota, !usesNative(payload, source.quote)).serialDisabled)
+                    throw serialStop;
+                  if (index === 0 && quotaPolicy(source.quota, !usesNative(payload, source.quote)).serialDisabled)
+                    base.batchCount = 1;
+                  selected = source.model;
+                  if (boards.activeId === sourceBoardId) {
+                    applySource(source);
+                    quote = source.quote ? { status: "ready", quote: source.quote } : { status: "unsupported", quote: null };
+                    emit();
+                  }
+                },
+              },
+            )).catch(error => { if (error === serialStop) return null; throw error; });
+            if (!result) { quotaStopped = true; break; }
             batchQuote = result.quote;
             const record = await addImage(
               result.value.blob,
@@ -809,10 +869,12 @@ export function createDrawing(
       label = "生成";
       prune();
       emit();
-      scheduleQuote();
+      bindPreview();
     }
   }
-  const stopConnections = services.connections.subscribe(queueCatalog);
+  const stopReferences = services.references.subscribe(emit);
+  void services.references.ready().catch(e=>notify(message(e), "err"));
+  const stopConnections = services.connections.subscribeImages(queueCatalog);
   const stopPrefs = services.preferences.subscribe((key) => {
     if (!key || key === names.preferences) {
       const saved = services.preferences.get(names.preferences, {});
@@ -880,6 +942,8 @@ export function createDrawing(
       form,
       boards: boards.items,
       activeBoardId: boards.activeId,
+      referenceSupported: referenceModels.has(form.model),
+      referenceProblem: form.naiReferences.active && form.naiReferences[form.naiReferences.active].some(r=>r.on) && !referenceModels.has(form.model) ? "当前模型或来源不支持已启用的参考，配置已保留" : "",
       characterCapability: characterCapability(form.model),
       characterProblem: characterCapability(form.model).max > 0 && form.characters.filter(c => c.on).length > characterCapability(form.model).max,
       models,
@@ -924,6 +988,12 @@ export function createDrawing(
       return record;
     },
     patch,
+    async editReferences(value: DrawingForm["naiReferences"], boardId = boards.activeId) {
+      const target = boards.items.find(b=>b.id === boardId); if (!target) throw new Error("来源画板已删除");
+      const next = readReferences(value);
+      if (boardId === boards.activeId) await patch({ naiReferences:next });
+      else { target.form.naiReferences = next; await save(); emit(); }
+    },
     board: (id: string) => { syncBoard(); return boards.items.find(b => b.id === id); },
     async switchBoard(id: string) { draftQuotePaused = false; selectBoard(id); await save(); },
     createBoard,
@@ -1070,6 +1140,7 @@ export function createDrawing(
       quotaAbort?.abort();
       preview?.dispose();
       clearTimeout(resetTimer);
+      stopReferences();
       stopConnections();
       stopPrefs();
       unregister();

@@ -363,9 +363,10 @@ function validateNAIEditPayload(
 /** The image editor's three modes share one base image. */
 export const EDITOR_MODES: EditorMode[] = ["img2img", "inpaint", "upscale"];
 export function editorModels(catalog: ModelCatalog, mode: EditorMode): CatalogModel[] {
-  return mode === "upscale"
+  const available = mode === "upscale"
     ? upscaleModels(catalog)
     : naiEditModels(catalog, mode);
+  return available.filter((m, i) => available.findIndex(other => other.id === m.id) === i);
 }
 
 /** Explains why a base cannot be sent, before any re-encoding or mask allocation. */

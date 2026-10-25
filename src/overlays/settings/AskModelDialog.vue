@@ -6,6 +6,7 @@ import { MODEL_LIMIT, modelId, withModels } from "../../ask/settings.ts";
 import type { AskSettings } from "../../ask/settings.ts";
 import { familyNames as groups, familyOf } from "../../ask/model-family.ts";
 import ModelIcon from "../../shared/ModelIcon.vue";
+import ConnectionAvatar from "../../shared/ConnectionAvatar.vue";
 import AppIcon from "../../shared/AppIcon.vue";
 
 /** One reasoning connection's IDs in the model-list layout; picks become the composer's quick switch. */
@@ -26,7 +27,6 @@ const dialog = useTemplateRef<HTMLDialogElement>("dialog"),
   query = ref(""),
   tab = ref("all"),
   folded = ref<Record<string, boolean>>({});
-const avatar = `${import.meta.env.BASE_URL}assets/default-avatar.svg`;
 const naming = computed(() => props.purpose === "naming");
 const picked = computed(() => naming.value
   ? props.settings.naming?.connectionId === props.connection && props.settings.naming.model ? [props.settings.naming.model] : []
@@ -118,7 +118,7 @@ onBeforeUnmount(() => dialog.value?.close());
     @cancel.prevent="emit('close')"
   >
     <div class="md-head">
-      <span class="vtile connection-avatar"><img :src="avatar" alt="" /></span>
+      <ConnectionAvatar :connection="routing.connections[connection ?? '']" />
       <h2 id="askModelTitle">
         {{ routing.connections[connection ?? ""]?.name }} {{ naming ? '· 命名模型' : '模型列表' }}
       </h2>

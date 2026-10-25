@@ -1,3 +1,4 @@
+import { createNaiReferences } from "./nai-references.ts";
 import { createScheduler } from "./scheduler.ts";
 import type { TaskSpec, TaskContext } from "./scheduler.ts";
 import { createDataLease } from "./data-lease.ts";
@@ -12,6 +13,10 @@ import { createBackupService } from "./backup.ts";
 import { createTagSearch } from "./tag-search.ts";
 import { normalizeCategories } from "../domain/tags.ts";
 import type { LocalGateway } from "../config/runtime.ts";
+import { createSourcePriority } from "./source-priority.ts";
+import type { SourceOptions } from "./source-priority.ts";
+import type { CatalogModel } from "../domain/catalog.ts";
+import type { ImagePayload } from "../gateway/routes.ts";
 
 export function createApplicationServices(deps: {
   storage: Pick<Storage, "getItem" | "setItem" | "removeItem">;
@@ -40,7 +45,9 @@ export function createApplicationServices(deps: {
     deps.fetch,
   );
   const clients = new Map<string, ReturnType<typeof createGateway>>();
+  const catalogs = new Map<string, import("../gateway/client.ts").GatewayCatalogCache>();
   let databases: Awaited<ReturnType<typeof openDatabases>> | undefined;
+  const references = createNaiReferences(() => { if (!databases) throw new Error("数据未就绪"); return databases; }, data);
   const backup = createBackupService({
     databases: () => {
       if (!databases) throw new Error("数据未就绪");
@@ -59,8 +66,13 @@ export function createApplicationServices(deps: {
       else connections.clearKey(c.credentialRef);
     }
   }
-  const unsubscribe = connections.subscribe((kind) => {
+  const unsubscribe = connections.subscribe((kind, change) => {
     clients.clear();
+    if (change.refresh) catalogs.clear();
+    else {
+      const current = new Set(Object.keys(connections.configuration.connections).map(connections.catalogKey));
+      for (const key of catalogs.keys()) if (!current.has(key)) catalogs.delete(key);
+    }
     if (kind === "configuration") syncKeys();
   });
   const unvault = vault.subscribe(syncKeys);
@@ -76,7 +88,10 @@ export function createApplicationServices(deps: {
     const context = connections.context(id);
     let gateway = clients.get(context.cacheKey);
     if (!gateway) {
-      gateway = createGateway(context, deps.fetch);
+      const key = connections.catalogKey(id)!;
+      let cache = catalogs.get(key);
+      if (!cache) catalogs.set(key, cache = {});
+      gateway = createGateway(context, deps.fetch, undefined, cache);
       clients.set(context.cacheKey, gateway);
     }
     return gateway;
@@ -85,9 +100,10 @@ export function createApplicationServices(deps: {
     if (data.phase !== "ready") return;
     const key = (event as StorageEvent).key;
     if (key === names.routing || key === names.localModels || key === null)
-      connections.reload();
+      connections.reload(false);
     preferences.changed(key ?? undefined);
   }
+  const priority = createSourcePriority(connections, client);
   deps.events?.addEventListener("storage", onStorage);
   return {
     scheduler,
@@ -97,6 +113,8 @@ export function createApplicationServices(deps: {
     preferences,
     backup,
     tags,
+    references,
+    selectSource: priority.select,
     get databases() {
       if (!databases) throw new Error("存储尚未就绪");
       return databases;
@@ -137,6 +155,7 @@ export function createApplicationServices(deps: {
       work: (
         context: TaskContext<T> & {
           gateway: (id: string) => ReturnType<typeof createGateway>;
+          execute: <V>(model: CatalogModel, payload: ImagePayload, consume: (response: Response, native: boolean, signal: AbortSignal) => Promise<V>, options?: SourceOptions) => ReturnType<typeof priority.execute<V>>;
         },
       ) => Promise<R>,
       signal?: AbortSignal,
@@ -147,12 +166,17 @@ export function createApplicationServices(deps: {
           let open = true;
           let submission: Promise<unknown> | undefined;
           try {
-            return await work({
-              ...task,
-              gateway: (id) => {
+            const taskGateway = (id: string): ReturnType<typeof createGateway> => {
                 const gateway = client(id);
                 return {
                   ...gateway,
+                  encodeVibe: (model, image, information, signal) => {
+                    if (!open || submission) return Promise.reject(new Error("任务已结束或仍有请求在执行"));
+                    const result = gateway.encodeVibe(model, image, information, AbortSignal.any([task.signal, signal]));
+                    submission = result;
+                    void result.finally(() => { if (submission === result) submission = undefined; }).catch(() => {});
+                    return result;
+                  },
                   execute: (payload, consume, options) => {
                     if (!open)
                       return Promise.reject(
@@ -177,7 +201,14 @@ export function createApplicationServices(deps: {
                     return result;
                   },
                 };
-              },
+              };
+            return await work({
+              ...task,
+              gateway: taskGateway,
+              execute: (model, payload, consume, options) => priority.execute(model, payload, consume, {
+                ...options,
+                signal: options?.signal ? AbortSignal.any([task.signal, options.signal]) : task.signal,
+              }, taskGateway),
             });
           } finally {
             open = false;
@@ -198,8 +229,10 @@ export function createApplicationServices(deps: {
       unvault();
       vault.dispose();
       preferences.dispose();
+      references.dispose();
       unregister();
       clients.clear();
+      catalogs.clear();
       connections.dispose();
       try {
         await data.dispose();

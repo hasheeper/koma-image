@@ -6,7 +6,7 @@ import { endpoint } from "../src/gateway/transport.ts";
 import { testConnection } from "../src/gateway/connection-test.ts";
 import { openaiImagesProfile as oai, geminiProfile as gemini, novelaiProfile as nai, NOVELAI_IMAGE_URL } from "../src/gateway/profile.ts";
 import { validateRouting } from "../src/config/connections.ts";
-import { quotaPolicy } from "../src/domain/quota.ts";
+import { quotaPolicy, novelaiUsage } from "../src/domain/quota.ts";
 import { quoteLabel } from "../src/domain/quote.ts";
 import { buildChatPayload } from "../src/domain/media.ts";
 
@@ -21,13 +21,14 @@ async function setup(profile, fetcher, baseUrl = "https://gateway.example.test/p
   return { gateway: createGateway(context, fetcher), context, connections, routing };
 }
 
-test("native protocols: explicit profiles, prefix normalization, safe model path and fixed official NAI hosts", async () => {
+test("native protocols: explicit profiles, prefix normalization, safe model path and fixed official NAI host", async () => {
   assert.equal(endpoint("https://gateway.example.test/oai/v1", "/models", oai).href, "https://gateway.example.test/oai/v1/models");
   assert.equal(endpoint("https://gateway.example.test/google/v1beta", gemini.transport.paths.generate, gemini, "gemini-2.5-flash-image").pathname, "/google/v1beta/models/gemini-2.5-flash-image:generateContent");
   for (const id of ["../private", "models/a", "x?key=a", "x#fragment", "https://other.test"])
     assert.throws(() => endpoint("https://gateway.example.test", gemini.transport.paths.generate, gemini, id), /模型 ID/);
   const { routing } = await setup(nai, () => { throw new Error("no request expected"); });
-  assert.equal(endpoint(routing.connections.test.baseUrl, nai.transport.paths.catalog, nai).href, "https://api.novelai.net/user/subscription");
+  for (const path of [nai.transport.paths.catalog, nai.transport.paths.quota])
+    assert.equal(endpoint(routing.connections.test.baseUrl, path, nai).href, "https://image.novelai.net/user/subscription");
   routing.connections.test.baseUrl = "https://gateway.example.test";
   assert.throws(() => validateRouting(routing), /固定/);
 });
@@ -143,7 +144,7 @@ test("NovelAI basic: static catalog after subscription auth, unknown charge, gen
   const calls = [];
   const { gateway } = await setup(nai, async (url, init) => {
     calls.push({ url, init });
-    return url.hostname === "api.novelai.net" ? json({ active: true, tier: 3, trainingStepsLeft: { fixedTrainingStepsLeft: 1000, purchasedTrainingSteps: 25 } }) : new Response("native-output");
+    return url.pathname === "/user/subscription" ? json({ active: true, tier: 3, trainingStepsLeft: { fixedTrainingStepsLeft: 1000, purchasedTrainingSteps: 25 } }) : new Response("native-output");
   });
   const { models } = await gateway.catalog();
   assert.ok(models.length);
@@ -165,6 +166,91 @@ test("NovelAI basic: static catalog after subscription auth, unknown charge, gen
   const before = calls.length;
   await assert.rejects(gateway.execute({ model: models[0].id, tool: "upscale", init_image: png }, r => r.text()), /尚未支持/);
   assert.equal(calls.length, before);
+});
+
+test("NovelAI recognition: subscription status and balance never invalidate an authenticated Key", async () => {
+  for (const [active, purchased, remaining] of [[false, 7, 7], [false, 0, 0], [false, undefined, null], [true, 25, 25]]) {
+    const calls = [], account = { active, tier: active ? 3 : 0, trainingStepsLeft: { fixedTrainingStepsLeft: 0, purchasedTrainingSteps: purchased } };
+    const fetcher = async (url, init) => {
+      calls.push({ url, init });
+      assert.equal(url.href, "https://image.novelai.net/user/subscription");
+      assert.ok(!init.method || init.method === "GET");
+      assert.equal(init.body, undefined);
+      assert.equal(init.headers.Authorization, "Bearer synthetic-native-key");
+      assert.equal(init.redirect, "error");
+      return json(account);
+    };
+    const { gateway, context } = await setup(nai, fetcher);
+    assert.deepEqual((await gateway.rawCatalog()).subscription, { active, tier: account.tier });
+    assert.equal((await gateway.catalog()).models.length, 5);
+    assert.equal((await gateway.quota()).media.credits.remaining, remaining);
+    assert.deepEqual(await testConnection(context, fetcher), {
+      s: "ok", text: `Key 有效 · ${active ? "订阅已激活" : "未订阅"} · 生图尚未实测`,
+    });
+    assert.equal(calls.length, 3);
+  }
+});
+
+test("NovelAI recognition: invalid credentials, malformed accounts and Cloudflare blocks stay distinct", async () => {
+  for (const body of [{}, { active: false }, { active: "false", tier: 0 }]) {
+    const fetcher = async () => json(body), { gateway, context } = await setup(nai, fetcher);
+    await assert.rejects(gateway.catalog(), /订阅响应不符合/);
+    assert.equal((await testConnection(context, fetcher)).s, "err");
+  }
+  for (const [status, body, expected] of [
+    [401, { message: "Unauthorized" }, "Key 无效"],
+    [403, { message: "Forbidden" }, "访问被拒绝（403），请检查 Key 权限"],
+    [403, { cloudflare_error: true, error_code: 1010, status: 403, detail: "Browser signature blocked" }, "请求被 Cloudflare 拦截，请检查网络或浏览器"],
+  ]) {
+    const fetcher = async () => Response.json(body, { status }), { gateway, context } = await setup(nai, fetcher);
+    await assert.rejects(gateway.catalog(), body.cloudflare_error ? /Cloudflare/ : /Unauthorized|Forbidden/);
+    assert.deepEqual(await testConnection(context, fetcher), { s: "err", text: expected });
+  }
+});
+
+test("NovelAI V5 usage: preserve independent percentages without adding gateway guards", async () => {
+  const usage = { percent: 68, purchasedPercent: 20, timeUntilNextPercent: 6060, isNegative: false };
+  const { gateway } = await setup(nai, async () => json({ active: true, tier: 3, usage,
+    trainingStepsLeft: { fixedTrainingStepsLeft: 500, purchasedTrainingSteps: 25 } }));
+  const quota = await gateway.quota(), meter = novelaiUsage(quota.media.subscription);
+  assert.equal(quota.media.credits.remaining, 525);
+  assert.deepEqual(meter, { entitlement: "opus", percent: 68, purchasedPercent: 20,
+    unavailable: false, ratio: 0.68, estimatedImages: 1176 });
+  assert.equal(quotaPolicy(quota).serialDisabled, false);
+  const bonus = novelaiUsage({ active: true, tier: 3, usage: { ...usage, percent: 125, timeUntilNextPercent: 0 } });
+  assert.equal(bonus.percent, 125);
+  assert.equal(bonus.ratio, 1);
+  assert.equal(bonus.estimatedImages, 2163);
+});
+
+test("NovelAI V5 usage: unknown data, unavailable rounded zero and subscription rights stay distinct", () => {
+  const account = { active: true, tier: 3 };
+  for (const usage of [undefined, null, [], {}, { percent: "50", purchasedPercent: false, timeUntilNextPercent: "600", isNegative: "false" },
+    { percent: NaN, purchasedPercent: Infinity, timeUntilNextPercent: -1 }, { percent: -1, purchasedPercent: -1 }]) {
+    assert.deepEqual(novelaiUsage({ ...account, usage }), { entitlement: "opus", percent: null, purchasedPercent: null,
+      unavailable: null, ratio: undefined, estimatedImages: null });
+  }
+  const usage = { percent: 0, purchasedPercent: 0, timeUntilNextPercent: 3600, isNegative: true };
+  const empty = novelaiUsage({ ...account, usage });
+  assert.equal(empty.percent, 0);
+  assert.equal(empty.unavailable, true);
+  assert.equal(empty.ratio, 0);
+  assert.equal(empty.estimatedImages, null);
+  assert.equal(novelaiUsage({ active: false, tier: 0 }), null);
+  assert.equal(novelaiUsage({ active: true, tier: 2 }), null);
+  assert.equal(novelaiUsage({ active: false, tier: 3, usage }).entitlement, "inactive");
+  assert.equal(novelaiUsage({ active: true, tier: 2, usage }).entitlement, "other");
+  assert.equal(novelaiUsage({ usage }).entitlement, "unknown");
+});
+
+test("NovelAI V5 image estimate uses the published baseline only with known Opus usage", () => {
+  const account = { active: true, tier: 3 }, usage = { percent: 100, isNegative: false };
+  for (const [percent, expected] of [[0, 0], [1, 17], [50, 865], [100, 1730], [125, 2163]])
+    assert.equal(novelaiUsage({ ...account, usage: { ...usage, percent } }).estimatedImages, expected);
+  for (const account of [{ active: false, tier: 3 }, { active: true, tier: 2 }, {}])
+    assert.equal(novelaiUsage({ ...account, usage }).estimatedImages, null);
+  for (const usage of [{ percent: 100 }, { percent: 100, isNegative: true }, { percent: Number.MAX_VALUE, isNegative: false }])
+    assert.equal(novelaiUsage({ ...account, usage }).estimatedImages, null);
 });
 
 test("native execution: abort and failure never retry; cancelled request cannot call the consumer", async () => {

@@ -719,17 +719,34 @@ test("ASK settings leave image work alone: cards, model sources and the protocol
   try {
     await page.waitForFunction(() => [...document.querySelectorAll(".conn-card .st")].every((s) => s.dataset.s === "ok"));
     const card = (name) => page.locator(".conn-card", { hasText: name });
+    const imageGroup = page.getByRole("region", { name: "图像供应商", exact: true });
+    const llmGroup = page.getByRole("region", { name: "文本供应商", exact: true });
+    assert.equal(await imageGroup.locator(".conn-card").count(), 1);
+    assert.equal(await imageGroup.locator(".conn-priority").count(), 1);
+    assert.deepEqual(await llmGroup.locator(".conn-name b").allTextContents(), ["推理 Chat", "推理 Messages"]);
+    assert.equal(await llmGroup.locator(".conn-priority").count(), 0);
+    assert.equal(await llmGroup.locator(".conn-meters").count(), 0);
+    for (const name of ["推理 Chat", "推理 Messages"])
+      assert.match(await card(name).locator(".connection-avatar use").getAttribute("href"), /#i-chat$/);
+    assert.match(await card("图像连接").locator(".connection-avatar use").getAttribute("href"), /#i-image$/);
+    for (const width of [320, 390, 768, 1440]) {
+      await page.setViewportSize({ width, height: 900 });
+      assert.ok(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth + 1));
+      assert.ok(await page.locator(".conn-group").evaluateAll(groups => groups.every(el => el.scrollWidth <= el.clientWidth + 1)));
+      await page.screenshot({ path: `.local/ask/connection-icons-${width}.png` });
+    }
     assert.match(await card("推理 Chat").locator(".conn-models").textContent(), /ASK 模型\s*2 个 ID/);
     // The card ASK uses names its model; the others keep their catalog count.
     await page.evaluate(() => localStorage.setItem("koma.ask.v1", JSON.stringify({ version: 1, connectionId: "claude", model: "reasoning-b", images: true, preference: "", words: [], alwaysCodec: false })));
     await page.evaluate(() => window.dispatchEvent(new StorageEvent("storage", { key: "koma.ask.v1" })));
     await page.waitForFunction(() => /使用中 · reasoning-b/.test([...document.querySelectorAll(".conn-card")].find((c) => c.textContent.includes("推理 Messages"))?.querySelector(".conn-models")?.textContent ?? ""));
     assert.match(await card("推理 Chat").locator(".conn-models").textContent(), /2 个 ID/);
-    assert.match(await card("图像连接").locator(".conn-models").textContent(), /1 个 · 已用/);
+    assert.match(await card("图像连接").locator(".conn-models").textContent(), /模型\s*1\s*个可用/);
     // Like an image card, the row opens that connection's list, with ASK's picks ticked.
     await card("推理 Messages").locator(".conn-models").click();
     const list = page.locator("#askModelDialog");
     await list.locator(".lamp").first().waitFor();
+    assert.match(await list.locator(".connection-avatar use").getAttribute("href"), /#i-chat$/);
     assert.equal((await list.locator("#askModelTitle").textContent()).trim(), "推理 Messages 模型列表");
     assert.deepEqual(await list.locator(".lamp").evaluateAll((lamps) => lamps.map((l) => l.dataset.s)), ["off", "on"]);
     await list.getByRole("button", { name: "选用 reasoning-a", exact: true }).click();

@@ -1,3 +1,5 @@
+import { readEncoding } from "../native/reference-images.ts";
+import { referenceModel } from "../domain/nai-references.ts";
 import { normalizeCatalog, validateCatalog } from "../domain/catalog.ts";
 import type { Catalog } from "../domain/catalog.ts";
 import { normalizeQuota } from "../domain/quota.ts";
@@ -22,25 +24,28 @@ const timedSignal = (ms: number, signal?: AbortSignal) =>
     ? AbortSignal.any([signal, AbortSignal.timeout(ms)])
     : AbortSignal.timeout(ms);
 
+/** Only raw upstream metadata is shared; model mapping and execution remain context-bound. */
+export interface GatewayCatalogCache { raw?: Record<string, unknown>; fetchedAt?: number }
+
 /** A client is bound to one connection/configuration/key revision. */
 export function createGateway(
   context: ConnectionContext,
   fetcher: typeof fetch = fetch,
   profile: GatewayProfile = profileFor(context.connection.profileId),
+  catalogCache: GatewayCatalogCache = {},
 ) {
   const transport = createTransport(context, profile, fetcher);
   let cached: Catalog | undefined;
-  let rawCache: Record<string, unknown> | undefined,
-    fetchedAt = 0;
+  let mappedRaw: Record<string, unknown> | undefined;
   async function rawCatalog(force = false, signal?: AbortSignal) {
     context.assertCurrent();
-    if (rawCache && !force) return rawCache;
+    if (catalogCache.raw && !force) return catalogCache.raw;
     const readSignal = timedSignal(15_000, signal);
     const source = await readJson(await transport.request(profilePath(profile, "catalog"), { signal: readSignal }));
     const raw = validateCatalog(profile.protocol && profile.protocol !== "standard" ? nativeCatalog(profile, source) : source, profile);
     context.assertCurrent();
-    rawCache = raw;
-    fetchedAt = Date.now();
+    catalogCache.raw = raw;
+    catalogCache.fetchedAt = Date.now();
     cached = undefined;
     return raw;
   }
@@ -49,10 +54,11 @@ export function createGateway(
     signal?: AbortSignal,
   ): Promise<Catalog> {
     context.assertCurrent();
-    if (cached && !force) return cached;
+    if (cached && !force && mappedRaw === catalogCache.raw) return cached;
     const raw = await rawCatalog(force, signal);
     const mapped = nativeMappedCatalog(profile, raw, context.routing, context.connection.id);
     cached = normalizeCatalog(mapped, context.routing, context.connection.id, profile);
+    mappedRaw = raw;
     return cached;
   }
   function wire(payload: ImagePayload): ImagePayload {
@@ -82,7 +88,7 @@ export function createGateway(
     profile,
     catalog,
     rawCatalog,
-    fetchedAt: () => fetchedAt,
+    fetchedAt: () => catalogCache.fetchedAt ?? 0,
     estimate: (payload: ImagePayload, signal?: AbortSignal) =>
       estimateWire(wire(payload), signal),
     async quota(quotaGroup?: string, signal?: AbortSignal) {
@@ -118,6 +124,19 @@ export function createGateway(
       if (!media && !stats) throw new Error("额度暂不可用");
       return normalizeQuota(profile, media, stats, checked, quotaGroup);
     },
+    async encodeVibe(model: string, image: string, information: number, signal: AbortSignal) {
+      if (profile.protocol !== "novelai" || !referenceModel(model)) throw new Error("此连接不支持 Vibe 编码");
+      if (!image || !Number.isFinite(information) || information < 0 || information > 1) throw new Error("Vibe 编码参数无效");
+      const upstream = wire({model}).model.replace(/@local$/, "");
+      if (!referenceModel(upstream) || upstream !== model.replace(/@local$/, "")) throw new Error("Vibe 编码模型映射无效");
+      const bounded = timedSignal(120_000, signal);
+      const response = await transport.request(profilePath(profile, "encodeVibe"), { body:{ image, information_extracted:information, model:upstream }, signal:bounded });
+      if (!response.ok) throw new Error(errorMessage(await response.json().catch(()=>null), `Vibe 编码失败 (${response.status})`));
+      if (/json|text\//i.test(response.headers.get("content-type") ?? "")) throw new Error(errorMessage(await response.json().catch(()=>null), "Vibe 编码未返回二进制结果"));
+      // Keep a completed paid receipt even if settings changed while it was in flight.
+      // Further requests still assert this captured context before submission.
+      return readEncoding(response, bounded);
+    },
     /** The caller consumes/validates the response inside the task and timeout scope. */
     async execute<T>(
       input: ImagePayload,
@@ -128,6 +147,7 @@ export function createGateway(
       ) => Promise<T>,
       options: {
         signal?: AbortSignal;
+        beforeSubmit?: (quote: Quote | null) => void | Promise<void>;
         onQuote?: (quote: Quote) => void;
         onNotice?: (notice: string) => void;
         notice?: ReturnType<typeof createCostNotice>;
@@ -163,6 +183,7 @@ export function createGateway(
           profile.quote.supported || profile.costCeiling
             ? await estimateWire(payload, signal)
             : null;
+        if (options.beforeSubmit) await options.beforeSubmit(quote);
         if (quote) {
           options.onQuote?.(quote);
           const notice = (

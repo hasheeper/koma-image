@@ -9,7 +9,7 @@ export type QuoteState =
 export function createQuotePreview<T>(
   profile: GatewayProfile,
   workspace: "image" | "chat" | "editor",
-  estimate: (snapshot: T, signal: AbortSignal) => Promise<Quote>,
+  estimate: (snapshot: T, signal: AbortSignal) => Promise<Quote | null>,
   publish: (state: QuoteState) => void,
 ) {
   let state: QuoteState = {
@@ -58,7 +58,7 @@ export function createQuotePreview<T>(
         try {
           const quote = await estimate(snapshot, current.signal);
           if (!disposed && token === generation)
-            set({ status: "ready", quote });
+            set(quote ? { status: "ready", quote } : { status: "unsupported", quote: null });
         } catch (error) {
           if (!disposed && token === generation)
             set({ status: "error", quote: previous, error });

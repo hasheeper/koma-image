@@ -422,10 +422,14 @@ test("neutral HTML redirects preserve tickets and work under a static subpath", 
           await result.page.locator("#tagSearch").inputValue(),
           "blue hair",
         );
-      await result.page.waitForFunction(() => {
-        const img = document.querySelector("img[alt='默认头像']");
-        return img?.complete && img.naturalWidth === 64;
-      });
+      const href = `${prefix}assets/icons.svg#i-swap`;
+      await result.page.waitForFunction(href => {
+        const value = document.querySelector(".conn-empty .connection-avatar use")?.getAttribute("href");
+        return value && new URL(value, location.href).pathname + new URL(value, location.href).hash === href;
+      }, href, { timeout: 8000 });
+      const sprite = await result.page.request.get(`${origin}${prefix}assets/icons.svg`);
+      assert.equal(sprite.ok(), true);
+      assert.match(await sprite.text(), /id="i-swap"/);
       await clean(result);
     }
   }

@@ -175,7 +175,7 @@ async function open(options = {}) {
   });
   await page.goto(origin);
   await page.waitForFunction(
-    () => document.querySelector("#model")?.options.length === 2,
+    () => document.querySelector(`[id="${document.querySelector("#model")?.getAttribute("aria-controls")}"]`)?.querySelectorAll("[role=menuitemradio]").length === 2,
   );
   await page.waitForFunction(
     () =>
@@ -418,6 +418,7 @@ test("M4 quota restrictions remember requested batch; native-free exception, str
     p = t.page;
   try {
     await patch(t, { batchCount: 5 });
+    await p.locator("#parametersToggle").click();
     assert.equal(await p.locator("#batchCount").inputValue(), "1");
     assert.equal(await p.locator("#batchCount").isDisabled(), true);
     await run(t);
@@ -440,12 +441,15 @@ test("M4 quota restrictions remember requested batch; native-free exception, str
       model: "nai-diffusion-4-5-full",
       transparentBg: true,
     });
-    assert.equal(await p.locator("#transparentBg").isDisabled(), true);
-    assert.equal(await p.locator("#transparentBg").isChecked(), true);
+    assert.equal(await p.locator("#transparentBg").count(), 0);
+    assert.equal(await p.evaluate(() => drawing.snapshot().form.transparentBg), true);
     await p.reload();
     await p.waitForSelector("#width");
     assert.equal(await p.locator("#width").inputValue(), "832");
-    assert.equal(await p.locator("#transparentBg").isChecked(), true);
+    assert.equal(await p.locator("#transparentBg").count(), 0);
+    await p.locator("#model").click();
+    await p.locator('.nai-menu:popover-open [data-value="nai-diffusion-5-full"]').click();
+    assert.equal(await p.locator("#transparentBg").getAttribute("aria-pressed"), "true");
   } finally {
     await t.close();
   }
@@ -464,6 +468,7 @@ test("M4 history import review, copy/reuse, high-frequency splitter has no Vue r
     await p.screenshot({ path: ".local/m4/import-1440.png" });
     await p.locator("#importApply").click();
     assert.equal(await p.locator("#prompt").inputValue(), "blue hair");
+    await p.locator("#parametersToggle").click();
     assert.equal(await p.locator("#steps").inputValue(), "25");
     // Finish the import's debounced quote before measuring pointer-only updates.
     await p.waitForFunction(() => drawing.snapshot().quote.status === "ready");
@@ -1030,7 +1035,7 @@ test('C3 board management: rename, delete and backup restore keep independent fo
       await page.getByRole('textbox',{name:'画板名称',exact:true}).press('Enter');
       await page.waitForFunction(name=>document.querySelector('.bd-name')?.textContent===name,name);
     };
-    await page.locator('#prompt').fill('2people, night city');await page.locator('#advanced > summary').click();await page.locator('#seed').fill('0');
+    await page.locator('#prompt').fill('2people, night city');await page.locator('#parametersToggle').click();await page.locator('#seed').fill('0');
     await page.getByRole('button',{name:'添加角色',exact:true}).click();await page.locator('#char-c1-prompt').fill('girl, red hair');
     await page.locator('.mc').getByRole('tab',{name:/Negative/}).click();await page.locator('#char-c1-negative').fill('blue hair');
     await page.locator('.mc').getByRole('button',{name:'手动',exact:true}).click();

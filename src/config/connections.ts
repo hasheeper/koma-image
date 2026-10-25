@@ -18,6 +18,8 @@ export interface Routing {
   version: 1;
   connections: Record<string, Connection>;
   links: Record<string, Record<string, ModelLink>>;
+  /** Higher entries take priority for the models/operations they provide. */
+  order?: string[];
 }
 export const emptyRouting = (): Routing => ({
   version: 1,
@@ -118,11 +120,21 @@ export function validateRouting(value: unknown): Routing {
     if (!Object.hasOwn(out.connections, id)) continue;
     out.links[id] = validateModelLinks(raw);
   }
+  if (input.order !== undefined) {
+    if (!Array.isArray(input.order) || !input.order.every(validId) || new Set(input.order).size !== input.order.length)
+      throw new Error("供应商优先级配置无效");
+    const order = input.order;
+    out.order = [...order.filter(id => Object.hasOwn(out.connections, id)),
+      ...Object.keys(out.connections).filter(id => !order.includes(id))];
+  }
   return out;
 }
+export const orderedConnections = (routing: Readonly<Routing>): Connection[] =>
+  [...new Set([...(routing.order ?? []), ...Object.keys(routing.connections)])]
+    .flatMap(id => Object.hasOwn(routing.connections, id) ? [routing.connections[id]!] : []);
 /** Image catalogs, quotes and generation only use connections whose protocol declares image work. */
 export const imageConnections = (routing: Readonly<Routing>): Connection[] =>
-  Object.values(routing.connections).filter(c => profileFor(c.profileId).image);
+  orderedConnections(routing).filter(c => profileFor(c.profileId).image);
 /** ASK only lists connections whose protocol declares reasoning. */
 export const reasoningConnections = (routing: Readonly<Routing>): Connection[] =>
   Object.values(routing.connections).filter(c => !!profileFor(c.profileId).reasoning);

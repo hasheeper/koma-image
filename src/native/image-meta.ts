@@ -1,3 +1,4 @@
+import type { NaiReferences } from "../domain/nai-references.ts";
 import { charactersFromNai, charactersFromStandard } from "../domain/characters.ts";
 import type { Character, Placement } from "../domain/characters.ts";
 /**
@@ -20,6 +21,7 @@ import type { Character, Placement } from "../domain/characters.ts";
  */
 
 export type ImageFields = {
+  naiReferences?: NaiReferences;
   characters?: Character[];
   placement?: Placement;
   prompt?: string;
@@ -33,6 +35,7 @@ export type ImageFields = {
   seed?: number;
   /** Used by in-memory history import; file parsers never map CFG Rescale here. */
   cfg?: number;
+  cfgRescale?: number;
 };
 type Extra = { label: string; value: string };
 type ParsedMetadata = {
@@ -166,7 +169,7 @@ function naiSource(name: unknown): string | undefined {
 function naiModel(source: string | undefined): string | undefined {
   const match = String(source || "").match(/NovelAI Diffusion V(\d+)(?:\.(\d+))?/i);
   if (!match) return undefined;
-  return `nai-diffusion-${match[1]}${match[2] ? `-${match[2]}` : ""}-${/curated/i.test(source || "") ? "curated" : "full"}`;
+  return `nai-diffusion-${match[1]}${match[2] ? `-${match[2]}` : ""}-${/curated/i.test(source || "") ? "curated" : "full"}${/medium/i.test(source || "") ? "-medium" : ""}`;
 }
 
 /** JSON children stay unknown; preserve optional property access, including primitive boxing. */
@@ -209,7 +212,6 @@ function naiExtras(data: Record<string, unknown>): Extra[] {
   const directors = Array.isArray(data.director_reference_descriptions) ? data.director_reference_descriptions.length : 0;
   if (directors) add("角色参考", `${directors} 张`);
   add("噪声调度", cleanText(data.noise_schedule));
-  add("CFG Rescale", finiteNumber(data.cfg_rescale));
   if (data.sm === true) add("SMEA", data.sm_dyn === true ? "开 · DYN" : "开");
   if (data.dynamic_thresholding === true) add("动态阈值", "开");
   return extras;
@@ -239,12 +241,10 @@ function fromNovelAI(comment: string, chunks: Map<string, string>): ParsedMetada
       height: finiteNumber(data.height),
       steps: finiteNumber(data.steps),
       sampler: normalizeSampler(data.sampler),
-      /* NAI's `scale` is guidance, which is this app's `scale`. Its
-         `cfg_rescale` is a 0–1 knob and is NOT the app's 0–30 `cfg`, so it
-         is left out instead of being written into the wrong control. */
       scale: finiteNumber(data.scale),
+      cfgRescale: finiteNumber(data.cfg_rescale),
       seed: finiteNumber(data.seed),
-      model: naiModel(source) ?? cleanText(data.model)
+      model: cleanText(data.model) ?? naiModel(source)
     }
   };
 }

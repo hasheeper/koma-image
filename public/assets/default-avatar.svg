@@ -1,6 +1,0 @@
-<svg xmlns="http://www.w3.org/2000/svg" width="64" height="64" viewBox="0 0 64 64" role="img" aria-labelledby="title">
-  <title id="title">默认头像</title>
-  <rect width="64" height="64" rx="16" fill="#1e1e24"/>
-  <circle cx="32" cy="24" r="10" fill="#92929e"/>
-  <path d="M14 53c0-10 8-16 18-16s18 6 18 16" fill="#92929e"/>
-</svg>

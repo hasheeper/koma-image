@@ -1,3 +1,5 @@
+import { readReferences, encodingKey, referenceModel } from "../domain/nai-references.ts";
+import type { ReferenceAsset, VibeEncoding } from "../domain/nai-references.ts";
 import { DEFAULTS, boardKeys } from "../domain/drawing.ts";
 import { names } from "./names.ts";
 import { validateRouting, validateModelLinks } from "../config/connections.ts";
@@ -54,6 +56,8 @@ export type FavoriteManifest = Omit<FavoriteRecord, "blob" | "thumbBlob"> & {
 export type AssetManifest = Omit<AssetRecord, "blob"> & {
   image: ImageReference;
 };
+export type ReferenceAssetManifest = Omit<ReferenceAsset,"blob"|"thumbnail"> & { image: ImageReference | null; thumbnail: ImageReference | null };
+export type VibeEncodingManifest = Omit<VibeEncoding,"data"> & { path: string; hash: string };
 export interface BackupManifest {
   app: "koma-image";
   kind: "backup";
@@ -63,6 +67,8 @@ export interface BackupManifest {
   favorites: FavoriteManifest[];
   conversations: ConversationRecord[];
   assets: AssetManifest[];
+  referenceAssets?: ReferenceAssetManifest[];
+  vibeEncodings?: VibeEncodingManifest[];
   preferences: BackupPreferences;
 }
 const bad = () =>
@@ -96,9 +102,12 @@ export function readBackupPreferences(value: unknown): BackupPreferences {
           const b = object(raw), f = object(b.form), chars = f.characters;
           if (!id(b.id) || seen.has(b.id) || typeof b.name !== "string" || !plain(b.form) || !Number.isSafeInteger(b.nextCharacterId) || Number(b.nextCharacterId) < 1 || !["auto", "manual"].includes(String(f.placement)) || !Array.isArray(chars)) throw bad();
           for (const key of boardKeys) {
-            if (key === "characters" || key === "placement") continue;
+            if (key === "characters" || key === "placement" || key === "naiReferences") continue;
+            // Older Koma v2 backups predate the NAI controls; readBoards supplies defaults.
+            if (["cfgRescale", "naiMode", "complexity", "qualityPreset", "negativePreset"].includes(key) && f[key] === undefined) continue;
             if (typeof f[key] !== typeof DEFAULTS[key] || typeof f[key] === "number" && !Number.isFinite(f[key])) throw bad();
           }
+          if (f.naiReferences !== undefined) checkedReferences(f.naiReferences);
           seen.add(b.id); const roles = new Set<string>();
           for (const raw of chars) {
             const c = object(raw);
@@ -133,6 +142,12 @@ export function collectBackupPreferences(
     if (value !== null) result[field as keyof BackupPreferences] = value;
   }
   return readBackupPreferences(result);
+}
+function checkedReferences(value: unknown) {
+  const raw=object(value), r=readReferences(value);
+  if (!plain(value) || raw.active!==r.active || raw.normalize!==r.normalize || !Array.isArray(raw.vibe) || !Array.isArray(raw.precise) || r.vibe.length!==raw.vibe.length || r.precise.length!==raw.precise.length || r.vibe.length>16 || r.precise.length>16) throw bad();
+  for (const rawItem of [...raw.vibe,...raw.precise]) { const item=object(rawItem); if (typeof item.on!=="boolean" || [item.strength,item.information,item.fidelity].some(v=>typeof v!=="number" || !Number.isFinite(v) || v<0 || v>1) || !["character","style","character&style"].includes(String(item.type))) throw bad(); }
+  return r;
 }
 function imageReference(value: unknown, folder: string): ImageReference {
   const ref = object(value);
@@ -265,6 +280,27 @@ export function validateBackupManifest(value: unknown): BackupManifest {
   }
   if ([...assetRefs(conversations)].some((key) => !seenAssets.has(key)))
     throw bad();
+  const referenceAssets: ReferenceAssetManifest[] = [], vibeEncodings: VibeEncodingManifest[] = [], referenceIds = new Set<string>(), encodingIds = new Set<string>();
+  if (m.referenceAssets !== undefined && !Array.isArray(m.referenceAssets) || m.vibeEncodings !== undefined && !Array.isArray(m.vibeEncodings)) throw bad();
+  for (const raw of (m.referenceAssets ?? []) as unknown[]) {
+    const r = object(raw);
+    if (typeof r.id !== "string" || !/^[a-f0-9]{64}$/.test(r.id) || referenceIds.has(r.id) || !Number.isSafeInteger(r.width) || !Number.isSafeInteger(r.height) || Number(r.width)<1 || Number(r.height)<1 || Number(r.width)*Number(r.height)>40_000_000) throw bad();
+    referenceIds.add(r.id);
+    referenceAssets.push({id:r.id,width:Number(r.width),height:Number(r.height), image:r.image ? imageReference(r.image,"references") : null, thumbnail:r.thumbnail ? imageReference(r.thumbnail,"references") : null});
+  }
+  for (const raw of (m.vibeEncodings ?? []) as unknown[]) {
+    const e = object(raw);
+    if (typeof e.assetId !== "string" || !referenceIds.has(e.assetId) || typeof e.model !== "string" || !referenceModel(e.model) || typeof e.information !== "number" || !Number.isFinite(e.information) || e.information<0 || e.information>1 || e.id!==encodingKey(e.model,e.assetId,e.information) || encodingIds.has(String(e.id)) || typeof e.path!=="string" || !/^references\/encodings\/[0-9]+\.bin$/.test(e.path) || typeof e.hash!=="string" || !/^[a-f0-9]{64}$/.test(e.hash)) throw bad();
+    encodingIds.add(String(e.id)); vibeEncodings.push(e as unknown as VibeEncodingManifest);
+  }
+  if(referenceAssets.some(a=>!a.image && !vibeEncodings.some(e=>e.assetId===a.id))) throw bad();
+  const preferences = readBackupPreferences(m.preferences);
+  const forms = preferences.drawing ? object(JSON.parse(preferences.drawing)) : {};
+  const configs = [forms.naiReferences, ...((object(forms.boards).items ?? []) as unknown[]).map(b=>object(object(b).form).naiReferences), ...favorites.map(f=>object(f.params).naiReferences)];
+  for (const value of configs) {
+    const r=value===undefined ? readReferences(undefined) : checkedReferences(value);
+    for (const item of [...r.vibe,...r.precise]) if (!referenceIds.has(item.assetId)) throw new Error("备份缺少参考图片");
+  }
   return {
     app: "koma-image",
     kind: "backup",
@@ -274,6 +310,6 @@ export function validateBackupManifest(value: unknown): BackupManifest {
     favorites,
     conversations,
     assets,
-    preferences: readBackupPreferences(m.preferences),
+    preferences, referenceAssets, vibeEncodings,
   };
 }

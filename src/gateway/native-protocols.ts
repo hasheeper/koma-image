@@ -7,9 +7,15 @@ import type { GatewayProfile } from "./profile.ts";
 import { profilePath } from "./profile.ts";
 import { toNativePayload } from "./routes.ts";
 import type { ImagePayload } from "./routes.ts";
+import { naiCapabilities } from "../domain/nai.ts";
 
 const field = (options: string[], value = options[0]) => ({ options, default: value });
 const ratios = ["1:1", "2:3", "3:2", "3:4", "4:3", "4:5", "5:4", "9:16", "16:9", "21:9"];
+
+export function novelaiConnectionLabel(catalog: unknown) {
+  const active = object(object(catalog).subscription).active;
+  return `Key 有效 · ${active === true ? "订阅已激活" : "未订阅"} · 生图尚未实测`;
+}
 
 /** Discovery lists upstream IDs; their use is decided by the existing model mappings. */
 export function nativeCatalog(profile: GatewayProfile, raw: unknown) {
@@ -17,10 +23,10 @@ export function nativeCatalog(profile: GatewayProfile, raw: unknown) {
   if (profile.protocol === "novelai") {
     if (typeof data.active !== "boolean" || typeof data.tier !== "number")
       throw new Error("订阅响应不符合 NovelAI 协议");
-    if (!data.active) throw new Error("NovelAI 订阅未启用");
+    // Successful account authentication is independent of subscription benefits or balance.
     for (const model of MODELS.filter(m => m.provider === "novelai"))
-      models[model.id] = { name: model.name, provider: "novelai", editor_family: "novelai", operations: ["generate", "edit"], tools: ["img2img"], max_resolution: 4_194_304 };
-    return { models, valid_samplers: ["k_euler_ancestral", "k_euler", "k_dpmpp_2m", "k_dpmpp_2m_sde", "k_dpmpp_sde", "ddim_v3"], catalog_source: "static", verification: "unverified" };
+      models[model.id] = { name: model.name, provider: "novelai", editor_family: "novelai", operations: naiCapabilities(model.id).medium ? ["generate"] : ["generate", "edit"], tools: naiCapabilities(model.id).medium ? [] : ["img2img"], max_resolution: 4_194_304 };
+    return { models, valid_samplers: ["k_euler_ancestral", "k_euler", "k_dpmpp_2m", "k_dpmpp_2m_sde", "k_dpmpp_sde", "ddim_v3"], catalog_source: "static", verification: "unverified", subscription: { active: data.active, tier: data.tier } };
   }
   // OpenAI-style lists, including both reasoning protocols, keep the ID in data[].id.
   const listed = profile.protocol === "openai-images" || !!profile.reasoning;
@@ -83,6 +89,7 @@ function images(payload: ImagePayload) {
 }
 
 export function nativeRequest(profile: GatewayProfile, payload: ImagePayload) {
+  if ((payload.referencePlan || payload.preparedReferences) && profile.protocol !== "novelai") throw new Error("此连接未声明 NAI 参考生成协议");
   if (profile.protocol !== "novelai" && payload.tool && payload.tool !== "image-edit")
     throw new Error("此协议仅支持参考图编辑");
   const input = images(payload), options = object(payload.image_options);
@@ -115,7 +122,8 @@ export function nativeRequest(profile: GatewayProfile, payload: ImagePayload) {
   if (profile.protocol === "novelai") {
     if (input.length > 1 || payload.tool && payload.tool !== "img2img") throw new Error("NovelAI 基础接入仅支持生图与单图图生图");
     const size = input.length ? imageDimensions(String(payload.init_image)) : {};
-    const body = toNativePayload({ ...payload, ...size });
+    if (input.length && naiCapabilities(payload.model).medium) throw new Error("Medium 当前仅接入文生图，请选择 High 后编辑");
+    const body = toNativePayload({ ...payload, ...size }, Math.random, true);
     // max_cost belongs to the standard gateway, not the official protocol.
     const { max_cost: _cost, ...wire } = body;
     if (input.length) {

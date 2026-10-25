@@ -51,6 +51,7 @@ test("drawing: original defaults, blank prompt, explicit zero, uint32 wrap and s
       "sampler",
       "scale",
       "cfg",
+      "cfg_rescale",
       "seed",
       "optimize",
       "cache",
@@ -171,7 +172,7 @@ test("native image package: stored ZIP validates CRC, malformed archive and non-
   await assert.rejects(decodeNativeImages(new Uint8Array([1, 2, 3]).buffer));
 });
 
-test("metadata preserves NAI/WebUI meanings: compressed text, sampler map, seed zero, CFG rescale remains view-only", async () => {
+test("metadata preserves NAI/WebUI meanings: compressed text, sampler map, seed zero, Guidance Rescale maps independently", async () => {
   const signature = Uint8Array.from([137, 80, 78, 71, 13, 10, 26, 10]);
   function chunk(type, bytes) {
     const out = new Uint8Array(bytes.length + 12);
@@ -208,7 +209,7 @@ test("metadata preserves NAI/WebUI meanings: compressed text, sampler map, seed 
   assert.equal(nai.fields.seed, 0);
   assert.equal(nai.fields.model, "nai-diffusion-5-full");
   assert.equal(nai.fields.cfg, undefined);
-  assert.ok(nai.extras.some((e) => e.label === "CFG Rescale"));
+  assert.equal(nai.fields.cfgRescale, 0.7);
   assert.equal(nai.fields.prompt, "猫, blue_hair");
   const webui =
     "blue hair\nNegative prompt: blurry\nSteps: 20, Sampler: Euler a, CFG scale: 7, Seed: 0, Size: 512x768, Model: unknown";

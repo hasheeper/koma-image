@@ -19,7 +19,7 @@
 | 绘图、结果、收藏和参数导入 | [绘图工作区](drawing-workspace.md) |
 | CHAT、上下文、编辑和图片交接 | [对话与编辑](chat-editor-workspaces.md) |
 | 画板和角色 | [多角色与画板](multi-character-boards-plan.md) |
-| 图像协议 | [能力与请求边界](native-image-protocols.md)、[NovelAI 官方](novelai-official.md) |
+| 图像协议 | [能力与请求边界](native-image-protocols.md)、[NovelAI 官方与 V4.5／V5 能力对照](novelai-official.md) |
 | ASK | 先读[现行契约与维护入口](ask/ask-implementation-plan.md)，再按下表选择专题 |
 | 字体与样式 | [字体维护](font-style-governance.md)、[样式归属](style-ownership.md)、[检查规则](style-checks.md) |
 | 运行、发布、备份和回退 | [发布说明](release-guide.md) |
@@ -45,3 +45,5 @@ ASK 专题发生冲突时以「现行契约与维护入口」为准，工程红�
 [2026-10-25 整理前快照](archive/2026-10-25/README.md)保留原 37 份 Markdown 及 ASK 动画 v2 原型，源码基线 `219463c`。M1–M7、A0–A4、R／W／CP、角色画板、TS 和 CSS 治理的计划、过程、测试数量及当时授权均在快照中。旧阶段、窗口专题与原型已退出现行目录；已完成阶段不再作为实施待办。整理后完成的 [CHAT 交接（H0–H4）](archive/ask-chat-handoff-plan.md)保留勘探与验收过程，现行规则见上表各专题。
 
 维护现行契约时直接更新本节对应的负责文档，避免复制第二份规则或追加「覆盖前文」说明。历史测试证据注明日期、版本、范围和模拟／真实边界。历史授权不构成新的推送或部署授权。
+
+连接相关后续验证：[NAI 账户兼容](archive/2026-10-25-novelai-connection-check.md)、[V5 额度与张数展示](archive/2026-10-25-novelai-v5-usage.md)、[连接图标与官方 Logo](archive/2026-10-25-connection-icons.md)、[供应商分区与图像优先级](archive/2026-10-25-source-priority.md)、[连接与模型局部更新](archive/2026-10-25-settings-local-updates.md)、[V4.5／V5 能力核对](archive/2026-10-25-novelai-model-capabilities.md)、[NAI 参数兼容](archive/2026-10-25-nai-controls.md)、[NAI 模式与菜单](archive/2026-10-25-nai-modes.md)、[Vibe 与精确参考勘探](archive/2026-10-25-nai-references-research.md)、[参考链路与抽屉实施](archive/2026-10-25-nai-references-integration.md)。

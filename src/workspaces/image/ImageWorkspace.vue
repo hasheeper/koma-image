@@ -9,6 +9,7 @@ import ImageLibrary from "./ImageLibrary.vue";
 import BoardSwitcher from "./BoardSwitcher.vue";
 import CharactersEditor from "./CharactersEditor.vue";
 import PromptDraft from "./PromptDraft.vue";
+import DrawingBottomPanel from "./DrawingBottomPanel.vue";
 import DrawingControls from "./DrawingControls.vue";
 import ImageStage from "./ImageStage.vue";
 import ImportSheet from "./ImportSheet.vue";
@@ -23,6 +24,7 @@ import { installSplitter } from "../../native/splitter";
 const { drawing, view } = useDrawing();
 const importSheet = shallowRef<InstanceType<typeof ImportSheet> | null>(null);
 const splitter = shallowRef<HTMLElement | null>(null);
+const bottomPanel = shallowRef<InstanceType<typeof DrawingBottomPanel>>();
 const foot = shallowRef<HTMLElement | null>(null);
 const { image, narrow, router } = useShell();
 const main = shallowRef<HTMLElement | null>(null);
@@ -47,7 +49,7 @@ watch(
 );
 const valid = computed(
   () =>
-    !!view.value.model && !view.value.characterProblem &&
+    !!view.value.model && !view.value.referenceProblem && !view.value.characterProblem &&
     !sizeProblem(
       view.value.form.width,
       view.value.form.height,
@@ -80,7 +82,7 @@ lifecycle.whileActive((signal) => {
     if (narrow.value && foot.value)
       document.documentElement.style.setProperty(
         "--mobile-foot-h",
-        `${foot.value.offsetHeight}px`,
+        `${foot.value.getBoundingClientRect().height - (bottomPanel.value?.drawerHeight() ?? 0)}px`,
       );
     else document.documentElement.style.removeProperty("--mobile-foot-h");
   };
@@ -110,6 +112,7 @@ lifecycle.whileActive((signal) => {
       if (event.key === "Escape") {
         if (image.menuOpen) image.menuOpen = false;
         else if (image.importing) importSheet.value?.close();
+        else if (bottomPanel.value?.close()) {}
         else if (image.zoom) image.zoom = false;
         else if (view.value.browsing && view.value.pending) drawing.live();
         else if (view.value.busy) drawing.cancel();
@@ -186,7 +189,8 @@ function security() {
         <CharactersEditor :key="view.activeBoardId" />
         <DrawingControls />
       </div>
-      <div ref="foot" class="composer-foot">
+      <div ref="foot" class="composer-foot drawing-footer">
+        <DrawingBottomPanel ref="bottomPanel" />
         <div class="go-row">
           <button
             class="btn btn-primary btn-go"
@@ -210,7 +214,7 @@ function security() {
               id="goCost"
               :hidden="view.busy || !view.quote.quote"
               :data-stale="view.quote.status === 'loading'"
-              ><AppIcon name="i-points" /><b>{{
+              ><AppIcon v-if="view.quote.quote" name="i-points" /><b>{{
                 quoteLabel(view.quote.quote, view.batchCount)
               }}</b></span
             ><span class="go-keys" aria-hidden="true"
@@ -255,3 +259,7 @@ function security() {
     </button></Teleport
   >
 </template>
+
+<style scoped>
+.composer-foot.drawing-footer { padding-top: 10px; gap: 0; background: color-mix(in srgb,var(--chrome) 65%,var(--raised)); border-radius: var(--r3) var(--r3) 0 0; border-top: 1px solid var(--line-2); box-shadow: 0 -5px 16px -12px #000b; backdrop-filter: none; }
+</style>

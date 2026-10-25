@@ -40,8 +40,9 @@ export function authHeaders(context: ConnectionContext, profile: GatewayProfile)
         : { Authorization: `Bearer ${context.key()}` };
 }
 export function errorMessage(data: unknown, fallback = "请求失败") {
-  const obj = object(data),
-    value = object(obj.error).message || obj.detail || obj.error || obj.message;
+  const obj = object(data);
+  if (obj.cloudflare_error === true) return "请求被 Cloudflare 拦截，请检查网络或浏览器";
+  const value = object(obj.error).message || obj.detail || obj.error || obj.message;
   return typeof value === "string" ? value.slice(0, 1000) : fallback;
 }
 export async function readJson(

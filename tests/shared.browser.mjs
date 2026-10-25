@@ -279,6 +279,7 @@ test("startup: locked vault makes no requests and connects immediately after unl
   try {
     const { page } = t;
     await addConnection(page, true);
+    assert.match(await page.locator(".conn-card .connection-avatar use").getAttribute("href"), /#i-image$/);
     await page.locator("#settingsPanel .set-back").click();
     await page.waitForSelector("#settingsPanel[open]", { state: "hidden" });
     await page.evaluate(() => sessionStorage.clear());
@@ -348,6 +349,7 @@ test("settings: empty network default, connection/key input, model source contro
     );
     await page.locator("#settingsPanel .conn-models").click();
     await page.waitForSelector("#modelListDialog[open]");
+    assert.match(await page.locator("#modelListDialog .connection-avatar use").getAttribute("href"), /#i-image$/);
     await page.getByRole("searchbox", { name: "搜索模型" }).fill("custom");
     assert.equal(await page.locator("#modelListDialog .md-row").count(), 1);
     await page.getByRole("button", { name: "关闭", exact: true }).click();
@@ -355,6 +357,7 @@ test("settings: empty network default, connection/key input, model source contro
     await page
       .getByRole("button", { name: "展开 GPT Image 2 的来源", exact: true })
       .click();
+    assert.match(await page.locator(".sm-lines .cm use").getAttribute("href"), /#i-image$/);
     await page
       .getByRole("button", { name: "移除 测试连接 来源", exact: true })
       .click();
@@ -401,6 +404,76 @@ test("settings: empty network default, connection/key input, model source contro
     await t.context.close();
     throw e;
   }
+});
+
+test("settings: source edits and sorting preserve lists, focus and catalogs; refresh and endpoint edits stay local", async () => {
+  const c = (id, name) => ({ ...startupConnection, id, name, baseUrl: `https://gateway.example.test/${id}`, credentialRef: `${id}-key` });
+  const t = await open("/#/image/settings/connections", {
+    connections: { first: c("first", "第一连接"), second: c("second", "第二连接") },
+    keys: { "first-key": "synthetic-first", "second-key": "synthetic-second" },
+  });
+  const catalogs = () => t.requests.filter(r => r.url.endsWith("/image/models"));
+  const settle = () => t.page.evaluate(() => new Promise(resolve => requestAnimationFrame(() => requestAnimationFrame(resolve))));
+  try {
+    const { page } = t;
+    await page.waitForFunction(() => document.querySelectorAll('.conn-card .st[data-s="ok"]').length === 2);
+    const before = catalogs().length;
+    await page.getByRole("button", { name: "提高 第二连接 的优先级", exact: true }).click();
+    await page.waitForFunction(() => JSON.parse(localStorage.getItem("koma.routing.v1")).order?.[0] === "second");
+    await settle();
+    assert.equal(catalogs().length, before, "sorting reuses raw catalogs");
+    assert.equal(await page.locator('.conn-card .st[data-s="wait"]').count(), 0);
+    await settings(page, "models");
+    await page.getByRole("button", { name: "展开 GPT Image 2 的来源", exact: true }).click();
+    await page.evaluate(() => {
+      window.originalModelList = document.querySelector('#settingsPanel .sm');
+      window.originalSourceButton = [...document.querySelectorAll('.sm-line button')].find(b => b.getAttribute('aria-label') === '移除 第一连接 来源');
+    });
+    await page.getByRole("button", { name: "移除 第一连接 来源", exact: true }).click();
+    await page.waitForFunction(() => JSON.parse(localStorage.getItem("koma.routing.v1")).links.first?.["gpt-image-2"]?.on === false);
+    await settle();
+    assert.equal(await page.evaluate(() => originalModelList === document.querySelector('#settingsPanel .sm') && originalSourceButton.isConnected && document.activeElement === originalSourceButton), true);
+    await page.getByRole("button", { name: "添加 第一连接 来源", exact: true }).click();
+    await page.getByRole("button", { name: "移除 第二连接 来源", exact: true }).click();
+    await page.waitForFunction(() => JSON.parse(localStorage.getItem("koma.routing.v1")).links.second?.["gpt-image-2"]?.on === false);
+    await settle();
+    assert.equal(catalogs().length, before, "source switches never re-fetch every provider");
+    assert.equal(await page.evaluate(() => originalModelList === document.querySelector('#settingsPanel .sm')), true);
+    assert.equal(await page.getByRole("button", { name: "收起 GPT Image 2 的来源", exact: true }).count(), 1);
+
+    await settings(page);
+    const first = page.locator('.conn-card', { hasText: '第一连接' });
+    await first.locator('.conn-models').click();
+    await page.getByRole("searchbox", { name: "搜索模型" }).fill("custom");
+    await page.evaluate(() => { window.originalDialogList = document.querySelector('#modelListDialog .md-list'); });
+    await page.getByRole("combobox", { name: "把 custom-image 用作", exact: true }).selectOption("gpt-image-1.5");
+    await page.waitForFunction(() => JSON.parse(localStorage.getItem("koma.routing.v1")).links.first?.["gpt-image-1.5"]?.id === "custom-image");
+    await settle();
+    assert.equal(await page.getByRole("searchbox", { name: "搜索模型" }).inputValue(), "custom");
+    assert.equal(await page.evaluate(() => originalDialogList === document.querySelector('#modelListDialog .md-list')), true);
+    assert.equal(await page.locator('#modelListDialog .md-row').count(), 1);
+    assert.equal(catalogs().length, before);
+
+    await page.getByRole("button", { name: "重新拉取", exact: true }).click();
+    await page.waitForFunction(() => document.querySelector('#modelListDialog .md-row .lamp'));
+    await page.waitForTimeout(80);
+    assert.equal(catalogs().length, before + 1);
+    assert.ok(catalogs().at(-1).url.includes('/first/'));
+    await page.getByRole("button", { name: "关闭", exact: true }).click();
+    await connectionAction(page, "编辑连接…", first);
+    await page.locator('#connectionName').fill('改名连接');
+    await page.keyboard.press('Enter');
+    await page.waitForFunction(() => [...document.querySelectorAll('.conn-name b')].some(el => el.textContent === '改名连接'));
+    await settle();
+    assert.equal(catalogs().length, before + 1, "a name edit is local presentation state");
+    await connectionAction(page, "编辑连接…", page.locator('.conn-card', { hasText: '改名连接' }));
+    await page.locator('#connectionUrl').fill('https://gateway.example.test/first-new');
+    await page.keyboard.press('Enter');
+    await page.waitForFunction(() => [...document.querySelectorAll('.conn-card')].find(el => el.textContent.includes('改名连接'))?.querySelector('.st')?.dataset.s === 'ok');
+    assert.ok(catalogs().slice(before + 1).length > 0);
+    assert.ok(catalogs().slice(before + 1).every(r => r.url.includes('/first-new/')), "only the changed endpoint reloads");
+    await clean(t);
+  } finally { await t.context.close(); }
 });
 
 // Reads the sealed Key table with this session's derived key, as the vault does.

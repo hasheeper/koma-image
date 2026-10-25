@@ -1,3 +1,4 @@
+import { referenceSummary } from "../domain/nai-references.ts";
 import { readCharacters } from "../domain/characters.ts";
 import { canonical } from "./canonical.ts";
 import type { DigestImage } from "./digest/index.ts";
@@ -23,19 +24,21 @@ export const comparisonPrompt = (image: DigestImage) => [promptOf(image), ...rea
 export function metadata(image: DigestImage): Record<string, unknown> {
   const out: Record<string, unknown> = {
     prompt: promptOf(image),
-    negative: String(image.params.negative_prompt ?? image.params.negative ?? ""),
+    negative: String(image.params.baseNegative ?? image.params.negative_prompt ?? image.params.negative ?? ""),
     width: image.size.width,
     height: image.size.height,
   };
   // All parameters currently persisted by drawing/editor; omit routing and binary inputs.
-  for (const key of ["model", "modelName", "seed", "steps", "scale", "cfg", "sampler", "strength", "noise", "noise_schedule", "cfg_rescale", "tool", "transparentBg", "optimize", "cache", "transform_prompt", "transform_mode", "randomSeed", "batchCount", "batchIndex", "batchTotal", "isComparison", "comparisonTotal", "seedStart", "version", "image_index", "selected"])
+  for (const key of ["model", "modelName", "seed", "steps", "scale", "cfg", "cfgRescale", "naiMode", "complexity", "qualityPreset", "negativePreset", "sampler", "strength", "noise", "noise_schedule", "cfg_rescale", "tool", "transparentBg", "optimize", "cache", "transform_prompt", "transform_mode", "randomSeed", "batchCount", "batchIndex", "batchTotal", "isComparison", "comparisonTotal", "seedStart", "version", "image_index", "selected"])
     if (image.params[key] === null || ["string", "number", "boolean"].includes(typeof image.params[key])) out[key] = image.params[key];
+  if (image.params.naiReferences) out.references = referenceSummary(image.params.naiReferences);
   if (Array.isArray(image.params.characters)) {
     out.characters = readCharacters(image.params.characters);
     out.placement = image.params.placement === "manual" ? "manual" : "auto";
   }
   if (Array.isArray(image.params.localCharacters)) out.local_characters = readCharacters(image.params.localCharacters);
   for (const key of ["boardId", "boardName", "boardColor"]) if (typeof image.params[key] === "string") out[key] = image.params[key];
+  if (typeof image.params.negative_prompt === "string" && image.params.negative_prompt !== out.negative) out.sent_negative = image.params.negative_prompt;
   // CHAT turns record option values (size, quality…) instead of drawing fields.
   if (image.params.chat_options && typeof image.params.chat_options === "object") out.chat_options = image.params.chat_options;
   // Preserve the effective prompt and requested size only when they differ.

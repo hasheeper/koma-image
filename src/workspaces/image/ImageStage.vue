@@ -322,8 +322,8 @@ function openAsk() {
           ><span
             v-for="(label, key) in {
               steps: '步数',
-              scale: 'Scale',
-              cfg: 'CFG',
+              scale: 'Guidance',
+              cfgRescale: 'Rescale',
             }"
             :key="key"
             class="result-param"

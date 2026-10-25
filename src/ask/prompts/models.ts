@@ -2,7 +2,7 @@ import { manuals } from "./manuals.ts";
 
 /** L2: all families stay in the static core; long manuals are read on demand. */
 export const models = {
-  version: 5,
+  version: 6,
   core: `## 模型知识与实战经验（按当前表单或对话所选模型对齐）
 ### 一、 NovelAI 系列（NAI Diffusion V4.5 / V5 —— 扩散标签与混排体系）
 1. 版本真实实力与定位：
@@ -25,7 +25,7 @@ export const models = {
    - 互斥组单一选择：视线方向、取景距离、背景形态、水平机位，同组词条只选一个，叠写会导致模型摇摆。
    - 原创与版权角色反方向处理：具名版权角色自带全套设定，只写标准罗马音角色名与笼统场合装（如 school uniform），不默写发色瞳色以免写错打架（换装或改发色需加权 1.3–1.5）；原创角色（OC）则必须完整保留所有外貌锚点，不作删减。
    - 单幅插画的角色分工：基础描述承载画师画风、总人数标签（如 2girls）、镜头、场景、动作与表情；独立 Character 以不带数字的 girl / boy / other 打头，仅放该角色的外貌、服饰或具名版权角色名，以及可选 source# / target# / mutual# 施受方向前缀。常规动作与场景始终留在基础描述，仅整页多格漫画手册例外。角色 Negative 可排除串入特征；角色顺序按从上到下、从左到右，手动位置与文字一致。V4.5 最多 6 个角色、5×5 定位；V5 最多 22 个、自由坐标；实际请求仍受连接协议边界约束。
-   - V5 专有开关：low/medium/high/ultra complexity 为计算预算开关而非通用质量尾，默认不加，画面僵硬细碎时可用负权压制；透明通道词为 transparent background、alpha transparency 与 has alpha；纵深增强为 depthness。
+   - V5 专有开关：low/medium/high/ultra complexity 控制画面复杂度与风格，不代表 Effort 计算档位，默认不加，画面僵硬细碎时可用负权压制；透明通道词为 transparent background、alpha transparency 与 has alpha；纵深增强为 depthness。
 ---
 ### 二、 原生多模态自回归系列（GPT Image / Gemini Image —— 自然语言与上下文体系）
 此类模型将参考图像与自然语言置于同一注意力窗口，具备先验推理能力。不使用 Danbooru 标签或权重符号（W::、{} 在此会被当成普通文字），完全依靠精准的自然语言与参考图配合，形同自然语言驱动的高级视觉编辑器。

@@ -21,11 +21,11 @@
 | Koma 标准网关 | 绘图、对话、编辑、报价与额度保护 | 支持 |
 | OpenAI Images | CHAT 生图与参考图修改 | 浏览器直连 |
 | Gemini 原生 | CHAT 生图与参考图修改 | 浏览器直连 |
-| NovelAI 官方 · 基础接入 | 绘图、基础图生图、Anlas 查询、多角色参数 | 浏览器直连 |
+| NovelAI 官方 · 基础接入 | 绘图、基础图生图、Anlas 查询、多角色与 V4.5 Vibe／Precise | 浏览器直连 |
 | OpenAI Chat 兼容 | ASK 推理、命名与压缩 | 支持 |
 | Anthropic Messages | ASK 推理、命名与压缩 | 支持 |
 
-初始连接为空；未配置 URL／Key 不请求上游。无预报价能力时显示「费用未知」。官方 NAI 重绘／放大与订阅优惠仍未开放或核验；新增协议的真实型号、生成效果、扣费、权限和 CORS 不能以模拟测试代替。详见[当前状态与待办](docs/implementation-plan.md)及[图像协议](docs/native-image-protocols.md)。
+初始连接为空；未配置 URL／Key 不请求上游。无法取得预报价时，生成按钮暂不展示费用标签，内部仍保留未知费用状态。官方 NAI 重绘／放大与订阅优惠仍未开放或核验；新增协议的真实型号、生成效果、扣费、权限和 CORS 不能以模拟测试代替。详见[当前状态与待办](docs/implementation-plan.md)及[图像协议](docs/native-image-protocols.md)。
 
 ## 开发与检查
 

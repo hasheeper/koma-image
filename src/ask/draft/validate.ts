@@ -151,7 +151,7 @@ export function matchAnchor(value: string, anchor: string) {
   return matches.length === 1 ? { start: source.starts[matches[0]], end: source.ends[matches[0] + needle.length - 1], aligned: true } : null;
 }
 const roleGroupText = (chars: DraftState["form"]["characters"], placement: string) => `${placement === "manual" ? "手动定位" : "自动定位"}\n${chars.map((c, i) => `角色 ${i + 1} (${c.id}) · ${c.on ? "启用" : "停用"} · ${c.centers.map(p => `${p.x}/${p.y}`).join("; ")}\nPrompt: ${c.prompt}\nNegative: ${c.negative || "（空）"}`).join("\n")}`;
-const labels: Partial<Record<Field, string>> = { prompt: "Prompt", negative: "Negative", composer: "对话输入框", width: "宽", height: "高", steps: "步数", scale: "Scale", cfg: "CFG", sampler: "采样器", seed: "Seed", model: "模型", batchCount: "批次" };
+const labels: Partial<Record<Field, string>> = { prompt: "Prompt", negative: "Negative", composer: "对话输入框", width: "宽", height: "高", steps: "步数", scale: "Guidance", cfg: "中转 CFG（旧）", cfgRescale: "Guidance Rescale", naiMode: "模式", complexity: "Complexity", qualityPreset: "质量预设", negativePreset: "负向预设", transparentBg: "透明底", sampler: "采样器", seed: "Seed", model: "模型", batchCount: "批次" };
 
 export function validateDraft(draft: Draft, now: DraftState, options: ValidateOptions): DraftPlan {
   if (draft.steps[0].kind === "chat_distill_branch") return validateBranch(draft, now, options);
@@ -250,8 +250,8 @@ export function validateDraft(draft: Draft, now: DraftState, options: ValidateOp
       if (field === "seed" && after !== "" && (!/^\d+$/.test(String(after)) || Number(after) > 4294967295)) issue ||= "种子无效";
       const enabled = !options.off.has(id);
       checked.push({ id, label, kind: "parameter", enabled, issue, aligned: !sameValue(initial[field], draft.base.form[field]), before: String(before), after: String(after ?? value ?? "—"),
-        displayBefore: field === "model" ? resolveModel(now.models, String(before))?.name : field === "sampler" ? samplerName(before) : undefined,
-        displayAfter: field === "model" ? resolveModel(now.models, String(after))?.name : field === "sampler" ? samplerName(after) : undefined });
+        displayBefore: field === "naiMode" ? before === "furry" ? "兽人" : "动漫" : field === "model" ? resolveModel(now.models, String(before))?.name : field === "sampler" ? samplerName(before) : undefined,
+        displayAfter: field === "naiMode" ? after === "furry" ? "兽人" : "动漫" : field === "model" ? resolveModel(now.models, String(after))?.name : field === "sampler" ? samplerName(after) : undefined });
       if (enabled && !issue && after !== undefined) Object.assign(working, { [field]: after });
     }
   });

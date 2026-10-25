@@ -3,9 +3,6 @@ import { computed, ref, watch } from "vue";
 import { useDrawing } from "../../app/drawing";
 import { useUi } from "../../app/ui";
 import {
-  DEFAULTS,
-  samplerName,
-  randomSeed,
   RATIOS,
   sizes,
   presetMatch,
@@ -15,6 +12,8 @@ import {
   sizeProblem,
 } from "../../domain/drawing";
 import type { Tier, Orientation, DrawingForm } from "../../domain/drawing";
+import { naiCapabilities, NAI_FULL, NAI_MEDIUM, naiDataset, effectiveNaiMode } from "../../domain/nai";
+import NaiSelect from "./NaiSelect.vue";
 import AppIcon from "../../shared/AppIcon.vue";
 const { drawing, view } = useDrawing(),
   ui = useUi();
@@ -22,6 +21,35 @@ const f = computed(() => view.value.form),
   tier = ref<Tier>("m"),
   lastDirection = ref<Orientation>("portrait"),
   lastShape = ref("2:3");
+const cap = computed(() => naiCapabilities(f.value.model));
+const modelOptions = computed(() => {
+  const list = view.value.models.filter(m => m.id !== NAI_MEDIUM);
+  const medium = view.value.models.find(m => m.id === NAI_MEDIUM);
+  if (medium && !list.some(m => m.id === NAI_FULL)) list.unshift({ ...medium, id: NAI_FULL, name: "NAI Diffusion V5 Full" });
+  return list;
+});
+const baseModel = computed(() => cap.value.medium ? NAI_FULL : f.value.model);
+const available = (id: string) => view.value.models.some(m => m.id === id);
+function selectModel(id: string) {
+  void drawing.patch({ model: id === NAI_FULL && !available(NAI_FULL) ? NAI_MEDIUM : id });
+}
+function selectEffort(value: string) {
+  const id = value === "medium" ? NAI_MEDIUM : NAI_FULL;
+  if (available(id)) void drawing.patch({ model: id });
+}
+const mode = computed(() => effectiveNaiMode(f.value.naiMode, f.value.prompt));
+const dataset = computed(() => naiDataset(f.value.prompt));
+const modeTitle = computed(() => dataset.value ? `提示词以 ${dataset.value} dataset 开头；切换模式请先移除该标签` : "动漫 / 兽人：切换数据集与标签补全");
+const modeOptions = computed(() => [
+  { value: "anime", label: "动漫", disabled: dataset.value === "fur", title: dataset.value === "fur" ? modeTitle.value : undefined },
+  { value: "furry", label: "兽人", disabled: dataset.value === "background", title: dataset.value === "background" ? modeTitle.value : undefined },
+]);
+const modelChoices = computed(() => modelOptions.value.map(m => ({ value: m.id, label: m.name })));
+const modelDisplay = computed(() => {
+  if (!view.value.models.length) return view.value.catalogLoading ? "加载中…" : view.value.catalogError ? "连接未就绪" : "未配置连接";
+  const id = baseModel.value.replace(/@local$/, ""), match = /^nai-diffusion-(5|4-5)-(full|curated)$/.exec(id);
+  return match ? `NAI V${match[1] === "4-5" ? "4.5" : "5"} ${match[2] === "full" ? "Full" : "Curated"}` : view.value.model?.name ?? baseModel.value;
+});
 const match = computed(() =>
   presetMatch(Number(f.value.width), Number(f.value.height)),
 );
@@ -57,26 +85,6 @@ const problem = computed(() =>
     Number(f.value.height),
     view.value.model?.maxPixels,
   ),
-);
-const badge = computed(
-  () =>
-    [
-      "sampler",
-      "steps",
-      "scale",
-      "cfg",
-      "seed",
-      "batchCount",
-      "optimize",
-      "serverCache",
-      "transparentBg",
-    ].filter(
-      (key) =>
-        (key === "batchCount"
-          ? view.value.batchCount
-          : f.value[key as keyof DrawingForm]) !==
-        DEFAULTS[key as keyof DrawingForm],
-    ).length,
 );
 const dimensions = computed(() => {
   const w = Number(f.value.width) || 1,
@@ -147,30 +155,6 @@ function radioKey(e: KeyboardEvent) {
   b?.focus();
   b?.click();
 }
-function reset() {
-  void drawing.patch({
-    sampler: view.value.samplers.includes(DEFAULTS.sampler)
-      ? DEFAULTS.sampler
-      : view.value.samplers[0],
-    steps: 25,
-    scale: 5,
-    cfg: 10,
-    seed: "",
-    batchCount: 1,
-    optimize: false,
-    serverCache: false,
-    transparentBg: false,
-  });
-}
-const batchHint = computed(() =>
-  view.value.policy.serialUnavailable
-    ? view.value.quotaLoading
-      ? "正在读取临时 Key 全局日额度，串行暂不可用。"
-      : "临时 Key 全局日额度暂不可用，为避免超额，串行已关闭。"
-    : view.value.policy.serialDisabled
-      ? `临时 Key 全局日额度剩余 ${view.value.policy.tempRemaining}，低于 300，仅允许单张生成。`
-      : "严格逐张请求；失败或取消时停止剩余队列。",
-);
 </script>
 <template>
   <div class="fld">
@@ -179,36 +163,17 @@ const batchHint = computed(() =>
         ><AppIcon class="section-ico" name="i-model" />模型</label
       >
     </div>
-    <select
-      id="model"
-      class="model-select"
-      :title="
-        view.model
-          ? [
-              view.model.description,
-              `上限 ${(view.model.maxPixels / 1e6).toFixed(2)}M 像素`,
-            ]
-              .filter(Boolean)
-              .join(' · ')
-          : ''
-      "
-      :value="f.model"
-      :disabled="!view.models.length"
-      @change="change('model', $event)"
-    >
-      <option v-if="!view.models.length" value="">
-        {{
-          view.catalogLoading
-            ? "加载中…"
-            : view.catalogError
-              ? "连接未就绪"
-              : "未配置连接"
-        }}
-      </option>
-      <option v-for="m in view.models" :key="m.id" :value="m.id">
-        {{ m.name }}
-      </option>
-    </select>
+    <div class="model-row" role="group" aria-label="模型与模式">
+      <NaiSelect id="model" label="模型" variant="model" :value="baseModel" :display="modelDisplay" :title="view.model?.name" :disabled="!view.models.length" :options="modelChoices" @change="selectModel" />
+      <template v-if="cap.supported">
+        <span class="model-divider" aria-hidden="true"></span>
+        <NaiSelect id="naiMode" label="模式" variant="segment" :title="modeTitle" :value="mode" :options="modeOptions" @change="drawing.patch({ naiMode: $event as typeof f.naiMode })" />
+      </template>
+      <template v-if="cap.effort">
+        <span class="model-divider" aria-hidden="true"></span>
+        <NaiSelect id="effort" label="Effort" variant="segment" wide title="Effort：Medium 固定 14 步；High 可完整调节参数" :value="cap.medium ? 'medium' : 'high'" :options="[{ value: 'high', label: 'High', detail: '完整参数', disabled: !available(NAI_FULL) }, { value: 'medium', label: 'Medium', detail: '14 步 · Euler A', disabled: !available(NAI_MEDIUM) }]" @change="selectEffort" />
+      </template>
+    </div>
   </div>
   <div
     class="fld resolution-control"
@@ -346,163 +311,12 @@ const batchHint = computed(() =>
       {{ problem.message }}
     </p>
   </div>
-  <details class="drawer" id="advanced">
-    <summary>
-      <AppIcon class="section-ico" name="i-parameters" /><span>参数</span
-      ><span class="badge" :hidden="!badge">{{ badge }}</span
-      ><i class="caret" aria-hidden="true"></i>
-    </summary>
-    <div class="drawer-body">
-      <div class="fld">
-        <div class="fld-top"><label for="sampler">采样器</label></div>
-        <select
-          id="sampler"
-          :value="f.sampler"
-          @change="change('sampler', $event)"
-        >
-          <option
-            v-for="sampler in view.samplers"
-            :key="sampler"
-            :value="sampler"
-          >
-            {{ samplerName(sampler) }}
-          </option>
-        </select>
-      </div>
-      <div class="scrubs">
-        <label
-          v-for="control in [
-            { key: 'steps' as const, label: '步数', min: 1, max: 50, step: 1 },
-            {
-              key: 'scale' as const,
-              label: 'Scale',
-              min: 0,
-              max: 20,
-              step: 0.5,
-            },
-            { key: 'cfg' as const, label: 'CFG', min: 0, max: 30, step: 0.5 },
-          ]"
-          :key="control.key"
-          class="scrub scrub-sm"
-          :style="{
-            '--p':
-              ((Number(f[control.key]) - control.min) /
-                (control.max - control.min)) *
-                100 +
-              '%',
-          }"
-          ><span>{{ control.label }}</span
-          ><output :id="`${control.key}Val`">{{ f[control.key] }}</output
-          ><input
-            :id="control.key"
-            type="range"
-            :min="control.min"
-            :max="control.max"
-            :step="control.step"
-            :value="f[control.key]"
-            @input="change(control.key, $event)"
-        /></label>
-      </div>
-      <div class="fld">
-        <div class="fld-top"><label for="seed">Seed</label></div>
-        <div class="seed">
-          <input
-            id="seed"
-            type="number"
-            min="0"
-            max="4294967295"
-            placeholder="随机"
-            :value="f.seed"
-            @input="change('seed', $event)"
-          /><button
-            class="ibtn"
-            id="diceBtn"
-            type="button"
-            data-tip="随机 Seed"
-            aria-label="随机 Seed"
-            @click="drawing.patch({ seed: String(randomSeed()) })"
-          >
-            <AppIcon name="i-dice" />
-          </button>
-        </div>
-      </div>
-      <div class="fld">
-        <div class="fld-top">
-          <label for="batchCount">串行批量</label
-          ><span class="mono dim">{{
-            view.policy.serialUnavailable
-              ? view.quotaLoading
-                ? "校验中"
-                : "额度未知"
-              : view.policy.serialDisabled
-                ? "仅单张"
-                : "1 张起"
-          }}</span>
-        </div>
-        <div class="fld-inline">
-          <input
-            id="batchCount"
-            type="number"
-            min="1"
-            step="1"
-            inputmode="numeric"
-            :value="view.batchCount"
-            :disabled="view.policy.serialDisabled"
-            aria-describedby="batchHint"
-            @input="change('batchCount', $event)"
-            @keydown.enter.prevent
-          /><span>张</span>
-        </div>
-        <p
-          class="hint"
-          id="batchHint"
-          :class="{ warn: view.policy.serialDisabled }"
-        >
-          {{ batchHint }}
-        </p>
-      </div>
-      <div class="switches">
-        <label class="check"
-          ><input
-            id="serverCache"
-            type="checkbox"
-            :checked="f.serverCache"
-            @change="change('serverCache', $event)"
-          /><span></span>服务端缓存<i class="sub">占日点数</i></label
-        ><label class="check"
-          ><input
-            id="optimize"
-            type="checkbox"
-            :checked="f.optimize"
-            @change="change('optimize', $event)"
-          /><span></span>压缩体积<i class="sub">转 JPEG</i></label
-        ><label
-          class="check"
-          id="transparentBgWrap"
-          :data-off="!view.model?.transparentBackground ? '1' : ''"
-          :title="
-            !view.model?.transparentBackground
-              ? '当前模型不支持透明底（仅 V5）'
-              : ''
-          "
-          :aria-disabled="!view.model?.transparentBackground"
-          ><input
-            id="transparentBg"
-            type="checkbox"
-            :checked="f.transparentBg"
-            :disabled="!view.model?.transparentBackground"
-            @change="change('transparentBg', $event)"
-          /><span></span>透明底<i class="sub">仅 V5 模型</i></label
-        >
-      </div>
-      <button
-        class="btn btn-quiet btn-block btn-sm"
-        id="resetAdv"
-        type="button"
-        @click="reset"
-      >
-        <AppIcon name="i-reset" />恢复默认
-      </button>
-    </div>
-  </details>
+
 </template>
+
+<style scoped>
+.model-row { display: flex; align-items: center; min-width: 0; height: 38px; padding: 3px; background: var(--well); border: 1px solid var(--line); border-radius: var(--r3); }
+.model-divider { flex: none; width: 1px; height: 14px; margin: 0 2px; background: var(--line-2); }
+.model-row :deep(#effort) { width: 80px; }
+@media (pointer: coarse), (max-width: 860px) { .model-row { height: 44px; } }
+</style>

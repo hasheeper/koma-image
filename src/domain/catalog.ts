@@ -1,6 +1,7 @@
 import { MODELS, findModel } from "./models.ts";
 import type { ModelIdentity } from "./models.ts";
 import type { Routing } from "../config/connections.ts";
+import { imageConnections } from "../config/connections.ts";
 import { object, strings } from "./value.ts";
 import type { GatewayProfile } from "../gateway/profile.ts";
 
@@ -30,6 +31,27 @@ export function linkFor(routing: Routing, connection: string, model: ModelIdenti
 export function sourceState(routing: Routing, connection: string, model: ModelIdentity, entries: CatalogEntry[]) {
   const link = linkFor(routing, connection, model, entries);
   return !link ? "miss" : !entries.some(e => e.id === link.id) ? "gone" : link.on ? "on" : "off";
+}
+export function firstSource(routing: Routing, available: readonly string[]) {
+  return imageConnections(routing).find(c => available.includes(c.id))?.id;
+}
+export function modelSource(routing: Routing, raw: Record<string, unknown>, model: ModelIdentity) {
+  return firstSource(routing, imageConnections(routing)
+    .filter(c => sourceState(routing, c.id, model, catalogEntries(raw[c.id])) === "on").map(c => c.id));
+}
+/** Preview order; execution rechecks the exact operation and funds before submission. */
+export function selectCatalogSources(routing: Routing, candidates: CatalogModel[]) {
+  const groups = new Map<string, CatalogModel[]>();
+  for (const model of candidates) {
+    const group = groups.get(model.id) ?? [];
+    group.push(model);
+    groups.set(model.id, group);
+  }
+  return [...groups.values()].flatMap(group => {
+    const source = firstSource(routing, group.map(m => m.connection));
+    const selected = group.find(m => m.connection === source);
+    return selected ? [selected] : [];
+  });
 }
 export function validateCatalog(raw: unknown, profile: GatewayProfile) {
   const value = object(raw), features = object(value.studio_features);

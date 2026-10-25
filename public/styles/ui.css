@@ -313,6 +313,7 @@ body[data-gate="open"] .gate-card { transform: none; }
 button.w-seg:hover { background: var(--raised); }
 .w-ico {
   --ico: var(--ico-sm);
+  width: var(--ico); height: var(--ico);
   flex: none;
   color: var(--lc);
   fill: currentColor;
@@ -328,6 +329,7 @@ button.w-seg:hover { background: var(--raised); }
 }
 .w-v b { font-weight: inherit; color: var(--fg); transition: color var(--t2) var(--e); }
 .w-v i { font-style: normal; font-weight: var(--fw-regular); font-size: 11px; color: var(--fg-4); }
+.w-estimate { margin-left: 6px; font: var(--fw-regular) var(--fz-2xs)/1 var(--sans); color: var(--fg-3); }
 /* The ring shares the mark's centre, so both figures keep one centre line
    whatever the face. (A bar hung under the figure followed the font's line
    box, and a taller face pushed it out of the well.) The mark shrinks to sit

@@ -1,0 +1,75 @@
+import test from 'node:test';
+import assert from 'node:assert/strict';
+import { emptyReferences, readReferences, referencePlan, referenceStrengths, referenceSurcharge, referenceWire, referenceModel } from '../src/domain/nai-references.ts';
+import { collect, DEFAULTS, drawingPayload, readBoards, reuseFields } from '../src/domain/drawing.ts';
+import { toNativePayload, toStandardPayload } from '../src/gateway/routes.ts';
+import { supportsSourcePayload, insufficientFunds } from '../src/domain/source-funding.ts';
+import { novelaiProfile } from '../src/gateway/profile.ts';
+import { normalizeQuota } from '../src/domain/quota.ts';
+import { base64Blob, readEncoding } from '../src/native/reference-images.ts';
+const r = (id, strength=0.6) => ({id,assetId:'a'.repeat(64),on:true,strength,information:.7,fidelity:.85,type:'character&style'});
+const model = {id:'nai-diffusion-4-5-full',name:'NAI V4.5 Full',profileId:'nai-official-v1',operations:['generate'],maxPixels:4194304,maxImages:1,fields:{}};
+test('NAI references: per-board JSON snapshots, excluded rows, mutual group and explicit 16-image cap',()=>{
+  const refs={...emptyReferences(),active:'vibe',vibe:[r('1'),{...r('2'),on:false}],precise:[r('p')]};
+  const params=collect({...DEFAULTS,naiReferences:refs},model,2), payload=drawingPayload(params);
+  refs.vibe[0].strength=.1;
+  assert.equal(payload.referencePlan.items[0].strength,.6);
+  assert.equal(payload.referencePlan.items.length,1);
+  assert.equal(params.naiReferences.precise.length,1);
+  const restored=readBoards({boards:{activeId:'a',items:[{id:'a',form:{...DEFAULTS,naiReferences:refs}}]}});
+  assert.deepEqual(restored.items[0].form.naiReferences,refs);
+  assert.deepEqual(reuseFields({params}).naiReferences,params.naiReferences);
+  for(const kind of ['vibe','precise'])assert.throws(()=>referencePlan({...emptyReferences(),active:kind,[kind]:Array.from({length:17},(_,i)=>r(String(i)))}),/16/);
+  assert.equal(referencePlan({...refs,active:null}),undefined);
+  assert.deepEqual(readReferences({vibe:[r('1'),r('1'),{...r('bad'),assetId:'invalid'}]}).vibe,[r('1')]);
+  assert.equal(referenceModel('nai-diffusion-5-full'),false);
+});
+test('NAI wire: normalization only above 1, encoded Vibe omits extraction array; Precise inverts Fidelity',()=>{
+  const plan={kind:'vibe',normalize:true,items:[r('1',.3),r('2',.2)]};
+  assert.deepEqual(referenceStrengths(plan),[.3,.2]);
+  plan.items=[r('1',.8),r('2',.8)];assert.deepEqual(referenceStrengths(plan),[.5,.5]);
+  assert.equal(referenceSurcharge({...plan,items:Array.from({length:6},(_,i)=>r(String(i)))}),4);
+  const prepared={kind:'vibe',images:['YWJj'],strengths:[.6],information:[.7],fidelities:[.85],types:['character&style']};
+  assert.deepEqual(referenceWire(prepared),{reference_image_multiple:['YWJj'],reference_strength_multiple:[.6]});
+  const payload={model:model.id,prompt:'synthetic',preparedReferences:prepared};
+  const wire=toNativePayload(payload,()=>0,true).parameters;
+  assert.deepEqual(wire.reference_image_multiple,['YWJj']);
+  assert.equal('reference_information_extracted_multiple' in wire,false);
+  const precise=referenceWire({...prepared,kind:'precise'});
+  assert.deepEqual(precise.director_reference_descriptions,[{caption:{base_caption:'character&style',char_captions:[]},legacy_uc:false}]);
+  assert.ok(Math.abs(precise.director_reference_secondary_strength_values[0]-.15)<1e-12);
+  assert.throws(()=>toStandardPayload(payload),/参考生成协议/);
+  assert.throws(()=>toNativePayload({...payload,model:'nai-diffusion-5-full'},()=>0,true),/不支持参考/);
+  assert.throws(()=>toNativePayload({model:model.id,referencePlan:plan},()=>0,true),/尚未准备/);
+});
+test('reference routing: keep complete payload, only declared official V4.5 source and known surcharge floor',()=>{
+  const plan={kind:'precise',normalize:false,items:[r('1'),r('2')]}, payload={model:model.id,width:832,height:1216,referencePlan:plan};
+  assert.equal(supportsSourcePayload(model,payload),true);
+  assert.equal(supportsSourcePayload({...model,profileId:'koma-standard-v1'},payload),false);
+  assert.equal(supportsSourcePayload({...model,id:'nai-diffusion-5-full'},payload),false);
+  const quota=n=>normalizeQuota(novelaiProfile,{credits:{remaining:n},subscription:{active:true,tier:3}},null,false);
+  assert.match(insufficientFunds(model,quota(9),null,payload),/Anlas/);
+  assert.equal(insufficientFunds(model,quota(10),null,payload),null);
+  assert.equal(insufficientFunds(model,quota(null),null,payload),null);
+  assert.match(insufficientFunds(model,quota(11),null,{...payload,referenceMinimum:12}),/Anlas/);
+});
+test('Vibe binary response: bounded bytes, empty/error bodies and cancellation cannot masquerade as cache',async()=>{
+  assert.equal(await readEncoding(new Response(new Uint8Array([0,1,254,255])),new AbortController().signal),'AAH+/w==');
+  await assert.rejects(readEncoding(new Response(new Uint8Array()),new AbortController().signal),/为空/);
+  assert.throws(()=>base64Blob('bad'),/编码无效/);
+  assert.throws(()=>base64Blob('YWJj','application/octet-stream',2),/过大/);
+  const abort=new AbortController();abort.abort();
+  await assert.rejects(readEncoding(new Response(new Uint8Array([1])),abort.signal),e=>e.name==='AbortError');
+});
+
+test('reference wire rejects mismatched Precise arrays and imported backups require complete asset closure',async()=>{
+  assert.throws(()=>referenceWire({kind:'precise',images:['YWJj'],strengths:[1],information:[],fidelities:[1],types:['style']}),/不完整/);
+  const {validateBackupManifest}=await import('../src/storage/backup-schema.ts');
+  const {backupFormat}=await import('../src/storage/backup-schema.ts');
+  const ref=r('1'),value={...backupFormat,id:'11111111-1111-4111-8111-111111111111',createdAt:new Date(0).toISOString(),favorites:[],assets:[],conversations:[],preferences:{drawing:JSON.stringify({naiReferences:{...emptyReferences(),vibe:[ref]}})},referenceAssets:[],vibeEncodings:[]};
+  assert.throws(()=>validateBackupManifest(value),/缺少参考图片/);
+  value.referenceAssets=[{id:ref.assetId,width:512,height:512,image:{path:'references/images/0.png',type:'image/png'},thumbnail:null}];
+  assert.equal(validateBackupManifest(value).referenceAssets.length,1);
+  value.referenceAssets[0].image=null;
+  assert.throws(()=>validateBackupManifest(value),/不完整/);
+});

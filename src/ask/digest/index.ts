@@ -1,3 +1,5 @@
+import { referenceSummary } from "../../domain/nai-references.ts";
+import type { NaiReferences } from "../../domain/nai-references.ts";
 import { boardKeys } from "../../domain/drawing.ts";
 import { characterCapability, characterSummary } from "../../domain/characters.ts";
 import type { Character, Placement } from "../../domain/characters.ts";
@@ -19,6 +21,7 @@ export interface DigestImage {
 export interface DigestForm {
   readonly characters?: readonly Character[];
   readonly placement?: Placement;
+  readonly naiReferences?: NaiReferences;
   readonly prompt: string;
   readonly negative: string;
   readonly model: string;
@@ -27,6 +30,11 @@ export interface DigestForm {
   readonly steps: number;
   readonly scale: number;
   readonly cfg: number;
+  readonly cfgRescale?: number;
+  readonly naiMode?: string;
+  readonly complexity?: string;
+  readonly qualityPreset?: string;
+  readonly negativePreset?: string;
   readonly sampler: string;
   readonly seed: string;
   readonly batchCount: number;
@@ -104,10 +112,11 @@ function params(image: DigestImage) {
     model: String(p.modelName || p.model || ""),
     size: `${image.size.width}x${image.size.height}`,
   };
-  for (const key of ["seed", "steps", "scale", "cfg"] as const) {
+  for (const key of ["seed", "steps", "scale", "cfgRescale"] as const) {
     const n = finite(p[key]);
     if (n !== null) out[key] = n;
   }
+  for (const key of ["naiMode", "complexity", "qualityPreset", "negativePreset"] as const) if (typeof p[key] === "string") out[key] = p[key];
   if (typeof p.sampler === "string" && p.sampler) out.sampler = p.sampler;
   if (p.isComparison) out.comparison = finite(p.comparisonTotal ?? p.batchTotal) ?? true;
   return out;
@@ -161,13 +170,17 @@ export function buildDigest(input: DigestInput, _options: { readonly formText?: 
         size: `${form.width}x${form.height}`,
         steps: form.steps,
         scale: form.scale,
-        cfg: form.cfg,
+        cfgRescale: form.cfgRescale ?? 0,
+        naiMode: form.naiMode ?? "anime",
+        complexity: form.complexity ?? "none",
+        qualityPreset: form.qualityPreset ?? "none",
+        negativePreset: form.negativePreset ?? "none",
         sampler: form.sampler,
         seed: form.seed.trim() || "random",
         batch: form.batchCount,
         placement: form.placement ?? "auto",
         characters: (form.characters ?? []).map(c => ({ ...characterSummary(c, form.placement ?? "auto", form.model), centers: c.centers })),
-        vibes: [],
+        references: referenceSummary(form.naiReferences),
       },
       current,
       generation,

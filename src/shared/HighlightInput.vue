@@ -28,9 +28,12 @@ import { placeSuggestions } from "./caret-layout";
 const props = defineProps<{
     id: string;
     label: string;
+    title?: string;
     placeholder?: string;
     suggest?: boolean;
+    dataset?: "anime" | "furry";
     disabled?: boolean;
+    readonly?: boolean;
     maxLength?: number;
   }>(),
   value = defineModel<string>({ required: true });
@@ -81,7 +84,7 @@ function fragment() {
     : { query: "", start: 0, end: 0 };
 }
 async function search() {
-  if (!enabled.value || !props.suggest) return;
+  if (!enabled.value || !props.suggest || props.readonly) return;
   const q = fragment().query;
   if (q.length < (hasHan(q) ? 1 : 2)) {
     dismiss();
@@ -100,11 +103,11 @@ async function search() {
     position();
   }
   try {
-    const found = await tags.suggest(q, { limit: 20, broad: true, signal });
+    const found = await tags.suggest(q, { limit: 20, broad: true, signal, dataset: props.dataset });
     if (current !== token || fragment().query !== q || !enabled.value) return;
     items.value = found;
     selected.value = found.length ? 0 : -1;
-    note.value = found.length ? "" : "没有匹配的 Danbooru Tag";
+    note.value = found.length ? "" : props.dataset === "furry" ? "没有匹配的 Furry Tag" : "没有匹配的 Danbooru Tag";
     open.value = true;
     await nextTick();
     position();
@@ -177,7 +180,7 @@ function attach() {
   cleanup();
   dismiss();
   const el = textarea.value;
-  if (!el || !enabled.value || !props.suggest) return;
+  if (!el || !enabled.value || !props.suggest || props.readonly) return;
   const events = new AbortController(),
     options = { signal: events.signal };
   el.addEventListener("blur", dismiss, options);
@@ -215,7 +218,7 @@ function attach() {
   window.visualViewport?.addEventListener("scroll", position, options);
   cleanup = () => events.abort();
 }
-watch([() => props.suggest, enabled, textarea], attach, { flush: "post" });
+watch([() => props.suggest, () => props.readonly, () => props.dataset, enabled, textarea], attach, { flush: "post" });
 watch(
   value,
   () => {
@@ -286,10 +289,12 @@ defineExpose({
     <textarea
       :id="id"
       :disabled="disabled"
+      :readonly="readonly"
       :maxlength="maxLength"
       ref="textarea"
       v-model="value"
       :aria-label="label"
+      :title="title"
       :placeholder="placeholder"
       autocomplete="off"
       spellcheck="false"
@@ -335,7 +340,7 @@ defineExpose({
               :class="(CATEGORIES[item.category] || CATEGORIES[0]).className"
             ></i
             ><span
-              >{{ (CATEGORIES[item.category] || CATEGORIES[0]).label }} ·
+              >{{ item.source === "nai-furry" ? "Furry" : (CATEGORIES[item.category] || CATEGORIES[0]).label }} ·
               {{ formatCount(item.count) }}</span
             ></span
           >

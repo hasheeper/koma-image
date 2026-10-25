@@ -17,12 +17,14 @@ import {
 import type { Routing } from "../../config/connections.ts";
 import { object, strings } from "../../domain/value.ts";
 import ModelIcon from "../../shared/ModelIcon.vue";
+import ConnectionAvatar from "../../shared/ConnectionAvatar.vue";
 import ModelCapabilities from "../../shared/ModelCapabilities.vue";
 import AppIcon from "../../shared/AppIcon.vue";
 const props = defineProps<{
   connection: string | null;
   routing: Routing;
   raw: unknown;
+  activeModels: string[];
 }>();
 const emit = defineEmits<{
   close: [];
@@ -47,7 +49,6 @@ const groups: Record<string, string> = {
   dashscope: "DashScope",
   other: "其他",
 };
-const avatar = `${import.meta.env.BASE_URL}assets/default-avatar.svg`;
 const rows = computed(() => {
   const c = props.connection ?? "",
     entries = catalogEntries(props.raw);
@@ -69,6 +70,7 @@ const rows = computed(() => {
       name: String(m.name || "").replace(/ · fal$/, ""),
       to,
       on,
+      active: !!to && props.activeModels.includes(to.id),
       family,
       caps:
         (operations.includes("generate") ? "g" : "") +
@@ -90,7 +92,7 @@ const rows = computed(() => {
 const shown = computed(() =>
   rows.value.filter(
     (r) =>
-      (tab.value === "all" || (tab.value === "used" ? r.on : !r.on)) &&
+      (tab.value === "all" || (tab.value === "active" ? r.active : tab.value === "used" ? r.on : !r.on)) &&
       (!query.value.trim() ||
         `${r.name} ${r.id}`
           .toLowerCase()
@@ -138,7 +140,7 @@ function use(id: string, model: string) {
     @cancel.prevent="emit('close')"
   >
     <div class="md-head">
-      <span class="vtile connection-avatar"><img :src="avatar" alt="" /></span>
+      <ConnectionAvatar :connection="routing.connections[connection ?? '']" />
       <h2 id="modelListTitle">
         {{ routing.connections[connection ?? ""]?.name }} 模型列表
       </h2>
@@ -169,7 +171,7 @@ function use(id: string, model: string) {
     </div>
     <nav class="md-tabs" role="tablist">
       <button
-        v-for="(label, id) in { all: '全部', used: '已用', unused: '未用' }"
+        v-for="(label, id) in { all: '全部', used: '可用', active: '优先来源', unused: '未启用' }"
         :key="id"
         role="tab"
         :aria-selected="tab === id"
@@ -219,7 +221,8 @@ function use(id: string, model: string) {
               class="lamp"
               type="button"
               :data-s="r.on ? 'on' : 'off'"
-              :aria-label="`${r.on ? '已用于' : '已对应，未添加'} ${r.to.name}`"
+              :title="`${r.active ? '优先来源' : r.on ? '可用' : '未启用'} · ${r.to.name}`"
+              :aria-label="`${r.active ? '优先来源' : r.on ? '可用来源' : '已对应，未添加'} ${r.to.name}`"
               @click="emit('reveal', r.to.id)"
             ></button>
             <select

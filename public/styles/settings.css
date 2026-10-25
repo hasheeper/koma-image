@@ -49,9 +49,11 @@
 .set-ui .vtile .ico { --ico: var(--ico-sm); color: var(--fg-4); }
 /* A connection avatar keeps its own tile. */
 .set-ui .vtile.connection-avatar { width: 26px; overflow: hidden; border-radius: 7px; background: color-mix(in srgb, var(--fg) 3%, transparent); box-shadow: inset 0 0 0 1px var(--line); }
-.set-ui .vtile.connection-avatar img { width: 100%; height: 100%; object-fit: cover; }
+.set-ui .vtile.connection-avatar .ico { --ico: var(--ico-lg); color: var(--fg-3); }
+.set-ui .vtile.connection-avatar .vl { font-size: var(--ico-lg); }
 .set-ui .cm { display: grid; place-items: center; width: 18px; height: 18px; flex: none; overflow: hidden; background: var(--raised); border-radius: 5px; box-shadow: inset 0 0 0 1px var(--line-2); }
-.set-ui .cm img { width: 100%; height: 100%; object-fit: cover; }
+.set-ui .cm .ico { --ico: var(--ico-sm); color: var(--fg-3); }
+.set-ui .cm .vl { font-size: var(--ico-sm); }
 
 /* ── Tags and counts ─────────────────────────────────────────── */
 .set-ui .type {
@@ -129,11 +131,13 @@
 .set-ui .src-n[data-s="off"] { --c: var(--fg-4); }
 .set-ui .src-n[data-s="gone"] { --c: var(--warn); }
 .set-ui .sm-lines { display: grid; padding: 0 8px 4px 50px; }
-.set-ui .sm-line { display: flex; align-items: center; gap: 10px; min-height: 44px; border-top: 1px solid var(--line); }
+.set-ui .sm-line { display: flex; align-items: center; gap: 10px; min-width: 0; min-height: 44px; border-top: 1px solid var(--line); }
 .set-ui .sm-conn { width: 64px; flex: none; font-size: var(--fz-xs); color: var(--fg-2); }
 .set-ui .sm-where { display: flex; align-items: center; gap: 8px; flex: 1; min-width: 0; }
 .set-ui .sm-where code { min-width: 0; font: 11px var(--mono); color: var(--fg-3); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .set-ui .sm-line .md-act { width: 28px; height: 28px; }
+.set-ui .source-use { flex: none; padding: 6px 8px; font-size: var(--fz-xs); white-space: nowrap; color: var(--fg-2); border-radius: var(--r2); }
+.set-ui .source-use[data-active="true"] { color: var(--a); }
 .set-ui .sm-line[data-s="off"] > .cm, .set-ui .sm-line[data-s="off"] .sm-conn, .set-ui .sm-line[data-s="off"] .sm-where code,
 .set-ui .sm-line[data-s="miss"] > .cm, .set-ui .sm-line[data-s="miss"] .sm-conn { opacity: 0.45; }
 
@@ -157,6 +161,12 @@
 .set-ui .conn-sec-head { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 0 12px; }
 .set-ui .conn-sec-head .btn { margin: 9px 0 -6px; }
 .set-ui .conn-sec-head p { flex-basis: 100%; }
+.set-ui .conn-group { display: grid; gap: 12px; min-width: 0; }
+.set-ui .conn-group + .conn-group { margin-top: 12px; }
+.set-ui .conn-group-title { display: flex; align-items: center; gap: 8px; margin: 0; font-size: var(--fz-sm); font-weight: var(--fw-medium); color: var(--fg-2); }
+.set-ui .conn-group-title .ico { --ico: var(--ico-sm); color: var(--fg-3); }
+.set-ui .conn-group-title small { margin-left: auto; font: var(--fz-2xs) var(--mono); color: var(--fg-3); }
+.set-ui .conn-group-empty { padding: 12px 0; font-size: var(--fz-xs); color: var(--fg-3); }
 .set-ui :is(.conn-card, .conn-empty) { background: color-mix(in srgb, var(--fg) 2.5%, transparent); border: 1px solid var(--line); border-radius: 12px; }
 /* The head reads in two lines — bold name with its protocol tag, then the address — with status and actions on the right. */
 .set-ui .conn-top {
@@ -181,17 +191,33 @@
 .set-ui .conn-meter .ico { --ico: var(--ico-xs); color: var(--fg-3); }
 .set-ui .conn-meter b { font: 14px/1 var(--mono); color: var(--fg); white-space: nowrap; }
 .set-ui .conn-meter b i { margin-left: 2px; font-size: 11px; font-style: normal; color: var(--fg-4); }
+.set-ui .conn-meter-value { display: flex; align-items: baseline; gap: 6px; white-space: nowrap; }
+.set-ui .conn-meter-estimate { font-size: var(--fz-2xs); line-height: 1; color: var(--fg-3); }
 .set-ui .conn-bar { height: 2px; overflow: hidden; border-radius: 2px; background: var(--line-2); }
 .set-ui .conn-bar::before { content: ""; display: block; width: var(--p); height: 100%; background: color-mix(in srgb, var(--fg) 32%, transparent); }
+.set-ui .conn-meter-hint { font-size: var(--fz-2xs); line-height: 1.5; color: var(--fg-3); overflow-wrap: anywhere; }
 .set-ui .conn-models {
   display: flex; align-items: center; gap: 10px; width: 100%; min-height: 46px; padding: 0 12px 0 16px;
   font-size: var(--fz-sm); color: var(--fg-2); text-align: left; border-top: 1px solid var(--line); border-radius: 0 0 11px 11px;
 }
 .set-ui .conn-models:not(:disabled):hover { background: color-mix(in srgb, var(--fg) 2.5%, transparent); }
 .set-ui .conn-models:disabled { cursor: default; }
-.set-ui .conn-models span:first-child { flex: none; }
-.set-ui .conn-models span:last-of-type { min-width: 0; margin-left: auto; overflow: hidden; font-size: var(--fz-xs); color: var(--fg-3); text-overflow: ellipsis; white-space: nowrap; }
+.set-ui .conn-models > span:first-child { flex: none; }
+.set-ui .conn-models > span:last-of-type { min-width: 0; margin-left: auto; overflow: hidden; font-size: var(--fz-xs); color: var(--fg-3); text-overflow: ellipsis; white-space: nowrap; }
 .set-ui .conn-models .ico { flex: none; --ico: var(--ico-sm); color: var(--fg-4); }
+.set-ui .conn-source-row { display: flex; align-items: center; justify-content: space-between; gap: 16px; min-height: 46px; padding: 0 12px 0 16px; border-top: 1px solid var(--line); }
+.set-ui .conn-source-row .conn-models { gap: 8px; width: auto; min-width: 0; min-height: 28px; padding: 0 4px; margin-left: -4px; border-top: 0; border-radius: var(--r1); }
+.set-ui .conn-source-row .conn-models > span { margin-left: 0; }
+.set-ui .conn-source-row .conn-model-label { font-size: var(--fz-sm); font-weight: var(--fw-medium); color: var(--fg-2); }
+.set-ui .conn-source-row .conn-model-count { font-size: var(--fz-xs); }
+.set-ui .conn-model-count b { font: var(--fz-xs) var(--mono); color: var(--fg-2); }
+.set-ui .conn-source-row .conn-models .ico { margin-left: -4px; }
+.set-ui .conn-priority { display: flex; align-items: center; flex: none; gap: 4px; }
+.set-ui .conn-priority small { margin-right: 4px; font-size: var(--fz-2xs); color: var(--fg-3); white-space: nowrap; }
+.set-ui .conn-priority small b { font: var(--fz-xs) var(--mono); color: var(--fg-2); }
+.set-ui .conn-priority .md-act { width: 28px; height: 28px; color: var(--fg-3); border-radius: var(--r1); }
+.set-ui .conn-priority .md-act .ico { --ico: var(--ico-sm); }
+.set-ui .conn-priority .md-act:not(:disabled):hover { color: var(--fg); }
 .set-ui .conn-top:has(.conn-menu:popover-open) .conn-more { color: var(--fg); background: var(--hover); border-color: var(--line-2); }
 /* The card's ⋯ menu: a popover in the top layer, placed beside its button once it opens. */
 .set-ui .conn-menu {
@@ -284,10 +310,14 @@
   .set-ui .conn-name { flex-wrap: wrap; row-gap: 4px; }
   .set-ui .conn-meters { grid-template-columns: repeat(auto-fill, minmax(86px, 1fr)); gap: 14px 12px; padding: 12px 12px 14px; }
   .set-ui .conn-models { min-height: 44px; padding-left: 12px; }
+  .set-ui .conn-source-row { gap: 12px; min-height: 44px; padding: 0 10px 0 12px; }
   /* A field cluster drops under its text; switches and buttons stay on the right. */
   .set-ui .s-row:has(> .s-field) { flex-wrap: wrap; }
   .set-ui .s-ctl.s-field { width: 100%; }
   .set-ui .sm-lines { padding-left: 12px; }
+  .set-ui .sm-line { gap: 6px; }
+  .set-ui .sm-conn { width: 52px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .set-ui .sm-line .source-use { padding-inline: 4px; }
   .set-ui .md-id { flex-direction: column; gap: 2px; }
   .set-ui .md-id b { max-width: 100%; }
   .set-ui .caps .cp:nth-child(n + 3) { display: none; }

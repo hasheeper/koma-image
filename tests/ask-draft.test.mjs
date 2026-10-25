@@ -178,3 +178,12 @@ test('draft failed save: retain a manually edited parameter group so model rollb
   const rolled = rollbackDrawingEdit(before, written, resized, touched);
   assert.equal(rolled.model, 'B'); assert.equal(rolled.width, 2048); assert.equal(rolled.seed, '10');
 });
+
+test('draft mode restore: localized review, raw prompt preserved and independent field conflicts', () => {
+  const base = state({ naiMode: 'anime' }), d = draft(base, [restore(['naiMode'])], library({ naiMode: 'furry' }));
+  const p = plan(d);
+  assert.deepEqual(p.changes.map(c => [c.field, c.after]), [['naiMode', 'furry']]);
+  assert.equal(p.steps[0].displayBefore, '动漫'); assert.equal(p.steps[0].displayAfter, '兽人');
+  assert.equal(plan(d, state({ naiMode: 'furry' })).changes.length, 0);
+  assert.equal(plan(draft(base, [restore(['naiMode'])], library({ naiMode: 'invalid' }))).changes.length, 0);
+});

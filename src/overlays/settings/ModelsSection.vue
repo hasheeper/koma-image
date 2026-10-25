@@ -9,18 +9,20 @@ import {
   shownId,
 } from "../../domain/catalog.ts";
 import type { Routing, ModelLink } from "../../config/connections.ts";
+import type { CatalogModel } from "../../domain/catalog.ts";
 import { imageConnections } from "../../config/connections.ts";
 import ModelIcon from "../../shared/ModelIcon.vue";
+import ConnectionAvatar from "../../shared/ConnectionAvatar.vue";
 import ModelCapabilities from "../../shared/ModelCapabilities.vue";
 import AppIcon from "../../shared/AppIcon.vue";
 const props = defineProps<{
   routing: Routing;
   raw: Record<string, unknown>;
   statuses: Record<string, { s: string; text: string }>;
+  currentModel?: CatalogModel;
 }>();
 const emit = defineEmits<{ change: [routing: Routing]; reload: [] }>();
 const opened = ref(new Set<string>());
-const avatar = `${import.meta.env.BASE_URL}assets/default-avatar.svg`;
 const groups = { gpt: "GPT", gemini: "Gemini", novelai: "NovelAI" };
 // Reasoning-only connections serve ASK and never appear as image model sources.
 const sources = computed(() => imageConnections(props.routing));
@@ -76,7 +78,7 @@ defineExpose({
   <section class="sp-sec" aria-label="模型">
     <div class="sp-sec-head">
       <h3>模型</h3>
-      <p>添加的来源出现在工作区的模型菜单里。</p>
+      <p>来源按连接页的顺序使用，明确额度不足时顺位选择。</p>
     </div>
     <div v-if="!sources.length" class="sp-group">
       <div class="sp-empty">尚未配置模型来源</div>
@@ -151,8 +153,7 @@ defineExpose({
               class="sm-line"
               :data-s="state(c.id, model)"
             >
-              <span class="cm"><img :src="avatar" alt="" /></span
-              ><span class="sm-conn">{{ c.name }}</span>
+              <ConnectionAvatar :connection="c" compact /><span class="sm-conn">{{ c.name }}</span>
               <div class="sm-where">
                 <span v-if="state(c.id, model) === 'miss'" class="md-miss"
                   >未找到</span
@@ -170,18 +171,24 @@ defineExpose({
                   手动指定 ×
                 </button>
               </div>
-              <template v-if="['on', 'off'].includes(state(c.id, model))"
-                ><button
+              <template v-if="['on', 'off'].includes(state(c.id, model))">
+                <span
+                  class="source-use"
+                  :data-active="currentModel?.id === model.id && currentModel.connection === c.id"
+                  :title="`优先级 ${sources.findIndex(source => source.id === c.id) + 1}`"
+                >{{ currentModel?.id === model.id && currentModel.connection === c.id ? '当前使用' : `#${sources.findIndex(source => source.id === c.id) + 1}` }}</span>
+                <button
                   class="md-act"
                   type="button"
                   :aria-pressed="state(c.id, model) === 'on'"
                   :aria-label="`${state(c.id, model) === 'on' ? '移除' : '添加'} ${c.name} 来源`"
+                  :title="state(c.id, model) === 'on' ? '可用 · 点击停用' : '已停用 · 点击启用'"
                   @click="toggle(c.id, model)"
                 >
                   <AppIcon
                     :name="state(c.id, model) === 'on' ? 'i-check' : 'i-plus'"
-                  /></button
-              ></template>
+                  /></button>
+              </template>
               <template v-else
                 ><select
                   v-if="spare(c.id, model).length"

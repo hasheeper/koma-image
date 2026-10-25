@@ -12,6 +12,7 @@ import { useShell } from "../../app/shell";
 import { useWorkspaceLifecycle } from "../../app/workspace-lifecycle";
 import { useUi, message } from "../../app/ui";
 import { resolveModel } from "../../domain/catalog";
+import { readReferences } from "../../domain/nai-references";
 import { reuseFields, samplerName } from "../../domain/drawing";
 import { names } from "../../storage/names";
 import { readImageParams } from "../../native/image-meta.ts";
@@ -29,14 +30,21 @@ const file = shallowRef<HTMLInputElement | null>(null),
 let focus: HTMLElement | null = null,
   depth = 0,
   sequence = 0;
+const referenceLabel = (value: unknown) => { const r=readReferences(value); return `${r.active==='vibe'?'Vibe':r.active==='precise'?'Precise':'停用'} · Vibe ${r.vibe.length} / Precise ${r.precise.length}`; };
 const labels: Record<string, string> = {
   model: "模型",
   size: "尺寸",
   steps: "步数",
   sampler: "采样器",
-  scale: "Scale",
-  cfg: "CFG",
+  scale: "Guidance",
+  cfgRescale: "Guidance Rescale",
+  naiMode: "模式",
+  complexity: "Complexity",
+  qualityPreset: "质量预设",
+  negativePreset: "负向预设",
+  transparentBg: "透明底",
   seed: "Seed",
+  naiReferences: "参考",
 };
 const rows = computed(() => {
   const fields: Readonly<Record<string, unknown>> = candidate.value?.fields ?? {},
@@ -65,6 +73,8 @@ const rows = computed(() => {
       shown = `${fields.width ?? "—"}×${fields.height ?? "—"}`;
       now = `${form.width}×${form.height}`;
     }
+    if (key === "naiMode") { shown = shown === "furry" ? "兽人" : "动漫"; now = now === "furry" ? "兽人" : "动漫"; }
+    if (key === "naiReferences") { shown = referenceLabel(fields[key]); now=referenceLabel(form.naiReferences); }
     if (key === "seed") {
       shown ||= "随机";
       now ||= "随机";
@@ -74,7 +84,7 @@ const rows = computed(() => {
         ? keys.every(
             (k) => Number(fields[k]) === Number(form[k as keyof typeof form]),
           )
-        : shown === now;
+        : key === "naiReferences" ? JSON.stringify(readReferences(fields[key]))===JSON.stringify(form.naiReferences) : shown === now;
     return [{ key, label, keys, shown, now, blocked, same }];
   });
 });

@@ -3,6 +3,7 @@ import {
   validateRouting,
   validateModelLinks,
   LOCAL_CONNECTION_ID,
+  imageConnections,
 } from "../config/connections.ts";
 import { STANDARD_PROFILE_ID } from "../gateway/profile.ts";
 import type { LocalGateway } from "../config/runtime.ts";
@@ -20,6 +21,8 @@ export interface ConnectionContext {
   key(): string;
   assertCurrent(): void;
 }
+export interface ConnectionChange { refresh: boolean }
+const endpointIdentity = (c: Connection) => JSON.stringify([c.id, c.baseUrl, c.profileId, c.credentialRef]);
 export function createConnections(
   storage: Pick<Storage, "getItem" | "setItem">,
   write: Writer,
@@ -38,10 +41,18 @@ export function createConnections(
     }),
   ].map((c) => Object.freeze(c)) : [];
   const managedConnections = () => Object.fromEntries(managed.map((c) => [c.id, c]));
-  const listeners = new Set<(kind: "configuration" | "keys") => void>();
-  const emit = (kind: "configuration" | "keys" = "keys") =>
-    listeners.forEach((fn) => fn(kind));
-  function reload() {
+  const listeners = new Set<(kind: "configuration" | "keys", change: ConnectionChange) => void>();
+  const emit = (kind: "configuration" | "keys" = "keys", refresh = false) =>
+    listeners.forEach((fn) => fn(kind, { refresh }));
+  function catalogKey(id: string): string | null {
+    const c = routing.connections[id];
+    if (!c || (!local && !keys.has(c.credentialRef))) return null;
+    return JSON.stringify([endpointIdentity(c), keys.get(c.credentialRef)?.revision ?? "local-runtime-v1"]);
+  }
+  const imageSignature = () => JSON.stringify(imageConnections(routing).map(c => [
+    c.id, catalogKey(c.id), routing.links[c.id] ?? {},
+  ]));
+  function reload(refresh = true) {
     configurationEpoch++;
     try {
       if (local) {
@@ -70,7 +81,7 @@ export function createConnections(
         !Object.values(routing.connections).some((c) => c.credentialRef === ref)
       )
         keys.delete(ref);
-    emit("configuration");
+    emit("configuration", refresh);
   }
   return {
     local: Boolean(local),
@@ -80,12 +91,26 @@ export function createConnections(
       );
     },
     reload,
+    catalogKey,
     get configuration() {
       return freeze(structuredClone(routing));
     },
-    subscribe(fn: (kind: "configuration" | "keys") => void) {
+    subscribe(fn: (kind: "configuration" | "keys", change: ConnectionChange) => void) {
       listeners.add(fn);
       return () => listeners.delete(fn);
+    },
+    /** Image work ignores text-only edits and display-name changes. */
+    subscribeImages(fn: () => void) {
+      let previous = imageSignature();
+      const listener = (_kind: "configuration" | "keys", change: ConnectionChange) => {
+        const next = imageSignature();
+        if (change.refresh || next !== previous) {
+          previous = next;
+          fn();
+        }
+      };
+      listeners.add(listener);
+      return () => listeners.delete(listener);
     },
     async save(value: unknown) {
       const next = validateRouting(value);
@@ -101,14 +126,19 @@ export function createConnections(
             JSON.stringify(next.links[LOCAL_CONNECTION_ID] || {}),
           ),
         );
-        reload();
+        reload(false);
         return;
       }
-      // A new config revision isolates every catalog/quote cache after edits.
-      for (const c of Object.values(next.connections))
-        c.revision = crypto.randomUUID();
+      // Model availability, order and labels do not change an upstream catalog.
+      // The configuration epoch still invalidates old execution snapshots.
+      for (const c of Object.values(next.connections)) {
+        const previous = routing.connections[c.id];
+        c.revision = previous && endpointIdentity(previous) === endpointIdentity(c)
+          ? previous.revision : crypto.randomUUID();
+      }
+      if (JSON.stringify(next) === JSON.stringify(routing)) return;
       await write(() => storage.setItem(names.routing, JSON.stringify(next)));
-      reload();
+      reload(false);
     },
     supplyKey(credentialRef: string, value: string) {
       if (local) throw new Error("本地 Key 由服务端环境变量管理");

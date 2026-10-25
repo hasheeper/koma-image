@@ -413,7 +413,7 @@ test("connection diagnostic: a supported gateway is usable and the Key goes only
 test("connection diagnostic: each failure says what to fix", async () => {
   const cases = [
     [() => reply(401, { error: "bad key" }), "err", "Key 无效"],
-    [() => reply(403, { error: "forbidden" }), "err", "Key 无效"],
+    [() => reply(403, { error: "forbidden" }), "err", "访问被拒绝（403），请检查 Key 权限"],
     [() => reply(404, "Not Found"), "err", "地址错误"],
     [() => reply(200, "<html>a page</html>"), "err", "地址错误"],
     [() => reply(429, { error: "slow down" }), "err", "请求失败（429）"],
@@ -527,4 +527,29 @@ test('tags: body timeouts, cancellation and network errors keep their cause inst
   await assert.rejects(disconnected.suggest('蓝发'),/Tag 服务暂时不可用/);
   const malformed=createTagSearch(()=>[0],async()=>new Response('{broken'));
   await assert.rejects(malformed.suggest('蓝发'),/Tag 词典返回格式异常/);
+});
+
+test("Furry suggestions use the public NAI vocabulary, isolate caches and never fall back to Anime", async () => {
+  const calls = [];
+  let status = 200;
+  const tags = createTagSearch(() => [3], async (url, init) => {
+    calls.push({ url, init });
+    return url.hostname === "image.novelai.net"
+      ? Response.json({ tags: [{ tag: "wolf", count: 123 }, { tag: "wolf", count: 123 }, { tag: "wolf tail", count: 42 }] }, { status })
+      : Response.json({ results: [{ name: "wolf_character", count: 456, category: 3 }] });
+  });
+  assert.equal((await tags.suggest("wolf"))[0].name, "wolf_character");
+  const furry = await tags.suggest("wolf", { dataset: "furry" });
+  assert.deepEqual(furry.map(t => t.name), ["wolf", "wolf tail"]);
+  assert.ok(furry.every(t => t.source === "nai-furry"));
+  assert.equal(calls[1].url.href, "https://image.novelai.net/ai/generate-image/suggest-tags?model=nai-diffusion-furry-3&prompt=wolf");
+  assert.equal(calls[1].init.credentials, "omit"); assert.equal(calls[1].init.headers.Authorization, undefined);
+  await tags.suggest("wolf", { dataset: "furry" }); await tags.suggest("wolf"); assert.equal(calls.length, 2);
+  assert.deepEqual((await tags.suggest("wolf", { dataset: "furry", limit: 1 })).map(t => t.name), ["wolf"]);
+  const aborted = new AbortController(); aborted.abort();
+  await assert.rejects(tags.suggest("wolf", { dataset: "furry", signal: aborted.signal }), { name: "AbortError" });
+  await assert.rejects(tags.suggest("狼", { dataset: "furry" }), /英文/);
+  status = 503;
+  await assert.rejects(tags.suggest("tail", { dataset: "furry" }), /Furry.*503/);
+  assert.equal(calls.at(-1).url.hostname, "image.novelai.net");
 });

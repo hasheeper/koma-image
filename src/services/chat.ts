@@ -2,12 +2,12 @@ import type { ApplicationServices } from "./application";
 import type { Ui } from "../app/ui";
 import { message } from "../app/ui";
 import type { CatalogModel } from "../domain/catalog";
-import { normalizeOptions, resolveModel } from "../domain/catalog";
+import { normalizeOptions, resolveModel, selectCatalogSources } from "../domain/catalog";
 import { buildChatPayload, chatModels } from "../domain/media.ts";
 import * as conversation from "../domain/conversation.ts";
 import { object } from "../domain/value";
 import type { Quote } from "../domain/quote";
-import { normalizeQuota } from "../domain/quota";
+import type { SourceSelection } from "./source-priority.ts";
 import type { QuotaStatus } from "../domain/quota";
 import type {
   ConversationRecord,
@@ -185,7 +185,8 @@ export function createChat(services: ApplicationServices, ui: Ui) {
     emit();
   }
   function normalize(c = current) {
-    const m = resolveModel(models, String(c.settings.model || "")) || models[0];
+    const wanted = String(c.settings.model || "");
+    const m = resolveModel(models, wanted) || models[0];
     if (m)
       c.settings = {
         model: m.id,
@@ -199,22 +200,24 @@ export function createChat(services: ApplicationServices, ui: Ui) {
     catalogAbort = new AbortController();
     const signal = catalogAbort.signal;
     ready = false;
+    quota = null;
     cancelQuote();
     emit();
+    const configuration = services.connections.configuration;
     const results = await Promise.allSettled(
-      imageConnections(services.connections.configuration).map(
+      imageConnections(configuration).map(
         async ({ id }) =>
-          chatModels(await services.gateway(id).catalog(false, signal)),
+          (await services.gateway(id).catalog(false, signal)).models,
       ),
     );
     if (disposed || revision !== catalogRevision || signal.aborted) return;
-    models = [];
+    const candidates: CatalogModel[] = [];
     catalogError = "";
     for (const r of results)
       if (r.status === "fulfilled") {
-        for (const m of r.value)
-          if (!models.some((v) => v.id === m.id)) models.push(m);
+        candidates.push(...r.value);
       } else catalogError = message(r.reason);
+    models = selectCatalogSources(configuration, chatModels({ models: candidates }));
     normalize();
     ready = !!models.length;
     emit();
@@ -300,22 +303,11 @@ export function createChat(services: ApplicationServices, ui: Ui) {
       try {
         const p = await prepare(c);
         controller.signal.throwIfAborted();
-        const gateway = services.gateway(p.model.connection);
-        if (!gateway.profile.quote.supported && !gateway.profile.costCeiling) return;
-        const q = await gateway.estimate(p.payload, controller.signal);
+        const source = await services.selectSource(p.model, controller.signal, p.payload, "chat");
         if (rev !== quoteRevision || current !== c || disposed) return;
-        quote = q;
-        if (q.quota)
-          quota = {
-            ...normalizeQuota(
-              gateway.profile,
-              q.quota,
-              {},
-              quota?.temporaryChecked ?? false,
-              p.model.quotaGroup,
-            ),
-            temporary: quota?.temporary ?? null,
-          };
+        applySource(source);
+        quote = source.quote;
+        if (source.insufficient) throw new Error("所有可用来源的额度均不足");
       } catch (e) {
         if (rev === quoteRevision && !controller.signal.aborted)
           error = message(e);
@@ -323,13 +315,25 @@ export function createChat(services: ApplicationServices, ui: Ui) {
       if (rev === quoteRevision) emit();
     }, 650);
   }
+  function applySource(source: SourceSelection) {
+    models = models.map(m => m.id === source.model.id ? source.model : m);
+    if (selected()?.id === source.model.id) {
+      quotaModel = source.model;
+      quota = source.quota;
+    }
+  }
   async function refreshQuota() {
     const m = selected();
+    if (quotaModel !== m) {
+      quotaModel = m;
+      quota = null;
+      emit();
+    }
     if (!m || !ready || services.data.phase !== "ready") return;
     try {
-      const q = await services.gateway(m.connection).quota(m.quotaGroup);
+      const source = await services.selectSource(m, undefined, undefined, "chat");
       if (selected() === m) {
-        quota = q;
+        applySource(source);
         emit();
       }
     } catch {
@@ -339,6 +343,7 @@ export function createChat(services: ApplicationServices, ui: Ui) {
       }
     }
   }
+  let quotaModel: CatalogModel | undefined;
   function changed(context = false) {
     if (context) current.selectionRevision++;
     save();
@@ -349,6 +354,7 @@ export function createChat(services: ApplicationServices, ui: Ui) {
   /** Switch without quoting; ASK writes leave that to the user. */
   function show(c: ConversationRecord) {
     current = c;
+    if (quotaModel !== selected()) quota = null;
     void services.preferences
       .set(names.chatCurrent, c.id)
       .catch((e) => ui.toast(message(e), "err"));
@@ -361,6 +367,7 @@ export function createChat(services: ApplicationServices, ui: Ui) {
       .set(names.chatCurrent, c.id)
       .catch((e) => ui.toast(message(e), "err"));
     scheduleQuote();
+    void refreshQuota();
     emit();
   }
   function addConversation() {
@@ -426,10 +433,8 @@ export function createChat(services: ApplicationServices, ui: Ui) {
           });
           save();
           emit();
-          const gateway = task.gateway(p.model.connection);
-          await gateway.catalog();
-          const output = await gateway.execute(
-            p.payload,
+          const output = await task.execute(
+            p.model, p.payload,
             (response, native, signal) => {
               if (busy) busy.phase = "图片加载中";
               emit();
@@ -439,6 +444,14 @@ export function createChat(services: ApplicationServices, ui: Ui) {
               shownCost,
               onNotice: (notice) => ui.toast(notice),
               signal: controller.signal,
+              onSource: source => {
+                p.model = source.model;
+                if (current === c) {
+                  applySource(source);
+                  quote = source.quote;
+                  emit();
+                }
+              },
             },
           );
           const blocks: MessageBlock[] = [];
@@ -576,7 +589,7 @@ export function createChat(services: ApplicationServices, ui: Ui) {
       if (loaded && !disposed) void refreshCatalog();
     },
   });
-  const unconnect = services.connections.subscribe(() => {
+  const unconnect = services.connections.subscribeImages(() => {
     if (loaded && services.data.phase === "ready") void refreshCatalog();
   });
   const hide = () => {

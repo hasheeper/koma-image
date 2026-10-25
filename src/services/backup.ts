@@ -1,3 +1,5 @@
+import type { ReferenceAsset, VibeEncoding } from "../domain/nai-references.ts";
+import { base64Blob, blobBase64, sha256, referenceBitmap } from "../native/reference-images.ts";
 import { createArchive, readArchive } from "../storage/backup-archive.ts";
 import {
   backupFormat,
@@ -27,6 +29,8 @@ export interface CheckedBackup {
   favorites: FavoriteRecord[];
   conversations: ConversationRecord[];
   assets: AssetRecord[];
+  referenceAssets: ReferenceAsset[];
+  vibeEncodings: VibeEncoding[];
   preferences: BackupPreferences;
 }
 const validated = new WeakSet<CheckedBackup>();
@@ -83,12 +87,29 @@ export async function readBackup(
     assets.push({ ...row, blob });
     progress(++done, manifest.favorites.length + manifest.assets.length);
   }
+  const referenceAssets: ReferenceAsset[] = [], vibeEncodings: VibeEncoding[] = [];
+  for (const { image:ref, thumbnail, ...r } of manifest.referenceAssets ?? []) {
+    const blob=ref ? await image(ref) : null;
+    if (blob) {
+      if (await hashImage(blob)!==r.id) throw new Error("参考图片校验失败");
+      const bitmap=await referenceBitmap(blob);
+      const matches=bitmap.width===r.width && bitmap.height===r.height;bitmap.close();
+      if(!matches)throw new Error("参考图片尺寸校验失败");
+    }
+    referenceAssets.push({...r,blob,thumbnail:thumbnail ? await image(thumbnail) : null});
+  }
+  for (const {path,hash,...e} of manifest.vibeEncodings ?? []) {
+    const blob=await archive.read(path,"application/octet-stream",8*1024*1024);
+    if (!blob.size || await sha256(blob)!==hash) throw new Error("Vibe 编码校验失败");
+    vibeEncodings.push({...e,data:await blobBase64(blob)});
+  }
   const backup = {
     id: manifest.id,
     favorites,
     conversations: manifest.conversations,
     assets,
     preferences: manifest.preferences,
+    referenceAssets, vibeEncodings,
   };
   validated.add(backup);
   return backup;
@@ -136,13 +157,13 @@ export function createBackupService({
   async function load() {
     const favoritesTx = databases().transaction(
       names.databases.favorites,
-      "favorites",
+      ["favorites", "referenceAssets", "vibeEncodings"],
     );
     const chatTx = databases().transaction(names.databases.chat, [
       "conversations",
       "assets",
     ]);
-    const [favorites, conversations, assets] = await Promise.all([
+    const [favorites, conversations, assets, referenceAssets, vibeEncodings] = await Promise.all([
       idbRequest(favoritesTx.objectStore("favorites").getAll()) as Promise<
         FavoriteRecord[]
       >,
@@ -152,8 +173,10 @@ export function createBackupService({
       idbRequest(chatTx.objectStore("assets").getAll()) as Promise<
         AssetRecord[]
       >,
+      idbRequest(favoritesTx.objectStore("referenceAssets").getAll()) as Promise<ReferenceAsset[]>,
+      idbRequest(favoritesTx.objectStore("vibeEncodings").getAll()) as Promise<VibeEncoding[]>,
     ]);
-    return { favorites, conversations, assets };
+    return { favorites, conversations, assets, referenceAssets, vibeEncodings };
   }
   return {
     read: readBackup,
@@ -166,6 +189,7 @@ export function createBackupService({
     },
     export(progress?: Progress) {
       return data.export(async () => {
+        const preferences = collectBackupPreferences(storage);
         const stored = await load(),
           entries: [string, Blob][] = [];
         const pack = (blob: Blob, prefix: string): ImageReference => {
@@ -203,7 +227,9 @@ export function createBackupService({
             height: r.height,
             image: pack(r.blob, `assets/${i}`),
           })),
-          preferences: collectBackupPreferences(storage),
+          referenceAssets: stored.referenceAssets.map((r,i)=>({id:r.id,width:r.width,height:r.height,image:r.blob ? pack(r.blob,`references/images/${i}`) : null,thumbnail:r.thumbnail ? pack(r.thumbnail,`references/thumbnails/${i}`) : null})),
+          vibeEncodings: await Promise.all(stored.vibeEncodings.map(async ({data,...e},i)=>{const blob=base64Blob(data),path=`references/encodings/${i}.bin`;entries.push([path,blob]);return {...e,path,hash:await sha256(blob)};})),
+          preferences,
         };
         const metadata = new Blob([JSON.stringify(manifest)], {
           type: "application/json",
@@ -289,12 +315,14 @@ export function createBackupService({
         }
         const favoritesTx = databases().transaction(
             names.databases.favorites,
-            "favorites",
+            ["favorites", "referenceAssets", "vibeEncodings"],
             "readwrite",
           ),
           finished = transactionDone(favoritesTx);
         for (const row of additions)
           favoritesTx.objectStore("favorites").add(row);
+        for (const row of backup.referenceAssets) favoritesTx.objectStore("referenceAssets").put(row);
+        for (const row of backup.vibeEncodings) favoritesTx.objectStore("vibeEncodings").put(row);
         await finished;
         for (const field of Object.keys(
           backupPreferences,

@@ -2,7 +2,7 @@ import { canonical } from "./canonical.ts";
 import { comparisonPrompt, metadata, normalize, promptOf, similarity } from "./library.ts";
 import type { Picture, PictureOrigin } from "./library.ts";
 
-export const changedFields = ["prompt", "negative", "model", "seed", "steps", "scale", "cfg", "sampler", "width", "height", "size", "strength", "noise", "characters"] as const;
+export const changedFields = ["prompt", "negative", "model", "seed", "steps", "scale", "cfg", "cfgRescale", "naiMode", "complexity", "qualityPreset", "negativePreset", "sampler", "width", "height", "size", "strength", "noise", "characters"] as const;
 const textFields = ["prompt", "negative", "model", "modelName"] as const;
 type Candidate = { picture: Picture; origin: PictureOrigin };
 

@@ -39,7 +39,13 @@ fonts/index.css
 | `src/ask/AskDrawer.vue` | ASK 五态透明容器、共享磨砂材质变量、胶囊基线、窗口及响应式边界；图标整数网格与呼吸归 `AskMark.vue`，紧凑草稿归 `DraftCard.vue`，输入与消息的透明底归各自组件；不改变工作区布局 |
 | `src/ask/AskMarkdown.vue` | ASK 回复与提问的 Markdown 内容排版，标题层级、嵌套列表、引用、表格与代码块滚动；解析树到 Vue 节点的映射，不接管窗口和消息操作布局 |
 
+NAI 提示词内底栏归 `NaiPromptOptions.vue`，档位菜单归 `NaiSelect.vue`，模型／模式／Effort 同行归 `DrawingControls.vue`；复用站内 popover 和 `switch-menu`，不新增全局补丁。
+
 组件私有规则归对应 Vue，不保留第二份全局副本。
+
+连接图标由 `src/shared/ConnectionAvatar.vue` 统一展示，`src/domain/connection-icon.ts` 按官方 Profile／已识别官方地址选择 Logo，按 Profile 能力选择通用图标，复用已有模型 Logo 和站内 sprite；设置卡片、模型列表标题与来源行的图标容器、尺寸仍归 `settings.css`。
+
+图像／文本分组标题、连接卡底行的优先级控件与模型来源顺序归 `settings.css`；不另套分组面板。顶栏实际来源的 Logo 与同行张数估算归 `ui.css`，不增加下方注释行。
 
 ### 高亮、Teleport 与公共结构
 
@@ -60,3 +66,5 @@ fonts/index.css
 多角色／画板样式归属：胶囊与下拉在 `BoardSwitcher.vue`；角色折叠列表、文本页签和放大定位栏在 `CharactersEditor.vue`；定位板与点位在 `CharacterPosition.vue`。历史归属圆点留在 `ImageLibrary.vue`，角色草稿合并和新画板应用入口留在 `DraftCard.vue`。全部复用站内 tokens 与现有高亮输入，不新增全局覆盖。
 
 AI 命名的共用星光／停止按钮与状态动效由 `src/shared/AiNameButton.vue` 的 scoped 样式负责；画板胶囊内的位置归 `BoardSwitcher.vue`，ASK 标题与手动改名行归 `AskConversations.vue`。命名模型设置复用现有设置行与模型列表；减少动效时停止脉动，不新增全局规则。
+
+绘图统一底栏、三段导航与抽屉动画归 `DrawingBottomPanel.vue`，参考缩略图及控件私有排布归 `NaiReferenceEditor.vue`，原参数宿主归 `DrawingParameters.vue`，底栏表面归 `ImageWorkspace.vue`；不改公共 scrub 的填充矩形样式。

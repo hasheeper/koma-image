@@ -8,6 +8,7 @@ import type { AppRouter } from "../app/router";
 import type { Drawing } from "./drawing";
 import type { Chat } from "./chat";
 import { normalizeOptions, resolveModel } from "../domain/catalog";
+import type { SourceSelection } from "./source-priority.ts";
 import type { CatalogModel } from "../domain/catalog";
 import {
   editorModels,
@@ -17,7 +18,6 @@ import {
 import type { EditMode, EditorMode, EditorFields } from "../domain/media.ts";
 import type { Fields } from "../storage/records";
 import type { Quote } from "../domain/quote";
-import { normalizeQuota } from "../domain/quota";
 import type { QuotaStatus } from "../domain/quota";
 import type { MaskState } from "../native/mask-editor.ts";
 import { decodeImage } from "./image-response";
@@ -221,8 +221,13 @@ export function createEditor(
     if (services.data.phase !== "ready") return;
     catalogAbort?.abort();
     const controller = (catalogAbort = new AbortController());
+    quota = null;
+    cancelQuote("edit");
+    cancelQuote("upscale");
+    emit();
+    const configuration = services.connections.configuration;
     const results = await Promise.allSettled(
-      imageConnections(services.connections.configuration).map(
+      imageConnections(configuration).map(
         async ({ id }) => ({
           id,
           c: await services.gateway(id).catalog(false, controller.signal),
@@ -230,32 +235,45 @@ export function createEditor(
       ),
     );
     if (controller.signal.aborted || disposed) return;
-    models = [];
+    const candidates: CatalogModel[] = [];
     connectionSamplers.clear();
     for (const r of results)
       if (r.status === "fulfilled") {
         connectionSamplers.set(r.value.id, r.value.c.samplers);
-        for (const m of r.value.c.models)
-          if (!models.some((v) => v.id === m.id)) models.push(m);
+        candidates.push(...r.value.c.models);
       } else runError = failure(r.reason);
+    models = candidates;
     normalize();
     emit();
     requote();
     void refreshQuota();
   }
+  function applySource(source: SourceSelection) {
+    models = [source.model, ...models.filter(m => !(m.id === source.model.id && m.connection === source.model.connection))];
+    if (selected(upscaleOpen || busy && running === "upscale" ? "upscale" : current.mode) === source.model) {
+      quotaModel = source.model;
+      quota = source.quota;
+    }
+  }
   async function refreshQuota() {
     const m = selected(upscaleOpen ? "upscale" : current.mode);
+    if (quotaModel !== m) {
+      quotaModel = m;
+      quota = null;
+      emit();
+    }
     if (!m || services.data.phase !== "ready") return;
     const stillSelected = () =>
       !disposed && selected(upscaleOpen ? "upscale" : current.mode) === m;
     try {
-      const next = await services.gateway(m.connection).quota(m.quotaGroup);
-      if (stillSelected()) quota = next;
+      const source = await services.selectSource(m, undefined, undefined, m.provider === "novelai" ? upscaleOpen ? "upscale" : current.mode : "image-edit");
+      if (stillSelected()) { applySource(source); emit(); }
     } catch {
       if (stillSelected()) quota = null;
     }
     if (stillSelected()) emit();
   }
+  let quotaModel: CatalogModel | undefined;
   async function payload(key: Job) {
     const mode = target(key),
       v = source(key),
@@ -329,27 +347,12 @@ export function createEditor(
       try {
         const p = await payload(key);
         if (rev !== j.revision) return;
-        const gateway = services.gateway(p.model.connection);
-        if (!gateway.profile.quote.supported && !gateway.profile.costCeiling) {
-          j.price = "费用未知";
-          emit();
-          return;
-        }
-        const q = await gateway.estimate(p.payload, controller.signal);
+        const source = await services.selectSource(p.model, controller.signal, p.payload);
         if (rev !== j.revision || busy || !open) return;
-        j.quote = q;
-        if (q.quota)
-          quota = {
-            ...normalizeQuota(
-              gateway.profile,
-              q.quota,
-              {},
-              quota?.temporaryChecked ?? false,
-              p.model.quotaGroup,
-            ),
-            temporary: quota?.temporary ?? null,
-          };
-        j.price = "";
+        applySource(source);
+        j.quote = source.quote;
+        j.price = source.quote ? "" : "费用未知";
+        if (source.insufficient) throw new Error("所有可用来源的额度均不足");
       } catch (e) {
         if (rev !== j.revision || controller.signal.aborted) return;
         if (message(e).includes("先涂抹")) j.price = "先涂抹";
@@ -364,6 +367,7 @@ export function createEditor(
   }
   function changed(delay = 400) {
     runError = "";
+    if (quotaModel !== selected(upscaleOpen ? "upscale" : current.mode)) void refreshQuota();
     emit();
     requote(delay);
   }
@@ -483,15 +487,17 @@ export function createEditor(
           snapshot: p.payload,
         },
         async (task) => {
-          const gateway = task.gateway(p.model.connection);
-          await gateway.catalog();
-          const output = await gateway.execute(
-            p.payload,
+          const output = await task.execute(
+            p.model, p.payload,
             (r, n, s) => consumeMedia(r, n, s, p.payload),
             {
               shownCost,
               onNotice: (n) => ui.toast(n),
               signal: controller.signal,
+              onSource: source => {
+                p.model = source.model;
+                if (current === p.owner) { applySource(source); emit(); }
+              },
             },
           );
           task.signal.throwIfAborted();
@@ -560,7 +566,7 @@ export function createEditor(
       requote(0);
     }
   }
-  const stopConnect = services.connections.subscribe(() => {
+  const stopConnect = services.connections.subscribeImages(() => {
     if (open) void catalog();
   });
   const unregister = services.data.register({
@@ -722,6 +728,7 @@ export function createEditor(
       if (options.mode === "inpaint" || options.mode === "img2img")
         current.mode = options.mode;
       normalize();
+      if (quotaModel !== selected()) void refreshQuota();
       emit();
       if (blob) await addSource(blob, name);
       if (revision !== openSequence || !open) return;
@@ -791,6 +798,7 @@ export function createEditor(
     },
     upscaleToggle(value: boolean) {
       upscaleOpen = value;
+      if (quotaModel !== selected(value ? "upscale" : current.mode)) void refreshQuota();
       emit();
       if (value) scheduleQuote("upscale", 0);
       else cancelQuote("upscale");

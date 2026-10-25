@@ -13,6 +13,8 @@ import {
 import { useServices } from "../../app/services";
 import { useShell } from "../../app/shell";
 import { message, useUi } from "../../app/ui";
+import { naiCapabilities, naiTagDataset } from "../../domain/nai";
+import NaiPromptOptions from "./NaiPromptOptions.vue";
 import { names } from "../../storage/names.ts";
 import { object } from "../../domain/value.ts";
 import HighlightInput from "../../shared/HighlightInput.vue";
@@ -88,9 +90,12 @@ const negative = computed({
   },
 });
 const tab = ref("prompt");
+const medium = computed(() => naiCapabilities(view.value.form.model).medium);
+const locked = computed(() => tab.value === "negative" && medium.value);
 const current = computed({
   get: () => (tab.value === "prompt" ? prompt.value : negative.value),
   set: (value) => {
+    if (locked.value) return;
     if (tab.value === "prompt") prompt.value = value;
     else negative.value = value;
   },
@@ -136,6 +141,7 @@ watch(current, () => {
   cleaned.value = false;
 });
 async function cleanPrompt() {
+  if (locked.value) return;
   const before = current.value;
   if (!before.trim()) {
     ui.toast("没有需要清洗的内容");
@@ -213,6 +219,7 @@ function select(event: KeyboardEvent) {
           class="ibtn ibtn-xs"
           type="button"
           aria-label="清洗当前输入的格式"
+          :disabled="locked"
           @click="cleanPrompt"
           :data-state="cleaned ? 'done' : undefined"
         >
@@ -223,13 +230,14 @@ function select(event: KeyboardEvent) {
           type="button"
           data-tip="Browse tags"
           aria-label="查词插入"
+          :disabled="locked"
           @click="ui.pickerOpen.value = true"
         >
           <AppIcon name="i-search" />
         </button>
       </div>
     </div>
-    <div class="promptbox-body">
+    <div class="promptbox-body" :class="{ 'with-options': naiCapabilities(view.form.model).supported }">
       <!-- Hosts are declared here. The highlighter may paint a mirror, never wrap or move Vue nodes. -->
       <div
         id="panePrompt"
@@ -244,7 +252,8 @@ function select(event: KeyboardEvent) {
           ref="positiveInput"
           v-model="prompt"
           label="Prompt"
-          placeholder="输入中文或英文 Tag，可自动补全"
+          :placeholder="naiTagDataset(view.form) === 'furry' ? '输入英文 Furry Tag，可自动补全' : '输入中文或英文 Tag，可自动补全'"
+          :dataset="naiTagDataset(view.form)"
           :suggest="props.suggest && tab === 'prompt' && !ui.pickerOpen.value"
         />
       </div>
@@ -261,10 +270,18 @@ function select(event: KeyboardEvent) {
           v-model="negative"
           label="Negative"
           placeholder="lowres, blurry, watermark…"
-          :suggest="props.suggest && tab === 'negative' && !ui.pickerOpen.value"
+          :readonly="medium"
+          :dataset="naiTagDataset(view.form)"
+          :suggest="props.suggest && !medium && tab === 'negative' && !ui.pickerOpen.value"
         />
       </div>
+      <NaiPromptOptions :negative="tab === 'negative'" />
     </div>
   </div>
-  <TagPicker v-model="current" />
+  <TagPicker v-model="current" :dataset="naiTagDataset(view.form)" />
 </template>
+
+<style scoped>
+.promptbox-body { position: relative; }
+.with-options :deep(.hl-wrap) { padding-bottom: 34px; }
+</style>

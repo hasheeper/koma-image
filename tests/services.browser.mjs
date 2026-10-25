@@ -140,9 +140,9 @@ test("real browser schemas, atomic chat transactions, original Blob bytes and on
     ]);
     assert.deepEqual(
       result.details.map((d) => d.stores),
-      [["favorites"], ["assets", "conversations"], ["items"], ["conversations"]],
+      [["favorites", "referenceAssets", "vibeEncodings"], ["assets", "conversations"], ["items"], ["conversations"]],
     );
-    assert.ok(result.details.every((d) => d.version === 1));
+    assert.deepEqual(result.details.map(d=>d.version),[2,1,1,1]);
     assert.deepEqual(result.bytes, [0, 128, 255, 10]);
     assert.ok(result.aborted && result.rolledBack);
     assert.deepEqual(result.local, []);
@@ -256,6 +256,14 @@ test("connection changes propagate without broadcasting or storing credentials; 
             credentialRef: "key-primary",
             revision: "initial",
           },
+          secondary: {
+            id: "secondary",
+            name: "备用连接",
+            baseUrl: "https://secondary.example.test",
+            profileId: "koma-standard-v1",
+            credentialRef: "key-secondary",
+            revision: "initial",
+          },
         },
         links: {},
       });
@@ -308,6 +316,19 @@ test("connection changes propagate without broadcasting or storing credentials; 
       }),
       /改变/,
     );
+    await a.evaluate(() => {
+      app.connections.supplyKey("key-primary", "synthetic-new-host-key");
+      window.beforeOrder = app.connections.context("primary");
+    });
+    await b.evaluate(async () => {
+      await app.connections.save({ ...structuredClone(app.connections.configuration), order: ["secondary", "primary"] });
+    });
+    await a.waitForFunction(() => app.connections.configuration.order?.[0] === "secondary");
+    assert.deepEqual(await a.evaluate(() => app.connections.configuration.order), ["secondary", "primary"]);
+    assert.match(await a.evaluate(() => {
+      try { beforeOrder.assertCurrent(); return "unexpected"; }
+      catch (error) { return error.message; }
+    }), /改变/);
   } finally {
     await context.close();
   }

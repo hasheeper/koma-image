@@ -10,6 +10,7 @@ interface Options {
   page?: number;
   pageSize?: number;
 }
+interface SuggestionOptions extends Options { dataset?: "anime" | "furry" }
 export function createTagSearch(
   categories: () => number[],
   fetcher: typeof fetch = fetch,
@@ -110,6 +111,32 @@ export function createTagSearch(
     if (!official) remember(translatedCache, url.href, items);
     return items.slice(offset, offset + limit);
   }
+  // Public NovelAI Furry vocabulary endpoint; no connection credentials or full prompt.
+  // It returns no Danbooru categories, so those preferences must not filter this dataset.
+  async function furry(query: string, signal?: AbortSignal): Promise<TagItem[]> {
+    const url = new URL("https://image.novelai.net/ai/generate-image/suggest-tags");
+    url.searchParams.set("model", "nai-diffusion-furry-3");
+    url.searchParams.set("prompt", query);
+    const { response, signal: requestSignal } = await get(url, signal);
+    requestSignal.throwIfAborted();
+    if (!response.ok) throw new Error(response.status === 429 ? "Furry 标签请求过于频繁，请稍后再试" : `Furry 标签暂不可用 (${response.status})`);
+    let data: Record<string, unknown>;
+    try { data = object(await response.json()); }
+    catch (error) {
+      requestSignal.throwIfAborted();
+      if (!(error instanceof SyntaxError)) throw error;
+      throw new Error("Furry 标签返回格式异常，请稍后再试");
+    }
+    requestSignal.throwIfAborted();
+    if (!Array.isArray(data.tags)) throw new Error("Furry 标签返回格式异常，请稍后再试");
+    const seen = new Set<string>();
+    return data.tags.flatMap(raw => {
+      const row = object(raw);
+      if (typeof row.tag !== "string" || !row.tag.trim() || seen.has(row.tag)) return [];
+      seen.add(row.tag);
+      return [{ name: row.tag, cnName: "", category: 0, count: Number(row.count) || 0, source: "nai-furry" }];
+    });
+  }
   const friendly = (error: unknown) =>
     error instanceof TypeError
       ? new Error("Tag 服务暂时不可用，请稍后再试")
@@ -129,7 +156,7 @@ export function createTagSearch(
     ).filter((id) => Object.hasOwn(CATEGORIES, id));
   }
   return {
-    async suggest(query: string, options: Options = {}) {
+    async suggest(query: string, options: SuggestionOptions = {}) {
       options.signal?.throwIfAborted();
       query = query.trim();
       if (!query) return [];
@@ -138,8 +165,13 @@ export function createTagSearch(
           Math.max(1, Math.floor(options.limit ?? 12)),
         ),
         allowed = ids(options);
-      const key = `${!!options.exactFirst}:${options.broad}:${limit}:${[...allowed].sort().join(".")}:${query.toLowerCase()}`;
+      const key = `${options.dataset ?? "anime"}:${!!options.exactFirst}:${options.broad}:${limit}:${[...allowed].sort().join(".")}:${query.toLowerCase()}`;
       if (cache.has(key)) return structuredClone(cache.get(key)!);
+      if (options.dataset === "furry") {
+        if (hasHan(query)) throw new Error("Furry 补全使用英文标签，请输入英文查询");
+        try { return remember(cache, key, (await furry(query, options.signal)).slice(0, limit)); }
+        catch (error) { if (options.signal?.aborted) throw error; throw friendly(error); }
+      }
       const requestLimit = Math.min(
         options.broad ? 200 : 20,
         Math.max(limit, limit * 3),
