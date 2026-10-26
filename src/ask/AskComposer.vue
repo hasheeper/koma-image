@@ -127,21 +127,21 @@ defineExpose({
             </template>
             <template #default="{ close }">
               <template v-for="c in ask.picks.value" :key="c.id">
-                <div v-if="ask.picks.value.length > 1" class="ask-menu-group" role="presentation">{{ c.name }}</div>
+                <div v-if="ask.picks.value.length > 1" class="menu-group ask-menu-group" role="presentation">{{ c.name }}</div>
                 <button
                   v-for="id in c.ids"
                   :key="id"
-                  class="ask-menu-item"
+                  class="menu-item"
                   type="button"
                   role="menuitemradio"
                   :aria-checked="ask.settings.value.connectionId === c.id && ask.settings.value.model === id"
                   :disabled="ask.running.value"
                   :title="id"
                   @click="useModel(c.id, id, close)"
-                ><ModelIcon :family="familyOf(id)" /><span class="ask-menu-label">{{ id }}</span><AppIcon name="i-check" class="ask-menu-check" /></button>
+                ><ModelIcon :family="familyOf(id)" /><span class="menu-label">{{ id }}</span><AppIcon name="i-check" class="menu-check ask-menu-check" /></button>
               </template>
               <hr role="separator" />
-              <button class="ask-menu-item" type="button" role="menuitem" @click="close(); ask.openSettings()"><AppIcon name="i-settings" /><span class="ask-menu-label">管理模型</span></button>
+              <button class="menu-item" type="button" role="menuitem" @click="close(); ask.openSettings()"><AppIcon name="i-settings" /><span class="menu-label">管理模型</span></button>
             </template>
           </AskMenu>
           <span class="ask-context" :role="contextMeter.known ? 'meter' : 'img'" :aria-label="contextMeter.known ? '上下文占用（按压缩阈值估算）' : contextMeter.label" :aria-valuemin="contextMeter.known ? 0 : undefined" :aria-valuemax="contextMeter.known ? contextMeter.limit : undefined" :aria-valuenow="contextMeter.known ? contextMeter.value : undefined" :aria-valuetext="contextMeter.known ? contextMeter.label : undefined" :aria-describedby="contextDetails ? 'askContextTip' : undefined" tabindex="0" @mouseenter="contextDetails = true" @mouseleave="contextDetails = false" @focus="contextDetails = true" @blur="contextDetails = false">

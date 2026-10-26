@@ -49,7 +49,7 @@ async function remove(id: string, at: number) {
   confirming.value = "";
   await ask.deleteConversation(id);
   await nextTick();
-  const items = list.value?.querySelectorAll<HTMLButtonElement>(".ask-menu-item");
+  const items = list.value?.querySelectorAll<HTMLButtonElement>(".menu-item");
   items?.[Math.min(at, items.length - 1)]?.focus({ preventScroll: true });
 }
 function left(event: PointerEvent) {
@@ -70,14 +70,14 @@ function blurred(event: FocusEvent) {
       </button>
     </template>
     <template #default="{ close }">
-      <button class="ask-menu-item" type="button" role="menuitem" :disabled="!ask.canManage.value" @click="fresh(close)"><AppIcon name="i-plus" /><span class="ask-menu-label">新对话</span></button>
+      <button class="menu-item" type="button" role="menuitem" :disabled="!ask.canManage.value" @click="fresh(close)"><AppIcon name="i-plus" /><span class="menu-label">新对话</span></button>
       <form v-if="renaming" class="ask-conv-rename" @submit.prevent="saveName(close)" @keydown.tab.stop><input ref="nameInput" v-model="name" type="text" maxlength="60" aria-label="对话名称" @keydown="nameKeys" /><button class="btn btn-sm" type="submit" :disabled="!name.trim()">保存</button></form>
-      <button v-else class="ask-menu-item" type="button" role="menuitem" :disabled="!ask.canManage.value" @click="rename"><AppIcon name="i-edit" /><span class="ask-menu-label">重命名</span></button>
-      <button class="ask-menu-item" type="button" role="menuitemcheckbox" :aria-checked="ask.heading.value.favorite" :aria-busy="ask.favoriteBusy.value" :disabled="!ask.canManage.value || !!ask.preparing.value" @click="confirming = ''; ask.toggleFavorite()"><AppIcon name="i-star" :class="{ starred: ask.heading.value.favorite }" /><span class="ask-menu-label">{{ ask.heading.value.favorite ? '取消收藏' : '收藏会话' }}</span><AppIcon name="i-check" class="ask-menu-check" /></button>
+      <button v-else class="menu-item" type="button" role="menuitem" :disabled="!ask.canManage.value" @click="rename"><AppIcon name="i-edit" /><span class="menu-label">重命名</span></button>
+      <button class="menu-item" type="button" role="menuitemcheckbox" :aria-checked="ask.heading.value.favorite" :aria-busy="ask.favoriteBusy.value" :disabled="!ask.canManage.value || !!ask.preparing.value" @click="confirming = ''; ask.toggleFavorite()"><AppIcon name="i-star" :class="{ starred: ask.heading.value.favorite }" /><span class="menu-label">{{ ask.heading.value.favorite ? '取消收藏' : '收藏会话' }}</span><AppIcon name="i-check" class="menu-check ask-menu-check" /></button>
       <hr role="separator" />
       <div ref="list" class="ask-conv-list" role="group" aria-label="ASK 对话">
         <div v-for="(c, i) in ask.conversations.value" :key="c.id" class="ask-conv-row" :class="{ confirming: confirming === c.id }" @pointerleave="left" @focusout="blurred">
-          <button class="ask-menu-item" type="button" role="menuitemradio" :aria-checked="c.id === ask.conversationId.value" :disabled="!ask.canManage.value && c.id !== ask.conversationId.value" @click="choose(c.id, close)"><AppIcon :name="c.favorite ? 'i-star' : c.fork ? 'i-branch' : 'i-chat'" :class="{ starred: c.favorite }" /><span class="ask-menu-label">{{ c.title }}</span><AppIcon name="i-check" class="ask-menu-check" /></button>
+          <button class="menu-item" type="button" role="menuitemradio" :aria-checked="c.id === ask.conversationId.value" :disabled="!ask.canManage.value && c.id !== ask.conversationId.value" @click="choose(c.id, close)"><AppIcon :name="c.favorite ? 'i-star' : c.fork ? 'i-branch' : 'i-chat'" :class="{ starred: c.favorite }" /><span class="menu-label">{{ c.title }}</span><AppIcon name="i-check" class="menu-check ask-menu-check" /></button>
           <button class="ask-conv-del" type="button" :aria-label="confirming === c.id ? `确认删除 ${c.title}` : `删除 ${c.title}`" :title="confirming === c.id ? '再点一次删除' : '删除'" :disabled="!ask.canManage.value" @click="remove(c.id, i)"><template v-if="confirming === c.id">删除</template><AppIcon v-else name="i-close" /></button>
         </div>
       </div>
@@ -91,28 +91,28 @@ function blurred(event: FocusEvent) {
 .ask-conv:is(:hover, [aria-expanded="true"]) { color: var(--fg); background: var(--ask-hover); }
 .ask-conv-title { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .ask-conv .ico { flex: none; color: var(--fg-3); }
-.ask-conv .starred, .ask-menu-item .ico.starred { color: var(--a); fill: var(--a); }
+.ask-conv .starred, .menu-item .ico.starred { color: var(--a); fill: var(--a); }
 .ask-conv-fork { --ico: var(--ico-sm); }
 .ask-conv-chev { --ico: var(--ico-xs); transform: rotate(90deg); }
 .ask-conv-list { display: flex; flex: 0 1 auto; flex-direction: column; gap: 1px; min-height: 0; overflow-y: auto; overscroll-behavior: contain; }
 .ask-conv-rename { display: flex; gap: 6px; padding: 4px 6px; }
 .ask-conv-rename input { width: 100%; min-width: 0; height: 30px; }
 .ask-conv-row { position: relative; display: flex; flex: none; }
-.ask-conv-row > .ask-menu-item { flex: 1; }
+.ask-conv-row > .menu-item { flex: 1; }
 /* Keep B v5's right-aligned check column; delete occupies that slot on hover. */
-@media (hover: hover) { .ask-conv-row:is(:hover, :focus-within):has(.ask-conv-del:not(:disabled)) > .ask-menu-item[aria-checked] .ask-menu-check { visibility: hidden; } }
+@media (hover: hover) { .ask-conv-row:is(:hover, :focus-within):has(.ask-conv-del:not(:disabled)) > .menu-item[aria-checked] .menu-check { visibility: hidden; } }
 .ask-conv-del { position: absolute; top: 50%; right: 6px; display: grid; place-items: center; min-width: 24px; height: 24px; padding: 0 4px; color: var(--fg-3); font-size: var(--fz-xs); border-radius: 6px; opacity: 0; transform: translateY(-50%); }
 .ask-conv-del .ico { --ico: var(--ico-sm); }
 .ask-conv-row:is(:hover, :focus-within) .ask-conv-del, .ask-conv-del:focus-visible { opacity: 1; }
 .ask-conv-del:hover:not(:disabled) { color: var(--fg); background: var(--ask-hover); }
 .ask-conv-del:disabled { display: none; }
 .ask-conv-row.confirming .ask-conv-del { padding: 0 8px; color: #fff; font-weight: var(--fw-semibold); background: var(--err); opacity: 1; }
-.ask-conv-row.confirming > .ask-menu-item { padding-right: 60px; }
+.ask-conv-row.confirming > .menu-item { padding-right: 60px; }
 .ask-conv-note { flex: none; margin-top: 4px; padding: 7px 10px 4px; color: var(--fg-3); font-size: var(--fz-xs); border-top: 1px solid var(--line); }
 /* Touch keeps both the selected check and an explicit delete target. */
 @media (hover: none) {
   .ask-conv-del { opacity: 1; }
-  .ask-conv-row > .ask-menu-item { padding-right: 42px; }
+  .ask-conv-row > .menu-item { padding-right: 42px; }
 }
-@media (max-width: 860px) { .ask-conv-del { right: 2px; min-width: 32px; height: 32px; } .ask-conv-row.confirming > .ask-menu-item { padding-right: 68px; } }
+@media (max-width: 860px) { .ask-conv-del { right: 2px; min-width: 32px; height: 32px; } .ask-conv-row.confirming > .menu-item { padding-right: 68px; } }
 </style>

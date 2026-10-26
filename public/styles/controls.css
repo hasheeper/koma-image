@@ -575,6 +575,78 @@ input[type="range"]::-moz-range-thumb { width: 13px; height: 13px; border: 0; bo
 .scrub-sm input[type="range"]::-webkit-slider-thumb { height: 34px; }
 .scrub-sm input[type="range"]::-moz-range-thumb { height: 34px; }
 
+/* ── Menus ───────────────────────────────────────────────────── */
+/* Every dropdown, ⋯ menu, picker list and suggestion list is this one sheet:
+   solid raised, a hairline, 4px inset, 32px rows whose 8px corners sit
+   concentric in its 12px one. A choice is marked by weight and a trailing
+   accent check, never by a fill; hover and keyboard focus share the neutral
+   surface, focus adds an inner hairline. Families keep only their width,
+   placement and genuinely special parts. */
+.menu {
+  flex-direction: column;
+  gap: 1px;
+  max-height: min(360px, calc(100dvh - 16px));
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  padding: 4px;
+  color: var(--fg-2);
+  background: var(--raised);
+  border: 1px solid var(--line-2);
+  border-radius: 12px;
+  box-shadow: var(--sh-3), var(--sh-lip);
+  animation: menuIn var(--t1) var(--e-out);
+}
+/* A popover shows only while open; an in-flow list hides with [hidden]. */
+.menu[popover] { position: fixed; inset: auto; margin: 0; }
+.menu:is(:popover-open, :not([popover])) { display: flex; }
+.menu[hidden] { display: none; }
+/* Flipped above its trigger, it rises toward it instead of dropping. */
+.menu[data-placement="top"] { animation-name: menuUp; }
+@keyframes menuIn { from { opacity: 0; transform: translateY(-4px); } }
+@keyframes menuUp { from { opacity: 0; transform: translateY(4px); } }
+.menu-item {
+  position: relative;
+  display: flex; flex: none; align-items: center; gap: 8px;
+  width: 100%; min-width: 0; min-height: 32px;
+  padding: 0 8px;
+  color: var(--fg-2);
+  font-size: var(--fz-sm);
+  text-align: left;
+  text-decoration: none;
+  white-space: nowrap;
+  border-radius: 8px;
+  cursor: pointer;
+  transition: background var(--t1) var(--e), color var(--t1) var(--e);
+}
+.menu-item > :is(.ico, .vl) { --ico: var(--ico-sm); flex: none; color: var(--fg-3); }
+.menu-item > .vl { width: var(--ico-sm); height: var(--ico-sm); }
+.menu-item:is(:hover, :focus-visible, :has(> input:focus-visible)) { color: var(--fg); background: var(--hover); outline: none; }
+.menu-item:is(:focus-visible, :has(> input:focus-visible)) { box-shadow: inset 0 0 0 1px var(--line-2); }
+.menu-item:is(:hover, :focus-visible) > :is(.ico, .vl):not(.menu-check) { color: currentColor; }
+.menu-item:is([aria-checked="true"], [aria-current="page"], :has(> input:checked)) { color: var(--fg); font-weight: var(--fw-medium); }
+.menu-item.danger, .menu-item.danger > .ico { color: var(--err); }
+.menu-item.danger:is(:hover, :focus-visible):not(:disabled, [aria-disabled="true"]) { color: var(--err); background: var(--err-dim); }
+.menu-item:is(:disabled, [aria-disabled="true"], :has(> input:disabled)) { color: var(--fg-4); background: none; cursor: default; }
+.menu-item:is(:disabled, [aria-disabled="true"], :has(> input:disabled)) > :is(.ico, .vl) { color: inherit; }
+.menu-label { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; }
+.menu-item > .menu-check { margin-left: auto; color: var(--a); }
+.menu-item:not([aria-checked="true"], [aria-current="page"], :has(> input:checked)) > .menu-check { visibility: hidden; }
+.menu-meta { flex: none; margin-left: auto; padding-left: 12px; color: var(--fg-4); font-size: var(--fz-2xs); font-weight: var(--fw-regular); font-variant-numeric: tabular-nums; }
+.menu-group {
+  flex: none;
+  margin: 0;
+  padding: 8px 8px 4px;
+  overflow: hidden;
+  color: var(--fg-4);
+  font-size: var(--fz-2xs);
+  font-weight: var(--fw-medium);
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.menu hr { flex: none; height: 1px; margin: 4px -4px; border: 0; background: var(--line-2); }
+@media (pointer: coarse), (max-width: 860px) {
+  .menu-item { min-height: 44px; font-size: var(--fz-md); }
+}
 
 /* Shared Tag category indicators: dictionary, picker and autocomplete. */
 .tag-category-dot { width: 6px; height: 6px; border-radius: 50%; background: var(--fg-4); }

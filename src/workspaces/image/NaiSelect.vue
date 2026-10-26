@@ -4,8 +4,8 @@ import AppIcon from "../../shared/AppIcon.vue";
 import { menuKeys, placeMenu } from "../../shared/popover";
 const props = defineProps<{
   id: string; label: string; caption?: string; title?: string; value: string; display?: string; disabled?: boolean;
-  variant?: "model" | "segment"; wide?: boolean;
-  options: { value: string; label: string; detail?: string; disabled?: boolean; title?: string }[];
+  variant?: "model";
+  options: { value: string; label: string; disabled?: boolean; title?: string }[];
 }>();
 const emit = defineEmits<{ change: [value: string] }>();
 const button = ref<HTMLButtonElement>(), menu = ref<HTMLElement>(), expanded = ref(false);
@@ -27,7 +27,7 @@ function position() {
   const el = menu.value, anchor = button.value.getBoundingClientRect();
   if (props.variant === "model") el.style.width = `${button.value.closest('.model-row')!.getBoundingClientRect().width}px`;
   placeMenu(el, anchor);
-  if (props.variant !== "segment") el.style.left = `${Math.max(8, Math.min(anchor.left, document.documentElement.clientWidth - el.offsetWidth - 8))}px`;
+  el.style.left = `${Math.max(8, Math.min(anchor.left, document.documentElement.clientWidth - el.offsetWidth - 8))}px`;
 }
 function focusChoice() {
   (menu.value?.querySelector<HTMLButtonElement>('button[aria-checked="true"]:not(:disabled)') ?? menu.value?.querySelector<HTMLButtonElement>('button:not(:disabled)'))?.focus({ preventScroll: true });
@@ -59,11 +59,11 @@ onDeactivated(() => { close(); cleanup(); }); onBeforeUnmount(cleanup);
 </script>
 <template>
   <button :id="id" ref="button" type="button" class="nai-trigger" :class="[variant && `choice-${variant}`, { chosen: value !== 'none' }]" :data-value="value" :disabled="disabled" :popovertarget="menuId" aria-haspopup="menu" :aria-controls="menuId" :aria-expanded="expanded" :aria-label="`${label}：${selected}`" :title="title" @pointerdown="keyboard = false" @keydown="openKeys">
-    <span v-if="caption" class="choice-caption">{{ caption }}</span><span v-if="!caption || value !== 'none'" class="choice-value">{{ display ?? selected }}</span><AppIcon name="i-chevron" class="choice-caret" />
+    <slot /><span v-if="caption" class="choice-caption">{{ caption }}</span><span v-if="!caption || value !== 'none'" class="choice-value">{{ display ?? selected }}</span><AppIcon name="i-chevron" class="choice-caret" />
   </button>
-  <div :id="menuId" ref="menu" popover="auto" class="switch-menu nai-menu" :class="{ 'nai-menu-wide': wide }" role="menu" :aria-label="label" @beforetoggle="beforeToggle" @toggle="toggle" @keydown="keys">
+  <div :id="menuId" ref="menu" popover="auto" class="menu nai-menu" role="menu" :aria-label="label" @beforetoggle="beforeToggle" @toggle="toggle" @keydown="keys">
     <template v-for="(option, index) in options" :key="option.value">
-      <button type="button" role="menuitemradio" tabindex="-1" class="nai-option" :data-value="option.value" :aria-checked="option.value === value" :disabled="option.disabled" :title="option.title" @click="choose(option.value)"><span class="option-label">{{ option.label }}</span><span v-if="option.detail" class="option-detail">{{ option.detail }}</span><AppIcon name="i-check" class="option-check" /></button>
+      <button type="button" role="menuitemradio" tabindex="-1" class="menu-item" :data-value="option.value" :aria-checked="option.value === value" :disabled="option.disabled" :title="option.title" @click="choose(option.value)"><span class="menu-label">{{ option.label }}</span><AppIcon name="i-check" class="menu-check" /></button>
       <hr v-if="option.value === 'none' && index < options.length - 1" />
     </template>
   </div>
@@ -78,20 +78,7 @@ onDeactivated(() => { close(); cleanup(); }); onBeforeUnmount(cleanup);
 .nai-trigger[aria-expanded="true"] .choice-caret { transform: rotate(-90deg); }
 .nai-trigger:focus-visible { outline: none; background: var(--hover); box-shadow: inset 0 0 0 1px var(--fg-3); }
 .nai-trigger:hover .choice-caret { color: var(--fg-2); }
-.choice-model, .choice-segment { justify-content: flex-start; height: 30px; padding: 0 8px; border-radius: 7px; font-size: var(--fz-sm); }
-.choice-model { flex: 1; min-width: 0; }
-.choice-segment .choice-value { color: var(--fg-2); font-weight: var(--fw-medium); }
-.nai-menu { position: fixed; inset: auto; width: 168px; max-width: calc(100vw - 16px); max-height: calc(100dvh - 16px); padding: 6px; border-radius: 12px; overflow: auto; overscroll-behavior: contain; }
-.nai-menu-wide { width: 232px; }
-.nai-option { display: flex; align-items: center; gap: 10px; min-width: 0; width: 100%; min-height: 36px; padding: 0 10px; border-radius: 8px; text-align: left; font-size: var(--fz-sm); color: var(--fg-2); transition: background var(--t1) var(--e), color var(--t1) var(--e); }
-.nai-option:is(:hover, :focus-visible):not(:disabled) { color: var(--fg); background: var(--hover); }
-.nai-option:focus-visible { outline: none; box-shadow: inset 0 0 0 1px var(--line-2); }
-.nai-option[aria-checked="true"] { color: var(--fg); font-weight: var(--fw-semibold); }
-.nai-option:disabled { opacity: .4; cursor: default; }
-.option-label { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.option-detail { margin-left: auto; color: var(--fg-3); font-size: var(--fz-2xs); font-weight: var(--fw-regular); white-space: nowrap; }
-.option-check { margin-left: auto; flex: none; --ico: var(--ico-sm); color: var(--a); visibility: hidden; }
-.option-detail + .option-check { margin-left: 0; }
-.nai-option[aria-checked="true"] .option-check { visibility: visible; }
-@media (pointer: coarse), (max-width: 860px) { .choice-model, .choice-segment { height: 36px; } .nai-option { min-height: 44px; } }
+.choice-model { flex: 1; justify-content: flex-start; min-width: 0; height: 30px; padding: 0 8px; border-radius: 7px; font-size: var(--fz-sm); }
+.nai-menu { width: 168px; max-width: calc(100vw - 16px); }
+@media (pointer: coarse), (max-width: 860px) { .choice-model { height: 36px; } }
 </style>

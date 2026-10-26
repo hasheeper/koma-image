@@ -219,28 +219,10 @@
 .set-ui .conn-priority .md-act .ico { --ico: var(--ico-sm); }
 .set-ui .conn-priority .md-act:not(:disabled):hover { color: var(--fg); }
 .set-ui .conn-top:has(.conn-menu:popover-open) .conn-more { color: var(--fg); background: var(--hover); border-color: var(--line-2); }
-/* The card's ⋯ menu: a popover in the top layer, placed beside its button once it opens. */
-.set-ui .conn-menu {
-  inset: auto; margin: 0; padding: 4px; min-width: 176px;
-  color: var(--fg);
-  background: color-mix(in srgb, var(--raised) 97%, transparent);
-  border: 1px solid var(--line-2); border-radius: var(--r3);
-  box-shadow: var(--sh-3), var(--sh-lip);
-  backdrop-filter: blur(16px);
-}
-.set-ui .conn-menu:popover-open { display: grid; gap: 1px; }
+/* The card's ⋯ menu: the shared .menu, placed beside its button once it opens. */
+.set-ui .conn-menu { min-width: 176px; }
 .set-ui .conn-menu:not([data-placed]) { visibility: hidden; }
-.set-ui .conn-menu button {
-  display: flex; align-items: center; gap: 10px; min-height: 32px; padding: 0 10px;
-  font-size: var(--fz-sm); color: var(--fg-2); text-align: left; border-radius: var(--r1);
-}
-.set-ui .conn-menu button .ico { --ico: var(--ico-md); color: var(--fg-3); }
-.set-ui .conn-menu button:is(:hover, :focus-visible) { color: var(--fg); background: var(--hover); outline: none; }
-.set-ui .conn-menu button:is(:hover, :focus-visible) .ico { color: currentColor; }
-.set-ui .conn-menu button small { margin-left: auto; padding-left: 16px; font: 11px var(--mono); color: var(--fg-4); }
-.set-ui .conn-menu hr { height: 1px; margin: 3px 6px; border: 0; background: var(--line-2); }
-.set-ui .conn-menu .danger, .set-ui .conn-menu .danger .ico { color: var(--err); }
-.set-ui .conn-menu .danger:is(:hover, :focus-visible) { color: var(--err); background: var(--err-dim); }
+.set-ui .conn-menu .menu-meta { font-family: var(--mono); }
 
 /* ── Rows: the text first, then one control or one cluster ──── */
 /* Every page shares these: a button, a switch or a compact field stays on the

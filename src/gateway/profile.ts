@@ -16,7 +16,7 @@ export interface GatewayProfile {
   /** A declared ceiling means every execution is quoted first and carries the quoted cost. */
   readonly costCeiling?: { readonly field: string };
   readonly executionRoutes: { readonly nativeFree: boolean; readonly studio: boolean; readonly tools: boolean };
-  readonly quotaPolicy: { readonly supported?: boolean; readonly temporaryRemainingThreshold: number; readonly imageUsedWarningThreshold: number };
+  readonly quotaPolicy: { readonly supported?: boolean };
   readonly quotaPresentation: { readonly lowRatio: number; readonly criticalRatio: number };
   readonly catalog: { readonly minimumVersion: number; readonly requireCostCeiling: boolean };
   readonly auth: {
@@ -44,7 +44,7 @@ export const standardProfile: GatewayProfile = freeze({
   quote: { supported: true, debounce: { image: 650, chat: 650, editor: 400 } },
   costCeiling: { field: "max_cost" },
   executionRoutes: { nativeFree: true, studio: true, tools: true },
-  quotaPolicy: { temporaryRemainingThreshold: 300, imageUsedWarningThreshold: 400 },
+  quotaPolicy: {},
   quotaPresentation: { lowRatio: 0.25, criticalRatio: 0.1 },
   catalog: { minimumVersion: 2, requireCostCeiling: true },
   auth: { kind: "bearer", statsQueryKey: "api_key" },
@@ -59,7 +59,7 @@ const unquoted = {
   image: true,
   quote: { supported: false, debounce: { image: 650, chat: 650, editor: 400 } },
   executionRoutes: { nativeFree: false, studio: true, tools: true },
-  quotaPolicy: { supported: false, temporaryRemainingThreshold: 0, imageUsedWarningThreshold: 0 },
+  quotaPolicy: { supported: false },
   quotaPresentation: { lowRatio: 0.25, criticalRatio: 0.1 },
   catalog: { minimumVersion: 0, requireCostCeiling: false },
 } as const;

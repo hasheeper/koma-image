@@ -32,11 +32,11 @@ onBeforeUnmount(() => { dialog.value?.close(); if (originalFocus instanceof HTML
       <AskMenu id="slateOverviewMore" label="任务总览选项" side="right">
         <template #trigger="{ open: shown, toggle }"><button class="ibtn" type="button" aria-label="任务总览选项" aria-haspopup="menu" :aria-expanded="shown" @click="toggle"><AppIcon name="i-more" /></button></template>
         <template #default="{ close: dismiss }">
-          <button class="ask-menu-item" role="menuitem" type="button" :disabled="!ask.canManage.value" @click="dismiss(); creating = !creating"><AppIcon name="i-plus" /><span class="ask-menu-label">新建清单</span></button>
-          <button v-if="slates.activeId.value" class="ask-menu-item" role="menuitem" type="button" :disabled="!ask.canManage.value" @click="dismiss(); open(slates.activeId.value!, true)"><AppIcon name="i-chat" /><span class="ask-menu-label">在新会话中打开</span></button>
-          <button v-if="unmapped" class="ask-menu-item" role="menuitem" type="button" :disabled="bridge.busy.value" @click="dismiss(); bridge.mapSlate(slates.activeId.value!)"><AppIcon name="i-folder" /><span class="ask-menu-label">同步到当前目录</span></button>
-          <button v-if="activeIssue && slates.get(activeIssue.id)" class="ask-menu-item" role="menuitem" type="button" title="用当前本机清单替换目录中的任务文件" :disabled="bridge.busy.value" @click="dismiss(); bridge.resolveSlate(activeIssue!.id, 'local')"><AppIcon name="i-check" /><span class="ask-menu-label">保留本机版本</span></button>
-          <button class="ask-menu-item" role="menuitem" type="button" :disabled="bridge.busy.value" @click="dismiss(); importer?.click()"><AppIcon name="i-upload" /><span class="ask-menu-label">导入清单 JSON</span></button>
+          <button class="menu-item" role="menuitem" type="button" :disabled="!ask.canManage.value" @click="dismiss(); creating = !creating"><AppIcon name="i-plus" /><span class="menu-label">新建清单</span></button>
+          <button v-if="slates.activeId.value" class="menu-item" role="menuitem" type="button" :disabled="!ask.canManage.value" @click="dismiss(); open(slates.activeId.value!, true)"><AppIcon name="i-chat" /><span class="menu-label">在新会话中打开</span></button>
+          <button v-if="unmapped" class="menu-item" role="menuitem" type="button" :disabled="bridge.busy.value" @click="dismiss(); bridge.mapSlate(slates.activeId.value!)"><AppIcon name="i-folder" /><span class="menu-label">同步到当前目录</span></button>
+          <button v-if="activeIssue && slates.get(activeIssue.id)" class="menu-item" role="menuitem" type="button" title="用当前本机清单替换目录中的任务文件" :disabled="bridge.busy.value" @click="dismiss(); bridge.resolveSlate(activeIssue!.id, 'local')"><AppIcon name="i-check" /><span class="menu-label">保留本机版本</span></button>
+          <button class="menu-item" role="menuitem" type="button" :disabled="bridge.busy.value" @click="dismiss(); importer?.click()"><AppIcon name="i-upload" /><span class="menu-label">导入清单 JSON</span></button>
         </template>
       </AskMenu>
       <button class="ibtn" type="button" aria-label="关闭任务总览" @click="close"><AppIcon name="i-close" /></button>

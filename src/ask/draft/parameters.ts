@@ -34,7 +34,7 @@ export function parameterIssue(key: ParameterKey, form: DrawingForm, model: Cata
   if (!model) return "当前模型不可用";
   if (key === "transparentBg" && value && !model.transparentBackground) return "当前模型不支持透明底";
   if (key === "complexity" && value !== "none" && !cap.v5) return "当前模型不支持 Complexity";
-  if (key === "naiMode" && !cap.supported) return "当前模型不支持动漫／兽人模式";
+  if (key === "naiMode" && !cap.supported) return "当前模型不支持 Anime／Furry 模式";
   if (key === "qualityPreset" && !cap.quality.includes(form.qualityPreset)) return "当前模型不支持此质量预设";
   if (key === "negativePreset" && !cap.negative.includes(form.negativePreset)) return "当前模型不支持此负向预设";
   if (key === "cfgRescale" && (!cap.supported || cap.medium) && value !== 0) return "当前模型不支持 Guidance Rescale";

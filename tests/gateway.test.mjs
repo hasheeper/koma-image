@@ -6,7 +6,7 @@ import { standardProfile, profileFor, profilePath } from "../src/gateway/profile
 import { apiBase } from "../src/gateway/transport.ts";
 import { validateRouting, normalizeBaseUrl, imageConnections, reasoningConnections } from "../src/config/connections.ts";
 import { createCostNotice } from "../src/domain/quote.ts";
-import { normalizeQuota, quotaPolicy, quotaGauge, creditBalance } from "../src/domain/quota.ts";
+import { normalizeQuota, quotaGauge, creditBalance } from "../src/domain/quota.ts";
 import { normalizeCatalog, sourceState, validateCatalog, selectCatalogSources, modelSource } from "../src/domain/catalog.ts";
 import { MODELS } from "../src/domain/models.ts";
 import { createQuotePreview } from "../src/services/quote-preview.ts";
@@ -180,16 +180,7 @@ test("reservation hook distinguishes pre-submit cancellation and uncertain billi
   assert.deepEqual(outcomes, ["not-submitted", "uncertain"]);
 });
 
-test("quota thresholds, unknowns, native-free exception and wallet semantics", async () => {
-  const status = (remaining, used = 401, checked = true) => normalizeQuota(standardProfile, { images: { pool: { used, remaining: 0, limit: 100 } } },
-    { temp_limits: { is_temp: true, limited: true, rpd_remaining: remaining } }, checked, "pool");
-  assert.equal(quotaPolicy(status(300)).serialDisabled, false);
-  assert.equal(quotaPolicy(status(299)).serialDisabled, true);
-  assert.equal(quotaPolicy(status(299, 400)).warning, false);
-  assert.equal(quotaPolicy(status(299, 401)).warning, true);
-  assert.equal(quotaPolicy(status(null)).serialUnavailable, true);
-  assert.equal(quotaPolicy(status(null), false).serialDisabled, false);
-  assert.equal(quotaPolicy(null).serialUnavailable, true);
+test("wallet semantics and a partial quota status", async () => {
   assert.equal(quotaGauge(null, 100, standardProfile).level, "unknown");
   assert.equal(quotaGauge(0, 100, standardProfile).level, "crit");
   assert.equal(quotaGauge(25, 100, standardProfile).level, "low");
@@ -204,8 +195,7 @@ test("quota thresholds, unknowns, native-free exception and wallet semantics", a
     return json({ images: { pool: { used: 500, remaining: 0 } } });
   });
   const partial = await gateway.quota("pool");
-  assert.equal(partial.image.remaining, 0);
-  assert.equal(quotaPolicy(partial).serialUnavailable, true);
+  assert.deepEqual([partial.image.remaining, partial.temporary], [0, null]);
 });
 
 test("profiles come from a registry; unknown and prototype names are rejected; undeclared paths are refused", () => {
@@ -248,14 +238,12 @@ test("a profile without quotes or a cost ceiling executes unquoted; a quoted pro
   assert.equal(free.quote.cost, 0);
 });
 
-test("quota policy and wallet levels use the profile of the connection the status came from", () => {
-  const relaxed = { ...standardProfile, id: "test-relaxed",
-    quotaPolicy: { temporaryRemainingThreshold: 10, imageUsedWarningThreshold: 1000 }, quotaPresentation: { lowRatio: 0.1, criticalRatio: 0.05 } };
+test("wallet levels use the profile of the connection the status came from", () => {
+  const relaxed = { ...standardProfile, id: "test-relaxed", quotaPresentation: { lowRatio: 0.1, criticalRatio: 0.05 } };
   const status = profile => normalizeQuota(profile, { images: { pool: { used: 500, remaining: 20, limit: 100 } } },
-    { temp_limits: { is_temp: true, limited: true, rpd_remaining: 50 } }, true, "pool");
+    { temp_limits: { is_temp: true, limited: true, rpd_remaining: 50 } }, "pool");
   assert.equal(status(standardProfile).profile, standardProfile);
-  assert.deepEqual([quotaPolicy(status(standardProfile)).serialDisabled, quotaPolicy(status(standardProfile)).warning], [true, true]);
-  assert.deepEqual([quotaPolicy(status(relaxed)).serialDisabled, quotaPolicy(status(relaxed)).warning], [false, false]);
+  assert.equal(status(standardProfile).temporary.remaining, 50);
   assert.equal(quotaGauge(20, 100, standardProfile).level, "low");
   assert.equal(quotaGauge(20, 100, relaxed).level, "ok");
   assert.equal(quotaGauge(20, 100).level, "unknown");

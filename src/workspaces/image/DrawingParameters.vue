@@ -25,18 +25,8 @@ function reset() {
     seed: "",
     batchCount: 1,
     optimize: false,
-    serverCache: false,
   });
 }
-const batchHint = computed(() =>
-  view.value.policy.serialUnavailable
-    ? view.value.quotaLoading
-      ? "正在读取临时 Key 全局日额度，串行暂不可用。"
-      : "临时 Key 全局日额度暂不可用，为避免超额，串行已关闭。"
-    : view.value.policy.serialDisabled
-      ? `临时 Key 全局日额度剩余 ${view.value.policy.tempRemaining}，低于 300，仅允许单张生成。`
-      : "严格逐张请求；失败或取消时停止剩余队列。",
-);
 </script>
 <template>
 <div class="drawing-parameters">
@@ -121,15 +111,7 @@ const batchHint = computed(() =>
       <div class="fld">
         <div class="fld-top">
           <label for="batchCount">串行批量</label
-          ><span class="mono dim">{{
-            view.policy.serialUnavailable
-              ? view.quotaLoading
-                ? "校验中"
-                : "额度未知"
-              : view.policy.serialDisabled
-                ? "仅单张"
-                : "1 张起"
-          }}</span>
+          ><span class="mono dim">1 张起</span>
         </div>
         <div class="fld-inline">
           <input
@@ -139,35 +121,23 @@ const batchHint = computed(() =>
             step="1"
             inputmode="numeric"
             :value="view.batchCount"
-            :disabled="view.policy.serialDisabled"
             aria-describedby="batchHint"
             @input="change('batchCount', $event)"
             @keydown.enter.prevent
           /><span>张</span>
         </div>
-        <p
-          class="hint"
-          id="batchHint"
-          :class="{ warn: view.policy.serialDisabled }"
-        >
-          {{ batchHint }}
+        <p class="hint" id="batchHint">
+          严格逐张请求；失败或取消时停止剩余队列。
         </p>
       </div>
       <div class="switches">
         <label class="check"
           ><input
-            id="serverCache"
-            type="checkbox"
-            :checked="f.serverCache"
-            @change="change('serverCache', $event)"
-          /><span></span>服务端缓存<i class="sub">占日点数</i></label
-        ><label class="check"
-          ><input
             id="optimize"
             type="checkbox"
             :checked="f.optimize"
             @change="change('optimize', $event)"
-          /><span></span>压缩体积<i class="sub">转 JPEG</i></label
+          /><span></span>去除元数据<i class="sub">保持 PNG 原图</i></label
         >
       </div>
       <button

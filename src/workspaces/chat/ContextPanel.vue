@@ -335,16 +335,17 @@ defineExpose({ toggle, close });
     </div>
     <div
       ref="menu"
-      class="conv-menu"
+      class="menu conv-menu"
       popover
       role="menu"
       aria-label="图片操作"
       @keydown="menuKeys"
     >
-      <button type="button" role="menuitem" @click="action('view')">
+      <button class="menu-item" type="button" role="menuitem" @click="action('view')">
         <AppIcon name="i-zoom-in" /><span>查看大图</span></button
       ><button
         v-if="choice.kind !== 'base'"
+        class="menu-item"
         type="button"
         role="menuitem"
         @click="action('base')"
@@ -352,6 +353,7 @@ defineExpose({ toggle, close });
         <AppIcon name="i-edit" /><span>设为底图</span></button
       ><button
         v-if="choice.kind !== 'base'"
+        class="menu-item"
         type="button"
         role="menuitem"
         :disabled="full.refs.indexOf(choice.id) <= 0"
@@ -360,6 +362,7 @@ defineExpose({ toggle, close });
         <AppIcon name="i-up" /><span>前移一位</span></button
       ><button
         v-if="choice.kind !== 'base'"
+        class="menu-item"
         type="button"
         role="menuitem"
         :disabled="full.refs.indexOf(choice.id) >= full.refs.length - 1"
@@ -367,11 +370,11 @@ defineExpose({ toggle, close });
       >
         <AppIcon name="i-down" /><span>后移一位</span>
       </button>
-      <hr />
+      <hr role="separator" />
       <button
+        class="menu-item danger"
         type="button"
         role="menuitem"
-        class="danger"
         @click="action('remove')"
       >
         <AppIcon name="i-close" /><span>移出上下文</span>

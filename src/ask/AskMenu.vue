@@ -23,6 +23,7 @@ function place() {
   else if (y + box.height > innerHeight - edge && anchor.top - gap - box.height >= edge) y = anchor.top - gap - box.height;
   el.style.left = `${Math.max(edge, Math.min(x, innerWidth - box.width - edge))}px`;
   el.style.top = `${Math.max(edge, Math.min(y, innerHeight - box.height - edge))}px`;
+  el.dataset.placement = y < anchor.top ? "top" : "bottom";
 }
 function resized() {
   place();
@@ -58,29 +59,13 @@ onBeforeUnmount(() => { close(); stopLayer(); sizeObserver.disconnect(); cancelA
 <template>
   <span ref="wrap" class="ask-menu-host" :class="{ 'conversation-menu': side === 'left' }">
     <slot name="trigger" :open="open" :toggle="toggle" />
-    <div v-if="open" :id="id" ref="menu" class="ask-menu" :class="side" popover="auto" role="menu" :aria-label="label" @toggle="toggled" @keydown="keys"><slot :close="close" /></div>
+    <div v-if="open" :id="id" ref="menu" class="menu ask-menu" :class="side" popover="auto" role="menu" :aria-label="label" @toggle="toggled" @keydown="keys"><slot :close="close" /></div>
   </span>
 </template>
 <style scoped>
 .ask-menu-host { position: relative; display: inline-flex; flex: 0 1 auto; align-items: center; min-width: 0; }
-.ask-menu { position: fixed; inset: auto; z-index: 5; display: none; flex-direction: column; gap: 0; width: max-content; min-width: 156px; max-width: min(224px, calc(100vw - 16px)); max-height: min(360px, calc(100dvh - 32px)); margin: 0; overflow-y: auto; padding: 4px; color: var(--fg); background: var(--raised); border: 1px solid var(--line-2); border-radius: var(--r3); box-shadow: var(--sh-2), var(--sh-lip); transform-origin: top right; animation: ask-menu-in var(--t1) var(--e-out); }
-.ask-menu:popover-open { display: flex; }
-.ask-menu.left { width: 300px; max-width: calc(100vw - 32px); transform-origin: top left; }
-.ask-menu.up { transform-origin: bottom left; animation-name: ask-menu-up; }
-.ask-menu :deep(.ask-menu-item) { display: flex; flex: none; align-items: center; gap: 8px; min-width: 0; min-height: 32px; padding: 0 8px; color: var(--fg-2); font-size: 12px; text-align: left; border-radius: var(--r1); }
-.ask-menu :deep(.ask-menu-item :is(.ico, .vl)) { flex: none; width: var(--ico-sm); height: var(--ico-sm); color: var(--fg-3); }
-.ask-menu :deep(.ask-menu-item:is(:hover, :focus-visible):not(:disabled)) { color: var(--fg); background: var(--hover); outline: none; }
-.ask-menu :deep(.ask-menu-item:is(:hover, :focus-visible):not(:disabled) :is(.ico, .vl)) { color: currentColor; }
-.ask-menu :deep(.ask-menu-item:disabled) { color: var(--fg-4); cursor: default; }
-.ask-menu :deep(.ask-menu-label) { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.ask-menu :deep(.ask-menu-item small) { color: var(--fg-3); font-size: var(--fz-xs); font-variant-numeric: tabular-nums; }
-.ask-menu :deep(.ask-menu-check) { visibility: hidden; }
-.ask-menu :deep(.ask-menu-item[aria-checked="true"]) { color: var(--fg); }
-.ask-menu :deep(.ask-menu-item[aria-checked="true"] .ask-menu-check) { visibility: visible; color: var(--a); }
-.ask-menu :deep(.ask-menu-group) { flex: none; padding: 8px 10px 4px; overflow: hidden; color: var(--fg-4); font-size: var(--fz-2xs); text-overflow: ellipsis; white-space: nowrap; }
-.ask-menu :deep(hr) { flex: none; margin: 4px 6px; border: 0; border-top: 1px solid var(--line); }
-
-@keyframes ask-menu-up { from { opacity: 0; transform: translateY(3px) scale(.985); } }
-@keyframes ask-menu-in { from { opacity: 0; transform: translateY(-3px) scale(.99); } }
-@media (prefers-reduced-motion: reduce) { .ask-menu { animation: none; } }
+.ask-menu { width: max-content; min-width: 156px; max-width: min(224px, calc(100vw - 16px)); }
+.ask-menu.left { width: 300px; max-width: calc(100vw - 32px); }
+/* ASK B v5 geometry is an approved exception: rows stay 32px on touch like the rest of the window. */
+@media (pointer: coarse), (max-width: 860px) { .ask-menu :deep(.menu-item) { min-height: 32px; font-size: var(--fz-sm); } }
 </style>

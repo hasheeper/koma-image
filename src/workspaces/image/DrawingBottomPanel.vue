@@ -86,35 +86,35 @@ defineExpose({close, drawerHeight:()=>shell.value?.getBoundingClientRect().heigh
   </div>
 </template>
 <style scoped>
-.bottom-controls { display: grid; grid-template-columns: repeat(3,minmax(0,1fr)); align-items: stretch; gap: 2px; height: 36px; padding: 3px; margin: 0 0 8px; background: var(--sunken); border: 1px solid var(--line); border-radius: var(--r3); }
-.bottom-reference-segment { display: flex; align-items: center; min-width: 0; height: 28px; border-radius: var(--r2); }
+.bottom-controls { display: grid; grid-template-columns: repeat(3,minmax(0,1fr)); align-items: stretch; gap: 2px; height: 40px; padding: 3px; margin: 0 0 8px; background: var(--sunken); border: 1px solid var(--line); border-radius: var(--r3); }
+.bottom-reference-segment { display: flex; align-items: center; min-width: 0; height: 32px; border-radius: var(--r2); }
 .bottom-reference-segment > .bottom-tab { flex: 1; gap: 5px; }
 .bottom-reference-segment.selected { background: var(--raised); box-shadow: var(--sh-lip), 0 1px 2px #0004; }
 .bottom-reference-segment.selected > .bottom-tab { color: var(--fg); }
 .bottom-reference-segment.selected > .bottom-tab .ico { color: var(--a); }
-.bottom-group-enable { display: grid; place-items: center; width: 24px; height: 28px; flex: none; border-radius: var(--r2); }
+.bottom-group-enable { display: grid; place-items: center; width: 24px; height: 32px; flex: none; border-radius: var(--r2); }
 .bottom-group-enable:hover { background: var(--hover); }
 .bottom-group-enable > span { position: relative; width: 20px; height: 12px; border-radius: 8px; background: var(--line-2); transition: background 120ms; }
 .bottom-group-enable > span::after { content: ""; position: absolute; width: 8px; height: 8px; left: 2px; top: 2px; border-radius: 50%; background: var(--fg-3); transition: transform 120ms, background 120ms; }
 .bottom-group-enable[aria-checked="true"] > span { background: var(--a); }
 .bottom-group-enable[aria-checked="true"] > span::after { transform: translateX(8px); background: var(--chrome); }
-.bottom-tab { display: flex; align-items: center; justify-content: center; gap: 6px; min-width: 0; height: 28px; font-size: 12px; font-weight: 500; line-height: 16px; color: var(--fg-3); white-space: nowrap; border-radius: var(--r2); transition: background 120ms, color 120ms; }
+.bottom-tab { display: flex; align-items: center; justify-content: center; gap: 6px; min-width: 0; height: 32px; font-size: var(--fz-sm); font-weight: var(--fw-semibold); line-height: 16px; color: var(--fg-3); white-space: nowrap; border-radius: var(--r2); transition: background 120ms, color 120ms; }
 .bottom-tab:hover { color: var(--fg); }
 .bottom-tab > .ico { --ico: var(--ico-sm); color: var(--fg-3); flex: none; }
 .bottom-tab.selected { color: var(--fg); background: var(--raised); box-shadow: var(--sh-lip), 0 1px 2px #0004; }
 .bottom-tab.selected .ico { color: var(--a); }
 .reference-active { width: 4px; height: 4px; border-radius: 50%; background: var(--a); visibility: hidden; flex: none; margin-left: -2px; }
 .reference-active.is-enabled { visibility: visible; }
-.bottom-controls.is-single { display: block; height: 36px; padding: 0; border: 0; border-radius: 0; background: none; }
-.is-single .bottom-tab { width: 100%; height: 36px; justify-content: flex-start; gap: 6px; padding: 0 10px; color: var(--fg-2); background: var(--sunken); border-radius: var(--r3); box-shadow: none; }
+.bottom-controls.is-single { display: block; height: 40px; padding: 0; border: 0; border-radius: 0; background: none; }
+.is-single .bottom-tab { width: 100%; height: 40px; justify-content: flex-start; gap: 8px; padding: 0 12px; color: var(--fg-2); background: var(--sunken); border-radius: var(--r3); box-shadow: none; }
 .is-single .bottom-tab:hover { background: var(--sunken-focus); color: var(--fg); }
 .is-single .bottom-tab.selected { color: var(--fg); }
-.is-single .bottom-tab > .ico { color: var(--a); }
-.parameter-preview { display: flex; align-items: center; gap: 8px; min-width: 0; margin-left: auto; font-size: var(--fz-2xs); font-weight: 400; color: var(--fg-3); }
+.is-single .bottom-tab > .ico { --ico: var(--ico-md); color: var(--a); }
+.parameter-preview { display: flex; align-items: center; gap: 8px; min-width: 0; margin-left: auto; font-size: var(--fz-xs); font-weight: var(--fw-medium); color: var(--fg-3); }
 .parameter-sampler { overflow: hidden; text-overflow: ellipsis; }
 .parameter-steps { display: flex; align-items: center; gap: 4px; flex: none; }
 .parameter-steps::before { content: ""; width: 2px; height: 2px; margin-right: 4px; border-radius: 50%; background: var(--fg-4); }
-.parameter-steps b { font-family: var(--mono); font-weight: 400; color: var(--fg-2); }
+.parameter-steps b { font-family: var(--mono); font-weight: var(--fw-medium); color: var(--fg-2); }
 .is-single .bottom-tab > .single-chevron { --ico: var(--ico-xs); margin-left: 4px; transform: rotate(90deg); color: var(--fg-3); transition: transform 160ms var(--e); }
 .is-single .bottom-tab[aria-expanded="true"] > .single-chevron { transform: rotate(-90deg); }
 .drawer-shell { display: block; height: 0; overflow: clip; }

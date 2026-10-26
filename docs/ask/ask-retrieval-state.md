@@ -19,6 +19,7 @@
 - 删除 `image.prompt_sections`，不换名输出 `segments` 或另一份全文切片。
 - 活动画板始终 `image.form.text_included=true`，直接包含完整 prompt/negative 和每角色 id/on/prompt/negative/position；其他画板只给目录。无锚点时 `image.current` 仅含 ID，history 仅 mode/count/latest_id，favorites 仅 count，不预载历史文本、差异或聚类。显式历史／收藏锚点保留模式 A；附件或 CHAT ID 不隐式展开 IMAGE 历史。
 - 根层 `base_hash` 覆盖源画板 ID、完整生成表单与 CHAT composer；不另加 form 内 hash。草稿继续绑定发送时的源板与快照。
+- 根层 `image_input` 包含本轮冻结的图片输入许可 `enabled` 和模式 `on_demand`／`metadata_only`。仅元数据模式明确视觉工具与资料图片读取不可用；`get_state({scope:"latest"})` 仍保留本轮限制，不随全局开关变化。该字段不进入 `base_hash`，不改变静态工具定义。
 - 根层 `refs_index` 只包含挂载资料的可用性、文件相对路径／大小和截断信息；不含正文或图片，不进入画板 `base_hash`。`read_ref({path, offset?})` 在本轮冻结目录清单内按需读取，完整相对路径用于同名消歧，文本按 `next_offset` 续读。同轮固定首次读取版本，后续轮次可重新读取；具体预算和生命周期见[共享资料](bridge.md#共享资料选择附件与按需读取)。
 - 每个工作区都附 `chat_model`：目录就绪时为当前 CHAT 模型的显示名、`max_images`、可写尺寸项 `writable`（`size`／`aspect_ratio`／`image_size` 中模型声明者的当前值与可选值）与只读项 `read_only`（`quality`）；未就绪为 `{ready:false}`。不含连接、上游模型 ID 或其他设置，不进入 `base_hash`；草稿本地另存模型 ID，用于发现模型已切换。`get_chat_context` 同样返回 `chat_model`，并附 `available_models` 名称列表与各轮版本的图片 ID。
 - `characters` 已接通真实角色组，`vibes` 仍为空预留；六维是模型理解方式，不新增六类 JSON 字段。

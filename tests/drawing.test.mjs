@@ -14,7 +14,7 @@ import {
   imageFileName,
 } from "../src/domain/drawing.ts";
 import { MODELS } from "../src/domain/models.ts";
-import { readImageParams } from "../src/native/image-meta.ts";
+import { readImageParams, stripPngMetadata } from "../src/native/image-meta.ts";
 import { convertToNaiPrompt } from "../src/native/prompt-converter.ts";
 import { imageDimensions } from "../src/native/image-dimensions.ts";
 import { decodeNativeImages } from "../src/native/native-images.ts";
@@ -222,6 +222,18 @@ test("metadata preserves NAI/WebUI meanings: compressed text, sampler map, seed 
   assert.equal(parsed.fields.cfg, undefined);
   assert.equal(parsed.fields.negative_prompt, "blurry");
   assert.equal(parsed.fields.seed, 0);
+});
+
+test("metadata stripping drops text, EXIF and time chunks byte-for-byte and leaves other formats untouched", async () => {
+  const signature = Uint8Array.from([137, 80, 78, 71, 13, 10, 26, 10]);
+  const chunk = (type, bytes) => { const out = new Uint8Array(bytes.length + 12); new DataView(out.buffer).setUint32(0, bytes.length); out.set(new TextEncoder().encode(type), 4); out.set(bytes, 8); return out; };
+  const kept = [signature, chunk("IHDR", new Uint8Array(13).fill(1)), chunk("sRGB", Uint8Array.of(0)), chunk("IDAT", Uint8Array.of(9, 8, 7)), chunk("IEND", new Uint8Array())];
+  const meta = ["tEXt", "zTXt", "iTXt", "eXIf", "tIME"].map(type => chunk(type, new TextEncoder().encode("Comment\0secret")));
+  const stripped = await stripPngMetadata(new Blob([kept[0], kept[1], meta[0], kept[2], meta[1], meta[2], kept[3], meta[3], meta[4], kept[4]]));
+  assert.equal(stripped.type, "image/png");
+  assert.deepEqual(new Uint8Array(await stripped.arrayBuffer()), new Uint8Array(await new Blob(kept).arrayBuffer()));
+  const jpeg = new Blob([Uint8Array.of(255, 216, 255, 0)], { type: "image/jpeg" });
+  assert.equal(await stripPngMetadata(jpeg), jpeg);
 });
 
 test("metadata: compressed international text, optional character data and malformed chunks retain their existing outcomes", async () => {

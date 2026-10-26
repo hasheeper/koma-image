@@ -68,6 +68,7 @@ onDeactivated(close);onBeforeUnmount(()=>{references.releaseThumbnails(thumbnail
           <i v-if="kind==='vibe' && references.pending(item,view.form.model)" class="pending" aria-hidden="true"></i>
         </button>
         <button type="button" class="add-thumb" :disabled="working || refs.length>=16" aria-label="添加参考图片" title="添加图片" @click="upload?.click()"><AppIcon name="i-plus" /></button>
+        <p v-if="!refs.length" class="reference-empty"><b>{{working?'正在读取图片…':'添加参考图片'}}</b><span>{{kind==='vibe'?'借用整体风格与氛围':'参考角色或画风'}}</span></p>
       </div>
       <div class="reference-image-actions">
         <button ref="more" type="button" class="ibtn" :popovertarget="`reference-more-${kind}`" aria-label="更多参考操作" title="更多"><AppIcon name="i-more" /></button>
@@ -78,18 +79,17 @@ onDeactivated(close);onBeforeUnmount(()=>{references.releaseThumbnails(thumbnail
       <div v-if="kind==='precise'" class="fld"><div class="fld-top"><label for="reference-type">参考类型</label></div><select id="reference-type" :value="current.type" @change="edit({type:($event.target as HTMLSelectElement).value as NaiReference['type']})"><option value="character">角色</option><option value="style">风格</option><option value="character&style">角色＋风格</option></select></div>
       <label v-for="control in [{key:'strength' as const,label:'参考强度'},{key:kind==='vibe'?'information' as const:'fidelity' as const,label:kind==='vibe'?'信息提取量':'保真度'}]" :key="control.key" class="scrub scrub-sm" :style="{'--p':`${current[control.key]*100}%`}"><span>{{control.label}}</span><output>{{current[control.key]}}</output><input type="range" min="0" max="1" step=".05" :value="current[control.key]" :aria-label="control.label" :disabled="control.key==='information' && !references.original(current.assetId)" :title="control.key==='information' && !references.original(current.assetId)?'此文件仅包含编码，调整信息提取量需要原图':undefined" @input="slider(control.key,$event)" /></label>
     </div>
-    <div v-else class="editor-empty">{{working?'正在读取图片…':'添加一张参考图片'}}</div>
-    <div :id="`reference-more-${kind}`" ref="menu" popover="auto" class="switch-menu reference-menu" role="menu" aria-label="参考操作" @beforetoggle="position" @keydown="menuKey">
-      <button type="button" role="menuitem" @click="close();importer?.click()"><AppIcon name="i-upload" />导入参考</button>
-      <button type="button" role="menuitem" :disabled="!refs.length" @click="exportGroup"><AppIcon name="i-download" />导出参考</button>
-      <button v-if="kind==='vibe'" type="button" role="menuitemcheckbox" :aria-checked="view.form.naiReferences.normalize" @click="drawing.editReferences({...settings(),normalize:!view.form.naiReferences.normalize});close()"><AppIcon name="i-parameters" />归一化强度<AppIcon v-if="view.form.naiReferences.normalize" class="normalize-check" name="i-check" /></button>
-      <hr /><button type="button" role="menuitem" :disabled="!refs.length" @click="clear"><AppIcon name="i-trash" />清空本组</button>
+    <div :id="`reference-more-${kind}`" ref="menu" popover="auto" class="menu reference-menu" role="menu" aria-label="参考操作" @beforetoggle="position" @keydown="menuKey">
+      <button class="menu-item" type="button" role="menuitem" @click="close();importer?.click()"><AppIcon name="i-upload" />导入参考</button>
+      <button class="menu-item" type="button" role="menuitem" :disabled="!refs.length" @click="exportGroup"><AppIcon name="i-download" />导出参考</button>
+      <button v-if="kind==='vibe'" class="menu-item" type="button" role="menuitemcheckbox" :aria-checked="view.form.naiReferences.normalize" @click="drawing.editReferences({...settings(),normalize:!view.form.naiReferences.normalize});close()"><AppIcon name="i-parameters" />归一化强度<AppIcon class="menu-check" name="i-check" /></button>
+      <hr /><button class="menu-item danger" type="button" role="menuitem" :disabled="!refs.length" @click="clear"><AppIcon name="i-trash" />清空本组</button>
     </div>
   </div>
 </template>
 <style scoped>
 .bottom-reference-body { padding: 0 0 12px; }
-.reference-filmstrip { display: flex; align-items: center; gap: 12px; padding: 4px 0 14px; }
+.reference-filmstrip { display: flex; align-items: center; gap: 12px; padding-top: 4px; }
 .editor-thumbs { display: flex; align-items: center; flex: 1; min-width: 0; overflow-x: auto; scrollbar-width: thin; padding: 2px; gap: 8px; }
 .reference-thumb, .add-thumb { display: grid; place-items: center; position: relative; width: 64px; height: 80px; flex: none; border-radius: var(--r2); overflow: hidden; background: var(--sunken); }
 .reference-thumb > img { width: 100%; height: 100%; object-fit: cover; }
@@ -104,12 +104,11 @@ onDeactivated(close);onBeforeUnmount(()=>{references.releaseThumbnails(thumbnail
 .reference-image-actions .ico { --ico: var(--ico-sm); }
 .image-enable[aria-pressed="true"] { color: var(--fg-2); }
 .image-enable[aria-pressed="false"] { color: var(--fg-3); }
-.scrubs { gap: 8px; }
-.editor-empty { padding: 22px 0; font-size: var(--fz-2xs); text-align: center; color: var(--fg-3); }
-.reference-menu { position: fixed; inset: auto; padding: 6px; border-radius: 12px; width: 188px; }
-.reference-menu > button { display: flex; align-items: center; gap: 8px; min-height: 36px; padding: 0 10px; border-radius: var(--r2); text-align: left; font-size: var(--fz-xs); color: var(--fg-2); }
-.reference-menu > button:is(:hover,:focus-visible) { background: var(--hover); color: var(--fg); }
-.reference-menu > button:disabled { opacity: .4; }
-.normalize-check { margin-left: auto; color: var(--a); }
+.scrubs { gap: 8px; margin-top: 14px; }
+/* The empty strip explains itself beside the add tile instead of adding a row below. */
+.reference-empty { display: grid; gap: 3px; min-width: 0; margin: 0 0 0 6px; }
+.reference-empty b { font-size: var(--fz-xs); font-weight: var(--fw-medium); color: var(--fg-2); }
+.reference-empty span { font-size: var(--fz-2xs); color: var(--fg-3); }
+.reference-menu { width: 188px; }
 .scrub:has(input:disabled) { opacity: .45; }
 </style>

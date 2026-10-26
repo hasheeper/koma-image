@@ -3,7 +3,7 @@ import { computed, ref, onBeforeUnmount } from "vue";
 import AppIcon from "./AppIcon.vue";
 import ModelIcon from "./ModelIcon.vue";
 import { useServices } from "../app/services";
-import { quotaGauge, meterNumber, creditBalance, novelaiUsage } from "../domain/quota";
+import { quotaGauge, meterNumber, creditBalance, novelaiUsage, novelaiTier } from "../domain/quota";
 import type { QuotaStatus } from "../domain/quota";
 import type { CatalogModel } from "../domain/catalog";
 import { object } from "../domain/value";
@@ -33,7 +33,9 @@ const gauge = computed(() =>
 const profile = computed(() => profileFor(props.model?.profileId || STANDARD_PROFILE_ID));
 const standard = computed(() => !profile.value.protocol || profile.value.protocol === "standard");
 const balanceLabel = computed(() => profile.value.protocol === "novelai" ? "Anlas" : "费用未知");
-const v5 = computed(() => profile.value.protocol === "novelai" && props.model?.id.startsWith("nai-diffusion-5"));
+const nai = computed(() => profile.value.protocol === "novelai");
+const v5 = computed(() => nai.value && props.model?.id.startsWith("nai-diffusion-5"));
+const tier = computed(() => novelaiTier(props.quota?.media.subscription));
 const usage = computed(() => novelaiUsage(props.quota?.media.subscription));
 const usageValue = computed(() => {
   const value = usage.value;
@@ -81,15 +83,23 @@ const usageTip = computed(() => `${source.value} · V5 额度：${usageValue.val
       <span class="w-v"><b>{{ usageValue }}</b><small v-if="usage?.estimatedImages != null" class="w-estimate">约 {{ meterNumber(usage.estimatedImages) }} 张</small></span>
       <span class="w-k sr-only">V5 额度</span>
     </div>
-    <span v-if="standard || v5" class="w-sep" aria-hidden="true"></span>
+    <div
+      v-else-if="nai"
+      class="w-seg w-tier"
+      :data-level="tier ? 'ok' : 'unknown'"
+      :data-tip="`${source} · NovelAI 订阅：${tier ?? '未知'}。此型号不使用 V5 额度，费用以服务端计费为准`"
+    >
+      <ModelIcon class="w-ico" family="novelai" /><span class="w-v"><b>{{ tier ?? "—" }}</b></span><span class="w-k sr-only">NovelAI 订阅</span>
+    </div>
+    <span v-if="standard || nai" class="w-sep" aria-hidden="true"></span>
     <div
       class="w-seg w-credit"
       :data-level="credit.level"
       :data-tip="`${source} · ` + (standard ? `媒体积分余额：${credit.text}，用于付费生图和图片放大` : profile.protocol === 'novelai' ? `Anlas 余额：${credit.text}；具体费用以服务端计费为准` : '接口不提供预报价与余额查询，费用以供应商计费为准')"
     >
-      <AppIcon v-if="standard || v5" class="w-ico" name="i-credit" /><ModelIcon v-else class="w-ico" :family="model?.family || model?.provider" /><span class="w-v"
+      <AppIcon v-if="standard || nai" class="w-ico" name="i-credit" /><ModelIcon v-else class="w-ico" :family="model?.family || model?.provider" /><span class="w-v"
         ><b>{{ standard || profile.protocol === 'novelai' ? credit.text : '—' }}</b></span
-      ><span class="w-k" :class="{ 'sr-only': standard || v5 }">{{ standard ? '媒体积分' : balanceLabel }}</span>
+      ><span class="w-k" :class="{ 'sr-only': standard || nai }">{{ standard ? '媒体积分' : balanceLabel }}</span>
     </div>
   </div>
 </template>

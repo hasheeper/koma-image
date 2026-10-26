@@ -11,8 +11,8 @@ const usage = computed(() => { const s = ask.conversationUsage.value; return `�
   <AskMenu id="askMoreMenu" label="ASK 选项" side="right">
     <template #trigger="{ open, toggle }"><button class="ibtn" type="button" aria-label="更多" title="更多" aria-haspopup="menu" :aria-expanded="open" aria-controls="askMoreMenu" @click="toggle"><AppIcon name="i-more" /></button></template>
     <template #default="{ close }">
-      <button class="ask-menu-item" type="button" role="menuitem" :disabled="!!ask.compaction.value.reason" :title="ask.compaction.value.reason || undefined" @click="close(true); ask.compactContext()"><AppIcon name="i-layers" /><span class="ask-menu-label">压缩上下文</span></button>
-      <button class="ask-menu-item" type="button" role="menuitem" :title="usage" @click="close(); emit('debug')"><AppIcon name="i-history" /><span class="ask-menu-label">调用调试</span></button>
+      <button class="menu-item" type="button" role="menuitem" :disabled="!!ask.compaction.value.reason" :title="ask.compaction.value.reason || undefined" @click="close(true); ask.compactContext()"><AppIcon name="i-layers" /><span class="menu-label">压缩上下文</span></button>
+      <button class="menu-item" type="button" role="menuitem" :title="usage" @click="close(); emit('debug')"><AppIcon name="i-history" /><span class="menu-label">调用调试</span></button>
     </template>
   </AskMenu>
 </template>

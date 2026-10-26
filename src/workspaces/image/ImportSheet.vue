@@ -73,7 +73,7 @@ const rows = computed(() => {
       shown = `${fields.width ?? "—"}×${fields.height ?? "—"}`;
       now = `${form.width}×${form.height}`;
     }
-    if (key === "naiMode") { shown = shown === "furry" ? "兽人" : "动漫"; now = now === "furry" ? "兽人" : "动漫"; }
+    if (key === "naiMode") { shown = shown === "furry" ? "Furry" : "Anime"; now = now === "furry" ? "Furry" : "Anime"; }
     if (key === "naiReferences") { shown = referenceLabel(fields[key]); now=referenceLabel(form.naiReferences); }
     if (key === "seed") {
       shown ||= "随机";

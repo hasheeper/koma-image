@@ -54,7 +54,8 @@ const rows = computed(() => {
 const menu = shallowRef<HTMLElement | null>(null),
   target = shallowRef<ConversationRecord | null>(null),
   renaming = ref(""),
-  name = ref("");
+  name = ref(""),
+  menuOpen = ref(false);
 let hold: ReturnType<typeof setTimeout> | undefined,
   origin = { x: 0, y: 0 },
   suppress = 0,
@@ -238,6 +239,7 @@ onBeforeUnmount(cancelHold);
           class="ibtn ibtn-xs conversation-more"
           :aria-label="`对话选项：${c.title}`"
           aria-haspopup="menu"
+          :aria-expanded="menuOpen && target?.id === c.id"
           @click="open(c, $event)"
         >
           <AppIcon name="i-more" />
@@ -250,21 +252,23 @@ onBeforeUnmount(cancelHold);
   <Teleport to="body"
     ><div
       ref="menu"
-      class="conv-menu"
+      class="menu conv-menu"
       popover="manual"
       role="menu"
       aria-label="对话选项"
+      @toggle="menuOpen = ($event as ToggleEvent).newState === 'open'"
       @keydown="menuKeys"
       @keydown.esc.stop.prevent="close(true)"
       @keydown.tab.prevent="close(true)"
     >
-      <button type="button" role="menuitem" @click="act('rename')">
+      <button class="menu-item" type="button" role="menuitem" @click="act('rename')">
         <AppIcon name="i-rename" /><span>重命名</span></button
-      ><button type="button" role="menuitem" @click="act('pin')">
+      ><button class="menu-item" type="button" role="menuitem" @click="act('pin')">
         <AppIcon name="i-pin" /><span>{{
           target?.pinned ? "取消置顶" : "置顶"
         }}</span></button
       ><button
+        class="menu-item"
         type="button"
         role="menuitem"
         :disabled="view.busy?.cId === target?.id"
@@ -274,9 +278,9 @@ onBeforeUnmount(cancelHold);
       </button>
       <hr role="separator" />
       <button
+        class="menu-item danger"
         type="button"
         role="menuitem"
-        class="danger"
         @click="act('delete')"
       >
         <AppIcon name="i-trash" /><span>删除</span>

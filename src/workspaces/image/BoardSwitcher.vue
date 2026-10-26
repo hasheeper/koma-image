@@ -34,7 +34,7 @@ function beforeToggle(event: ToggleEvent) {
   if (!open.value || !menu.value || !pill.value) return;
   const r = pill.value.getBoundingClientRect();
   fit(menu.value, r);
-  Object.assign(menu.value.style, { left: `${Math.max(8, r.left)}px`, top: `${r.bottom + 6}px` });
+  Object.assign(menu.value.style, { left: `${Math.max(8, r.left)}px`, top: `${r.bottom + 4}px` });
 }
 function toggle() {
   open.value = !!menu.value?.matches(":popover-open");
@@ -43,7 +43,7 @@ function toggle() {
   const r = pill.value.getBoundingClientRect(), el = menu.value;
   fit(el, r);
   el.style.left = `${Math.max(8, Math.min(r.left, innerWidth - el.offsetWidth - 8))}px`;
-  el.style.top = `${Math.max(8, Math.min(r.bottom + 6, innerHeight - el.offsetHeight - 8))}px`;
+  el.style.top = `${Math.max(8, Math.min(r.bottom + 4, innerHeight - el.offsetHeight - 8))}px`;
   window.addEventListener("resize", close); window.addEventListener("scroll", outsideScroll, true);
 }
 async function run(action: () => Promise<unknown>) { close(); try { await action(); } catch (e) { ui.toast(message(e), "err"); } }
@@ -103,7 +103,7 @@ onDeactivated(cleanup); onBeforeUnmount(cleanup);
       <AiNameButton class="bd-ai" kind="board" :id="current.id" />
       <button class="bd-new" type="button" title="新建空白画板" aria-label="新建空白画板" @click="run(() => drawing.createBoard(false))"><AppIcon name="i-plus" /></button>
     </div>
-    <div id="boardMenu" ref="menu" popover="auto" class="switch-menu bd-menu" role="menu" aria-label="画板" @beforetoggle="beforeToggle" @toggle="toggle" @keydown="keys">
+    <div id="boardMenu" ref="menu" popover="auto" class="menu bd-menu" role="menu" aria-label="画板" @beforetoggle="beforeToggle" @toggle="toggle" @keydown="keys">
       <div class="bd-list" role="group" aria-label="画板列表" @scroll="listScrolled">
         <div v-for="board in view.boards" :key="board.id" class="bd-row" :data-selected="board.id === view.activeBoardId" :data-board-id="board.id">
           <form v-if="renaming === board.id" class="bd-rename" @submit.prevent="saveName">
@@ -116,16 +116,16 @@ onDeactivated(cleanup); onBeforeUnmount(cleanup);
               <i class="bd-dot" :style="{ '--c': board.color }"></i><span class="bd-menu-name" :title="board.name">{{ board.name }}</span><span class="bd-tags"><span>{{ modelTag(board.form.model) }}</span><span v-if="board.form.characters.length">{{ board.form.characters.length }} 角色</span></span><AppIcon v-if="board.id === view.activeBoardId" name="i-check" class="bd-check" />
             </button>
             <button class="bd-more" type="button" :popovertarget="`boardActions-${board.id}`" :aria-label="`管理 ${board.name}`" title="管理画板" aria-haspopup="menu" :aria-expanded="actions === board.id"><AppIcon name="i-more" /></button>
-            <div :id="`boardActions-${board.id}`" popover="auto" class="switch-menu bd-actions" role="menu" :aria-label="`管理 ${board.name}`" @beforetoggle="actionBefore($event, board.id)" @toggle="actionToggle" @keydown.stop="actionKeys">
-              <button role="menuitem" type="button" @click="rename(board.id)"><AppIcon name="i-rename" />重命名</button>
-              <button role="menuitem" type="button" class="bd-delete" :disabled="view.boards.length === 1" @click="remove(board.id)"><AppIcon name="i-trash" />删除画板</button>
+            <div :id="`boardActions-${board.id}`" popover="auto" class="menu bd-actions" role="menu" :aria-label="`管理 ${board.name}`" @beforetoggle="actionBefore($event, board.id)" @toggle="actionToggle" @keydown.stop="actionKeys">
+              <button class="menu-item" role="menuitem" type="button" @click="rename(board.id)"><AppIcon name="i-rename" />重命名</button>
+              <button class="menu-item danger" role="menuitem" type="button" :disabled="view.boards.length === 1" @click="remove(board.id)"><AppIcon name="i-trash" />删除画板</button>
             </div>
           </template>
         </div>
       </div>
       <div class="bd-footer">
-        <button role="menuitem" type="button" @click="run(() => drawing.createBoard(false))"><AppIcon name="i-plus" />新建空白</button>
-        <button role="menuitem" type="button" @click="run(() => drawing.createBoard(true))"><AppIcon name="i-copy" />复制当前</button>
+        <button class="menu-item" role="menuitem" type="button" @click="run(() => drawing.createBoard(false))"><AppIcon name="i-plus" />新建空白</button>
+        <button class="menu-item" role="menuitem" type="button" @click="run(() => drawing.createBoard(true))"><AppIcon name="i-copy" />复制当前</button>
       </div>
     </div>
   </div>
@@ -150,46 +150,44 @@ onDeactivated(cleanup); onBeforeUnmount(cleanup);
 .bd[data-open="true"] .bd-pill { border-color: var(--a-line); box-shadow: var(--sh-lip), 0 0 0 3px color-mix(in srgb, var(--a) 10%, transparent); }
 .bd[data-open="true"] .bd-switch { background: color-mix(in srgb, var(--a) 10%, var(--raised)); }
 .bd[data-open="true"] .bd-caret { color: var(--a); transform: rotate(-90deg); }
-.bd-menu { position: fixed; inset: auto; width: max-content; max-height: min(70dvh, 540px); padding: 6px; overflow: hidden; border-radius: 12px; }
-.bd-menu:popover-open { display: flex; flex-direction: column; gap: 0; }
-.bd-list { min-height: 0; overflow: auto; overscroll-behavior: contain; }
-/* ✓ and ⋯ share one end slot: ⋯ takes the check's place on hover or focus. */
-.bd-row { --end: 20px; position: relative; display: flex; align-items: center; min-width: 0; border-radius: 8px; transition: background var(--t1) var(--e); }
-.bd-row + .bd-row { margin-top: 2px; }
+/* The board menu is the shared menu with a scrolling list and a footer; its
+   rows carry the board dot, name and chips, with ✓ and ⋯ sharing one end slot. */
+.bd-menu { width: max-content; max-height: min(70dvh, 540px); overflow: hidden; }
+.bd-menu:popover-open { gap: 0; }
+.bd-list { display: flex; flex-direction: column; gap: 1px; min-height: 0; overflow: auto; overscroll-behavior: contain; }
+/* ⋯ takes the check's place on hover or focus. */
+.bd-row { position: relative; display: flex; flex: none; align-items: center; min-width: 0; border-radius: 8px; transition: background var(--t1) var(--e); }
 .bd-row:is(:hover, :focus-within) { background: var(--hover); }
-.bd-item { display: flex; flex: 1; align-items: center; gap: 8px; min-width: 0; height: 36px; padding: 0 40px 0 12px; color: var(--fg-2); font-size: var(--fz-sm); text-align: left; border-radius: inherit; }
+.bd-item { display: flex; flex: 1; align-items: center; gap: 8px; min-width: 0; min-height: 32px; padding: 0 36px 0 8px; color: var(--fg-2); font-size: var(--fz-sm); text-align: left; border-radius: inherit; }
 .bd-row:is(:hover, :focus-within) .bd-item, .bd-item[aria-checked="true"] { color: var(--fg); }
+.bd-item:focus-visible { outline: none; box-shadow: inset 0 0 0 1px var(--line-2); }
 .bd-item .bd-dot { margin-right: 2px; }
 .bd-menu-name { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .bd-item[aria-checked="true"] .bd-menu-name { font-weight: var(--fw-medium); }
 .bd-tags { display: flex; flex: none; gap: 4px; }
 .bd-tags span { display: inline-flex; align-items: center; height: 18px; padding: 0 6px; color: var(--fg-3); font-size: var(--fz-2xs); white-space: nowrap; background: color-mix(in srgb, var(--fg) 6%, transparent); border-radius: 5px; }
-.bd-check { position: absolute; top: 50%; right: calc(var(--end) - 7px); --ico: var(--ico-sm); color: var(--a); translate: 0 -50%; transition: opacity var(--t1) var(--e); }
-.bd-more { position: absolute; top: 50%; right: 6px; display: grid; place-items: center; width: 28px; height: 28px; color: var(--fg-3); border-radius: 6px; opacity: 0; translate: 0 -50%; transition: opacity var(--t1) var(--e), background var(--t1) var(--e), color var(--t1) var(--e); }
-.bd-more .ico { --ico: var(--ico-md); }
+.bd-check { position: absolute; top: 50%; right: 8px; --ico: var(--ico-sm); color: var(--a); translate: 0 -50%; transition: opacity var(--t1) var(--e); }
+.bd-more { position: absolute; top: 50%; right: 2px; display: grid; place-items: center; width: 28px; height: 28px; color: var(--fg-3); border-radius: 6px; opacity: 0; translate: 0 -50%; transition: opacity var(--t1) var(--e), background var(--t1) var(--e), color var(--t1) var(--e); }
+.bd-more .ico { --ico: var(--ico-sm); }
 .bd-row:is(:hover, :focus-within) .bd-more { opacity: 1; }
 .bd-row:is(:hover, :focus-within) .bd-check { opacity: 0; }
 .bd-more:is(:hover, [aria-expanded="true"]) { color: var(--fg); background: color-mix(in srgb, var(--fg) 6%, var(--hover)); }
-.bd-actions { position: fixed; inset: auto; width: 144px; min-width: 0; padding: 4px; border-radius: 9px; }
-.bd-actions button { display: flex; align-items: center; gap: 8px; height: 32px; padding: 0 9px; color: var(--fg-2); font-size: var(--fz-sm); text-align: left; border-radius: 5px; }
-.bd-actions .ico, .bd-footer .ico, .bd-rename .ico { flex: none; --ico: var(--ico-sm); }
-.bd-actions button:hover:not(:disabled) { color: var(--fg); background: var(--hover); }
-.bd-actions .bd-delete:hover:not(:disabled) { color: var(--err); }
-.bd-actions button:disabled { opacity: 0.35; cursor: default; }
-.bd-footer { display: grid; grid-template-columns: 1fr 1fr; gap: 4px; flex: none; margin: 5px -6px -6px; padding: 4px 6px 6px; border-top: 1px solid var(--line); }
-.bd-footer button { display: flex; align-items: center; justify-content: center; gap: 7px; height: 34px; color: var(--fg-3); font-size: var(--fz-xs); border-radius: 8px; transition: background var(--t1) var(--e), color var(--t1) var(--e); }
-.bd-footer button:hover { color: var(--fg); background: var(--hover); }
-.bd-rename { display: flex; align-items: center; gap: 8px; width: 100%; min-height: 36px; padding: 3px 4px 3px 12px; }
+.bd-more:focus-visible { outline: none; box-shadow: inset 0 0 0 1px var(--line-2); }
+.bd-actions { width: 144px; }
+.bd-footer { display: grid; grid-template-columns: 1fr 1fr; gap: 4px; flex: none; margin: 4px -4px -4px; padding: 4px; border-top: 1px solid var(--line-2); }
+.bd-footer .menu-item { justify-content: center; color: var(--fg-3); font-size: var(--fz-xs); }
+.bd-footer .menu-item:is(:hover, :focus-visible) { color: var(--fg); }
+.bd-rename { display: flex; align-items: center; gap: 8px; width: 100%; min-height: 32px; padding: 2px 2px 2px 8px; }
+.bd-rename .ico { flex: none; --ico: var(--ico-sm); }
 .bd-rename input { min-width: 0; width: 100%; height: 28px; padding: 3px 6px; font-size: var(--fz-sm); }
 .bd-rename button { display: grid; place-items: center; flex: none; width: 28px; height: 28px; color: var(--a); border-radius: 6px; }
 .bd-rename button:hover { background: var(--hover); }
 @media (pointer: coarse), (max-width: 860px) {
   .bd-pill { height: 44px; } .bd-new { width: 46px; }
-  .bd-item, .bd-footer button, .bd-actions button, .bd-rename { min-height: 44px; }
-  .bd-row { --end: 24px; }
-  .bd-item { padding-right: 48px; }
-  .bd-more { right: 4px; width: 40px; height: 44px; }
-  .bd-rename button { width: 40px; height: 38px; } .bd-rename input { height: 34px; }
+  .bd-item, .bd-rename { min-height: 44px; }
+  .bd-item { padding-right: 46px; font-size: var(--fz-md); }
+  .bd-more { width: 40px; height: 40px; }
+  .bd-rename button { width: 40px; height: 40px; } .bd-rename input { height: 34px; }
 }
 @container (max-width: 300px) { .bd-switch { gap: 8px; padding-left: 12px; } }
 /* Touch has no hover: ⋯ stays out and the current row keeps a quiet surface. */

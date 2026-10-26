@@ -984,7 +984,7 @@ test("ASK drawer: Esc closes the popover, then stops the turn, then the drawer; 
     const failed = drawer(page).locator('.ask-turn[data-status="failed"]');
     await failed.waitFor();
     assert.match(await failed.locator(".ask-fail-text").textContent(), /content_filter/);
-    assert.deepEqual((await failed.locator(".ask-fail-actions button").allTextContents()).map((t) => t.trim()), ["仅发元数据重试", "设置"]);
+    assert.deepEqual((await failed.locator(".ask-fail-actions button").allTextContents()).map((t) => t.trim()), ["重试", "仅发元数据重试", "设置"]);
     assert.match(await failed.locator(".ask-meta").textContent(), /开启自由创作后启用词表混淆/);
     await drawer(page).screenshot({ path: ".local/ask/drawer-failed.png" });
     const before = calls.length;
@@ -1008,7 +1008,7 @@ test("ASK drawer: Esc closes the popover, then stops the turn, then the drawer; 
     await page.locator("#askPrompt").fill("nsfw 还是被拦截");
     await page.locator("#askPrompt").press("Enter");
     await failed.waitFor();
-    assert.deepEqual((await failed.locator(".ask-fail-actions button").allTextContents()).map((t) => t.trim()), ["仅发元数据重试", "设置"], 'empty vocabulary does not offer an ineffective codec retry');
+    assert.deepEqual((await failed.locator(".ask-fail-actions button").allTextContents()).map((t) => t.trim()), ["重试", "仅发元数据重试", "设置"], 'empty vocabulary does not offer an ineffective codec retry');
     const emptyCalls = calls.length;
     await page.evaluate(() => {
       const failed = ask.entries.value.find(e => e.type === 'turn' && e.turn.status === 'failed');
@@ -1021,7 +1021,7 @@ test("ASK drawer: Esc closes the popover, then stops the turn, then the drawer; 
       window.dispatchEvent(new StorageEvent("storage", { key: "koma.ask.v1" }));
     });
     await failed.getByRole("button", { name: "启用词表混淆并重试" }).waitFor();
-    assert.deepEqual((await failed.locator(".ask-fail-actions button").allTextContents()).map((t) => t.trim()), ["启用词表混淆并重试", "仅发元数据重试"]);
+    assert.deepEqual((await failed.locator(".ask-fail-actions button").allTextContents()).map((t) => t.trim()), ["重试", "启用词表混淆并重试", "仅发元数据重试"]);
     llm.push({ body: openai(text("@t_001 本身没问题。"), end()) });
     await failed.getByRole("button", { name: "启用词表混淆并重试" }).click();
     await drawer(page).locator('.ask-turn[data-status="done"]').nth(1).waitFor();
@@ -1228,6 +1228,97 @@ test('ASK A1 S1: metadata, full image, padded crop, stable snapshot, privacy ret
     await drawer(page).locator('.ask-turn[data-status="done"]').nth(1).waitFor();
     assert.equal(imageBlocks(calls.at(-1).body).length,0);
     assert.match(JSON.stringify(calls.at(-1).body),/本轮仅发送元数据/);
+    assert.deepEqual(generation(requests),[]);assert.deepEqual(errors,[]);
+  }finally{await context.close();}
+});
+
+for (const connection of ['chat', 'claude']) test(`ASK image retry modes: ordinary retry, visible privacy scope and explicit image recovery (${connection})`, async () => {
+  const {page,context,requests,errors,llm,calls}=await open('/#/image',{ready:'.switcher',ask:askSettings({connectionId:connection})});
+  const refused=()=>({status:400,type:'application/json',body:JSON.stringify({error:{message:'content_filter blocked'}})});
+  const unavailable=()=>({status:503,type:'application/json',body:JSON.stringify({error:{message:'temporarily unavailable'}})});
+  const reply=(name,input)=>({body:scripted(connection,name,input)});
+  const pixelCount=body=>{
+    let count=0;
+    function walk(value){
+      if(!value||typeof value!=='object')return;
+      if(value.type==='image'||value.type==='image_url')count++;
+      for(const child of Object.values(value))if(Array.isArray(child))child.forEach(walk);else walk(child);
+    }
+    walk(body.messages);return count;
+  };
+  const stateInputs=body=>{
+    const texts=[];
+    function walk(value){
+      if(typeof value==='string'){texts.push(value);return;}
+      if(value&&typeof value==='object')for(const child of Object.values(value))walk(child);
+    }
+    walk(body.messages);
+    return texts.flatMap(text=>[...text.matchAll(/<workspace_state>\s*([\s\S]*?)\s*<\/workspace_state>/g)].map(m=>JSON.parse(m[1]).image_input));
+  };
+  const submit=async question=>{await page.locator('#askPrompt').fill(question);await page.locator('#askPrompt').press('Enter');};
+  const idle=()=>page.waitForFunction(()=>!ask.running.value);
+  try {
+    await bind(page);await addScene(page);
+    await page.getByRole('button',{name:'Ask 这张图',exact:true}).click();
+    const failed=drawer(page).locator('.ask-turn[data-status="failed"]');
+    llm.push(refused());await submit('正常看图 #h1');await failed.waitFor();
+    assert.equal(await failed.getByRole('button',{name:'重试',exact:true}).count(),1,'refusal still offers an ordinary retry');
+    const first=calls[0].body;
+    assert.equal(stateInputs(first).at(-1).enabled,true);
+    llm.push(reply('view_image',{id:'#h1',spec:'look'}),reply());
+    await failed.getByRole('button',{name:'重试',exact:true}).click();await idle();
+    assert.equal(pixelCount(calls.at(-1).body),1,'ordinary retry can still send the requested image');
+    assert.equal(await drawer(page).locator('.ask-image-mode').count(),0);
+
+    // An explicit privacy retry strips previous pixels without changing the global switch.
+    llm.push(refused());await submit('仅元数据测试');await failed.waitFor();
+    assert.ok(pixelCount(calls.at(-1).body)>0,'the first attempt includes hot history pixels');
+    const privacyStart=calls.length;
+    llm.push(reply('get_state',{scope:'latest'}),reply('view_image',{id:'#h1',spec:'look'}),reply());
+    await failed.getByRole('button',{name:'仅发元数据重试',exact:true}).click();await idle();
+    assert.equal(await page.evaluate(()=>ask.settings.value.images),true);
+    assert.equal(await drawer(page).locator('.ask-image-mode').textContent(),'仅元数据');
+    for(const call of calls.slice(privacyStart)){
+      assert.equal(pixelCount(call.body),0);
+      const current=stateInputs(call.body).at(-1);
+      assert.ok(current.enabled===false&&current.mode==='metadata_only','initial/latest state report the frozen image restriction');
+      assert.deepEqual(call.body.tools,first.tools,'privacy mode preserves the static tool prefix');
+    }
+    assert.match(calls.at(-1).raw,/本轮仅发送元数据/,'even a model ignoring the state cannot bypass privacy');
+
+    // A fresh question resumes normal image use; it does not inherit the prior restriction.
+    llm.push(reply('view_image',{id:'#h1',spec:'look'}),reply());await submit('新问题继续看 #h1');await idle();
+    assert.equal(stateInputs(calls.at(-1).body).at(-1).enabled,true);
+    assert.ok(pixelCount(calls.at(-1).body)>0);
+
+    // Repeated privacy retries stay private until the separately labelled image action.
+    llm.push(refused());await submit('恢复图片测试');await failed.waitFor();
+    llm.push(unavailable());await failed.getByRole('button',{name:'仅发元数据重试',exact:true}).click();await idle();
+    assert.equal(await failed.locator('.ask-image-mode').textContent(),'仅元数据');
+    assert.equal(pixelCount(calls.at(-1).body),0);
+    llm.push(unavailable());await failed.getByRole('button',{name:'重试',exact:true}).click();await idle();
+    assert.equal(pixelCount(calls.at(-1).body),0,'ordinary retry never silently re-enables a privacy-limited turn');
+    await page.evaluate(()=>ask.setImages(false));
+    assert.equal(await failed.getByRole('button',{name:'发送图片并重试',exact:true}).count(),0);
+    const before=calls.length;
+    await page.evaluate(()=>ask.retry(ask.entries.value.at(-1).id,'images'));
+    assert.equal(calls.length,before,'explicit image recovery still respects the global image switch');
+    await page.evaluate(()=>ask.setImages(true));
+    await failed.getByRole('button',{name:'发送图片并重试',exact:true}).waitFor();
+    for(const width of [320,390,768,1440]){
+      await page.setViewportSize({width,height:900});
+      const layout=await failed.locator('.ask-fail-actions').evaluate(el=>({width:el.clientWidth,scroll:el.scrollWidth}));
+      const flag=await failed.locator('.ask-image-mode').evaluate(el=>el.getBoundingClientRect().height);
+      if(connection==='chat'&&(width===390||width===1440))await drawer(page).screenshot({path:`.local/ask/a1/image-retry-${width}.png`});
+      assert.ok(layout.scroll<=layout.width+1,`retry controls fit at ${width}px: ${JSON.stringify(layout)}`);
+      assert.ok(flag>0);
+    }
+    llm.push(reply('view_image',{id:'#h1',spec:'look'}),reply());
+    await failed.getByRole('button',{name:'发送图片并重试',exact:true}).click();await idle();
+    assert.equal(await failed.count(),0);
+    assert.ok(pixelCount(calls.at(-1).body)>0);
+    assert.equal(stateInputs(calls.at(-1).body).at(-1).enabled,true);
+    assert.equal(await drawer(page).locator('.ask-turn').last().locator('.ask-image-mode').count(),0);
     assert.deepEqual(generation(requests),[]);assert.deepEqual(errors,[]);
   }finally{await context.close();}
 });

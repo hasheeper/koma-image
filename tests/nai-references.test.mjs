@@ -47,7 +47,7 @@ test('reference routing: keep complete payload, only declared official V4.5 sour
   assert.equal(supportsSourcePayload(model,payload),true);
   assert.equal(supportsSourcePayload({...model,profileId:'koma-standard-v1'},payload),false);
   assert.equal(supportsSourcePayload({...model,id:'nai-diffusion-5-full'},payload),false);
-  const quota=n=>normalizeQuota(novelaiProfile,{credits:{remaining:n},subscription:{active:true,tier:3}},null,false);
+  const quota=n=>normalizeQuota(novelaiProfile,{credits:{remaining:n},subscription:{active:true,tier:3}},null);
   assert.match(insufficientFunds(model,quota(9),null,payload),/Anlas/);
   assert.equal(insufficientFunds(model,quota(10),null,payload),null);
   assert.equal(insufficientFunds(model,quota(null),null,payload),null);

@@ -1,4 +1,5 @@
 import { decodeNativeImages } from "../native/native-images.ts";
+import { stripPngMetadata } from "../native/image-meta.ts";
 import { object } from "../domain/value.ts";
 import type { ImagePayload } from "../gateway/routes.ts";
 export async function decodeImage(blob: Blob) {
@@ -21,6 +22,7 @@ export async function consumeImage(
   native: boolean,
   signal: AbortSignal,
   payload: ImagePayload,
+  stripMetadata = false,
 ) {
   const type = response.headers.get("content-type") || "";
   const blobs: Blob[] = [];
@@ -75,19 +77,7 @@ export async function consumeImage(
       !(payload.width === 512 && payload.height === 256)
     )
       throw new Error("上游返回 Generation Failed 占位图");
-    if (native && payload.optimize) {
-      const bitmap = await createImageBitmap(blob);
-      try {
-        const canvas = new OffscreenCanvas(size.width, size.height);
-        canvas.getContext("2d")!.drawImage(bitmap, 0, 0);
-        blob = await canvas.convertToBlob({
-          type: "image/jpeg",
-          quality: 0.95,
-        });
-      } finally {
-        bitmap.close();
-      }
-    }
+    if (stripMetadata) blob = await stripPngMetadata(blob);
     result ??= { blob, size };
   }
   signal.throwIfAborted();

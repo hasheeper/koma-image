@@ -86,6 +86,8 @@ async function bind(page) {
 }
 
 async function chooseNai(page, id, value) {
+  // Mode and Effort are always-visible segments; the rest are menus.
+  if (id === "naiMode" || id === "effort") return page.locator(`#${id} label:has(input[value="${value}"])`).click();
   await page.locator(`#${id}`).click();
   await page.locator(`.nai-menu:popover-open [data-value="${value}"]`).click();
 }
@@ -357,8 +359,9 @@ test("NovelAI controls: compact presets, real Medium wire, remembered High param
       await page.screenshot({ path: `.local/native-protocols/nai-presets-${width}.png` });
       assert.ok(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth + 1));
       assert.ok(await page.locator(".prompt-options").evaluate(el => el.scrollWidth <= el.clientWidth + 1));
-      const row = await page.locator(".model-row").boundingBox(), effort = await page.locator("#effort").boundingBox();
-      assert.ok(effort.y < row.y + row.height && effort.x >= row.x);
+      // Mode and Effort sit side by side under the full-width model field.
+      const row = await page.locator(".model-row").boundingBox(), mode = await page.locator("#naiMode").boundingBox(), effort = await page.locator("#effort").boundingBox();
+      assert.ok(mode.y >= row.y + row.height && Math.abs(mode.y - effort.y) <= 1 && effort.x + effort.width <= row.x + row.width + 1);
     }
     await chooseNai(page, "model", "nai-diffusion-4-5-curated");
     assert.equal(await page.locator("#effort").count(), 0); assert.equal(await page.locator("#complexity").count(), 0);
@@ -657,24 +660,24 @@ test("NAI modes: compact model row, matched menus, keyboard, persistence and dat
     await page.waitForFunction(() => drawing.snapshot().model && drawing.snapshot().quota);
     assert.equal(await page.locator("#naiMode").getAttribute("data-value"), "furry");
     assert.equal(await page.locator("#effort").getAttribute("data-value"), "medium");
-    const mediumWidth = (await page.locator("#effort").boundingBox()).width;
     await chooseNai(page, "effort", "high");
-    assert.equal((await page.locator("#effort").boundingBox()).width, mediumWidth);
+    assert.equal(await page.locator("#model .choice-value").textContent(), "NAI Diffusion V5 Full");
     for (const width of [320, 390, 768, 1440]) {
       await page.setViewportSize({ width, height: 900 });
       await chooseNai(page, "effort", "medium");
-      assert.ok(await page.locator(".model-row .choice-value").evaluateAll(els => els.every(el => el.scrollWidth <= el.clientWidth + 1)));
+      assert.ok(await page.locator(".model-row .choice-value, .model-switches span").evaluateAll(els => els.length === 5 && els.every(el => el.scrollWidth <= el.clientWidth + 1)));
       await chooseNai(page, "effort", "high");
       await page.locator("#model").scrollIntoViewIfNeeded();
       await page.evaluate(() => { ui.notices.value.forEach(n => ui.dismissNotice(n.id)); document.activeElement?.blur(); });
       await page.mouse.move(0, 0);
       assert.ok(await page.locator(".model-row").evaluate(el => el.scrollWidth <= el.clientWidth + 1));
-      assert.ok(await page.locator(".model-row .choice-value").evaluateAll(els => els.every(el => el.scrollWidth <= el.clientWidth + 1)));
+      assert.ok(await page.locator(".model-row .choice-value, .model-switches span").evaluateAll(els => els.length === 5 && els.every(el => el.scrollWidth <= el.clientWidth + 1)));
       await page.screenshot({ path: `.local/native-protocols/nai-mode-layout-${width}.png` });
-      for (const id of ["model", "naiMode", "effort", "qualityPreset"]) {
+      for (const id of ["model", "qualityPreset"]) {
         await page.locator(`#${id}`).click();
         const menu = page.locator(".nai-menu:popover-open");
-        await menu.evaluate(() => new Promise(resolve => requestAnimationFrame(() => requestAnimationFrame(resolve))));
+        // Reduced motion still turns the menu's position writes into 0.01ms transitions; measure once they settle.
+        await menu.evaluate(el => new Promise(resolve => requestAnimationFrame(() => requestAnimationFrame(resolve))).then(() => Promise.all(el.getAnimations().map(a => a.finished))));
         const box = await menu.boundingBox();
         assert.ok(box.x >= 8 && box.x + box.width <= width - 7 && box.y >= 8 && box.y + box.height <= 892, JSON.stringify({ id, width, box, errors: t.errors, menu: await menu.evaluate(el => el.outerHTML.slice(0, 450)) }));
         assert.equal(await menu.locator('[aria-checked="true"]').evaluate(el => getComputedStyle(el).outlineStyle), "none");
@@ -683,9 +686,7 @@ test("NAI modes: compact model row, matched menus, keyboard, persistence and dat
         assert.equal(await menu.count(), 0);
       }
     }
-    await page.locator("#naiMode").focus(); await page.keyboard.press("ArrowDown");
-    assert.equal(await page.locator('.nai-menu:popover-open [data-value="furry"]').evaluate(el => el === document.activeElement), true);
-    await page.keyboard.press("Home"); await page.keyboard.press("Enter");
+    await page.locator('#naiMode input[value="furry"]').focus(); await page.keyboard.press("ArrowLeft");
     assert.equal(await page.locator("#naiMode").getAttribute("data-value"), "anime");
     await page.evaluate(() => document.activeElement?.blur());
     await page.mouse.move(700, 700);
@@ -694,13 +695,11 @@ test("NAI modes: compact model row, matched menus, keyboard, persistence and dat
     await page.mouse.move(700, 700);
     await page.screenshot({ path: ".local/native-protocols/nai-mode-final.png", clip: { x: 0, y: 60, width: 352, height: 740 } });
     await page.keyboard.press("Escape");
-    await page.locator("#naiMode").click();
+    await page.locator("#model").click();
     await page.locator("#tab-prompt").click(); assert.equal(await page.locator(".nai-menu:popover-open").count(), 0);
     await page.evaluate(() => drawing.patch({ prompt: "fur dataset, wolf" }));
     assert.equal(await page.locator("#naiMode").getAttribute("data-value"), "furry");
-    await page.locator("#naiMode").click();
-    assert.equal(await page.locator('.nai-menu:popover-open [data-value="anime"]').isDisabled(), true);
-    await page.keyboard.press("Escape");
+    assert.equal(await page.locator('#naiMode input[value="anime"]').isDisabled(), true);
     await page.evaluate(() => drawing.patch({ prompt: "wolf", tagSuggest: true }));
     await chooseNai(page, "naiMode", "furry");
     await page.locator("#prompt").fill("wol");

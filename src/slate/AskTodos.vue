@@ -32,12 +32,12 @@ function discuss(todo: Todo) { ask.setInput(`关于「${todo.title}」，`); doc
 </script>
 <template>
   <section v-if="slate" class="ask-todos" aria-label="会话待办">
-    <button class="todos-bar" type="button" :aria-expanded="expanded" aria-controls="askTodoDrawer" @click="expanded = !expanded"><AppIcon name="i-chevron" :class="{ expanded }" /><span>待办</span><small>{{ done }}/{{ slate.todos.length }}</small><span v-if="!expanded" class="todos-current">{{ current?.title || (slate.todos.length ? '全部完成' : '') }}</span></button>
+    <button class="todos-bar" type="button" :aria-expanded="expanded" aria-controls="askTodoDrawer" @click="expanded = !expanded"><AppIcon name="i-chevron" :class="{ expanded }" /><span>待办</span><span class="todos-meter" aria-hidden="true"><i :style="{ transform: `scaleX(${slate.todos.length ? done / slate.todos.length : 0})` }"></i></span><small>{{ done }}/{{ slate.todos.length }}</small><span v-if="!expanded" class="todos-current" :data-status="current?.status">{{ current?.title || (slate.todos.length ? '全部完成' : '') }}</span></button>
     <Transition name="todo-drawer"><div v-if="expanded" id="askTodoDrawer" class="todo-drawer"><div class="todo-drawer-inner"><div class="todos-list">
       <div v-for="todo in rows" :key="todo.id" class="todo-row" :class="todo.status">
-        <button class="todo-status" type="button" role="checkbox" :aria-checked="todo.status === 'done' ? 'true' : todo.status === 'in_progress' ? 'mixed' : 'false'" :aria-label="`${todo.title} · ${statusNames[todo.status]}`" :title="todo.status === 'done' ? '重新打开任务' : '标记完成'" :disabled="frozen" @click="toggle(todo)"><AppIcon v-if="todo.status === 'done'" name="i-check" /><span v-else class="todo-circle"><i v-if="todo.status === 'in_progress'"></i></span></button>
+        <button class="todo-status" type="button" role="checkbox" :aria-checked="todo.status === 'done' ? 'true' : todo.status === 'in_progress' ? 'mixed' : 'false'" :aria-label="`${todo.title} · ${statusNames[todo.status]}`" :title="todo.status === 'done' ? '重新打开任务' : '标记完成'" :disabled="frozen" @click="toggle(todo)"><span class="todo-circle"><AppIcon v-if="todo.status === 'done'" name="i-check" /><i v-else-if="todo.status === 'in_progress'"></i></span></button>
         <button class="todo-title" type="button" :title="todo.title" @click="discuss(todo)">{{ todo.title }}</button>
-        <button class="todo-deliverable" :class="{ bound: todo.binding }" type="button" :aria-label="`${todo.title} · ${todo.binding ? '查看成果' : '交付成果'}`" :title="todo.binding ? '查看成果' : '交付成果'" :disabled="frozen" @click="delivery = { todo, complete: false }"><AppIcon name="i-image" /></button>
+        <button class="todo-deliverable" :class="{ bound: todo.binding, required: todo.image_required }" type="button" :aria-label="`${todo.title} · ${todo.binding ? '查看成果' : '交付成果'}`" :title="todo.binding ? '查看成果' : '交付成果'" :disabled="frozen" @click="delivery = { todo, complete: false }"><AppIcon name="i-image" /></button>
       </div>
       <button v-if="folding" class="todos-finished" type="button" @click="finished = !finished">{{ finished ? '收起已完成' : `显示已完成的 ${completed.length} 项` }}</button>
       <p v-if="!rows.length" class="todos-empty">暂无待办</p>
@@ -47,32 +47,47 @@ function discuss(todo: Todo) { ask.setInput(`关于「${todo.title}」，`); doc
 </template>
 <style scoped>
 .ask-todos { flex: 0 1 auto; min-height: 0; margin-bottom: 8px; overflow: hidden; }
-.todos-bar { display: flex; align-items: center; gap: 7px; width: 100%; min-height: 28px; text-align: left; color: var(--fg-2); font-size: 12px; }
-.todos-bar > .ico { flex: none; --ico: var(--ico-xs); color: var(--fg-3); transition: transform var(--t2) var(--e); }
+/* The chevron is centred on the 20px status column so the bar, the glyphs and the titles share one grid. */
+.todos-bar { display: flex; align-items: center; gap: 7px; width: 100%; min-height: 28px; text-align: left; color: var(--fg-2); font-size: 12px; white-space: nowrap; }
+.todos-bar > .ico { flex: none; --ico: var(--ico-xs); margin-inline: calc((20px - var(--ico-xs)) / 2); color: var(--fg-3); transition: transform var(--t2) var(--e); }
 .todos-bar > .ico.expanded { transform: rotate(90deg); }
-.todos-bar small { color: var(--fg-3); font: 11px var(--mono); }
-.todos-current { min-width: 0; margin-left: 3px; overflow: hidden; color: var(--fg-3); text-overflow: ellipsis; white-space: nowrap; }
+.todos-meter { flex: none; width: 24px; height: 3px; overflow: hidden; background: var(--line-2); border-radius: 2px; }
+.todos-meter i { display: block; height: 100%; background: var(--a); border-radius: inherit; transform-origin: left; transition: transform var(--t2) var(--e); }
+.todos-bar small { margin-left: -2px; color: var(--fg-3); font: 11px var(--mono); }
+.todos-current { min-width: 0; margin-left: 5px; overflow: hidden; color: var(--fg-3); text-overflow: ellipsis; }
+.todos-current[data-status]::before { content: ''; display: inline-block; width: 5px; height: 5px; margin: 0 6px 1px 0; vertical-align: middle; border: 1px solid var(--fg-3); border-radius: 50%; }
+.todos-current[data-status="in_progress"]::before { background: var(--a); border-color: var(--a); }
 .todo-drawer { display: grid; grid-template-rows: 1fr; overflow: hidden; }
 .todo-drawer-inner { min-height: 0; overflow: hidden; }
-.todos-list { max-height: min(180px, 22dvh); overflow: auto; padding-bottom: 2px; overscroll-behavior: contain; scrollbar-width: thin; }
-.todo-row { display: flex; align-items: center; gap: 7px; min-height: 24px; padding-right: 3px; border-radius: var(--r1); }
+.todos-list { max-height: min(184px, 23dvh); overflow: auto; padding-bottom: 2px; overscroll-behavior: contain; scrollbar-width: thin; }
+.todo-row { display: flex; align-items: center; gap: 7px; min-height: 26px; padding-right: 2px; border-radius: var(--r2); }
 .todo-row:hover { background: var(--ask-hover, var(--hover)); }
-.todo-status { display: grid; flex: none; place-items: center; width: 20px; height: 24px; color: var(--fg-3); }
-.todo-status .ico, .todo-deliverable .ico { --ico: var(--ico-xs); }
-.todo-circle { display: grid; place-items: center; width: 12px; height: 12px; border: 1px solid var(--fg-3); border-radius: 50%; }
+.todo-row.in_progress { background: color-mix(in srgb, var(--a) 7%, transparent); }
+/* Every status is the same 12px circle; a hairline threads consecutive rows into one list. */
+.todo-status { position: relative; display: grid; flex: none; place-items: center; width: 20px; height: 26px; color: var(--fg-3); }
+.todo-row:has(+ .todo-row) .todo-status::after { content: ''; position: absolute; top: calc(50% + 9px); left: 50%; width: 1px; height: calc(100% - 18px); background: var(--line-2); transform: translateX(-50%); }
+.todo-circle { display: grid; place-items: center; width: 12px; height: 12px; border: 1px solid var(--fg-4); border-radius: 50%; transition: border-color var(--t1) var(--e); }
+.todo-status:not(:disabled):hover .todo-circle { border-color: var(--fg-2); }
 .in_progress .todo-circle { border-color: var(--a); }
 .todo-circle i { width: 4px; height: 4px; background: var(--a); border-radius: 50%; }
+.done .todo-circle { background: var(--line-2); border-color: transparent; }
+.todo-circle .ico { --ico: var(--ico-xs); color: var(--fg-3); transform: scale(.72); }
+.abandoned .todo-circle { border-style: dashed; }
 .todo-title { flex: 1; min-width: 0; overflow: hidden; color: var(--fg-2); font-size: 12px; line-height: 1.5; text-align: left; text-overflow: ellipsis; white-space: nowrap; }
 .in_progress .todo-title { color: var(--fg); }
-:is(.done, .abandoned) .todo-title { color: var(--fg-3); text-decoration: line-through; text-decoration-color: var(--line-2); }
-.abandoned .todo-circle { border-style: dashed; }
-.todo-deliverable { display: grid; flex: none; place-items: center; width: 24px; height: 24px; color: var(--fg-3); border-radius: var(--r1); }
+:is(.done, .abandoned) .todo-title { color: var(--fg-3); text-decoration: line-through; text-decoration-color: var(--fg-4); }
+/* A bound deliverable keeps the accent; an optional picture stays faint until the row is pointed at. */
+.todo-deliverable { display: grid; flex: none; place-items: center; width: 24px; height: 24px; color: var(--fg-4); border-radius: var(--r1); transition: color var(--t1) var(--e); }
+.todo-deliverable .ico { --ico: var(--ico-xs); }
+.todo-deliverable.required { color: var(--fg-3); }
+.todo-deliverable:not(.required, .bound) { opacity: .5; }
+.todo-row:hover .todo-deliverable { opacity: 1; }
 .todo-deliverable.bound { color: var(--a); }
 .todo-deliverable:hover { color: var(--fg); background: var(--ask-hover, var(--hover)); }
 .todos-finished { min-height: 24px; margin-left: 27px; color: var(--fg-3); font-size: 11px; }
 .todos-empty { padding: 4px 0 8px 27px; color: var(--fg-3); font-size: 12px; }
 .todo-drawer-enter-active, .todo-drawer-leave-active { transition: grid-template-rows var(--t2) var(--e); }
 .todo-drawer-enter-from, .todo-drawer-leave-to { grid-template-rows: 0fr; }
-@media (max-width: 480px) { .todo-row, .todo-status, .todo-deliverable { min-height: 26px; } }
-@media (prefers-reduced-motion: reduce) { .todo-drawer-enter-active, .todo-drawer-leave-active, .todos-bar > .ico { transition: none; } }
+@media (max-width: 480px) { .todo-row, .todo-status { min-height: 30px; } .todo-status { height: 30px; } .todo-deliverable { width: 28px; height: 28px; } }
+@media (prefers-reduced-motion: reduce) { .todo-drawer-enter-active, .todo-drawer-leave-active, .todos-bar > .ico, .todos-meter i { transition: none; } }
 </style>

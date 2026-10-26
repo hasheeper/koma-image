@@ -6,7 +6,7 @@ import { endpoint } from "../src/gateway/transport.ts";
 import { testConnection } from "../src/gateway/connection-test.ts";
 import { openaiImagesProfile as oai, geminiProfile as gemini, novelaiProfile as nai, NOVELAI_IMAGE_URL } from "../src/gateway/profile.ts";
 import { validateRouting } from "../src/config/connections.ts";
-import { quotaPolicy, novelaiUsage } from "../src/domain/quota.ts";
+import { novelaiUsage } from "../src/domain/quota.ts";
 import { quoteLabel } from "../src/domain/quote.ts";
 import { buildChatPayload } from "../src/domain/media.ts";
 
@@ -61,7 +61,7 @@ test("OpenAI Images: authenticated catalog, JSON generation, multipart reference
   assert.equal(request.init.body.has("max_cost"), false);
   assert.equal(request.init.body.has("cache"), false);
   const before = calls.length;
-  assert.equal(quotaPolicy(await gateway.quota()).serialDisabled, false);
+  assert.equal((await gateway.quota()).temporary, null);
   await assert.rejects(gateway.estimate({ model: model.id }), QuoteUnsupported);
   assert.equal(calls.length, before);
   const result = await testConnection(context, async () => json({ data: [{ id: model.id }] }));
@@ -216,7 +216,6 @@ test("NovelAI V5 usage: preserve independent percentages without adding gateway 
   assert.equal(quota.media.credits.remaining, 525);
   assert.deepEqual(meter, { entitlement: "opus", percent: 68, purchasedPercent: 20,
     unavailable: false, ratio: 0.68, estimatedImages: 1176 });
-  assert.equal(quotaPolicy(quota).serialDisabled, false);
   const bonus = novelaiUsage({ active: true, tier: 3, usage: { ...usage, percent: 125, timeUntilNextPercent: 0 } });
   assert.equal(bonus.percent, 125);
   assert.equal(bonus.ratio, 1);

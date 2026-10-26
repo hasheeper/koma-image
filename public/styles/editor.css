@@ -192,49 +192,23 @@
 
 /* ── Upscale menu ───────────────────────────────────────────── */
 /* A popover in the top layer, so neither the mat nor the scrolling page
-   clips it; placed by script over (or under) the toolbar button. It is a
-   menu, so it stays at menu density: short rows, one line per option. */
+   clips it; placed by script over (or under) the toolbar button. It is the
+   shared .menu sheet with a model list on top, so the list keeps menu rows;
+   the options, detail and price below are the panel's own. */
 .editor-pop {
   /* Controls recess one notch below --raised, as in drawers and cards. */
   --well: var(--chrome);
   --well-focus: var(--sunken);
-  inset: auto; margin: 0; padding: 4px;
-  overflow-y: auto; overscroll-behavior: contain;
   color: var(--fg);
-  background: color-mix(in srgb, var(--raised) 97%, transparent);
-  border: 1px solid var(--line-2); border-radius: var(--r3);
-  box-shadow: var(--sh-3), var(--sh-lip);
-  backdrop-filter: blur(16px);
 }
-.editor-pop:popover-open { display: grid; gap: 6px; animation: editorPopIn var(--t1) var(--e-out); }
+.editor-pop:popover-open { display: grid; gap: 6px; }
 .editor-pop[data-placement="top"] { translate: 0 -100%; }
-@keyframes editorPopIn { from { opacity: 0; transform: translateY(3px) scale(.99); } }
-.editor-pop-list { display: grid; gap: 3px; font-size: var(--fz-xs); color: var(--fg-3); }
-.editor-pop-group { display: grid; }
-.editor-pop-group + .editor-pop-group { padding-top: 3px; border-top: 1px solid var(--line); }
-.editor-pop-group p { margin: 0; padding: 4px 8px 2px; font-size: var(--fz-2xs); line-height: 1.4; color: var(--fg-4); }
-.editor-pop-item {
-  position: relative;
-  display: flex; align-items: center;
-  min-height: 28px; padding: 0 26px 0 8px;
-  font-size: var(--fz-xs); color: var(--fg-2);
-  border-radius: var(--r1);
-  cursor: pointer;
-  transition: color var(--t1) var(--e), background var(--t1) var(--e);
-}
-.editor-pop-item:hover { color: var(--fg); background: var(--hover); }
+.editor-pop-list { display: grid; gap: 1px; font-size: var(--fz-xs); color: var(--fg-3); }
+.editor-pop-group { display: grid; gap: 1px; }
+/* Groups part on the menu's full-bleed hairline. */
+.editor-pop-group:not([hidden]) + .editor-pop-group { margin: 3px -4px 0; padding: 4px 4px 0; border-top: 1px solid var(--line-2); }
+/* The radio stays in the label for focus and arrow keys; the row shows the check. */
 .editor-pop-item input { position: absolute; opacity: 0; width: 0; height: 0; }
-.editor-pop-item span { overflow: hidden; white-space: nowrap; text-overflow: ellipsis; }
-.editor-pop-item:has(input:checked) { color: var(--fg); }
-.editor-pop-item:has(input:checked)::after {
-  content: "";
-  position: absolute; right: 11px; top: 50%;
-  width: 4px; height: 8px; margin-top: -5px;
-  border: solid var(--a); border-width: 0 1.6px 1.6px 0;
-  transform: rotate(45deg);
-}
-.editor-pop-item:has(input:focus-visible) { outline: 2px solid var(--a); outline-offset: -2px; }
-.editor-pop-item:has(input:disabled) { opacity: 0.5; cursor: default; }
 /* What the chosen model takes: its options, the detail text, then the price. */
 .editor-pop-options, .editor-pop-detail, .editor-pop .quota-warning { margin: 0 4px; }
 .editor-pop-options { display: grid; gap: 4px; padding-top: 6px; border-top: 1px solid var(--line); }
@@ -288,7 +262,6 @@
   }
   .editor-toolbar .ibtn, .editor-zoom { flex: none; width: 40px; height: 40px; }
   .editor-tool { height: 40px; }
-  .editor-pop-item { min-height: 40px; font-size: var(--fz-sm); }
   .editor-pop-option select { height: 36px; }
   .editor-zoom { width: auto; }
   .editor-zoom-step { display: none; }

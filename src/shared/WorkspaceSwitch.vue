@@ -9,6 +9,7 @@ import { workspaceInfo, workspaces } from "../app/routes";
 import type { WorkspaceId } from "../app/routes";
 import BrandMark from "./BrandMark.vue";
 import AppIcon from "./AppIcon.vue";
+import { menuKeys } from "./popover";
 
 const props = defineProps<{ workspace: WorkspaceId }>();
 const { router } = useShell();
@@ -35,7 +36,7 @@ function beforeToggle(event: Event) {
   expanded.value = (event as ToggleEvent).newState === "open";
   if (expanded.value && button.value && menu.value) {
     const rect = button.value.getBoundingClientRect();
-    menu.value.style.left = `${Math.max(4, rect.left)}px`;
+    menu.value.style.left = `${Math.max(8, rect.left)}px`;
     menu.value.style.top = `${rect.bottom + 4}px`;
   }
 }
@@ -67,15 +68,16 @@ onDeactivated(close);
   <nav
     ref="menu"
     :id="menuId"
-    class="switch-menu"
+    class="menu switch-menu"
     popover
     aria-label="切换工作区"
     @beforetoggle="beforeToggle"
+    @keydown="menuKeys"
   >
     <template v-for="(target, index) in workspaces" :key="target">
       <button
         v-if="index === 2"
-        class="switch-item"
+        class="menu-item switch-item"
         type="button"
         @click="openEditor"
       >
@@ -84,7 +86,7 @@ onDeactivated(close);
         >
       </button>
       <a
-        class="switch-item"
+        class="menu-item switch-item"
         :href="`#/${target}`"
         :aria-current="target === workspace ? 'page' : undefined"
         @click.prevent="switchTo(target)"
@@ -94,12 +96,12 @@ onDeactivated(close);
           ><b>{{ workspaceInfo[target].name }}</b
           ><small>{{ workspaceInfo[target].description }}</small></span
         >
-        <AppIcon v-if="target === workspace" class="sw-end" name="i-check" />
+        <AppIcon v-if="target === workspace" class="menu-check" name="i-check" />
       </a>
     </template>
     <hr />
-    <button class="switch-item" type="button" @click="close(); slates.visible.value = true"><AppIcon class="sw-glyph" name="i-tasks" /><span class="sw-text"><b>任务总览</b></span></button>
-    <button class="switch-item" type="button" @click="openSettings">
+    <button class="menu-item switch-item" type="button" @click="close(); slates.visible.value = true"><AppIcon class="sw-glyph" name="i-tasks" /><span class="sw-text"><b>任务总览</b></span></button>
+    <button class="menu-item switch-item" type="button" @click="openSettings">
       <AppIcon class="sw-glyph" name="mk-settings" /><span class="sw-text"
         ><b>设置</b><small>连接、模型、Key 与备份</small></span
       >

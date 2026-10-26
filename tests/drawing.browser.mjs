@@ -413,25 +413,14 @@ test("M4 failure and cancellation stop remaining requests; browsing and workspac
   }
 });
 
-test("M4 quota restrictions remember requested batch; native-free exception, strict limits and restored preferences", async () => {
-  const t = await open({ cost: 2, left: 299 }),
+test("M4 batch count ignores the daily quota; strict limits and restored preferences", async () => {
+  const t = await open({ cost: 2, left: 1 }),
     p = t.page;
   try {
     await patch(t, { batchCount: 5 });
     await p.locator("#parametersToggle").click();
-    assert.equal(await p.locator("#batchCount").inputValue(), "1");
-    assert.equal(await p.locator("#batchCount").isDisabled(), true);
-    await run(t);
-    assert.equal(t.state.generations, 1);
-    t.state.left = 300;
     await p.evaluate(() => drawing.refreshQuota(true));
     assert.equal(await p.locator("#batchCount").inputValue(), "5");
-    assert.equal(await p.locator("#batchCount").isDisabled(), false);
-    t.state.left = 1;
-    t.state.cost = 0;
-    await patch(t, { seed: "1" });
-    await p.waitForFunction(() => drawing.snapshot().quote.quote?.cost === 0);
-    await p.evaluate(() => drawing.refreshQuota(true));
     assert.equal(await p.locator("#batchCount").isDisabled(), false);
     await patch(t, { width: 2048, height: 2048 });
     assert.equal(await p.locator("#goBtn").isDisabled(), true);

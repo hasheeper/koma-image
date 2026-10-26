@@ -88,32 +88,10 @@
   .chat-page[data-rail="collapsed"] .sidebar-row span,
   .chat-page[data-rail="collapsed"] .conversation-list { display: none; }
 }
-/* The conversation menu: a manual popover in the top layer, placed by script
-   beside the ⋯ button, the pointer, or the long-pressed row. */
-.conv-menu {
-  inset: auto; margin: 0; padding: 4px; min-width: 176px;
-  color: var(--fg);
-  background: color-mix(in srgb, var(--raised) 97%, transparent);
-  border: 1px solid var(--line-2); border-radius: var(--r3);
-  box-shadow: var(--sh-3), var(--sh-lip);
-  backdrop-filter: blur(16px);
-}
-.conv-menu:popover-open { display: grid; gap: 1px; animation: convMenuIn var(--t1) var(--e-out); }
-@keyframes convMenuIn { from { opacity: 0; transform: translateY(3px) scale(.99); } }
-.conv-menu button {
-  display: flex; align-items: center; gap: 10px; min-height: 32px; padding: 0 10px;
-  font-size: var(--fz-sm); color: var(--fg-2); text-align: left;
-  border-radius: var(--r1);
-  transition: color var(--t1) var(--e), background var(--t1) var(--e);
-}
-.conv-menu button .ico { --ico: var(--ico-md); color: var(--fg-3); }
-.conv-menu button:is(:hover, :focus-visible) { color: var(--fg); background: var(--hover); outline: none; }
-.conv-menu button:is(:hover, :focus-visible) .ico { color: currentColor; }
-.conv-menu button[aria-disabled="true"] { opacity: .45; cursor: default; }
-.conv-menu button[aria-disabled="true"]:hover { color: var(--fg-2); background: none; }
-.conv-menu .danger, .conv-menu .danger .ico { color: var(--err); }
-.conv-menu .danger:is(:hover, :focus-visible) { color: var(--err); background: var(--err-dim); }
-.conv-menu hr { margin: 4px 6px; border: 0; border-top: 1px solid var(--line); }
+/* The conversation and context-image menus are the shared .menu, a popover in
+   the top layer placed by script beside the ⋯ button, the pointer, the
+   long-pressed row or the tile. */
+.conv-menu { min-width: 176px; }
 @media (prefers-reduced-motion: reduce) {
   .conversation-busy { animation: none; }
   .chat-layout { transition: none; }
@@ -328,12 +306,10 @@
    as wide as its content needs. */
 .chat-pop { width: max-content; max-width: calc(100vw - 16px); }
 .model-panel { min-width: 200px; }
-.model-panel .editor-pop-item { min-height: 30px; font-size: var(--fz-sm); }
-.model-panel .editor-pop-group p.model-group-head { display: flex; align-items: center; gap: 6px; padding: 6px 8px 3px; }
+.editor-pop.model-panel:popover-open { gap: 0; }
+.model-group-head { display: flex; align-items: center; gap: 6px; }
 .model-group-head .ico, .model-group-head .vl { width: var(--ico-xs); height: var(--ico-xs); }
-.model-panel-foot { padding-top: 3px; border-top: 1px solid var(--line); }
-.model-panel .model-manage { width: 100%; gap: 6px; color: var(--fg-3); }
-.model-manage .ico { --ico: var(--ico-xs); }
+.model-panel-foot { margin: 4px -4px 0; padding: 4px 4px 0; border-top: 1px solid var(--line-2); }
 /* The radio covers its whole label, so the label is the click target and the
    radio still takes keyboard focus and arrow keys natively. */
 .chat-pop input[type="radio"] { position: absolute; inset: 0; width: 100%; height: 100%; margin: 0; opacity: 0; cursor: pointer; }
@@ -467,7 +443,6 @@
   .conversation-rename { height: 34px; margin-left: 38px; font-size: 16px; }
   .conversation-item:is(:hover, :focus-within, [data-current]) .conversation-more,
   .conversation-more[aria-expanded="true"] { width: 36px; height: 36px; }
-  .conv-menu button { min-height: 44px; font-size: var(--fz-md); }
   .chat-page { --img-w: 100%; --img-h: 58dvh; }
   .message-list { padding: 20px 12px 20px 4px; }
   .chat-turn { grid-template-columns: 24px minmax(0, 1fr); column-gap: 12px; }
@@ -511,8 +486,8 @@
   /* Doubled class: editor.css loads after this file and resets inset. */
   .editor-pop.chat-pop { inset: auto 0 0 0; width: 100%; min-width: 0; max-width: none; max-height: 80dvh; padding: 10px 12px calc(14px + env(safe-area-inset-bottom)); border-bottom: 0; border-radius: var(--r4) var(--r4) 0 0; }
   .chat-pop::backdrop { background: rgba(0,0,0,.45); }
-  .model-panel .editor-pop-item { min-height: 44px; font-size: var(--fz-md); }
-  .model-panel .editor-pop-group p.model-group-head { padding: 8px 8px 4px; font-size: var(--fz-xs); }
+  .model-group-head { font-size: var(--fz-xs); }
+  .editor-pop.chat-pop { animation-name: menuUp; }
   .param-row { grid-template-columns: 48px minmax(0, 1fr); }
   .param-name { padding-top: 12px; font-size: var(--fz-xs); }
   .param-chip { min-height: 40px; padding: 0 14px; font-size: var(--fz-sm); }

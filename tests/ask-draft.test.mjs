@@ -183,7 +183,7 @@ test('draft mode restore: localized review, raw prompt preserved and independent
   const base = state({ naiMode: 'anime' }), d = draft(base, [restore(['naiMode'])], library({ naiMode: 'furry' }));
   const p = plan(d);
   assert.deepEqual(p.changes.map(c => [c.field, c.after]), [['naiMode', 'furry']]);
-  assert.equal(p.steps[0].displayBefore, '动漫'); assert.equal(p.steps[0].displayAfter, '兽人');
+  assert.equal(p.steps[0].displayBefore, 'Anime'); assert.equal(p.steps[0].displayAfter, 'Furry');
   assert.equal(plan(d, state({ naiMode: 'furry' })).changes.length, 0);
   assert.equal(plan(draft(base, [restore(['naiMode'])], library({ naiMode: 'invalid' }))).changes.length, 0);
 });

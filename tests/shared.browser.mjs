@@ -842,9 +842,8 @@ test("shared Tag controls and editor highlighting do not depend on image CSS; ve
     await page.locator("#prompt").fill("blue");
     await page.waitForSelector('.tag-suggest:not([hidden]) .tag-suggest-option');
     assert.equal(await page.locator('.tag-suggest:not([hidden])').evaluate((element) => getComputedStyle(element).position), "fixed");
-    // The entrance animation scales the visual rectangle; inspect the owned
-    // min-height without depending on which animation frame the check catches.
-    assert.equal(await page.locator('.tag-suggest-option').first().evaluate((element) => getComputedStyle(element).minHeight), "48px");
+    // Inspect the shared menu row height rather than the animated rectangle.
+    assert.equal(await page.locator('.tag-suggest-option').first().evaluate((element) => getComputedStyle(element).minHeight), "32px");
     await page.keyboard.press("Escape");
     await page.getByRole("button", { name: "查词插入", exact: true }).click();
     await page.waitForSelector("#pickerSearch");

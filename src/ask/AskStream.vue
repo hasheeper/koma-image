@@ -65,12 +65,17 @@ const starters = computed(() => [
 const filtered = (kind: string | undefined) => kind === "rejected" || kind === "empty";
 const codecAvailable = computed(() => ask.adult.value && ask.settings.value.words.length > 0);
 function retries(turn: AskTurnView): { mode: RetryMode; label: string }[] {
-  if (!filtered(turn.failure?.kind)) return [{ mode: "plain", label: "重试" }];
   return [
-    ...(codecAvailable.value && !ask.codecActive.value
+    { mode: "plain", label: "重试" },
+    ...(turn.metadataOnly && ask.settings.value.images
+      ? [{ mode: "images" as const, label: "发送图片并重试" }]
+      : []),
+    ...(filtered(turn.failure?.kind) && codecAvailable.value && !ask.codecActive.value
       ? [{ mode: "codec" as const, label: "启用词表混淆并重试" }]
       : []),
-    { mode: "metadata", label: turn.metadataOnly ? "重试" : "仅发元数据重试" },
+    ...(filtered(turn.failure?.kind) && !turn.metadataOnly && ask.settings.value.images
+      ? [{ mode: "metadata" as const, label: "仅发元数据重试" }]
+      : []),
   ];
 }
 
@@ -165,7 +170,7 @@ onBeforeUnmount(() => { resized.disconnect(); cancelAnimationFrame(frame); clear
       </template>
       <section
         v-else
-        v-memo="[entry, ask.adult.value, codecAvailable, ask.codecActive.value, ask.libraryRevision.value, copied.slice(1) === String(entry.id) && copied, revealed === entry.id, editing === entry.id, ask.undoId.value, ask.redoId.value, ask.writingDraft.value, ask.running.value]"
+        v-memo="[entry, ask.adult.value, codecAvailable, ask.codecActive.value, ask.settings.value.images, ask.libraryRevision.value, copied.slice(1) === String(entry.id) && copied, revealed === entry.id, editing === entry.id, ask.undoId.value, ask.redoId.value, ask.writingDraft.value, ask.running.value]"
         class="ask-turn"
         :class="{ revealed: revealed === entry.id }"
         :data-status="entry.turn.status"
@@ -178,6 +183,7 @@ onBeforeUnmount(() => { resized.disconnect(); cancelAnimationFrame(frame); clear
         <div v-else class="ask-u" @click="reveal(entry.id)">
           <AskAttachments :items="entry.turn.attachments" sent :dim="entry.turn.metadataOnly" />
           <p v-if="entry.turn.question" class="ask-q"><AskMarkdown :text="entry.turn.question" inline-only /></p>
+          <span v-if="entry.turn.metadataOnly" class="ask-image-mode" title="本轮不发送图片，视觉工具不可用">仅元数据</span>
         </div>
         <div v-if="entry.turn !== ask.live.value && editing !== entry.id" class="ask-acts ask-q-acts">
           <button v-if="entry.turn.question" class="ask-act" type="button" :aria-label="copied === `q${entry.id}` ? '已复制提问' : '复制提问'" title="复制" @click="copy(`q${entry.id}`, entry.turn.question)"><AppIcon :name="copied === `q${entry.id}` ? 'i-check' : 'i-copy'" /></button>
@@ -302,6 +308,7 @@ onBeforeUnmount(() => { resized.disconnect(); cancelAnimationFrame(frame); clear
 .ask-compaction-failure p { margin: 4px 0 0 24px; color: var(--fg-3); font-size: 12px; overflow-wrap: anywhere; }
 .ask-compaction-failure :is(summary, button):focus-visible { outline: 1px solid var(--a); outline-offset: 2px; border-radius: 2px; }
 .ask-meta { color: var(--fg-4); font-size: var(--fz-xs); }
+.ask-image-mode { align-self: flex-end; margin-top: 4px; color: var(--fg-3); font-size: 11px; line-height: 18px; }
 .ask-fail { display: flex; flex-direction: column; gap: var(--sp-2); }
 .ask-fail-text { display: flex; align-items: flex-start; gap: var(--sp-2); color: var(--fg-2); font-size: var(--fz-sm); line-height: 1.5; }
 .ask-fail-text .ico { flex: none; --ico: var(--ico-sm); margin-top: 2px; color: var(--err); }

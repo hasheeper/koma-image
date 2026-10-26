@@ -12,8 +12,6 @@ import {
   sizeProblem,
 } from "../../domain/drawing";
 import type { Tier, Orientation, DrawingForm } from "../../domain/drawing";
-import { naiCapabilities, NAI_FULL, NAI_MEDIUM, naiDataset, effectiveNaiMode } from "../../domain/nai";
-import NaiSelect from "./NaiSelect.vue";
 import AppIcon from "../../shared/AppIcon.vue";
 const { drawing, view } = useDrawing(),
   ui = useUi();
@@ -21,35 +19,6 @@ const f = computed(() => view.value.form),
   tier = ref<Tier>("m"),
   lastDirection = ref<Orientation>("portrait"),
   lastShape = ref("2:3");
-const cap = computed(() => naiCapabilities(f.value.model));
-const modelOptions = computed(() => {
-  const list = view.value.models.filter(m => m.id !== NAI_MEDIUM);
-  const medium = view.value.models.find(m => m.id === NAI_MEDIUM);
-  if (medium && !list.some(m => m.id === NAI_FULL)) list.unshift({ ...medium, id: NAI_FULL, name: "NAI Diffusion V5 Full" });
-  return list;
-});
-const baseModel = computed(() => cap.value.medium ? NAI_FULL : f.value.model);
-const available = (id: string) => view.value.models.some(m => m.id === id);
-function selectModel(id: string) {
-  void drawing.patch({ model: id === NAI_FULL && !available(NAI_FULL) ? NAI_MEDIUM : id });
-}
-function selectEffort(value: string) {
-  const id = value === "medium" ? NAI_MEDIUM : NAI_FULL;
-  if (available(id)) void drawing.patch({ model: id });
-}
-const mode = computed(() => effectiveNaiMode(f.value.naiMode, f.value.prompt));
-const dataset = computed(() => naiDataset(f.value.prompt));
-const modeTitle = computed(() => dataset.value ? `提示词以 ${dataset.value} dataset 开头；切换模式请先移除该标签` : "动漫 / 兽人：切换数据集与标签补全");
-const modeOptions = computed(() => [
-  { value: "anime", label: "动漫", disabled: dataset.value === "fur", title: dataset.value === "fur" ? modeTitle.value : undefined },
-  { value: "furry", label: "兽人", disabled: dataset.value === "background", title: dataset.value === "background" ? modeTitle.value : undefined },
-]);
-const modelChoices = computed(() => modelOptions.value.map(m => ({ value: m.id, label: m.name })));
-const modelDisplay = computed(() => {
-  if (!view.value.models.length) return view.value.catalogLoading ? "加载中…" : view.value.catalogError ? "连接未就绪" : "未配置连接";
-  const id = baseModel.value.replace(/@local$/, ""), match = /^nai-diffusion-(5|4-5)-(full|curated)$/.exec(id);
-  return match ? `NAI V${match[1] === "4-5" ? "4.5" : "5"} ${match[2] === "full" ? "Full" : "Curated"}` : view.value.model?.name ?? baseModel.value;
-});
 const match = computed(() =>
   presetMatch(Number(f.value.width), Number(f.value.height)),
 );
@@ -157,24 +126,6 @@ function radioKey(e: KeyboardEvent) {
 }
 </script>
 <template>
-  <div class="fld">
-    <div class="fld-top">
-      <label class="composer-heading" for="model"
-        ><AppIcon class="section-ico" name="i-model" />模型</label
-      >
-    </div>
-    <div class="model-row" role="group" aria-label="模型与模式">
-      <NaiSelect id="model" label="模型" variant="model" :value="baseModel" :display="modelDisplay" :title="view.model?.name" :disabled="!view.models.length" :options="modelChoices" @change="selectModel" />
-      <template v-if="cap.supported">
-        <span class="model-divider" aria-hidden="true"></span>
-        <NaiSelect id="naiMode" label="模式" variant="segment" :title="modeTitle" :value="mode" :options="modeOptions" @change="drawing.patch({ naiMode: $event as typeof f.naiMode })" />
-      </template>
-      <template v-if="cap.effort">
-        <span class="model-divider" aria-hidden="true"></span>
-        <NaiSelect id="effort" label="Effort" variant="segment" wide title="Effort：Medium 固定 14 步；High 可完整调节参数" :value="cap.medium ? 'medium' : 'high'" :options="[{ value: 'high', label: 'High', detail: '完整参数', disabled: !available(NAI_FULL) }, { value: 'medium', label: 'Medium', detail: '14 步 · Euler A', disabled: !available(NAI_MEDIUM) }]" @change="selectEffort" />
-      </template>
-    </div>
-  </div>
   <div
     class="fld resolution-control"
     id="resolutionControl"
@@ -311,12 +262,4 @@ function radioKey(e: KeyboardEvent) {
       {{ problem.message }}
     </p>
   </div>
-
 </template>
-
-<style scoped>
-.model-row { display: flex; align-items: center; min-width: 0; height: 38px; padding: 3px; background: var(--well); border: 1px solid var(--line); border-radius: var(--r3); }
-.model-divider { flex: none; width: 1px; height: 14px; margin: 0 2px; background: var(--line-2); }
-.model-row :deep(#effort) { width: 80px; }
-@media (pointer: coarse), (max-width: 860px) { .model-row { height: 44px; } }
-</style>

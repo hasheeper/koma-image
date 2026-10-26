@@ -13,6 +13,7 @@ import CharactersEditor from "./CharactersEditor.vue";
 import PromptDraft from "./PromptDraft.vue";
 import DrawingBottomPanel from "./DrawingBottomPanel.vue";
 import DrawingControls from "./DrawingControls.vue";
+import ModelField from "./ModelField.vue";
 import ImageStage from "./ImageStage.vue";
 import ImportSheet from "./ImportSheet.vue";
 import { useDrawing } from "../../app/drawing";
@@ -183,6 +184,7 @@ function security() {
     >
       <div ref="composerScroll" class="composer-scroll">
         <BoardSwitcher />
+        <ModelField />
         <PromptDraft
           :key="view.activeBoardId"
           :suggest="view.form.tagSuggest"

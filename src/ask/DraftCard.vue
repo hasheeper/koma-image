@@ -114,14 +114,14 @@ function apply(event: MouseEvent) {
           </div>
         </div>
       </header>
-      <div v-if="hasApplyMenu" :id="menuId" ref="menu" class="draft-apply-menu" popover="auto" role="menu" aria-label="应用方式" @beforetoggle="beforeMenu" @keydown.stop="actionKeys">
-        <button v-for="destination in (canChooseBoard ? destinations : [])" :key="String(destination.newBoard)" type="button" role="menuitem" :data-fingerprint="plan.fingerprint" :data-new-board="String(destination.newBoard)" :disabled="blocked" @click="apply">
+      <div v-if="hasApplyMenu" :id="menuId" ref="menu" class="menu draft-apply-menu" popover="auto" role="menu" aria-label="应用方式" @beforetoggle="beforeMenu" @keydown.stop="actionKeys">
+        <button v-for="destination in (canChooseBoard ? destinations : [])" :key="String(destination.newBoard)" class="menu-item" type="button" role="menuitem" :data-fingerprint="plan.fingerprint" :data-new-board="String(destination.newBoard)" :disabled="blocked" @click="apply">
           <AppIcon :name="destination.newBoard ? 'i-copy' : 'i-check'" /><span>{{ destination.label }}</span>
         </button>
         <hr v-if="canChooseBoard" />
-        <button type="button" role="menuitem" @click="closeMenu(); ask.proposeFile('recipe')"><AppIcon name="i-parameters" /><span>附加画板配方</span></button>
-        <button type="button" role="menuitem" @click="closeMenu(); ask.proposeFile('memo')"><AppIcon name="i-file" /><span>附加创作备忘录</span></button>
-        <button v-if="ask.activeSlate.value" type="button" role="menuitem" @click="closeMenu(); ask.proposeFile('slate')"><AppIcon name="i-tasks" /><span>附加任务交接资料</span></button>
+        <button class="menu-item" type="button" role="menuitem" @click="closeMenu(); ask.proposeFile('recipe')"><AppIcon name="i-parameters" /><span>附加画板配方</span></button>
+        <button class="menu-item" type="button" role="menuitem" @click="closeMenu(); ask.proposeFile('memo')"><AppIcon name="i-file" /><span>附加创作备忘录</span></button>
+        <button v-if="ask.activeSlate.value" class="menu-item" type="button" role="menuitem" @click="closeMenu(); ask.proposeFile('slate')"><AppIcon name="i-tasks" /><span>附加任务交接资料</span></button>
       </div>
       <p v-if="plan.aligned" class="draft-aligned">已按当前内容对齐，请核对后应用</p>
       <div v-show="open && !compact" id="askDraftBody" ref="body" class="draft-body" :class="{ more }" @scroll.passive="fade">
@@ -199,13 +199,7 @@ function apply(event: MouseEvent) {
 .draft-apply-more::before { content: ""; position: absolute; left: 0; top: 7px; bottom: 7px; width: 1px; background: rgb(23 19 42 / 16%); }
 .draft-apply-more .ico { transform: rotate(90deg); }
 /* Measured coordinates must not transition, including under the global reduced-motion duration. */
-.draft-apply-menu { position: fixed; inset: auto; width: min(184px, calc(100vw - 16px)); margin: 0; padding: 4px; color: var(--fg); background: #26262d; border: 1px solid var(--line-2); border-radius: 9px; box-shadow: 0 8px 24px rgb(0 0 0 / 45%); transition-property: none; }
-.draft-apply-menu:popover-open { display: grid; }
-.draft-apply-menu button { display: flex; align-items: center; gap: 8px; min-height: 34px; padding: 0 9px; color: var(--fg); text-align: left; font-size: 13px; border-radius: 5px; }
-.draft-apply-menu button:is(:hover, :focus-visible):not(:disabled) { background: rgb(255 255 255 / 5.5%); outline: none; }
-.draft-apply-menu button:disabled { color: var(--fg-4); cursor: default; }
-.draft-apply-menu hr { margin: 3px 5px; border: 0; border-top: 1px solid var(--line); }
-.draft-apply-menu .ico { flex: none; --ico: var(--ico-sm); }
+.draft-apply-menu { width: min(184px, calc(100vw - 16px)); transition-property: none; }
 .draft-aligned { flex: none; padding: 0 var(--draft-r) 8px var(--draft-b); color: var(--warn); font-size: var(--fz-xs); }
 .draft-body { display: grid; flex: 0 1 auto; grid-auto-rows: max-content; min-height: 0; max-height: min(44dvh, 340px); padding: 4px 0 10px; overflow-y: auto; overscroll-behavior: contain; border-top: 1px solid var(--line); }
 .draft-body.more { -webkit-mask-image: linear-gradient(to bottom, #000 calc(100% - 28px), transparent); mask-image: linear-gradient(to bottom, #000 calc(100% - 28px), transparent); }
@@ -272,7 +266,6 @@ function apply(event: MouseEvent) {
 @media (max-width: 860px) {
   .draft-actions .btn { min-height: 36px; }
   .draft-actions .draft-apply-more { width: 36px; }
-  .draft-apply-menu button { min-height: 44px; }
   .draft-undo { width: 32px; height: 32px; opacity: 1; }
   .draft-seg button { height: 30px; }
 }

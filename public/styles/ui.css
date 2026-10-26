@@ -217,47 +217,17 @@ body[data-gate="open"] .gate-card { transform: none; }
 }
 .switcher[aria-expanded="true"] .sw-caret { transform: rotate(-90deg); }
 .switch-menu {
-  position: fixed; inset: auto;
   top: calc(var(--bar-h) - 6px); left: 10px;
   width: min(252px, calc(100vw - 12px));
-  margin: 0; padding: 4px;
-  color: var(--fg);
-  background: var(--raised);
-  border: 0;
-  border-radius: var(--r3);
-  box-shadow: inset 0 0 0 1px var(--line-2), var(--sh-2);
 }
-.switch-menu:popover-open { display: grid; gap: 1px; }
-.switch-menu hr { height: 1px; margin: 3px 6px; border: 0; background: var(--line-2); }
-/* One line a row: the surface's mark, its name, a muted line on what it does
-   and an end mark. The 6px corner sits concentric in the menu's 10px one. */
-.switch-item {
-  display: grid;
-  grid-template-columns: 18px minmax(0, 1fr) 16px;
-  align-items: center;
-  gap: 9px;
-  width: 100%; height: 34px;
-  padding: 0 8px;
-  color: var(--fg-2);
-  text-align: left;
-  text-decoration: none;
-  border-radius: 6px;
-  transition: background var(--t1) var(--e), color var(--t1) var(--e);
-}
-.switch-item:not(:disabled):hover, .switch-item:focus-visible { color: var(--fg); background: var(--hover); }
-.switch-item:focus-visible { outline: 1px solid var(--a-line); outline-offset: -1px; border-radius: 6px; }
-.switch-item[aria-current="page"] { color: var(--fg); }
-.switch-item:disabled { opacity: 0.5; cursor: default; }
+/* One line a row on the shared menu: the surface's mark, its name, a muted
+   line on what it does and the current surface's check. */
 /* Koma marks are not .ico glyphs (AppIcon leaves mk-* unclassed), so they take the tier directly. */
-.sw-glyph { justify-self: center; width: var(--ico-md); height: var(--ico-md); fill: currentColor; color: var(--fg-3); transition: color var(--t1) var(--e); }
-.sw-text { display: flex; align-items: baseline; gap: 8px; min-width: 0; }
-.sw-text b { flex: none; font-size: var(--fz-sm); font-weight: var(--fw-medium); }
-.sw-text small { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: var(--fz-2xs); color: var(--fg-4); }
-.sw-end { --ico: var(--ico-md); color: var(--fg-4); transition: color var(--t1) var(--e); }
-.switch-item:not(:disabled, [aria-current]):hover :is(.sw-glyph, .sw-end) { color: var(--fg-3); }
-.switch-item:not(:disabled, [aria-current]):hover .sw-glyph { color: var(--fg-2); }
-.switch-item[aria-current="page"] :is(.sw-glyph, .sw-end) { color: var(--a); }
-@media (pointer: coarse) { .switch-item { height: 44px; } }
+.sw-glyph { width: var(--ico-md); height: var(--ico-md); fill: currentColor; color: var(--fg-3); transition: color var(--t1) var(--e); }
+.switch-item:is(:hover, :focus-visible, [aria-current="page"]) .sw-glyph { color: currentColor; }
+.sw-text { display: flex; flex: 1; align-items: baseline; gap: 8px; min-width: 0; }
+.sw-text b { flex: none; font-weight: var(--fw-medium); }
+.sw-text small { overflow: hidden; text-overflow: ellipsis; font-size: var(--fz-2xs); font-weight: var(--fw-regular); color: var(--fg-4); }
 
 .topbar-menu { display: flex; align-items: center; margin-left: auto; flex: none; }
 .topbar-menu-toggle,
@@ -321,6 +291,8 @@ button.w-seg:hover { background: var(--raised); }
   transition: color var(--t2) var(--e);
 }
 .w-credit { --lc: var(--fg-3); }
+/* Models outside V5 have no allowance meter; the tier stands in its place, so NAI keeps the same two figures. */
+.w-tier .w-v { font-family: var(--sans); font-weight: var(--fw-semibold); }
 .w-v {
   font: var(--fw-medium) 13px/1 var(--mono);
   font-variant-numeric: tabular-nums;

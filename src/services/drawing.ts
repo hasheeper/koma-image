@@ -17,10 +17,8 @@ import type { CatalogModel } from "../domain/catalog.ts";
 import { resolveModel, selectCatalogSources } from "../domain/catalog.ts";
 import type { SourceSelection } from "./source-priority.ts";
 import { object } from "../domain/value.ts";
-import { quotaPolicy } from "../domain/quota.ts";
 import type { QuotaStatus } from "../domain/quota.ts";
 import { createCostNotice } from "../domain/quote.ts";
-import { usesNative } from "../gateway/routes.ts";
 import { createQuotePreview } from "./quote-preview.ts";
 import type { QuoteState } from "./quote-preview.ts";
 import { consumeImage, makeThumb } from "./image-response.ts";
@@ -93,7 +91,6 @@ export function createDrawing(
   let refreshAbort: AbortController | undefined,
     quotaAbort: AbortController | undefined,
     taskAbort: AbortController | undefined;
-  let resetTimer: ReturnType<typeof setTimeout> | undefined;
   let reveal: ((record: ImageRecord) => Promise<void>) | undefined;
   const favoritePending = new Set<string>();
   const referenceModels = new Set<string>();
@@ -123,16 +120,7 @@ export function createDrawing(
   ) => {
     if (!disposed) ui.toast(text, tone, action);
   };
-  const policy = () =>
-    quotaPolicy(
-      quota,
-      !usesNative(
-        { model: form.model, cache: form.serverCache },
-        quote.status === "ready" ? quote.quote : null,
-      ),
-    );
-  const batchCount = () =>
-    policy().serialDisabled ? 1 : count(form.batchCount);
+  const batchCount = () => count(form.batchCount);
   const url = (item: ImageRecord, thumb = false) => {
     const blob = thumb ? item.thumbBlob || item.blob : item.blob,
       key = item.id + (thumb ? ":thumb" : ":full"),
@@ -207,16 +195,6 @@ export function createDrawing(
     try { preview?.update(drawingPayload(collect(form, model, batchCount()))); }
     catch { preview?.update(null); }
   }
-  function scheduleReset() {
-    clearTimeout(resetTimer);
-    if (disposed || draftQuotePaused) return;
-    const seconds = policy().resetSeconds;
-    if (policy().serialDisabled && seconds != null && seconds > 0)
-      resetTimer = setTimeout(
-        () => void refreshQuota(true),
-        Math.min(2147483647, (seconds + 2) * 1000),
-      );
-  }
   async function refreshQuota(
     force = false,
     selected = model,
@@ -253,14 +231,12 @@ export function createDrawing(
     } catch (e) {
       signal?.throwIfAborted();
       if (token === revision && model === selected && !abort.signal.aborted) {
-        quota = quota ? { ...quota, temporaryChecked: false } : null;
         quotaAt = 0;
       }
       return null;
     } finally {
       if (token === revision && quotaAbort === abort) {
         quotaLoading = false;
-        scheduleReset();
         emit();
       }
     }
@@ -285,7 +261,6 @@ export function createDrawing(
       return source.quote;
     }, s => {
       quote = s.status === "error" ? { ...s, quote: null } : s;
-      scheduleReset();
       emit();
     });
     scheduleQuote();
@@ -298,7 +273,6 @@ export function createDrawing(
     }
     preview?.dispose();
     quotaAbort?.abort();
-    clearTimeout(resetTimer);
     quota = null;
     quotaAt = 0;
     quote = { status: "idle", quote: null };
@@ -633,7 +607,6 @@ export function createDrawing(
       return;
     const sourceBoardId = boards.activeId;
     let selected = model;
-    let batchQuote = quote.status === "ready" ? quote.quote : null;
     // Keep the price the user saw, including during a pending preview refresh.
     // A later board switch must not replace this batch's comparison baseline.
     let shownCost = quote.quote?.cost ?? null;
@@ -662,7 +635,6 @@ export function createDrawing(
     try {
       let preflightSource = await services.selectSource(selected, signal, activeReferences(base.naiReferences).length ? drawingPayload(base) : undefined);
       selected = preflightSource.model;
-      let preflightQuota = preflightSource.quota;
       signal.throwIfAborted();
       // Preflight may observe edits on its source board, never another board.
       let source = boards.items.find(b => b.id === sourceBoardId);
@@ -674,15 +646,12 @@ export function createDrawing(
         shownCost = null;
         preflightSource = await services.selectSource(sourceModel, signal, activeReferences(source.form.naiReferences).length ? drawingPayload(collect({ ...form, ...source.form }, sourceModel, count(source.form.batchCount))) : undefined);
         selected = preflightSource.model;
-        preflightQuota = preflightSource.quota;
       }
       signal.throwIfAborted();
       source = boards.items.find(b => b.id === sourceBoardId);
       if (!source) throw new Error("来源画板已删除，本次生成已取消");
       if (source.form.model !== sourceModel.id) throw new Error("预检期间模型已再次变化，请重新生成");
-      batchQuote = boards.activeId === sourceBoardId && quote.status === "ready" ? quote.quote : null;
       base = collect({ ...form, ...source.form }, selected, count(source.form.batchCount));
-      if (quotaPolicy(preflightQuota, !usesNative(drawingPayload(base), batchQuote)).serialDisabled) base.batchCount = 1;
       const provenance = { boardId: source.id, boardName: source.name, boardColor: source.color };
       pending = {
         width: base.width,
@@ -714,13 +683,11 @@ export function createDrawing(
               return client.encodeVibe(selected.id, image, information, task.signal);
             });
           }
-          // The batch owns one slot through its quota checks, decoding, reveal and comparison.
+          // The batch owns one slot through its requests, decoding, reveal and comparison.
           const notice = createCostNotice(
             shownCost,
             base.batchCount > 1,
           );
-          let quotaStopped = false;
-          const serialStop = new Error("额度保护已停止串行");
           for (let index = 0; index < base.batchCount; index++) {
             task.signal.throwIfAborted();
             pending = {
@@ -737,7 +704,7 @@ export function createDrawing(
             else emit();
             const params = batchParams(base, index),
               payload = { ...drawingPayload(params), ...(prepared ? { preparedReferences:prepared } : {}) };
-            const consume = (response: Response, native: boolean, s: AbortSignal) => consumeImage(response, native, s, payload);
+            const consume = (response: Response, native: boolean, s: AbortSignal) => consumeImage(response, native, s, payload, params.optimize);
             const options = { notice, onNotice: (text: string) => notify(text), signal:task.signal };
             const result = await (prepared ? referenceGateway!.execute(payload, consume, {
               ...options, beforeSubmit: async () => {
@@ -748,13 +715,9 @@ export function createDrawing(
             }) : task.execute(
               selected, payload,
               (response, native, s) =>
-                consumeImage(response, native, s, payload),
+                consumeImage(response, native, s, payload, params.optimize),
               { notice, onNotice: (text) => notify(text), signal: task.signal,
                 onSource: source => {
-                  if (index > 0 && quotaPolicy(source.quota, !usesNative(payload, source.quote)).serialDisabled)
-                    throw serialStop;
-                  if (index === 0 && quotaPolicy(source.quota, !usesNative(payload, source.quote)).serialDisabled)
-                    base.batchCount = 1;
                   selected = source.model;
                   if (boards.activeId === sourceBoardId) {
                     applySource(source);
@@ -763,9 +726,7 @@ export function createDrawing(
                   }
                 },
               },
-            )).catch(error => { if (error === serialStop) return null; throw error; });
-            if (!result) { quotaStopped = true; break; }
-            batchQuote = result.quote;
+            ));
             const record = await addImage(
               result.value.blob,
               result.value.size,
@@ -784,14 +745,6 @@ export function createDrawing(
             }
             if (completed === base.batchCount)
               void refreshQuota(true, selected);
-          }
-          if (quotaStopped) {
-            if (records.length && !browsing) show(records.at(-1)!);
-            title = "额度保护已停止串行";
-            subtitle = `已完成 ${completed}/${base.batchCount}`;
-            notify("额度不足或暂不可用，未再提交后续请求", "warn");
-            emit();
-            return;
           }
           if (base.batchCount > 1) {
             task.signal.throwIfAborted();
@@ -963,7 +916,6 @@ export function createDrawing(
       quota,
       quotaLoading,
       quote,
-      policy: policy(),
       batchCount: batchCount(),
       favoritesLoading,
       favoritesError,
@@ -1061,7 +1013,6 @@ export function createDrawing(
       if ((values.model !== undefined || values.sampler !== undefined) && !allowedSamplers.includes(values.sampler ?? form.sampler)) throw new Error("目标模型不支持此采样器，草稿未写入");
       const before = form;
       draftQuotePaused = true;
-      clearTimeout(resetTimer);
       form = { ...form, ...values };
       if (values.model !== undefined) bindModel();
       else preview?.update(null);
@@ -1139,7 +1090,6 @@ export function createDrawing(
       if (catalogNotice !== undefined) ui.dismissNotice(catalogNotice);
       quotaAbort?.abort();
       preview?.dispose();
-      clearTimeout(resetTimer);
       stopReferences();
       stopConnections();
       stopPrefs();

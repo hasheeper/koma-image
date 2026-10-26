@@ -19,7 +19,6 @@ import {
   hasHan,
   fragmentAtCaret,
   insertTag,
-  promptTag,
 } from "../domain/tags.ts";
 import type { TagItem } from "../domain/tags.ts";
 import { useServices } from "../app/services";
@@ -49,6 +48,7 @@ const html = computed(() => render(value.value)),
   busy = ref(false),
   note = ref(""),
   items = shallowRef<TagItem[]>([]),
+  matched = ref(""),
   selected = ref(-1),
   listId = `tag-suggest-${useId()}`;
 let timer: ReturnType<typeof setTimeout> | undefined,
@@ -73,6 +73,16 @@ function grow() {
   el.style.height = "auto";
   el.style.height = `${el.scrollHeight}px`;
 }
+// One line a row: the matched run of the tag (or of its translation) is lifted.
+const loose = (text: string) => text.toLowerCase().replaceAll("_", " ");
+function mark(text: string, needle: string) {
+  const at = needle ? loose(text).indexOf(needle) : -1;
+  return at < 0 ? [text, "", ""] : [text.slice(0, at), text.slice(at, at + needle.length), text.slice(at + needle.length)];
+}
+const rows = computed(() => {
+  const needle = loose(matched.value).trim();
+  return items.value.map((item) => ({ item, name: mark(item.name, needle), cn: mark(item.cnName, needle) }));
+});
 function position() {
   if (open.value && textarea.value && popover.value && measurement.value)
     placeSuggestions(textarea.value, popover.value, measurement.value);
@@ -106,6 +116,7 @@ async function search() {
     const found = await tags.suggest(q, { limit: 20, broad: true, signal, dataset: props.dataset });
     if (current !== token || fragment().query !== q || !enabled.value) return;
     items.value = found;
+    matched.value = q;
     selected.value = found.length ? 0 : -1;
     note.value = found.length ? "" : props.dataset === "furry" ? "没有匹配的 Furry Tag" : "没有匹配的 Danbooru Tag";
     open.value = true;
@@ -312,17 +323,17 @@ defineExpose({
       v-if="enabled"
       :id="listId"
       ref="popover"
-      class="tag-suggest"
+      class="menu tag-suggest"
       role="listbox"
       :hidden="!open"
       :aria-busy="busy"
     >
       <div v-if="items.length" class="tag-suggest-list">
         <button
-          v-for="(item, index) in items"
+          v-for="({ item, name, cn }, index) in rows"
           :id="`${listId}-option-${index}`"
           :key="item.name"
-          class="tag-suggest-option"
+          class="menu-item tag-suggest-option"
           type="button"
           role="option"
           :aria-selected="selected === index"
@@ -331,18 +342,17 @@ defineExpose({
           @click="choose(index)"
           @mouseenter="selected = index"
         >
-          <span class="tag-suggest-names"
-            ><strong>{{ item.name }}</strong
-            ><span>{{ item.cnName || promptTag(item.name) }}</span></span
-          ><span class="tag-suggest-meta"
+          <span class="tag-suggest-name"
+            >{{ name[0] }}<b v-if="name[1]">{{ name[1] }}</b>{{ name[2] }}</span
+          ><span v-if="item.cnName" class="tag-suggest-cn"
+            >{{ cn[0] }}<b v-if="cn[1]">{{ cn[1] }}</b>{{ cn[2] }}</span
+          ><span class="menu-meta tag-suggest-meta"
             ><i
               class="tag-category-dot"
               :class="(CATEGORIES[item.category] || CATEGORIES[0]).className"
             ></i
-            ><span
-              >{{ item.source === "nai-furry" ? "Furry" : (CATEGORIES[item.category] || CATEGORIES[0]).label }} ·
-              {{ formatCount(item.count) }}</span
-            ></span
+            >{{ item.source === "nai-furry" ? "Furry" : (CATEGORIES[item.category] || CATEGORIES[0]).label
+            }}<span class="tag-suggest-count">{{ formatCount(item.count) }}</span></span
           >
         </button>
       </div>
@@ -468,53 +478,26 @@ defineExpose({
 
 <style scoped>
 /* ── Danbooru Tag autocomplete ─────────────────────────────── */
+/* The shared .menu sheet, shown with [hidden] rather than as a popover and
+   placed by the caret driver. One line a row: the mono tag with its matched
+   run lifted, the translation, then the category and count at the end. */
 .tag-suggest {
   position: fixed;
   z-index: var(--z-pop);
-  max-height: min(360px, calc(100dvh - 16px));
-  overflow-y: auto;
-  overscroll-behavior: contain;
   scrollbar-gutter: stable;
   touch-action: pan-y;
-  padding: 3px;
-  background: color-mix(in srgb, var(--raised) 97%, transparent);
-  border: 1px solid var(--line-2);
-  border-radius: var(--r3);
-  box-shadow: var(--sh-3), var(--sh-lip);
-  backdrop-filter: blur(16px);
-  animation: tagSuggestIn var(--t1) var(--e-out);
 }
 .tag-suggest[hidden] { display: none; }
 .tag-suggest-list { display: grid; gap: 1px; }
-.tag-suggest-option {
-  width: 100%;
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 9px;
-  min-height: 48px;
-  padding: 6px 8px;
-  color: var(--fg-2);
-  text-align: left;
-  border-radius: var(--r2);
-  transition: color var(--t1) var(--e), background var(--t1) var(--e);
-}
-.tag-suggest-option:hover,
 .tag-suggest-option[aria-selected="true"] { color: var(--fg); background: var(--hover); }
-.tag-suggest-names { display: grid; gap: 0; overflow: hidden; }
-.tag-suggest-names strong,
-.tag-suggest-names span { overflow: hidden; white-space: nowrap; text-overflow: ellipsis; }
-.tag-suggest-names strong { font: var(--fw-medium) var(--fz-2xs)/1.3 var(--mono); color: inherit; }
-.tag-suggest-names span { font-size: var(--fz-2xs); line-height: 1.3; color: var(--fg-3); }
-.tag-suggest-meta {
-  flex: none;
-  display: inline-flex;
-  align-items: center;
-  gap: 5px;
-  font: var(--fw-regular) var(--fz-2xs)/1.3 var(--mono);
-  color: var(--fg-4);
-  white-space: nowrap;
-}
+.tag-suggest-name,
+.tag-suggest-cn { min-width: 0; overflow: hidden; text-overflow: ellipsis; }
+.tag-suggest-name { flex: 0 1 auto; font: var(--fw-medium) var(--fz-xs) var(--mono); }
+/* The translation gives way first, so the tag keeps its full width. */
+.tag-suggest-cn { flex: 0 1000 auto; color: var(--fg-3); font-size: var(--fz-xs); }
+.tag-suggest-option b { color: var(--fg); font-weight: var(--fw-semibold); }
+.tag-suggest-meta { display: inline-flex; align-items: center; gap: 6px; }
+.tag-suggest-count { min-width: 34px; color: var(--fg-3); font-family: var(--mono); text-align: right; }
 .tag-suggest-note {
   display: flex; align-items: center; justify-content: center; gap: var(--sp-2);
   padding: 12px; font-size: var(--fz-xs); color: var(--fg-3); text-align: center;
@@ -530,15 +513,7 @@ defineExpose({
   animation: tagSpin 620ms linear infinite;
 }
 @keyframes tagSpin { to { transform: rotate(1turn); } }
-@keyframes tagSuggestIn {
-  from { opacity: 0; transform: translateY(3px) scale(.99); }
-}
-
-
-@media (max-width: 860px) {
-.tag-suggest { padding: 4px; border-radius: 11px; }
-.tag-suggest-option { min-height: 44px; padding: 6px 8px; }
-.tag-suggest-names strong { font-size: var(--fz-sm); }
-.tag-suggest-names span { font-size: var(--fz-xs); }
+@media (pointer: coarse), (max-width: 860px) {
+  .tag-suggest-name, .tag-suggest-cn { font-size: var(--fz-sm); }
 }
 </style>

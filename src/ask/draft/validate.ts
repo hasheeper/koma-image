@@ -282,8 +282,8 @@ export function validateDraft(draft: Draft, now: DraftState, options: ValidateOp
       if (field === "seed" && after !== "" && (!/^\d+$/.test(String(after)) || Number(after) > 4294967295)) issue ||= "种子无效";
       const enabled = !options.off.has(id);
       checked.push({ id, label, kind: "parameter", enabled, issue, aligned: !sameValue(initial[field], draft.base.form[field]), before: String(before), after: String(after ?? value ?? "—"),
-        displayBefore: field === "naiMode" ? before === "furry" ? "兽人" : "动漫" : field === "model" ? resolveModel(now.models, String(before))?.name : field === "sampler" ? samplerName(before) : undefined,
-        displayAfter: field === "naiMode" ? after === "furry" ? "兽人" : "动漫" : field === "model" ? resolveModel(now.models, String(after))?.name : field === "sampler" ? samplerName(after) : undefined });
+        displayBefore: field === "naiMode" ? before === "furry" ? "Furry" : "Anime" : field === "model" ? resolveModel(now.models, String(before))?.name : field === "sampler" ? samplerName(before) : undefined,
+        displayAfter: field === "naiMode" ? after === "furry" ? "Furry" : "Anime" : field === "model" ? resolveModel(now.models, String(after))?.name : field === "sampler" ? samplerName(after) : undefined });
       if (enabled && !issue && after !== undefined) Object.assign(working, { [field]: after });
     }
   });

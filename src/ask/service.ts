@@ -100,7 +100,7 @@ export interface AskTurnView {
 export type AskEntry =
   | { readonly type: "turn"; readonly id: number; readonly turn: AskTurnView }
   | { readonly type: "note"; readonly id: number; readonly text: string; readonly compactRetry?: boolean; readonly external?: ExternalNote; readonly checkpoint?: CheckpointView | null };
-export type RetryMode = "plain" | "metadata" | "codec";
+export type RetryMode = "plain" | "metadata" | "images" | "codec";
 interface ConversationScope {
   readonly id: string;
   readonly ids: ReturnType<typeof createIds>;
@@ -511,7 +511,7 @@ export function createAsk(deps: {
     draft.value = null; notice.value = ""; say("已忽略草稿，内容未修改");
   }
 
-  function digestNow(anchorLabel: string | null, formText = false): Digest {
+  function digestNow(anchorLabel: string | null, formText = false, metadataOnly = !settings.value.images): Digest {
     const d = drawing.snapshot(),
       c = chat.snapshot(),
       workspace = router.route.value.workspace,
@@ -554,6 +554,8 @@ export function createAsk(deps: {
       ids,
     }, { formText });
     return { ...digest, json: JSON.stringify({ ...JSON.parse(digest.json),
+      image_input: { enabled: !metadataOnly, mode: metadataOnly ? "metadata_only" : "on_demand",
+        ...(metadataOnly ? { note: "本轮不发送任何图片，view_image、view_sheet 与 refs 图片读取不可用；请基于元数据回答，不要重复尝试看图。" } : {}) },
       active_slate: slateSummary(deps.slates?.get(conversations.current.slateId ?? "") ?? null),
       ...(referenceSource ? { refs_index: referenceSource.index() } : {}),
       ...(inline.value ? { inline_selection: inline.value } : {}) }) };
@@ -880,7 +882,7 @@ export function createAsk(deps: {
       metadataOnly = !!options.metadataOnly || !config.images,
       codec = codecFor({ adult: adult.value, enabled: codecActive.value, words: config.words, replacements: config.replacements });
     // The snapshot is fixed for the whole turn; get_state appends newer ones.
-    const digest = digestNow(turnAnchor), initialState = digestNow(turnAnchor, true), snapshotTime = Date.now();
+    const digest = digestNow(turnAnchor, false, metadataOnly), initialState = digestNow(turnAnchor, true, metadataOnly), snapshotTime = Date.now();
     const snapshot = drawing.snapshot(),
       frozenBoards = structuredClone(snapshot.boards),
       library = [...snapshotPictures(snapshot.history, snapshot.favorites, ids), ...chatPictures(chat.snapshot(), chat), ...attachmentPictures(attachments.read([...new Set([...entryAttachments(entries.value), ...attached.map(a => a.id)])]))],
@@ -986,7 +988,7 @@ export function createAsk(deps: {
               return { text: JSON.stringify({ board_id: board.id, name: board.name, form: { ...board.form, characters: board.form.characters.map(c => ({ ...characterSummary(c, board.form.placement, board.form.model), centers: c.centers })) }, character_capability: characterCapability(board.form.model), draft_base_hash: digest.baseHash }), images: snapshot.history.length };
             }
             return scope === "latest" ? {
-            text: stateBlock(digestNow(turnAnchor, true)),
+            text: stateBlock(digestNow(turnAnchor, true, metadataOnly)),
             images: drawing.snapshot().history.length,
           } : { text: stateBlock(initialState), images: snapshot.history.length };
           },
@@ -1259,13 +1261,15 @@ export function createAsk(deps: {
   function retry(id: number, mode: RetryMode) {
     const entry = entries.value.find((e) => e.type === "turn" && e.id === id);
     if (!entry || entry.type !== "turn" || controller || writingDraft.value || draft.value || preparing.value) return;
+    // Restoring pixels after a privacy retry requires a separately labelled click.
+    if (mode === "images" && !settings.value.images) return;
     if (mode === "codec") {
       if (!adult.value || !settings.value.words.length) return;
       sessionCodec.value = true;
     }
     const provider = providerForSend();
     if (!provider) return;
-    void dispatch(entry.turn.question, { metadataOnly: mode === "metadata" || entry.turn.metadataOnly, anchor: entry.turn.anchor,
+    void dispatch(entry.turn.question, { metadataOnly: mode === "metadata" || mode !== "images" && entry.turn.metadataOnly, anchor: entry.turn.anchor,
       preserveInput: true, attachments: entry.turn.attachments.filter(a => !a.toolRead).map(a => a.id), replaceId: entry.id }, provider);
   }
   /** Esc: popovers, then the draft (A2), then the running turn, then the drawer. */

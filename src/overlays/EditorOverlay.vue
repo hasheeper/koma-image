@@ -188,8 +188,8 @@ function placeUpscale() {
   Object.assign(pop.value.style, {
     width: `${width}px`,
     left: `${Math.round(Math.max(8, Math.min(vw - width - 8, a.left + a.width / 2 - width / 2)))}px`,
-    top: `${Math.round(above ? a.top - 8 : a.bottom + 8)}px`,
-    maxHeight: `${Math.floor(above ? a.top - 16 : vh - a.bottom - 16)}px`,
+    top: `${Math.round(above ? a.top - 4 : a.bottom + 4)}px`,
+    maxHeight: `${Math.floor(above ? a.top - 12 : vh - a.bottom - 12)}px`,
   });
   pop.value.dataset.placement = above ? "top" : "bottom";
 }
@@ -1116,7 +1116,7 @@ const number = (e: Event) => Number((e.target as HTMLInputElement).value);
     <div
       ref="pop"
       id="editorUpscalePop"
-      class="editor-pop"
+      class="menu editor-pop"
       popover
       aria-label="放大"
       @toggle="upscaleToggle"
@@ -1130,11 +1130,11 @@ const number = (e: Event) => Number((e.target as HTMLInputElement).value);
           role="group"
           :aria-label="provider === 'novelai' ? 'NAI 原生' : '专用模型'"
         >
-          <p>{{ provider === "novelai" ? "NAI 原生" : "专用模型" }}</p>
+          <p class="menu-group">{{ provider === "novelai" ? "NAI 原生" : "专用模型" }}</p>
           <label
             v-for="m in upModels.filter((m) => m.provider === provider)"
             :key="m.id"
-            class="editor-pop-item"
+            class="menu-item editor-pop-item"
             ><input
               type="radio"
               name="editorUpscaleModel"
@@ -1142,7 +1142,8 @@ const number = (e: Event) => Number((e.target as HTMLInputElement).value);
               :checked="s.chosen.upscale === m.id"
               :disabled="locked"
               @change="editor.setModel(m.id, 'upscale')"
-            /><span>{{ m.name }}</span></label
+            /><span class="menu-label">{{ m.name }}</span
+            ><AppIcon class="menu-check" name="i-check" /></label
           >
         </div>
         <span v-if="!upModels.length">暂无可用模型</span>

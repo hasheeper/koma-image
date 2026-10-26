@@ -13,8 +13,8 @@ const gemini = (id: string, name: string, inputImages: number, extra: Partial<Mo
 export const MODELS: ModelIdentity[] = [
   nai("nai-diffusion-5-full", "NAI Diffusion V5 Full", { transparentBackground: true }),
   nai("nai-diffusion-5-curated", "NAI Diffusion V5 Curated", { transparentBackground: true }),
-  nai("nai-diffusion-4-5-full", "NAI Diffusion 4.5 Full"),
-  nai("nai-diffusion-4-5-curated", "NAI Diffusion 4.5 Curated"),
+  nai("nai-diffusion-4-5-full", "NAI Diffusion V4.5 Full"),
+  nai("nai-diffusion-4-5-curated", "NAI Diffusion V4.5 Curated"),
   nai("nai-diffusion-5-full-medium", "NAI Diffusion V5 Full · Medium", { transparentBackground: true }),
   gpt("gpt-image-2", "GPT Image 2"),
   gpt("gpt-image-2-2026-04-21", "GPT Image 2 (2026-04-21)"),

@@ -700,7 +700,7 @@ async function reveal(id: string) {
                     </button>
                     <div
                       :id="menuId(c.id, group.id)"
-                      class="conn-menu"
+                      class="menu conn-menu"
                       popover="auto"
                       role="menu"
                       :aria-label="`${c.name} 的操作`"
@@ -708,9 +708,10 @@ async function reveal(id: string) {
                       @keydown="menuKeys"
                       @click="closeMenu"
                     >
-                      <button type="button" role="menuitem" @click="edit(c.id)">
+                      <button class="menu-item" type="button" role="menuitem" @click="edit(c.id)">
                         <AppIcon name="i-rename" /><span>编辑连接…</span></button
                       ><button
+                        class="menu-item"
                         type="button"
                         role="menuitem"
                         @click="ui.requestKey(c.credentialRef)"
@@ -718,15 +719,15 @@ async function reveal(id: string) {
                         <AppIcon name="i-lock" /><span>{{
                           unlocked ? "更换 Key…" : "配置或解锁 Key…"
                         }}</span
-                        ><small v-if="keyTail(c.credentialRef)">{{
+                        ><small v-if="keyTail(c.credentialRef)" class="menu-meta">{{
                           keyTail(c.credentialRef)
                         }}</small>
                       </button>
                       <hr role="separator" />
                       <button
+                        class="menu-item danger"
                         type="button"
                         role="menuitem"
-                        class="danger"
                         @click="remove(c.id)"
                       >
                         <AppIcon name="i-trash" /><span>删除连接</span>

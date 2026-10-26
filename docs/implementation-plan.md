@@ -9,7 +9,7 @@
 | 单页外壳与共享服务（M1–M7） | IMAGE／CHAT／TAGS 保活、编辑覆盖层、设置与备份、本地代理、发布包已实现；见[架构](architecture.md)、[调度与数据](gateway-data-scheduler.md)和[发布说明](release-guide.md) |
 | 绘图、对话和编辑 | 业务与合成图片／模拟网关回归已完成；见[绘图](drawing-workspace.md)与[对话／编辑](chat-editor-workspaces.md) |
 | 图像协议基础适配 | 标准网关、OpenAI Images、Gemini 原生和 NovelAI 官方基础接口已接线并模拟验证；NAI 官方账户接口已有授权只读验证，未订阅账号可识别；连接卡展示 Anlas、V5 百分比、张数估算及必要状态；见[协议能力](native-image-protocols.md)和[官方接入](novelai-official.md) |
-| NAI 型号、模式与参数 | V4.5 Full／Curated、V5 Full High／Medium／Curated 五型号文生图及常规四型号 img2img 已接线；动漫／兽人、Furry 补全、Effort、Complexity、质量／负向预设、透明底与独立 Guidance Rescale 已实现。未知费用标签暂时隐藏，不作为免费；见[能力对照](novelai-official.md#型号与模式覆盖) |
+| NAI 型号、模式与参数 | V4.5 Full／Curated、V5 Full High／Medium／Curated 五型号文生图及常规四型号 img2img 已接线；Anime／Furry 模式及 Furry 补全、Effort、Complexity、质量／负向预设、透明底与独立 Guidance Rescale 已实现。未知费用标签暂时隐藏，不作为免费；见[能力对照](novelai-official.md#型号与模式覆盖) |
 | 供应商优先级 | 连接分为图像与文本两区，综合供应商的已配置接口分别展示；仅图像卡可上下排序，文本保持手动选模。可用来源与优先级分开；绘图／CHAT／编辑按模型、操作和额度选源，未知仍按顺序、明确不足才顺位，提交后不重试；顶栏 Logo 与额度跟随实际来源；见[设置规则](shared-settings-tags.md) |
 | 多角色与画板（C1–C5） | 独立表单、角色界面、官方／标准字段映射、参数往返、ASK 草稿与回退已完成本地收口；标准角色字段依据真实只读解析／报价探测，生成效果待验；见[专题](multi-character-boards-plan.md) |
 | NAI V4.5 参考与底部抽屉 | 参数／Vibe／Precise 共用已确认的抽屉；上传、生成时编码、本机缓存、精确参考预处理、来源筛选、持久化和备份已接线，真实效果／扣费待验；见[官方接入](novelai-official.md#vibe-与精确参考边界) |

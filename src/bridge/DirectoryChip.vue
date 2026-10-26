@@ -19,10 +19,10 @@ function activate(toggle: () => void) {
     </template>
     <template #default="{ close }">
       <template v-if="bridge.directory.value">
-        <button class="ask-menu-item" role="menuitem" type="button" @click="close(); bridge.mount()"><AppIcon name="i-swap" /><span class="ask-menu-label">切换目录</span></button>
-        <button class="ask-menu-item" role="menuitem" type="button" @click="close(); bridge.unmount()"><AppIcon name="i-close" /><span class="ask-menu-label">卸载目录</span></button>
+        <button class="menu-item" role="menuitem" type="button" @click="close(); bridge.mount()"><AppIcon name="i-swap" /><span class="menu-label">切换目录</span></button>
+        <button class="menu-item" role="menuitem" type="button" @click="close(); bridge.unmount()"><AppIcon name="i-close" /><span class="menu-label">卸载目录</span></button>
       </template>
-      <button v-else class="ask-menu-item" role="menuitem" type="button" @click="close(); ask.openSettings()"><AppIcon name="i-settings" /><span class="ask-menu-label">外部协同设置</span></button>
+      <button v-else class="menu-item" role="menuitem" type="button" @click="close(); ask.openSettings()"><AppIcon name="i-settings" /><span class="menu-label">外部协同设置</span></button>
     </template>
   </AskMenu>
 </template>

@@ -34,6 +34,7 @@ const scroll = shallowRef<HTMLElement | null>(null),
   modelPop = shallowRef<HTMLElement | null>(null),
   paramPop = shallowRef<HTMLElement | null>(null);
 const full = ref(""),
+  openPanel = ref<"model" | "param" | "">(""),
   latest = ref(false),
   drop = ref(false),
   searching = ref(false),
@@ -157,9 +158,13 @@ function place(pop: HTMLElement | null, button: HTMLElement) {
   }
   const box = button.getBoundingClientRect();
   pop.style.right = `${Math.round(Math.max(8, document.documentElement.clientWidth - box.right))}px`;
-  pop.style.top = `${Math.round(box.top - 8)}px`;
-  pop.style.maxHeight = `${Math.floor(box.top - 16)}px`;
+  pop.style.top = `${Math.round(box.top - 4)}px`;
+  pop.style.maxHeight = `${Math.floor(box.top - 12)}px`;
   pop.dataset.placement = "top";
+}
+function panelToggled(panel: "model" | "param", e: ToggleEvent) {
+  if (e.newState === "open") openPanel.value = panel;
+  else if (openPanel.value === panel) openPanel.value = "";
 }
 function openPop(pop: HTMLElement | null, e: MouseEvent) {
   if (!view.value.ready) {
@@ -601,6 +606,8 @@ onDeactivated(() => {
               :hidden="view.model && !Object.keys(view.model.fields).length"
               :aria-label="`参数：${summary || '默认'}`"
               :data-changed="summary ? '' : undefined"
+              aria-haspopup="dialog"
+              :aria-expanded="openPanel === 'param'"
               @click="openPop(paramPop, $event)"
             >
               <AppIcon class="solid" name="i-parameters" /><span
@@ -616,6 +623,8 @@ onDeactivated(() => {
                 class="model-chip"
                 type="button"
                 :aria-label="`模型：${view.model?.name || '未配置连接'}`"
+                aria-haspopup="dialog"
+                :aria-expanded="openPanel === 'model'"
                 @click="openPop(modelPop, $event)"
               >
                 <span class="model-chip-name">{{
@@ -688,10 +697,11 @@ onDeactivated(() => {
     </dialog>
     <div
       ref="modelPop"
-      class="editor-pop chat-pop model-panel"
+      class="menu editor-pop chat-pop model-panel"
       popover
       role="dialog"
       aria-label="模型"
+      @toggle="panelToggled('model', $event as ToggleEvent)"
     >
       <div class="editor-pop-list" role="radiogroup" aria-label="模型">
         <div
@@ -701,7 +711,7 @@ onDeactivated(() => {
           role="group"
           :aria-label="g.provider"
         >
-          <p class="model-group-head">
+          <p class="menu-group model-group-head">
             <ModelIcon :family="g.provider" /><span>{{
               g.provider === "openai"
                 ? "OpenAI"
@@ -710,7 +720,7 @@ onDeactivated(() => {
                   : g.provider
             }}</span>
           </p>
-          <label v-for="m in g.models" :key="m.id" class="editor-pop-item"
+          <label v-for="m in g.models" :key="m.id" class="menu-item editor-pop-item"
             ><input
               type="radio"
               name="chatModel"
@@ -723,13 +733,14 @@ onDeactivated(() => {
                 }
               "
               @keydown.enter="modelPop?.hidePopover()"
-            /><span>{{ m.name }}</span></label
+            /><span class="menu-label">{{ m.name }}</span
+            ><AppIcon class="menu-check" name="i-check" /></label
           >
         </div>
       </div>
       <div class="model-panel-foot">
         <button
-          class="editor-pop-item model-manage"
+          class="menu-item model-manage"
           type="button"
           @click="
             modelPop?.hidePopover();
@@ -742,10 +753,11 @@ onDeactivated(() => {
     </div>
     <div
       ref="paramPop"
-      class="editor-pop chat-pop param-panel"
+      class="menu editor-pop chat-pop param-panel"
       popover
       role="dialog"
       aria-label="参数"
+      @toggle="panelToggled('param', $event as ToggleEvent)"
     >
       <div class="param-rows">
         <div

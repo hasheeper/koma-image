@@ -79,6 +79,23 @@ function splitNul(bytes: Uint8Array<ArrayBuffer>, from = 0): [Uint8Array<ArrayBu
   return at < 0 ? [bytes.subarray(from), bytes.length] : [bytes.subarray(from, at), at + 1];
 }
 
+/* Text, EXIF and timestamp chunks carry the provenance; colour and transparency chunks stay so pixels render unchanged. */
+const METADATA_CHUNKS = new Set(["tEXt", "zTXt", "iTXt", "eXIf", "tIME"]);
+/** Drop a PNG's metadata chunks without re-encoding; anything else passes through untouched. */
+export async function stripPngMetadata(blob: Blob): Promise<Blob> {
+  const bytes = new Uint8Array(await blob.arrayBuffer());
+  if (!startsWith(bytes, PNG_SIGNATURE)) return blob;
+  const view = new DataView(bytes.buffer), kept = [bytes.subarray(0, 8)];
+  for (let at = 8; at + 12 <= bytes.length;) {
+    const end = at + 12 + view.getUint32(at), type = latin1.decode(bytes.subarray(at + 4, at + 8));
+    if (end > bytes.length) return blob;
+    if (!METADATA_CHUNKS.has(type)) kept.push(bytes.subarray(at, end));
+    if (type === "IEND") break;
+    at = end;
+  }
+  return new Blob(kept, { type: "image/png" });
+}
+
 /** Collect every textual chunk in a PNG, keyed by keyword. */
 async function readPngText(bytes: Uint8Array<ArrayBuffer>): Promise<Map<string, string>> {
   const found = new Map<string, string>();

@@ -11,7 +11,7 @@ const id = "nai-diffusion-5-full";
 const payload = { model: id, prompt: "synthetic", width: 832, height: 1216, steps: 23, scale: 5, sampler: "k_euler_ancestral", seed: 0 };
 const json = (body, status = 200) => Response.json(body, { status });
 const model = { id };
-function status(profile, remaining, subscription) { return normalizeQuota(profile, { credits: { remaining }, subscription }, {}, false); }
+function status(profile, remaining, subscription) { return normalizeQuota(profile, { credits: { remaining }, subscription }, {}); }
 
 test("priority funding: only proven insufficiency advances; unknown, free quotes and rounded usage do not", () => {
   assert.match(insufficientFunds(model, status(standardProfile, 5), { cost: 6 }), /积分不足/);

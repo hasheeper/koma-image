@@ -26,8 +26,13 @@ function positionStage() {
   const w = Math.min(area.width - 40, (area.height - 40) * ratio.value), h = w / ratio.value;
   stageStyle.value = { left: `${area.left + (area.width - w) / 2}px`, top: `${area.top + (area.height - h) / 2}px`, width: `${w}px`, height: `${h}px` };
 }
+// Narrow layouts scroll the page past the picture; bring it back under the bar before overlaying it.
+function revealStage() {
+  const area = document.querySelector(".shell .viewport")?.getBoundingClientRect(), bar = document.querySelector("body > .topbar")?.getBoundingClientRect().bottom ?? 0;
+  if (area && area.top < bar) window.scrollBy({ top: area.top - bar, behavior: "instant" });
+}
 function keys(event: KeyboardEvent) { if (event.key === "Escape") { event.preventDefault(); event.stopPropagation(); stage.value = false; } }
-watch(stage, value => { if (value) { positionStage(); window.addEventListener("resize", positionStage); window.addEventListener("keydown", keys, true); } else { window.removeEventListener("resize", positionStage); window.removeEventListener("keydown", keys, true); } });
+watch(stage, value => { if (value) { revealStage(); positionStage(); window.addEventListener("resize", positionStage); window.addEventListener("keydown", keys, true); } else { window.removeEventListener("resize", positionStage); window.removeEventListener("keydown", keys, true); } });
 watch(boardId, () => { stage.value = false; open.value = f.value.characters[0]?.id ?? ""; tab.value = "prompt"; }, { immediate: true });
 watch([ratio, () => f.value.placement, () => cap.value.max], () => { if (!cap.value.max || f.value.placement !== "manual") stage.value = false; else if (stage.value) positionStage(); });
 function cleanup() { stage.value = false; window.removeEventListener("resize", positionStage); window.removeEventListener("keydown", keys, true); }

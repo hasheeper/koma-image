@@ -21,7 +21,6 @@ export const DEFAULTS = {
   seed: "",
   batchCount: 1,
   optimize: false,
-  serverCache: false,
   transparentBg: false,
   localCache: true,
   historyLimit: 25,
@@ -31,7 +30,7 @@ export const DEFAULTS = {
   placement: "auto" as Placement,
 };
 export type DrawingForm = typeof DEFAULTS;
-export const boardKeys = ["prompt", "negative", "model", "sampler", "width", "height", "steps", "scale", "cfg", "cfgRescale", "naiMode", "complexity", "qualityPreset", "negativePreset", "seed", "batchCount", "optimize", "serverCache", "transparentBg", "characters", "placement", "naiReferences"] as const;
+export const boardKeys = ["prompt", "negative", "model", "sampler", "width", "height", "steps", "scale", "cfg", "cfgRescale", "naiMode", "complexity", "qualityPreset", "negativePreset", "seed", "batchCount", "optimize", "transparentBg", "characters", "placement", "naiReferences"] as const;
 export type BoardForm = Pick<DrawingForm, typeof boardKeys[number]>;
 export interface DrawingBoard { id: string; name: string; color: string; nextCharacterId: number; form: BoardForm }
 export interface Boards { activeId: string; items: DrawingBoard[] }
@@ -208,7 +207,7 @@ export function collect(
     cfgRescale: cap.medium ? 0 : settings.cfgRescale,
     qualityPreset, negativePreset, complexity, naiMode,
     optimize: form.optimize,
-    cache: form.serverCache,
+    cache: false,
     transform_prompt: false,
     prompt,
     basePrompt,
@@ -248,7 +247,6 @@ export function drawingPayload(p: DrawingParams): ImagePayload {
     scale,
     cfg,
     seed,
-    optimize,
   } = p;
   const references = referencePlan(p.naiReferences);
   return {
@@ -263,8 +261,9 @@ export function drawingPayload(p: DrawingParams): ImagePayload {
     cfg,
     cfg_rescale: p.cfgRescale,
     seed,
-    optimize,
-    cache: p.cache,
+    // Metadata stripping happens locally; the gateway never re-encodes or caches.
+    optimize: false,
+    cache: false,
     transform_prompt: false,
     transform_mode: "off",
     ...(references ? { referencePlan: references } : {}),

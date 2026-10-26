@@ -95,13 +95,13 @@ export function createGateway(
       if (profile.quotaPolicy.supported === false) {
         context.assertCurrent();
         signal?.throwIfAborted();
-        if (profile.protocol !== "novelai") return normalizeQuota(profile, {}, null, false, quotaGroup);
+        if (profile.protocol !== "novelai") return normalizeQuota(profile, {}, null, quotaGroup);
         const subscription = await readJson(await transport.request(profilePath(profile, "quota"), { signal: timedSignal(10_000, signal) }));
         context.assertCurrent();
         const steps = subscription.trainingStepsLeft as Record<string, unknown> | undefined;
         const fixed = steps?.fixedTrainingStepsLeft, purchased = steps?.purchasedTrainingSteps;
         const remaining = typeof fixed === "number" && typeof purchased === "number" && Number.isFinite(fixed) && Number.isFinite(purchased) ? fixed + purchased : null;
-        return normalizeQuota(profile, { credits: { remaining }, subscription }, null, false, quotaGroup);
+        return normalizeQuota(profile, { credits: { remaining }, subscription }, null, quotaGroup);
       }
       const results = await Promise.allSettled([
         transport
@@ -119,10 +119,9 @@ export function createGateway(
       signal?.throwIfAborted();
       context.assertCurrent();
       const media = results[0].status === "fulfilled" ? results[0].value : null;
-      const checked = results[1].status === "fulfilled",
-        stats = results[1].status === "fulfilled" ? results[1].value : null;
+      const stats = results[1].status === "fulfilled" ? results[1].value : null;
       if (!media && !stats) throw new Error("额度暂不可用");
-      return normalizeQuota(profile, media, stats, checked, quotaGroup);
+      return normalizeQuota(profile, media, stats, quotaGroup);
     },
     async encodeVibe(model: string, image: string, information: number, signal: AbortSignal) {
       if (profile.protocol !== "novelai" || !referenceModel(model)) throw new Error("此连接不支持 Vibe 编码");
