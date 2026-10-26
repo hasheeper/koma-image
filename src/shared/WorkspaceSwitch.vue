@@ -1,5 +1,7 @@
 <script setup lang="ts">
 import { computed, onDeactivated, shallowRef } from "vue";
+import { useSlates } from "../app/slate";
+const slates = useSlates();
 import { useEditor } from "../app/editor";
 import { useChat } from "../app/chat";
 import { useShell } from "../app/shell";
@@ -96,6 +98,7 @@ onDeactivated(close);
       </a>
     </template>
     <hr />
+    <button class="switch-item" type="button" @click="close(); slates.visible.value = true"><AppIcon class="sw-glyph" name="i-tasks" /><span class="sw-text"><b>任务总览</b></span></button>
     <button class="switch-item" type="button" @click="openSettings">
       <AppIcon class="sw-glyph" name="mk-settings" /><span class="sw-text"
         ><b>设置</b><small>连接、模型、Key 与备份</small></span

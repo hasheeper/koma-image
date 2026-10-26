@@ -1,5 +1,7 @@
 <script setup lang="ts">
 import { computed, shallowRef, watch, onBeforeUnmount } from "vue";
+import { useSlates } from "../../app/slate";
+const slates = useSlates();
 import { useShell } from "../../app/shell";
 import { useWorkspaceLifecycle } from "../../app/workspace-lifecycle";
 import AppIcon from "../../shared/AppIcon.vue";
@@ -247,8 +249,17 @@ function security() {
   <ImportSheet ref="importSheet" />
   <!-- Targets belong to this cached workspace, including when detached by KeepAlive. -->
   <Teleport v-if="libraryTarget" :to="libraryTarget"><ImageLibrary /></Teleport>
-  <Teleport v-if="lockTarget" :to="lockTarget"
-    ><button
+  <Teleport v-if="lockTarget" :to="lockTarget">
+    <button
+      class="ibtn topbar-lock"
+      type="button"
+      aria-label="打开任务总览"
+      data-tip="任务总览"
+      @click="image.menuOpen = false; slates.visible.value = true"
+    >
+      <AppIcon name="i-tasks" /><span class="topbar-action-label">任务总览</span>
+    </button>
+    <button
       class="ibtn topbar-lock"
       type="button"
       aria-label="API Key"
@@ -256,8 +267,8 @@ function security() {
       @click="security"
     >
       <AppIcon name="i-lock" /><span class="topbar-action-label">API Key</span>
-    </button></Teleport
-  >
+    </button>
+  </Teleport>
 </template>
 
 <style scoped>

@@ -17,13 +17,13 @@ const request = (adult, workspace = "image", model = "NAI Diffusion V5 Full") =>
 test("ASK prompts: adult context is opt-in, follows the invariant core, and survives both protocol conversions", () => {
   const neutral = systemCore({adult: false}), adult = systemCore({adult: true});
   assert.equal(adult, `${neutral}\n\n${constitution.adult}`);
-  assert.doesNotMatch(neutral, /创作语境与题材包容/);
+  assert.equal(neutral.includes(constitution.adult), false);
   for (const profile of [openaiChatProfile, anthropicMessagesProfile]) {
     const extract = body => profile === openaiChatProfile ? body.messages[0].content : body.system.map(block => block.text).join("\n\n");
     const off = extract(wireBody(profile, request(false))), on = extract(wireBody(profile, request(true)));
     assert.equal(off.includes(constitution.adult), false);
     assert.equal(on.includes(constitution.adult), true);
-    assert.equal(on.split("## 创作语境与题材包容").length, 2);
+    assert.equal(on.split(constitution.adult).length, 2);
     assert.equal(extract(wireBody(profile, request(false, "chat", "Nano Banana Pro"))), off);
     assert.equal(extract(wireBody(profile, request(false, "tags", "GPT Image 2"))), off);
     assert.equal(extract(wireBody(profile, request(false))), off, "switching adult mode off restores neutral system bytes");

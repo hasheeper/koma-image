@@ -281,6 +281,8 @@ test("M7 production local settings: readonly credentials, isolated model prefere
     // Both the settings import and the complete backup restore only model mappings.
     parsed.links["gpt-image-2"].on = true;
     await p
+      .locator("#settingsPanel .sp-sec")
+      .filter({ has: p.getByRole("heading", { name: "模型配置", exact: true }) })
       .locator('input[accept=".json,application/json"]')
       .setInputFiles({
         name: "models.json",

@@ -32,8 +32,9 @@ ASK 推理、命名与压缩不占生图槽，不调用报价、扣费或生成�
 | `koma-chat` | `conversations`、`assets`：CHAT 与图片素材 |
 | `koma-handoff` | `items`：只认领一次的临时交接 |
 | `koma-ask` | `conversations`：用户显式收藏的 ASK 快照与附件 |
+| `koma-bridge` | `state`：目录句柄、投递去重／回执及 Koma 预览文件归属；不进入普通备份 |
 
-数据库 schema version=1，与备份 envelope version=2 独立。名称集中于 `src/storage/names.ts`；偏好和凭据使用 `koma.*`，同步频道为 `koma-sync`。普通绘图历史和编辑会话属于页面内存。
+收藏库 schema version=2，其他数据库 version=1，与备份 envelope version=2 独立。名称集中于 `src/storage/names.ts`；偏好和凭据使用 `koma.*`，同步频道为 `koma-sync`。普通绘图历史和编辑会话属于页面内存。
 
 应用持共享数据租约，所有数据库写入经 `data.write`；延迟保存服务提供 flush，缓存提供 reload。备份／恢复先排空写入和本页共享租约，再取得独占数据锁与任务门；其他活跃标签页或任务会阻止独占。完成或失败后恢复租约并刷新缓存，不能直接绕过租约写库。
 
@@ -46,3 +47,5 @@ Blob、ImageBitmap、Object URL 由应用级资源服务和实际消费者持有
 静态版使用用户显式配置。可选本地服务支持标准网关和两种 ASK 协议，使用固定路径与服务端凭据，不提供任意 URL 转发；运行时连接／令牌不落盘。详见[发布说明](release-guide.md)。
 
 NAI Vibe 的 `encodeVibe` 仅由 `runTask` 返回的任务网关暴露，和 `execute` 共用在途请求守卫；脱离回调后的调用拒绝，未等待的请求仍被任务槽兜住。编码二进制响应在 120 秒范围内完整消费，单份上限 8MB。参考资产与缓存写入遵守同一数据租约，备份导入后重载并释放旧缩略图 URL；不使用普通服务端缓存开关控制编码缓存。
+
+Slate 的 `koma-slate/state`、`assets` 通过 `data.write` 与 flush／reload 维护；任务、资产及提交记录独立于 ASK 收藏与普通 ZIP。页面任务锁和版本检查防止并发覆写；跨画板提交失败仅补偿自己未被改动的写入，未完成记录保留恢复。资产回收检查任务、提交记录和存活页面撤销持有，不删除外部文件。

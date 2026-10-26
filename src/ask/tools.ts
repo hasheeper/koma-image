@@ -41,6 +41,8 @@ export interface ToolContext {
   readonly question?: string;
   readonly chatContext?: unknown;
   readonly recall?: (input: Readonly<Record<string, unknown>>) => unknown;
+  readonly readSlate?: (scope: "initial" | "latest") => unknown;
+  readonly readRef?: (input: Readonly<Record<string, unknown>>) => Promise<ToolOutcome>;
 }
 export interface ToolEntry {
   readonly tool: AskTool;
@@ -61,7 +63,7 @@ const getState: ToolEntry = {
     name: "get_state",
     description:
       "活动画板完整词文已随初始状态提供。按需读取其他画板（board_id）以对比；scope 默认 initial 为本轮冻结数据，仅确认外部最新改动用 latest。读取其他板不改变草稿基底。历史保持原索引，不扩张本轮可访问图片集合。",
-    schema: { type: "object", properties: { scope: { type: "string", enum: ["initial", "latest"] }, board_id: { type: "string" } }, additionalProperties: false },
+    schema: { type: "object", properties: { scope: { type: "string", enum: ["initial", "latest"] }, board_id: { type: "string" }, include_slate: { type: "boolean", description: "附带当前任务板的完整配方、描述、妥协记录及绑定元信息；默认只有摘要" } }, additionalProperties: false },
   },
   verb: "读取",
   object: () => "工作台",
@@ -71,7 +73,7 @@ const getState: ToolEntry = {
     if (input.board_id !== undefined && (typeof input.board_id !== "string" || !input.board_id.trim())) throw new Error("board_id 无效");
     const state = context.state(scope, input.board_id as string | undefined);
     return {
-      content: [{ type: "text", text: state.text }],
+      content: [{ type: "text", text: state.text }, ...(input.include_slate === true ? [{ type: "text" as const, text: dataBlock(canonical({ active_slate: context.readSlate?.(scope) ?? context.draftBase?.slate ?? null })) }] : [])],
       stat: `${state.images} 张历史`,
     };
   },
@@ -210,7 +212,15 @@ const readTurn: ToolEntry = {
     return { content: [{ type: "text", text: dataBlock(canonical(context.recall(input))), source: { kind: "recall" } }], stat: "原文" };
   },
 };
+const readRef: ToolEntry = {
+  tool: { name: "read_ref", description: "按用户问题需要读取协同 refs/ 资料。path 使用 workspace_state.refs_index 的完整相对路径；仅文件清单默认可见，未读取不能声称知道正文。同名须消歧。本轮首次读取冻结内容，重复或 offset 续读同一版本；下一轮重新读取。文本每次最多8000字符，按 next_offset 续读；图片以768px视觉通道读取，共享4次/1.5MP/400KB预算。与本轮附件合计最多4个文本和4张图片，不能读取目录外文件。", schema: schema({ path: { type: "string", minLength: 1, maxLength: 1024 }, offset: { type: "integer", minimum: 0 } }, ["path"]) },
+  verb: "读取", object: input => typeof input.path === "string" ? input.path : "协同资料",
+  run(input, context) {
+    if (!context.readRef) throw new Error("尚未挂载可读取的协同目录");
+    return context.readRef(input);
+  },
+};
 /** Only read ports enter these tools; no generating or form-writing service. */
 export function createTools(): ToolRegistry {
-  return new Map([getState, searchHistory, readMeta, diffMeta, viewImage, viewSheet, searchTags, readChat, readModelManual, proposeDraft, readTurn].map((entry) => [entry.tool.name, entry]));
+  return new Map([getState, searchHistory, readMeta, diffMeta, viewImage, viewSheet, searchTags, readChat, readModelManual, proposeDraft, readTurn, readRef].map((entry) => [entry.tool.name, entry]));
 }

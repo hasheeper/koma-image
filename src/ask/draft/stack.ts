@@ -31,10 +31,11 @@ function rebase(stack: readonly DraftRecord[], record: DraftRecord, receipt: str
 /** Page-level history. Only the stack and one redo retain full draft snapshots. */
 export function createDraftStack(writer: ReturnType<typeof createDraftWriter>) {
   let sequence = 0, undoStack: DraftRecord[] = [], redo: DraftRecord | null = null;
+  const retain = () => writer.retain?.([...undoStack, ...(redo ? [redo] : [])].flatMap(r => r.plan ? [r.plan] : []));
   function push(record: DraftRecord) {
     undoStack.push(record);
     if (undoStack.length > UNDO_LIMIT) undoStack.shift();
-    redo = null;
+    redo = null; retain();
   }
   return {
     get top() { return undoStack.at(-1) ?? null; },
@@ -60,7 +61,7 @@ export function createDraftStack(writer: ReturnType<typeof createDraftWriter>) {
       rebase(undoStack, record, receipt);
       record.status = "reverted";
       record.receipt = receipt;
-      redo = record;
+      redo = record; retain();
       return record;
     },
     async restore(id: number) {
@@ -92,11 +93,13 @@ export function createDraftStack(writer: ReturnType<typeof createDraftWriter>) {
       const removed = (r: DraftRecord) => r.conversationId === conversationId && turnIds.has(r.turnId);
       undoStack = undoStack.filter(r => !removed(r));
       if (redo && removed(redo)) redo = null;
+      retain();
     },
     /** Forget history only; deleting a conversation never writes the workspace. */
     removeConversation(id: string) {
       undoStack = undoStack.filter((r) => r.conversationId !== id);
       if (redo?.conversationId === id) redo = null;
+      retain();
     },
   };
 }

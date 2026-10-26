@@ -16,6 +16,11 @@ import { createUi, uiKey } from "./ui";
 import AskDrawer from "../ask/AskDrawer.vue";
 import { createAsk } from "../ask/service";
 import { askKey } from "./ask";
+import { createBridge } from "../bridge/service";
+import { createSlates } from "../slate/service";
+import { slateKey } from "./slate";
+import SlatePanel from "../slate/SlatePanel.vue";
+import { bridgeKey } from "./bridge";
 
 import { useServices } from "./services";
 import { createDrawing } from "../services/drawing";
@@ -39,9 +44,15 @@ onScopeDispose(() => editor.dispose());
 onScopeDispose(() => chat.dispose());
 provide(drawingKey, drawing);
 onScopeDispose(() => drawing.dispose());
-const ask = createAsk({ services, router, drawing, chat, ui });
+const slates = createSlates(services, drawing);
+provide(slateKey, slates);
+onScopeDispose(() => { void slates.dispose(); });
+const ask = createAsk({ services, router, drawing, chat, ui, slates });
 provide(askKey, ask);
 onScopeDispose(() => ask.dispose());
+const bridge = createBridge({ services, ask, drawing, router, ui, slates });
+provide(bridgeKey, bridge);
+onScopeDispose(() => { void bridge.dispose(); });
 usePresentation(shell, ui);
 onMounted(() => {
   if (
@@ -67,6 +78,7 @@ const workspaces = {
     />
   </KeepAlive>
   <AskDrawer />
+  <SlatePanel v-if="slates.visible.value" />
   <SettingsOverlay />
   <EditorOverlay />
   <KeyDialog />

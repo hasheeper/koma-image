@@ -1,3 +1,9 @@
+import { parseFile, fileIssue } from "./files.ts";
+import { parseSlateEdit } from "../../slate/edit.ts";
+import { contentKey, describe } from "../../slate/model.ts";
+import { boardForm } from "../../domain/drawing.ts";
+import { parseParameters, parameterIssue } from "./parameters.ts";
+import type { ParameterKey } from "./parameters.ts";
 import { characterCapability, cellCenter, nextCharacterId, sameValue } from "../../domain/characters.ts";
 import type { CharacterStep } from "./types.ts";
 import { prepareDrawingFields, reuseFields, samplerName, sizeProblem } from "../../domain/drawing.ts";
@@ -42,6 +48,9 @@ export function parseDraft(input: Readonly<Record<string, unknown>>, base: Draft
   const rawSteps = input.steps;
   const steps = rawSteps.map((raw) => {
     const step = record(raw);
+    if (step.kind === "save_ref") return parseFile(step, base);
+    if (step.kind === "slate_edit") return parseSlateEdit(step, base.slate ?? null, base.form, library);
+    if (step.kind === "params_patch") return { kind: "params_patch" as const, params: parseParameters(step.params) };
     if (step.kind === "prompt_patch") {
       const target = text(step.target, 80), mode = text(step.mode, 20);
       if (!/^(?:image\.(?:prompt|negative|char\.c[1-9]\d*\.(?:prompt|negative))|chat\.composer)$/.test(target)) throw new Error("草稿目标无效");
@@ -115,6 +124,7 @@ export function parseDraft(input: Readonly<Record<string, unknown>>, base: Draft
     if (p.batchTotal === undefined && p.batchCount === undefined) delete values.batchCount;
     return { kind: "restore_partial" as const, source, fields: [...new Set(step.fields as RestoreKey[])], values };
   });
+  if (steps.filter(s => s.kind === "slate_edit").length > 1) throw new Error("一份草稿只编辑一个任务板，请合并 Todo 操作");
   const workspaces = new Set(steps.map((s) => (s.kind === "chat_distill_branch" || s.kind === "chat_handoff" || s.kind === "prompt_patch" && s.target.startsWith("chat.")) ? "chat" : "image"));
   if (workspaces.size !== 1) throw new Error("一份草稿只能写入一个工作区");
   const newBoardName = input.new_board_name === undefined ? undefined : text(input.new_board_name, 80).trim();
@@ -190,7 +200,20 @@ export function validateDraft(draft: Draft, now: DraftState, options: ValidateOp
     aligned ||= moved;
     if (enabled && !issue) { if (char && charField) char[charField] = after; else if (field) working[field] = after; }
   };
+  const files = draft.steps.flatMap(step => step.kind === "save_ref" ? [step.file] : []);
+  const exportIssue = fileIssue(files, now.fileContext);
+  const slateStep = draft.steps.find(s => s.kind === "slate_edit");
+  let slate = slateStep ? structuredClone(slateStep.change) : undefined;
   draft.steps.forEach((step, i) => {
+    if (step.kind === "save_ref") { checked.push({ id: String(i), label: step.file.title, kind: "file", locked: true, enabled: true, issue: exportIssue, aligned: false, before: "", after: step.file.filename }); return; }
+    if (step.kind === "slate_edit") {
+      const before = step.change.before, live = now.slate ?? null;
+      let issue = before && (live?.id !== before.id || live.version !== before.version) ? "任务板版本已变化，请重新提议" : "";
+      for (const image of step.change.bindings) if (options.has?.(image) === false) issue ||= `${image.label} 已移除`;
+      if (options.off.size) issue ||= "任务与画板是一个组合，请整体应用或重新提议";
+      checked.push({ id: String(i), label: step.unlockRecipe ? "任务板 · 解锁配方" : "任务板", kind: "slate", locked: true, enabled: true, issue, aligned: !!issue, before: describe(before), after: describe(step.change.after) });
+      return;
+    }
     if (step.kind === "prompt_patch") return checkText(String(i), step.target, step.mode, step.anchor, step.text);
     if (step.kind === "character_edit") {
       const id = String(i), enabled = !options.off.has(id), cap = characterCapability(working.model);
@@ -221,6 +244,15 @@ export function validateDraft(draft: Draft, now: DraftState, options: ValidateOp
       const ordinal = step.op === "add" ? working.characters.length + 1 : initial.characters.findIndex(c => c.id === characterId) + 1;
       checked.push({ id, label, ...(characterId ? { characterId, characterLabel: `角色 ${ordinal || characterId} · ${characterId}` } : {}), kind: step.op === "add" || step.op === "remove" ? "rewrite" : "parameter", enabled, issue, aligned: false, before, after });
       if (enabled && !issue) working.characters = chars;
+      return;
+    }
+    if (step.kind === "params_patch") {
+      for (const [key, after] of Object.entries(step.params)) {
+        const field = key as ParameterKey, id = `${i}:${key}`, enabled = !options.off.has(id), before = working[field];
+        const issue = !sameValue(initial[field], draft.base.form[field]) && !sameValue(initial[field], after) ? "此参数已在外部修改" : "";
+        checked.push({ id, label: labels[field] ?? field, kind: "parameter", enabled, issue, aligned: !!issue, before: String(before), after: String(after) });
+        if (enabled && !issue) Object.assign(working, { [field]: after });
+      }
       return;
     }
     if (step.kind !== "restore_partial") return;
@@ -267,14 +299,33 @@ export function validateDraft(draft: Draft, now: DraftState, options: ValidateOp
     working.model = initial.model; working.sampler = initial.sampler;
     working.width = initial.width; working.height = initial.height;
   }
+  // Explicit parameter proposals are one constraint group, including model-dependent fields.
+  const direct = draft.steps.some(s => s.kind === "params_patch");
+  if (direct) {
+    const keys = new Set<ParameterKey>();
+    draft.steps.forEach((s, i) => { if (s.kind === "params_patch") for (const key of Object.keys(s.params) as ParameterKey[]) if (!options.off.has(`${i}:${key}`)) keys.add(key); });
+    if (working.model !== initial.model) for (const key of ["steps", "cfgRescale", "complexity", "qualityPreset", "negativePreset", "transparentBg"] as const) keys.add(key);
+    const issue = [...keys].map(key => parameterIssue(key, working, model)).find(Boolean);
+    if (issue) for (let i = 0; i < checked.length; i++) if (checked[i].enabled && checked[i].kind === "parameter") checked[i] = { ...checked[i], issue: checked[i].issue || issue };
+    if (checked.some(s => s.enabled && s.issue)) Object.assign(working, structuredClone(initial));
+  }
   const cap = characterCapability(working.model);
   if (cap.max && working.characters.filter(c => c.on).length > cap.max && (!sameValue(initial.characters, working.characters) || initial.model !== working.model)) {
     for (let i = 0; i < checked.length; i++) checked[i] = { ...checked[i], issue: checked[i].issue || `当前模型最多 ${cap.max} 个启用角色` };
     Object.assign(working, structuredClone(initial));
   }
-  if (workspace === "image" && now.boardPresent === false) { for (let i = 0; i < checked.length; i++) checked[i] = { ...checked[i], issue: "来源画板已删除" }; Object.assign(working, initial); }
+  if (workspace === "image" && now.boardPresent === false && draft.steps.some(s => s.kind !== "slate_edit")) { for (let i = 0; i < checked.length; i++) checked[i] = { ...checked[i], issue: "来源画板已删除" }; Object.assign(working, initial); }
+  if (slate) {
+    if (slateStep?.captureRecipe && slate.after?.golden_recipe) slate.after.golden_recipe.form = boardForm(working);
+    const row = checked.find(s => s.kind === "slate")!;
+    const at = checked.indexOf(row); checked[at] = { ...row, after: `${slateStep?.unlockRecipe ? "本次明确解锁配方并更新\n" : ""}${describe(slate.after)}` };
+    for (let i = 0; i < checked.length; i++) checked[i] = { ...checked[i], locked: true };
+    if (checked.some(s => s.issue)) { Object.assign(working, structuredClone(initial)); slate = undefined; }
+    else if (contentKey(slate.before) === contentKey(slate.after)) slate = undefined;
+  }
+  if (files.length) { if (options.off.size) for (let i = 0; i < checked.length; i++) checked[i] = { ...checked[i], issue: checked[i].issue || "文件与画板是一个组合，请整体应用或重新提议" }; for (let i = 0; i < checked.length; i++) checked[i] = { ...checked[i], locked: true }; if (checked.some(step => step.issue)) { Object.assign(working, structuredClone(initial)); slate = undefined; } }
   const changes = (Object.keys(working) as Field[]).filter((field) => !sameValue(working[field], initial[field])).map((field) => ({ field, before: initial[field], after: working[field] }));
-  const plan = { boardId: draft.base.boardId, boardName: now.boardName, ...(draft.newBoardName === undefined ? {} : { newBoardName: draft.newBoardName }), title: draft.title, workspace, conversationId: draft.base.conversationId, steps: checked, changes, aligned };
+  const plan = { boardId: slate && !changes.length && !draft.newBoardName ? undefined : draft.base.boardId, boardName: now.boardName, ...(draft.newBoardName === undefined ? {} : { newBoardName: draft.newBoardName }), title: draft.title, workspace, conversationId: draft.base.conversationId, steps: checked, changes, aligned, ...(files.length ? { files } : {}), ...(slate ? { slate } : {}) };
   return { ...plan, fingerprint: hash(canonical(plan)) };
 }
 

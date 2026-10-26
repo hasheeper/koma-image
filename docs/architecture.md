@@ -1,6 +1,6 @@
 # 架构规范
 
-更新：2026-10-25。描述当前仓库结构。功能状态和真实待验项见[当前状态](implementation-plan.md)，产品和 UI 标准见[设计语言](design-language.md)，行为约束见[业务契约](business-contracts.md)。
+更新：2026-10-26。描述当前仓库结构。功能状态和真实待验项见[当前状态](implementation-plan.md)，产品和 UI 标准见[设计语言](design-language.md)，行为约束见[业务契约](business-contracts.md)。
 
 ## 单页外壳与所有权
 
@@ -46,7 +46,9 @@ Canvas、指针、逐帧进度和明确委托的高频样式由原生驱动管�
 
 图像任务共用应用级调度器和 Web Locks，默认 N=1；忙时返回提示，不自动排队。批次持续占槽直到图片解码与结果处理完成。ASK 推理不占生成锁。数据库写入统一经数据租约和 `data.write`，延迟保存与缓存提供 flush／reload。详细责任见[网关、数据与调度](gateway-data-scheduler.md)。
 
-数据库为 `koma-image-favorites`、`koma-chat`、`koma-handoff`、`koma-ask`，偏好与凭据使用 `koma.*`，同步频道为 `koma-sync`。锁和键名集中于 `src/storage/names.ts`。ASK 收藏会话及附件、记忆和归档保存在独立库，不进入普通 ZIP；撤销执行记录和调用调试不持久化。
+数据库为 `koma-image-favorites`、`koma-chat`、`koma-handoff`、`koma-ask`、`koma-bridge`、`koma-slate`，偏好与凭据使用 `koma.*`，同步频道为 `koma-sync`。锁和键名集中于 `src/storage/names.ts`。ASK 收藏会话及附件、记忆和归档保存在独立库，不进入普通 ZIP；撤销执行记录和调用调试不持久化。
+
+Bridge 的目录句柄、去重回执及预览归属保存在 `koma-bridge/state`，通过 `data.write` 写入且不进入普通备份。应用级 Bridge 服务负责前台文件同步，独立目录锁保证同源单写入者；外部草稿及队列归 ASK 会话持有，共用已有草稿与撤销服务。默认本地任务由 `src/slate/` 管理，`koma-slate` 保存任务、独立成果和跨画板提交记录；目录映射／交付回执保存在 `koma-bridge`，均不进入普通 ZIP。任务不属于 ASK 会话，目录和 Key 缺失时仍可使用。详见[外部协同与任务板](ask/bridge.md)。
 
 NAI 参考资产与编码由应用级 `services/nai-references.ts` 管理，收藏库 schema v2 增加两个独立存储；画板只持小型 JSON。Vibe 编码与生图共用任务锁，成功编码立即落库，参考准备后固定来源上下文。
 
@@ -59,6 +61,8 @@ NAI 参考资产与编码由应用级 `services/nai-references.ts` 管理，收�
 | `src/app` | 外壳、路由、保活、展示协调与服务注入 |
 | `src/workspaces`、`src/overlays`、`src/shared` | 工作区、编辑／设置和共享 Vue 控件 |
 | `src/ask` | 推理会话、只读工具、草稿、附件、收藏、提示词与压缩 |
+| `src/slate` | 默认本地任务、共享编辑规则、独立成果与可恢复提交、目录版本映射／交付、确定性标注及会话待办／轻量总览 |
+| `src/bridge` | 外部 IMAGE 状态／预览同步、目录生命周期、JSON 收件与回执、refs 资料读取与用户导出 |
 | `src/domain` | 纯业务、模型、参数和角色结构 |
 | `src/gateway` | Profile、请求转换、鉴权、连接诊断与传输 |
 | `src/services`、`src/storage` | 调度、数据租约、资源、连接、持久化和备份 |

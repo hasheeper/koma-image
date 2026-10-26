@@ -1,10 +1,13 @@
 import type { CheckedStep, DraftPlan } from "./types.ts";
+import { canonical } from "../canonical.ts";
+import type { SlateChange } from "../../slate/model.ts";
 
 /** Display-only model for the draft card; validation and writing never read it. */
-export type FieldKey = "handoff" | "branch" | "prompt" | "negative" | "composer" | "params" | "characters" | `character:${string}`;
+export type FieldKey = "slate" | "handoff" | "branch" | "prompt" | "negative" | "composer" | "params" | "characters" | `character:${string}`;
 export interface Piece { readonly op: "keep" | "del" | "ins"; readonly text: string }
 export interface Line { readonly sign: "del" | "ins"; readonly text: string }
 export type StepView =
+  | { readonly kind: "slate"; readonly step: CheckedStep; readonly heading: string; readonly summary: string; readonly recipe: string; readonly caution: string; readonly added: number; readonly removed: number }
   | { readonly kind: "text"; readonly step: CheckedStep; readonly hunks: readonly (readonly Line[])[]; readonly added: number; readonly removed: number }
   | { readonly kind: "param"; readonly step: CheckedStep; readonly name: string; readonly source: string; readonly icon: string; readonly before: string; readonly after: string; readonly added: number; readonly removed: number }
   | { readonly kind: "note"; readonly step: CheckedStep; readonly text: string; readonly added: 0; readonly removed: 0 }
@@ -22,6 +25,7 @@ export interface Destination { readonly label: "新画板" | "新对话"; readon
 export interface DraftView { readonly fields: readonly FieldView[]; readonly added: number; readonly removed: number; readonly destination: Destination | null }
 
 const fields: Record<Exclude<FieldKey, `character:${string}`>, { label: string; icon: string }> = {
+  slate: { label: "任务", icon: "i-tasks" },
   handoff: { label: "新对话", icon: "i-chat" },
   branch: { label: "对话分支", icon: "i-branch" },
   prompt: { label: "Prompt", icon: "i-brush" },
@@ -30,7 +34,7 @@ const fields: Record<Exclude<FieldKey, `character:${string}`>, { label: string; 
   characters: { label: "角色组", icon: "i-model" },
   params: { label: "参数", icon: "i-parameters" },
 };
-const order: readonly FieldKey[] = ["handoff", "branch", "prompt", "negative", "composer", "characters", "params"];
+const order: readonly FieldKey[] = ["slate", "handoff", "branch", "prompt", "negative", "composer", "characters", "params"];
 const paramIcons: Record<string, string> = { Seed: "i-dice", 模型: "i-model", 宽: "i-frame", 高: "i-frame" };
 
 export const tagsOf = (text: string) => text.split(/[,\n，]/).map((s) => s.trim()).filter(Boolean);
@@ -80,10 +84,29 @@ export function hunksOf(pieces: readonly Piece[]): Line[][] {
 }
 
 const fieldOf = (step: CheckedStep): FieldKey =>
-  step.characterId ? `character:${step.characterId}` : step.kind === "handoff" || step.id.startsWith("0:option:") ? "handoff" : step.label.startsWith("角色组") ? "characters" : step.kind === "parameter" ? "params" : step.kind === "branch" ? "branch"
+  step.kind === "slate" ? "slate" : step.characterId ? `character:${step.characterId}` : step.kind === "handoff" || step.id.startsWith("0:option:") ? "handoff" : step.label.startsWith("角色组") ? "characters" : step.kind === "parameter" ? "params" : step.kind === "branch" ? "branch"
     : step.label.startsWith("Prompt") ? "prompt" : step.label.startsWith("Negative") ? "negative" : "composer";
 
-function stepView(step: CheckedStep, handoff: boolean): StepView {
+function slateView(step: CheckedStep, change?: SlateChange): Extract<StepView, { kind: "slate" }> {
+  const before = change?.before, after = change?.after, counts: string[] = [];
+  if (change) {
+    const old = new Map(before?.todos.map(t => [t.id, t]) ?? []), next = new Map(after?.todos.map(t => [t.id, t]) ?? []);
+    const added = [...next.keys()].filter(id => !old.has(id)).length, removed = [...old.keys()].filter(id => !next.has(id)).length;
+    const updated = [...next].filter(([id, todo]) => old.has(id) && canonical(old.get(id)) !== canonical(todo)).length;
+    if (added) counts.push(`新增 ${added} 项`);
+    if (updated) counts.push(`修改 ${updated} 项`);
+    if (removed) counts.push(`删除 ${removed} 项`);
+  }
+  const recipe = change && canonical(before?.golden_recipe ?? null) !== canonical(after?.golden_recipe ?? null)
+    ? after?.golden_recipe ? `${before?.golden_recipe ? "更新" : "保存"}配方 · ${after.golden_recipe.form.width}×${after.golden_recipe.form.height} · ${after.golden_recipe.locked ? "锁定" : "可修改"}` : before?.golden_recipe ? "移除配方" : "" : "";
+  return { kind: "slate", step,
+    heading: change ? `${!before ? "新建" : !after ? "删除" : before.title !== after.title ? "重命名" : "更新"} · ${after?.title ?? before?.title ?? "任务板"}` : step.issue ? "任务板有冲突" : "任务板无变化",
+    summary: counts.join(" · "), recipe,
+    caution: [step.label.includes("解锁配方") ? "本次解锁配方" : "", change?.directoryRequired ? "要求目录交付" : ""].filter(Boolean).join(" · "),
+    added: after ? 1 : 0, removed: before ? 1 : 0 };
+}
+function stepView(step: CheckedStep, handoff: boolean, slate?: SlateChange): StepView {
+  if (step.kind === "slate") return slateView(step, slate);
   if (step.kind === "parameter") {
     const [name, source = ""] = step.label.split(" · "), changed = step.before !== step.after ? 1 : 0;
     return { kind: "param", step, name, source, icon: step.id.startsWith("0:option:") ? "i-frame" : paramIcons[name] ?? "i-parameters",
@@ -111,9 +134,9 @@ export function draftView(plan: DraftPlan): DraftView {
   // The new conversation is named in the header, so its locked step has no row.
   const opened = plan.steps.find((s) => s.kind === "handoff" && s.locked);
   for (const step of plan.steps) {
-    if (step === opened) continue;
+    if (step === opened || step.kind === "file") continue;
     const key = fieldOf(step);
-    groups.set(key, [...(groups.get(key) ?? []), stepView(step, !!opened)]);
+    groups.set(key, [...(groups.get(key) ?? []), stepView(step, !!opened, plan.slate)]);
   }
   let added = 0, removed = 0;
   const out: FieldView[] = [];

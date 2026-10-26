@@ -227,4 +227,6 @@
         <symbol id="tag-i-next" viewBox="0 0 24 24"><path vector-effect="non-scaling-stroke" d="m9.5 5 7 7-7 7" /></symbol>
         <symbol id="tag-i-send" viewBox="0 0 24 24"><g transform="translate(12 12) scale(0.936) translate(-12.00 -12.00)"><path vector-effect="non-scaling-stroke" d="M4 12h13" /><path vector-effect="non-scaling-stroke" d="m12 7 5 5-5 5" /><path vector-effect="non-scaling-stroke" d="M19.5 4.5v15" /></g></symbol>
 
+<symbol id="i-folder" viewBox="0 0 24 24"><path d="M3 7a2 2 0 0 1 2-2h5l2 2h7a2 2 0 0 1 2 2v9a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2Z"/></symbol>
+<symbol id="i-tasks" viewBox="0 0 24 24"><circle cx="5.5" cy="7" r="2"/><circle cx="5.5" cy="17" r="2"/><path d="M11 7h9M11 17h9"/></symbol>
 </svg>

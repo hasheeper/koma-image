@@ -1,6 +1,6 @@
 # ASK 检索与状态
 
-更新：2026-10-25。R1–R4 已完成本地模拟收口。本文维护当前快照、历史检索、词典查询与消歧；勘探差异、原修订补丁与阶段证据见[归档](../archive/2026-10-25/README.md)。现行决策以[ASK 维护入口](ask-implementation-plan.md)为准。
+更新：2026-10-26。R1–R4 已完成本地模拟收口。本文维护当前快照、历史检索、词典查询与消歧；勘探差异、原修订补丁与阶段证据见[归档](../archive/2026-10-25/README.md)。现行决策以[ASK 维护入口](ask-implementation-plan.md)为准。
 
 ## 1. 状态与展示边界
 
@@ -19,6 +19,7 @@
 - 删除 `image.prompt_sections`，不换名输出 `segments` 或另一份全文切片。
 - 活动画板始终 `image.form.text_included=true`，直接包含完整 prompt/negative 和每角色 id/on/prompt/negative/position；其他画板只给目录。无锚点时 `image.current` 仅含 ID，history 仅 mode/count/latest_id，favorites 仅 count，不预载历史文本、差异或聚类。显式历史／收藏锚点保留模式 A；附件或 CHAT ID 不隐式展开 IMAGE 历史。
 - 根层 `base_hash` 覆盖源画板 ID、完整生成表单与 CHAT composer；不另加 form 内 hash。草稿继续绑定发送时的源板与快照。
+- 根层 `refs_index` 只包含挂载资料的可用性、文件相对路径／大小和截断信息；不含正文或图片，不进入画板 `base_hash`。`read_ref({path, offset?})` 在本轮冻结目录清单内按需读取，完整相对路径用于同名消歧，文本按 `next_offset` 续读。同轮固定首次读取版本，后续轮次可重新读取；具体预算和生命周期见[共享资料](bridge.md#共享资料选择附件与按需读取)。
 - 每个工作区都附 `chat_model`：目录就绪时为当前 CHAT 模型的显示名、`max_images`、可写尺寸项 `writable`（`size`／`aspect_ratio`／`image_size` 中模型声明者的当前值与可选值）与只读项 `read_only`（`quality`）；未就绪为 `{ready:false}`。不含连接、上游模型 ID 或其他设置，不进入 `base_hash`；草稿本地另存模型 ID，用于发现模型已切换。`get_chat_context` 同样返回 `chat_model`，并附 `available_models` 名称列表与各轮版本的图片 ID。
 - `characters` 已接通真实角色组，`vibes` 仍为空预留；六维是模型理解方式，不新增六类 JSON 字段。
 - 初始快照在整轮冻结。`get_state` 默认 scope=initial，可通过 board_id 读取本轮其他画板完整表单；scope=latest 才读取外部新改动。结果只追加在队尾，历史索引仍不展开；不能使新图进入本轮 library，也不能替换草稿使用的初始 hash。
@@ -157,3 +158,7 @@ rankTags 默认按收录量优先，精确词可能被高热度近似词挤出�
 实现入口为 `digest/`、`search-history.ts`、`search-tags.ts`、`tools.ts` 及共享 `services/tag-search.ts`。模型工具描述与实际 Schema 同步，不以工作区切换动态改变工具集合。
 
 模拟验证覆盖冻结来源、别名去重、时间与缺失字段、OR 关键词、相似度、前序变化、词典逐项失败／取消和候选选择。真实图片诊断及供应商效果仍需独立验证；当前检查入口见[项目说明](../../README.md#开发与检查)。
+
+### 本地任务状态
+
+`active_slate` 在每轮初始状态与 Bridge 状态中为同源摘要：任务板身份／版本、配方概况／锁定、Todo 标题／状态／要求／绑图状态。要求最多 320 字，截短有标记；无活动板为 null。`get_state({include_slate:true})` 按需读取完整冻结任务与配方；scope latest 只用于核验当前修改，不改变草稿基底。原图和连接配置不进入摘要。

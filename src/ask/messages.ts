@@ -11,7 +11,7 @@ export interface AskText {
   readonly type: "text";
   readonly text: string;
   /** Local provenance only; adapters serialize just type/text. */
-  readonly source?: { readonly kind: "attachment"; readonly id: string; readonly archived?: boolean; readonly heading?: string }
+  readonly source?: { readonly kind: "attachment"; readonly id: string; readonly archived?: boolean; readonly heading?: string; readonly offset?: number; readonly end?: number }
     | { readonly kind: "workspace_state" }
     | { readonly kind: "recall"; readonly archived?: boolean };
 }

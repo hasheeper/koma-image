@@ -1,3 +1,8 @@
+import type { FileContext, FileStep, DraftFile } from "./files.ts";
+import type { Slate, SlateChange } from "../../slate/model.ts";
+import type { SlateStep } from "../../slate/edit.ts";
+import type { ExternalOrigin } from "../../bridge/protocol.ts";
+import type { ParameterStep } from "./parameters.ts";
 import type { ChatDraftSnapshot, ChatOptionState } from "../chat-context.ts";
 import type { WorkspaceId } from "../../app/routes.ts";
 import type { ChatSelection } from "../../domain/conversation.ts";
@@ -62,6 +67,8 @@ export interface CharacterStep {
   readonly placement?: "auto" | "manual";
 }
 export interface DraftState {
+  readonly fileContext?: FileContext;
+  readonly slate?: Slate | null;
   readonly boardId?: string;
   readonly boardName?: string;
   readonly boardPresent?: boolean;
@@ -78,13 +85,14 @@ export interface DraftState {
   readonly samplersByModel?: Readonly<Record<string, readonly string[]>>;
 }
 export interface Draft {
+  readonly external?: ExternalOrigin;
   readonly title: string;
   /** Present only when this proposal targets a named new IMAGE board. */
   readonly newBoardName?: string;
   readonly baseHash: string;
   /** Original request, reused by the explicit “重新提议” action. */
   readonly question: string;
-  readonly steps: readonly (TextStep | RestoreStep | BranchStep | CharacterStep | HandoffStep)[];
+  readonly steps: readonly (FileStep | SlateStep | ParameterStep | TextStep | RestoreStep | BranchStep | CharacterStep | HandoffStep)[];
   readonly base: DraftState;
 }
 export type Field = "composer" | keyof DrawingForm;
@@ -94,7 +102,7 @@ export interface CheckedStep {
   readonly characterLabel?: string;
   readonly id: string;
   readonly label: string;
-  readonly kind: "patch" | "rewrite" | "parameter" | "branch" | "handoff";
+  readonly kind: "patch" | "rewrite" | "parameter" | "branch" | "handoff" | "slate" | "file";
   readonly enabled: boolean;
   readonly locked?: boolean;
   readonly issue: string;
@@ -107,6 +115,8 @@ export interface CheckedStep {
   readonly suffix?: string;
 }
 export interface DraftPlan {
+  readonly files?: readonly DraftFile[];
+  readonly slate?: SlateChange;
   readonly boardId?: string;
   readonly boardName?: string;
   readonly newBoardName?: string;

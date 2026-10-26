@@ -15,6 +15,7 @@ import type { Draft } from "./draft/types.ts";
 /** No credentials, call-debug bodies, live object URLs or undo receipts. */
 export interface SavedConversation {
   readonly version: 1;
+  readonly slateId?: string | null;
   readonly id: string;
   readonly title: string;
   readonly named: boolean;
@@ -27,6 +28,7 @@ export interface SavedConversation {
   readonly anchor: string | null;
   readonly tray: readonly string[];
   readonly attachments: readonly SavedAttachment[];
+  readonly externalQueue?: readonly { readonly value: Draft; readonly turnId: number }[];
   readonly draft: { readonly value: Draft; readonly off: readonly string[]; readonly turnId: number } | null;
 }
 

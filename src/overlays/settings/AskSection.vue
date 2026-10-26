@@ -4,6 +4,7 @@ import { useShell } from "../../app/shell";
 import { useServices } from "../../app/services";
 import { useUi, message } from "../../app/ui";
 import AppIcon from "../../shared/AppIcon.vue";
+import BridgeSettings from "../../bridge/BridgeSettings.vue";
 import ModelIcon from "../../shared/ModelIcon.vue";
 import type { Connection, Routing } from "../../config/connections.ts";
 import { reasoningConnections } from "../../config/connections.ts";
@@ -407,6 +408,7 @@ async function removeReplacement(rule: Replacement) {
         </div>
       </section>
     </template>
+    <BridgeSettings />
   </div>
 </template>
 <style scoped>

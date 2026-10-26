@@ -1,6 +1,6 @@
 # 样式加载与维护归属
 
-更新：2026-10-25。维护现行级联与组件责任；G0–G4 过程、大小对比和验收见[归档](archive/2026-10-25/README.md)。视觉标准见[设计语言](design-language.md)，检查规则见[样式检查](style-checks.md)。
+更新：2026-10-26。维护现行级联与组件责任；G0–G4 过程、大小对比和验收见[归档](archive/2026-10-25/README.md)。视觉标准见[设计语言](design-language.md)，检查规则见[样式检查](style-checks.md)。
 
 ## 基础入口与级联
 
@@ -43,6 +43,10 @@ NAI 提示词内底栏归 `NaiPromptOptions.vue`，档位菜单归 `NaiSelect.vu
 
 组件私有规则归对应 Vue，不保留第二份全局副本。
 
+外部协同目录标签归 `src/bridge/DirectoryChip.vue`，锚定菜单的材质、定位和焦点清理归 `AskMenu.vue`；手动 JSON 兜底归 `BridgeSettings.vue`，在已有设置 ASK 页面内复用共享设置行。无资料选择或独立导出弹窗。
+
+任务与配方审阅归 `DraftSlate.vue`，文件紧凑行与可读详情归 `DraftFiles.vue`；共用 DraftCard 的图标槽、缩进和颜色变量。完成记录复用 `AskToolGroup.vue`，外部来源以同行小字显示，详细来源按需展开；不添加全局补丁或独立草稿卡。
+
 连接图标由 `src/shared/ConnectionAvatar.vue` 统一展示，`src/domain/connection-icon.ts` 按官方 Profile／已识别官方地址选择 Logo，按 Profile 能力选择通用图标，复用已有模型 Logo 和站内 sprite；设置卡片、模型列表标题与来源行的图标容器、尺寸仍归 `settings.css`。
 
 图像／文本分组标题、连接卡底行的优先级控件与模型来源顺序归 `settings.css`；不另套分组面板。顶栏实际来源的 Logo 与同行张数估算归 `ui.css`，不增加下方注释行。
@@ -68,3 +72,5 @@ NAI 提示词内底栏归 `NaiPromptOptions.vue`，档位菜单归 `NaiSelect.vu
 AI 命名的共用星光／停止按钮与状态动效由 `src/shared/AiNameButton.vue` 的 scoped 样式负责；画板胶囊内的位置归 `BoardSwitcher.vue`，ASK 标题与手动改名行归 `AskConversations.vue`。命名模型设置复用现有设置行与模型列表；减少动效时停止脉动，不新增全局规则。
 
 绘图统一底栏、三段导航与抽屉动画归 `DrawingBottomPanel.vue`，参考缩略图及控件私有排布归 `NaiReferenceEditor.vue`，原参数宿主归 `DrawingParameters.vue`，底栏表面归 `ImageWorkspace.vue`；不改公共 scrub 的填充矩形样式。
+
+会话内紧凑 Todo 与高度展开动画归 `src/slate/AskTodos.vue`，280px 轻量总览归 `SlatePanel.vue`，必要的成果选图／查看归 `SlateDeliverable.vue`；复用共享 modal、控件和 tokens。没有大任务板、单项详情编辑或常驻关联行，不新增全局样式补丁。

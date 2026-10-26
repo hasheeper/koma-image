@@ -1,46 +1,12 @@
 import type { ToolEntry } from "../tools.ts";
 import { parseDraft } from "./validate.ts";
-import { restoreKeys } from "./types.ts";
-import { chatSizeKeys } from "../../domain/chat-options.ts";
+import { draftSchema } from "./schema.ts";
 
 export const proposeDraft: ToolEntry = {
   tool: {
     name: "propose_draft",
-    description: "提交一份待用户确认的草稿，随后停止工具调用；不会写入或生成。必须同时用简短正文说明改动。一份草稿只针对一个工作区。base_hash 必须用本轮初始快照值。局部 replace/before/after 用唯一 anchor；append 追加原样 text；rewrite 为完整新文本。restore_partial 只能选来源图已有字段，characters 恢复整组角色和定位。character_edit 的 add 自带完整 prompt/negative/on 和可选位置，本地分配 ID；不要在同份草稿 patch 新增角色。add/set_position 的坐标不自动开启手动定位；当前为 auto 且需要坐标生效时，同草稿另加 kind=character_edit、op=set_placement、placement=manual 的步骤。set_position 将该角色的位置替换为单中心，与界面选点一致。草稿始终以本轮源画板为基底，读取其他画板不改变基底。IMAGE 可用 new_board_name 提议复制源画板后应用到具名新画板；省略则默认写回源画板。两者都需用户点击确认，不会立即创建画板。chat_handoff 必须是草稿唯一步骤：确认后新开 CHAT 会话（复用空白会话），写入参考图、尺寸类选项和输入框，不发送、不报价；在 IMAGE／TAGS 提问时写入 CHAT 只能用它。",
-    schema: {
-      type: "object", additionalProperties: false, required: ["base_hash", "draft_title", "steps"],
-      properties: {
-        // Avoid `title`: relays may strip schema metadata even inside properties.
-        base_hash: { type: "string" }, draft_title: { type: "string", description: "草稿标题", minLength: 1, maxLength: 120 },
-        new_board_name: { type: "string", description: "仅 IMAGE：填写即锁定目标为此名称的新画板，确认时复制来源画板并写入草稿；不会提供写回来源画板的选项。由本次回复直接给出简短场景／主题名，建议 4–12 字；与 draft_title 的改动摘要分开。省略则默认应用到来源画板，用户可在应用菜单选择新画板。", minLength: 1, maxLength: 80 },
-        steps: { type: "array", minItems: 1, maxItems: 12, items: { anyOf: [
-          { type: "object", additionalProperties: false, required: ["kind", "target", "mode", "text"], properties: {
-            kind: { type: "string", enum: ["prompt_patch"] }, target: { type: "string", description: "image.prompt、image.negative、chat.composer（仅在 CHAT 提问时）；角色文本如 image.char.c2.prompt 或 image.char.c2.negative，c2 替换为状态中的稳定角色 ID，目标不存在时作废" },
-            mode: { type: "string", enum: ["replace", "before", "after", "append", "rewrite"] }, anchor: { type: "string", maxLength: 24000 }, text: { type: "string", maxLength: 24000 },
-          } },
-          { type: "object", additionalProperties: false, required: ["kind", "source", "fields"], properties: {
-            // parseDraft deduplicates fields; omit uniqueItems for Gemini relays.
-            kind: { type: "string", enum: ["restore_partial"] }, source: { type: "string", description: "工作区图片 ID，如 #h1；#a 附件参数仅供参考，不能作恢复来源" }, fields: { type: "array", minItems: 1, items: { type: "string", enum: [...restoreKeys] } },
-          } },
-          { type: "object", additionalProperties: false, required: ["kind", "op"], properties: {
-            kind: { type: "string", enum: ["character_edit"] }, op: { type: "string", enum: ["add", "remove", "reorder", "set_enabled", "set_position", "set_placement"] },
-            id: { type: "string", description: "现有角色稳定 ID，如 c2" }, ids: { type: "array", items: { type: "string" }, description: "reorder 使用完整角色 ID 排列" },
-            prompt: { type: "string", maxLength: 24000 }, negative: { type: "string", maxLength: 24000 }, on: { type: "boolean" },
-            cell: { type: "string", description: "V4.5 位置 A1–E5" }, x: { type: "number", minimum: 0, maximum: 1 }, y: { type: "number", minimum: 0, maximum: 1 }, placement: { type: "string", enum: ["auto", "manual"] },
-          } },
-          { type: "object", additionalProperties: false, required: ["kind", "source", "exclude", "text"], properties: {
-            kind: { type: "string", enum: ["chat_distill_branch"] }, source: { type: "string", description: "仅在 CHAT 提问时可用。当前分支、该轮选中版本内的已完成图片 ID，如 #c2.1 或 #c2.1.2" },
-            exclude: { type: "array", items: { type: "string" }, description: "从 get_chat_context 读取的当前分支轮次 ID；仅排除其文字" }, text: { type: "string", maxLength: 24000 },
-          } },
-          { type: "object", additionalProperties: false, required: ["kind", "images", "options", "text"], properties: {
-            kind: { type: "string", enum: ["chat_handoff"] },
-            images: { type: "array", items: { type: "string" }, description: "作为新会话参考图的 #h、#f 或 #cN.M[.K]，按顺序，数量不超过 chat_model.max_images；可为空" },
-            options: { type: "object", additionalProperties: false, description: "仅填 chat_model.writable 中出现的键，值取其 options；quality 等只读项不能写入", properties: Object.fromEntries(chatSizeKeys.map((key) => [key, { type: "string" }])) },
-            text: { type: "string", minLength: 1, maxLength: 24000, description: "新会话输入框文字，不会发送" },
-          } },
-        ] } },
-      },
-    },
+    description: "提交一份待用户确认的草稿，随后停止工具调用；不会写入或生成。必须同时用简短正文说明改动。一份草稿只针对一个工作区。save_ref 将 recipe（提议时画板）、memo（text 原文）或 slate（提议时活动清单）作为文件加入同卡，确认后写 refs/，未挂载时下载；可填 document_title，不能指定路径、覆盖或运行命令。slate_edit 可新建或推进本地任务板：已有任务需要 slate_id 和 expected_version，创建标题使用 slate_title、todo_title，新 Todo ID 本机分配；图像任务完成必须同时 bind 本轮 #h/#f，绑定明确 caption_source（base/sent/character）与 caption_mode（full/strip_syntax）。锁定配方修改须显式 unlock；capture_current 保存同稿修改后的完整画板配方。可与 IMAGE prompt_patch/params_patch 同稿整体确认；directory_required 仅在用户要求目录已交付时设 true。完整任务详情用 get_state(include_slate=true)。base_hash 必须用本轮初始快照值。局部 replace/before/after 用唯一 anchor；append 追加原样 text；rewrite 为完整新文本。params_patch.params 可直接建议安全表单参数，使用状态中的型号能力，Seed 为字符串、空串随机；不会报价或生成。restore_partial 只能选来源图已有字段，characters 恢复整组角色和定位。character_edit 的 add 自带完整 prompt/negative/on 和可选位置，本地分配 ID；不要在同份草稿 patch 新增角色。add/set_position 的坐标不自动开启手动定位；当前为 auto 且需要坐标生效时，同草稿另加 kind=character_edit、op=set_placement、placement=manual 的步骤。set_position 将该角色的位置替换为单中心，与界面选点一致。草稿始终以本轮源画板为基底，读取其他画板不改变基底。IMAGE 可用 new_board_name 提议复制源画板后应用到具名新画板；省略则默认写回源画板。两者都需用户点击确认，不会立即创建画板。chat_handoff 必须是草稿唯一步骤：确认后新开 CHAT 会话（复用空白会话），写入参考图、尺寸类选项和输入框，不发送、不报价；在 IMAGE／TAGS 提问时写入 CHAT 只能用它。",
+    schema: draftSchema,
   },
   verb: "整理", object: () => "草稿", final: true,
   run(input, context) {

@@ -3,6 +3,7 @@ import assert from "node:assert/strict";
 import { mkdir, readFile } from "node:fs/promises";
 import { createServer } from "vite";
 import { chromium } from "playwright";
+import { constitution } from "../src/ask/prompts/constitution.ts";
 
 let server, browser, origin;
 before(async () => {
@@ -110,13 +111,13 @@ async function addImage(page, prompt) {
   }, prompt);
 }
 const drawer = (page) => page.locator("#askDrawer");
-/** The 更多 menu holds the call debug, settings and the image/preference switches. */
+/** The compact 更多 menu holds compaction and call debugging. */
 async function openMore(page) {
   await drawer(page).getByRole("button", { name: "更多", exact: true }).click();
   return page.locator("#askMoreMenu");
 }
 async function openDebug(page) {
-  await (await openMore(page)).getByRole("menuitem", { name: /调用上下文/ }).click();
+  await (await openMore(page)).getByRole("menuitem", { name: /调用调试/ }).click();
 }
 /** The full draft body starts collapsed and stays as the user left it. */
 async function openDraft(page) {
@@ -424,15 +425,15 @@ for (const connectionId of ["chat", "claude"]) test(`ASK prompts: ${connectionId
     await setAdult(true);await page.waitForFunction(()=>ask.adult.value===true);release();
     await drawer(page).locator('.ask-turn[data-status="done"]').waitFor();
     assert.equal(calls.length,2);assert.equal(system(calls[0]),system(calls[1]));
-    assert.doesNotMatch(system(calls[0]),/创作语境与题材包容/);
+    assert.equal(system(calls[0]).includes(constitution.adult),false);
     assert.doesNotMatch(calls[0].raw,/分格逐一描述地点/);
     assert.match(calls[1].raw,/分格逐一描述地点/);
     assert.match(await drawer(page).locator(".ask-tool").textContent(),/已查阅\s*NAI 多格漫画与画中文字/);
 
     llm.push({body:answer()});await send("继续讨论构图");
     await drawer(page).locator('.ask-turn[data-status="done"]').nth(1).waitFor();
-    assert.match(system(calls[2]),/创作语境与题材包容/);
-    assert.equal(system(calls[2]).split("## 创作语境与题材包容").length,2);
+    assert.equal(system(calls[2]).includes(constitution.adult),true);
+    assert.equal(system(calls[2]).split(constitution.adult).length,2);
     await setAdult(false);await page.waitForFunction(()=>ask.adult.value===false);
     llm.push({body:answer()});await send("再看一下");
     await drawer(page).locator('.ask-turn[data-status="done"]').nth(2).waitFor();
@@ -647,7 +648,7 @@ test("ASK compatibility: catalog and manual model IDs keep spaces/suffixes throu
       for (const call of calls.slice(start)) {
         assert.equal(call.path, "/v1/chat/completions");
         assert.equal(call.body.model, id);
-        assert.equal(call.body.tools.length, 11);
+        assert.equal(call.body.tools.length, 12);
         assert.equal(/"uniqueItems"\s*:/.test(JSON.stringify(call.body.tools)), false);
       }
       assert.equal(calls.at(-1).body.messages.at(-1).role, "tool");
@@ -867,7 +868,7 @@ test("ASK drawer: Ctrl+J toggles, a scripted tool turn streams and is announced 
     const announced = await page.locator('#askIsland [aria-live="polite"]').textContent();
     assert.match(announced, /先读一下状态。[\s\S]*原因[\s\S]*#h1 的色调词/);
     assert.equal(await page.evaluate(() => ask.announce.value.id), 1, "one announcement per finished turn");
-    assert.match(await (await openMore(page)).getByRole("menuitem", { name: /调用上下文/ }).getAttribute("title"), /tokens/);
+    assert.match(await (await openMore(page)).getByRole("menuitem", { name: /调用调试/ }).getAttribute("title"), /tokens/);
     await page.keyboard.press("Escape");
     await page.locator("#askMoreMenu").waitFor({ state: "detached" });
     await drawer(page).screenshot({ path: ".local/ask/drawer-turn.png" });
@@ -876,7 +877,7 @@ test("ASK drawer: Ctrl+J toggles, a scripted tool turn streams and is announced 
     const [first, second] = calls;
     assert.equal(first.headers.authorization, "Bearer synthetic-chat");
     assert.equal(first.body.model, "reasoning-a");
-    assert.deepEqual(first.body.tools.map((t) => t.function.name), ["get_state", "search_history", "get_meta", "diff_meta", "view_image", "view_sheet", "search_tags", "get_chat_context", "get_model_manual", "propose_draft", "get_turn"]);
+    assert.deepEqual(first.body.tools.map((t) => t.function.name), ["get_state", "search_history", "get_meta", "diff_meta", "view_image", "view_sheet", "search_tags", "get_chat_context", "get_model_manual", "propose_draft", "get_turn", "read_ref"]);
     assert.match(first.body.messages[0].content, /你是 Koma ASK[\s\S]*<user_preferences>\n先说结论\n<\/user_preferences>/);
     const question = first.body.messages.at(-1).content;
     // Text-only user turns flatten to one string: the locked state, then the question.
@@ -913,17 +914,12 @@ test("ASK drawer: Esc closes the popover, then stops the turn, then the drawer; 
     await bind(page);
     await page.keyboard.press("Control+j");
     await drawer(page).waitFor();
-    const menu = await openMore(page), preference = menu.getByRole("menuitemcheckbox", { name: "使用个人偏好" });
-    assert.equal(await preference.getAttribute("aria-checked"), "true");
-    await preference.click();
-    assert.equal(await preference.getAttribute("aria-checked"), "false");
-    assert.equal(await drawer(page).locator(".ask-paused").isVisible(), true);
+    const menu = await openMore(page);
+    assert.deepEqual(await menu.getByRole('menuitem').allTextContents(), ['压缩上下文','调用调试']);
     await page.keyboard.press("Escape");
     await menu.waitFor({ state: "detached" });
     assert.equal(await drawer(page).isVisible(), true);
     assert.equal(await page.evaluate(() => document.activeElement?.getAttribute("aria-label")), "更多");
-    await drawer(page).locator(".ask-paused").click();
-    assert.equal(await drawer(page).locator(".ask-paused").count(), 0);
 
     llm.push({ delay: 4000, body: openai(text("太迟了"), end()) });
     await page.locator("#askPrompt").fill("越改越糊？");
@@ -3145,7 +3141,7 @@ test('ASK W5: fork, delete, edit and metadata retry keep precisely their attachm
     await drawer(page).getByRole('button',{name:'发送',exact:true}).click();await page.locator('.ask-turn[data-status=failed]').waitFor();
     await attachText(page,'下一轮','next.txt');llm.push({body:openai(text('仅元数据已读。'),end())});
     await drawer(page).getByRole('button',{name:'仅发元数据重试',exact:true}).click();await page.waitForFunction(()=>!ask.running.value);
-    assert.equal(attachedImages(calls.at(-1).body).length,0);assert.match(calls.at(-1).raw,/失败.png/);assert.match(calls.at(-1).raw,/底部未发附件/);assert.ok(!calls.at(-1).raw.includes('下一轮'));
+    assert.equal(attachedImages(calls.at(-1).body).length,0);assert.match(calls.at(-1).raw,/失败.png/);assert.match(calls.at(-1).raw,/底部未发附件/);assert.ok(!JSON.stringify(calls.at(-1).body.messages.filter(m=>m.role==='user')).includes('下一轮'));
     assert.equal(await page.locator('.ask-tray .ask-att-name').textContent(),'next.txt');
     await page.evaluate(()=>ask.deleteConversation(ask.conversationId.value));
     assert.ok((await page.evaluate(()=>revoked)).includes(first.url));assert.equal(await page.locator('.ask-sent-att').count(),0);
@@ -3249,7 +3245,7 @@ test('ASK W5: B v5 attachment geometry, text peek and title history menu at four
       await page.screenshot({path:`.local/ask/w5/peek-${width}.png`});await page.keyboard.press('Escape');
       const menu=await openConversations(page);
       const geometry=await menu.evaluate(el=>{const r=el.getBoundingClientRect(),button=el.querySelector('[aria-checked=true]'),check=button.querySelector('.ask-menu-check'),c=check.getBoundingClientRect();return {width:r.width,left:r.left,right:r.right,edge:r.right-c.right,rowHeight:button.getBoundingClientRect().height,check:getComputedStyle(check).visibility};});
-      assert.equal(geometry.width,width===320?288:300);assert.ok(geometry.left>=0&&geometry.right<=width);assert.equal(geometry.rowHeight,width>860?32:40);assert.equal(geometry.edge,15);assert.equal(geometry.check,'visible');
+      assert.equal(geometry.width,width===320?288:300);assert.ok(geometry.left>=0&&geometry.right<=width);assert.equal(geometry.rowHeight,32);assert.equal(geometry.edge,13);assert.equal(geometry.check,'visible');
       await page.screenshot({path:`.local/ask/w5/history-${width}.png`});
       const selected=menu.locator('[aria-checked=true]');await selected.hover();
       await page.waitForFunction(()=>document.querySelector('#askConvMenu [aria-checked=true]')?.matches(':hover'));
@@ -3652,7 +3648,7 @@ for (const connectionId of ['chat', 'claude']) test(`ASK named board: ${connecti
       const menu = await openApplyMenu(page);
       assert.equal(await menu.getByRole('menuitem', { name: '应用到来源画板', exact: true }).count(), 1);
       assert.equal(await menu.getByRole('menuitem', { name: '应用到新画板', exact: true }).count(), 1);
-      assert.equal((await menu.textContent()).replace(/\s+/g, ''), '应用到来源画板应用到新画板');
+      assert.equal((await menu.textContent()).replace(/\s+/g, ''), '应用到来源画板应用到新画板附加画板配方附加创作备忘录');
       assert.equal(await menu.locator('small').count(), 0);
       assert.equal(await menu.evaluate(el => el.getBoundingClientRect().width), 184);
       assert.ok(await menu.evaluate(el => { const r = el.getBoundingClientRect(); return r.left >= 0 && r.right <= innerWidth && r.top >= 0 && r.bottom <= innerHeight; }));
@@ -3747,7 +3743,9 @@ for (const connectionId of ['chat', 'claude']) test(`ASK favorites: ${connection
     assert.doesNotMatch(JSON.stringify(stored), /blob:http|synthetic-chat|synthetic-claude|authorization/);
     for (const width of [320, 390, 768, 1440]) {
       await page.setViewportSize({ width, height: 900 });
-      assert.ok(await menu.evaluate(el => { const r = el.getBoundingClientRect(); return r.left >= 0 && r.right <= innerWidth && r.bottom <= innerHeight; }));
+      await page.waitForFunction(()=>{const r=document.getElementById('askConvMenu')?.getBoundingClientRect();return r&&r.left>=0&&r.right<=innerWidth&&r.bottom<=innerHeight;});
+      const bounds=await menu.evaluate(el=>{const r=el.getBoundingClientRect();return {left:r.left,right:r.right,bottom:r.bottom,width:innerWidth,height:innerHeight};});
+      assert.ok(bounds.left>=0&&bounds.right<=bounds.width&&bounds.bottom<=bounds.height,JSON.stringify(bounds));
       await page.screenshot({ path: `.local/ask/favorites/${connectionId}-${width}.png` });
     }
     await menu.getByRole('menuitem', { name: '新对话', exact: true }).click();
@@ -4361,7 +4359,7 @@ for (const connectionId of ['chat', 'claude']) test(`ASK CP3: ${connectionId} ma
     await mkdir('.local/ask/compaction', { recursive: true }); await bind(page); await page.evaluate(() => ask.show());
     let menu = await openMore(page);
     assert.equal(await menu.getByRole('menuitem', { name: '压缩上下文', exact: true }).isDisabled(), true);
-    assert.match(await menu.textContent(), /至少需要 4 轮/); await page.keyboard.press('Escape');
+    assert.match(await menu.getByRole('menuitem', { name: '压缩上下文', exact: true }).getAttribute('title'), /至少需要 4 轮/); await page.keyboard.press('Escape');
     await cp2History(page, llm, connectionId);
     const beforeEstimate = await page.evaluate(() => ask.estimate.value);
     const meter = drawer(page).getByRole('meter', { name: '上下文占用（按压缩阈值估算）', exact: true });

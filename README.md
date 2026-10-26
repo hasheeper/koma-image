@@ -10,6 +10,8 @@
 - **CHAT**：对话生图和参考图修改、附件、上下文选择、分支、多版本和会话管理。
 - **编辑与词典**：图生图、蒙版重绘、放大、原生画布；Tag 搜索、分类、组合和输入补全。具体工具取决于连接和模型声明的能力。
 - **ASK**：工作台诊断、按需看图与只读查询、修改草稿、多会话和附件、检查点与撤销、上下文压缩及归档召回。写入前由用户确认，不自动生图或发送 CHAT 消息。
+- **待办**：默认本机任务与持久成果；会话输入框上方是紧凑 Todo，顶栏提供轻量总览，无需目录或 ASK Key。ASK 通过草稿推进任务与配方，可与提示词／参数／文件一并确认；挂载后同步选定任务与成果。
+- **外部协同**：在 ASK 输入框附件旁挂载目录，手动 JSON 兜底位于现有「设置 → ASK → 外部协同」。外部 Agent 可提交 IMAGE 提示词、角色和参数草稿，无需 ASK 文本 Key；用户确认后应用。共享 `refs/` 由 ASK 按需读取，手动文件走原生附件入口；配方、备忘录与任务资料统一在草稿卡确认后保存或下载。详见[使用说明](docs/ask/bridge.md)。
 - **数据**：图片收藏、CHAT 与偏好保存在本机，支持新版 Koma ZIP 备份。ASK 收藏会话及附件单独保存在本机，不进入普通备份；未收藏 ASK、普通绘图历史和撤销栈刷新清空。
 
 ## 连接与验证边界
@@ -21,11 +23,11 @@
 | Koma 标准网关 | 绘图、对话、编辑、报价与额度保护 | 支持 |
 | OpenAI Images | CHAT 生图与参考图修改 | 浏览器直连 |
 | Gemini 原生 | CHAT 生图与参考图修改 | 浏览器直连 |
-| NovelAI 官方 · 基础接入 | 绘图、基础图生图、Anlas 查询、多角色与 V4.5 Vibe／Precise | 浏览器直连 |
+| NovelAI 官方 | V4.5／V5 绘图、常规四型号图生图、账户额度、多角色与 V4.5 Vibe／Precise | 浏览器直连 |
 | OpenAI Chat 兼容 | ASK 推理、命名与压缩 | 支持 |
 | Anthropic Messages | ASK 推理、命名与压缩 | 支持 |
 
-初始连接为空；未配置 URL／Key 不请求上游。无法取得预报价时，生成按钮暂不展示费用标签，内部仍保留未知费用状态。官方 NAI 重绘／放大与订阅优惠仍未开放或核验；新增协议的真实型号、生成效果、扣费、权限和 CORS 不能以模拟测试代替。详见[当前状态与待办](docs/implementation-plan.md)及[图像协议](docs/native-image-protocols.md)。
+初始连接为空；未配置 URL／Key 不请求上游。无法取得预报价时，生成按钮暂不展示费用标签，内部仍保留未知费用状态。NAI 官方重绘／放大尚未接入本项目，单次消耗估算尚未实现，订阅优惠和实际扣费待核验；新增协议的真实型号、生成效果、扣费、权限和 CORS 不能以模拟测试代替。详见 [NAI 当前覆盖与缺口](docs/novelai-official.md)、[当前状态与待办](docs/implementation-plan.md)及[图像协议](docs/native-image-protocols.md)。
 
 ## 开发与检查
 
@@ -43,7 +45,7 @@ npm run check
 npm run preview
 ```
 
-`check` 包含字体一致性、Stylelint、严格类型、单元测试和生产构建；不包含浏览器及发布包套件。预览为 http://127.0.0.1:3217。业务回归按变更范围选择 `test:shell`、`test:services`、`test:shared`、`test:drawing`、`test:workspaces`、`test:native`、`test:ask`、`test:local`、`test:release`。已有 `dist/` 后可运行全部浏览器与发布包套件：
+`check` 包含字体一致性、Stylelint、严格类型、单元测试和生产构建；不包含浏览器及发布包套件。预览为 http://127.0.0.1:3217。业务回归按变更范围选择 `test:shell`、`test:services`、`test:shared`、`test:drawing`、`test:workspaces`、`test:native`、`test:ask`、`test:bridge`、`test:local`、`test:release`。已有 `dist/` 后可运行全部浏览器与发布包套件：
 
 ```sh
 node --test --test-concurrency=2 tests/*.browser.mjs tests/release.package.mjs
@@ -70,6 +72,8 @@ npm start
 src/app/         单页外壳、路由和工作区生命周期
 src/workspaces/  IMAGE、CHAT、TAGS
 src/ask/         ASK 会话、工具、草稿、提示词与压缩
+src/slate/       默认本地任务、成果、复合提交与目录交付
+src/bridge/      外部目录、状态预览、草稿收件与回执、共享资料读取与导出
 src/overlays/    编辑和设置
 src/shared/      共用控件
 src/domain/     纯业务与模型参数

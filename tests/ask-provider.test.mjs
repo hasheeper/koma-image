@@ -109,15 +109,15 @@ test("ASK tool schemas: full registry avoids uniqueItems rejected by Gemini rela
   for (const profile of [chat, anthropic]) {
     const payload = wireBody(profile, request);
     const definitions = payload.tools.map((t) => t.function ?? { ...t, parameters: t.input_schema });
-    assert.equal(definitions.length, 11);
+    assert.equal(definitions.length, 12);
     assert.doesNotMatch(JSON.stringify(definitions), /"uniqueItems"\s*:/);
     const sheet = definitions.find((t) => t.name === "view_sheet").parameters;
     assert.equal(sheet.properties.ids.minItems, 2);
     assert.equal(sheet.properties.ids.maxItems, 6);
     const draft = definitions.find((t) => t.name === "propose_draft").parameters;
-    assert.equal(draft.properties.steps.items.anyOf.length, 5);
-    assert.deepEqual(Object.keys(draft.properties.steps.items.anyOf[4].properties.options.properties).sort(), ["aspect_ratio", "image_size", "size"]);
-    assert.equal(draft.properties.steps.items.anyOf[1].properties.fields.minItems, 1);
+    assert.equal(draft.properties.steps.items.anyOf.length, 8);
+    assert.deepEqual(Object.keys(draft.properties.steps.items.anyOf.find(s => s.properties.kind.enum.includes("chat_handoff")).properties.options.properties).sort(), ["aspect_ratio", "image_size", "size"]);
+    assert.equal(draft.properties.steps.items.anyOf.find(s => s.properties.kind.enum.includes("restore_partial")).properties.fields.minItems, 1);
     assert.deepEqual(draft.required, ["base_hash", "draft_title", "steps"]);
     assert.equal(JSON.stringify(wireBody(profile, request)), JSON.stringify(payload));
   }
@@ -141,6 +141,9 @@ test("ASK tool schemas: required properties survive a relay recursively strippin
   }
   const payload = wireBody(chat, { ...turn1, tools: [...createTools().values()].map((entry) => entry.tool) });
   for (const tool of payload.tools) validate(stripTitles(tool.function.parameters), tool.function.name);
+  const slate = stripTitles(payload.tools.find(t=>t.function.name==='propose_draft').function.parameters).properties.steps.items.anyOf.find(s=>s.properties.kind.enum.includes('slate_edit'));
+  assert.ok(slate.properties.slate_title);
+  assert.ok(slate.properties.todos.items.properties.todo_title);
 });
 
 test("reasoning profiles: registry, address rules, auth headers and capability filters", async () => {

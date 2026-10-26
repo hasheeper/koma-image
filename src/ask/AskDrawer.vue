@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import { computed, nextTick, onBeforeUnmount, onMounted, shallowRef, watch } from "vue";
 import { useAsk } from "../app/ask";
+import AskTodos from "../slate/AskTodos.vue";
 import { useShell } from "../app/shell";
 import { installAskWindow } from "../native/ask-window";
 import AppIcon from "../shared/AppIcon.vue";
@@ -180,8 +181,10 @@ onBeforeUnmount(() => { clearTimeout(doneTimer); controller.abort(); ask.attach(
         <button class="ibtn" type="button" aria-label="收起 ASK" title="收起" @click="ask.hide()"><svg class="ico" viewBox="0 0 24 24" aria-hidden="true"><path d="M5 12h14" /></svg></button>
       </header>
       <AskStream @start="start" @focus="composer?.focus(true)" />
-      <div class="ask-bottom"><div id="askFullDraft" class="ask-full-draft"></div><AskComposer ref="composer" /></div>
+      <div class="ask-bottom">
+        <AskTodos /><div id="askFullDraft" class="ask-full-draft"></div><AskComposer ref="composer" /></div>
       <AskAttachmentPreview v-if="ask.attachmentPreview.value && !ask.attachmentPreview.value.inline" :key="ask.attachmentPreview.value.id" />
+
       <div v-if="dropping" class="ask-drop" aria-hidden="true"><span>松开即可添加到这条提问</span></div>
     </div>
     <Teleport :to="mode === 'ready' && compactDraft ? '#askCompactDraft' : '#askFullDraft'" defer><DraftCard :compact="mode === 'ready'" @review="ask.show()" /></Teleport>

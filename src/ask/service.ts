@@ -1,3 +1,9 @@
+import { canonical } from "./canonical.ts";
+import { parseFile } from "./draft/files.ts";
+import type { FilePort } from "./draft/files.ts";
+import type { Slates } from "../slate/service.ts";
+import { summary as slateSummary } from "../slate/model.ts";
+import type { ExternalOrigin, ExternalNote, InboxReceipt } from "../bridge/protocol.ts";
 import { characterCapability, characterSummary, nextCharacterId } from "../domain/characters.ts";
 import { boardForm, boardColors } from "../domain/drawing.ts";
 import { stateHash } from "./draft/validate.ts";
@@ -52,6 +58,8 @@ import { namingPromptVersion } from "./prompts/naming.ts";
 import { createAskFavorites, restoreSavedSession } from "./favorites.ts";
 import type { SavedConversation } from "./favorites.ts";
 import type { Writer } from "../services/data-lease.ts";
+import type { RefSource, RefFile } from "./reference-source.ts";
+import { createReferenceReader } from "./read-ref.ts";
 
 export interface ToolRow {
   readonly id: string;
@@ -72,6 +80,7 @@ export interface CheckpointView {
   readonly status: "applied" | "reverted";
   readonly added: number;
   readonly removed: number;
+  readonly receipts?: readonly ToolRow[];
 }
 export interface AskTurnView {
   readonly id: number;
@@ -90,7 +99,7 @@ export interface AskTurnView {
 }
 export type AskEntry =
   | { readonly type: "turn"; readonly id: number; readonly turn: AskTurnView }
-  | { readonly type: "note"; readonly id: number; readonly text: string; readonly compactRetry?: boolean };
+  | { readonly type: "note"; readonly id: number; readonly text: string; readonly compactRetry?: boolean; readonly external?: ExternalNote; readonly checkpoint?: CheckpointView | null };
 export type RetryMode = "plain" | "metadata" | "codec";
 interface ConversationScope {
   readonly id: string;
@@ -99,6 +108,7 @@ interface ConversationScope {
 }
 /** The current conversation lives in the service's refs while selected. */
 interface Conversation extends ConversationCore {
+  slateId: string | null;
   named: boolean;
   favorite: boolean;
   readonly createdAt: number;
@@ -108,6 +118,7 @@ interface Conversation extends ConversationCore {
   input: string;
   anchor: string | null;
   draft: DraftRecord | null;
+  externalQueue: DraftRecord[];
   tray: readonly string[];
   preparing: number;
 }
@@ -134,17 +145,21 @@ export function createAsk(deps: {
   router: AppRouter;
   drawing: Drawing;
   chat: Chat;
+  slates?: Slates;
   fetch?: typeof fetch;
   ui: Pick<Ui, "toast">;
 }) {
   const { services, router, drawing, chat } = deps;
   const { preferences, connections } = services;
-  const writer = createDraftWriter(drawing, chat, router),
+  let filePort: FilePort | null = null;
+  const writer = createDraftWriter(drawing, chat, router, deps.slates, () => filePort),
     history = createDraftStack(writer),
     vision = createVision(),
     tools = createTools(),
     toolList = [...tools.values()].map((entry) => entry.tool);
   const scopes = new Map<string, ConversationScope>();
+  let referenceSource: RefSource | null = null;
+  const pageAttachmentBytes = () => [...scopes.values()].reduce((sum, c) => sum + c.attachments.bytes, 0);
   function scope(id: string = crypto.randomUUID()) {
     let value = scopes.get(id);
     if (!value) { value = { id, ids: createIds(), attachments: createAttachments(id => vision.forget(id)) }; scopes.set(id, value); }
@@ -209,7 +224,7 @@ export function createAsk(deps: {
     total.cacheWrite += value.cacheWrite;
   }
   const conversations = createConversations<Conversation>({
-    make: (id) => ({ id, title: UNTITLED, named: false, favorite: false, createdAt: Date.now(), scope: activeScope, origin: null, session: createSession(addUsage), entries: [], input: "", anchor: null, draft: null, tray: [], preparing: 0 }),
+    make: (id) => ({ id, slateId: null, title: UNTITLED, named: false, favorite: false, createdAt: Date.now(), scope: activeScope, origin: null, session: createSession(addUsage), entries: [], input: "", anchor: null, draft: null, externalQueue: [], tray: [], preparing: 0 }),
     // Callers stash the refs first, so the records are current.
     empty: (c) => !c.favorite && !c.entries.length,
   });
@@ -234,20 +249,21 @@ export function createAsk(deps: {
     libraryRevision.value++;
   }
   const entryAttachments = (items: readonly AskEntry[]) => items.flatMap(e => e.type === "turn" ? e.turn.attachments.map(a => a.id) : []);
-  function addFiles(files: readonly File[], pasted = false) {
+  function addInputs(inputs: readonly (() => Promise<{ file: File; origin?: RefFile["origin"] }>)[], pasted = false) {
     const owner = conversations.current, attachments = owner.scope.attachments;
-    if (disposed || !favoritesReady.value || !files.length) return Promise.resolve();
+    if (disposed || !favoritesReady.value || !inputs.length) return Promise.resolve();
     owner.preparing++; preparing.value = owner.preparing;
     importing = importing.then(async () => {
       const errors: string[] = [], unsupported: string[] = [];
-      for (const file of files) {
+      for (const read of inputs) {
         if (disposed || !conversations.get(owner.id)) break;
         try {
+          const { file, origin } = await read();
           if ([...scopes.values()].reduce((sum, c) => sum + c.attachments.bytes, file.size) > ATTACHMENT_LIMITS.pageBytes) throw new Error("本页附件已超过 200 MB");
           const prepared = await prepareAttachment(file, pasted, settings.value.textAttachments);
           if (disposed || !conversations.get(owner.id)) break;
           attachmentCapacity(attachments.read(owner.tray), prepared.kind, prepared.kind === "text" ? prepared.text.length : 0, settings.value.textAttachments);
-          const item = attachments.add(prepared);
+          const item = attachments.add({ ...prepared, ...(origin ? { origin } : {}) });
           setTray([...owner.tray, item.id], owner);
         } catch (error) {
           const reason = message(error);
@@ -265,6 +281,7 @@ export function createAsk(deps: {
     });
     return importing;
   }
+  function addFiles(files: readonly File[], pasted = false) { return addInputs(files.map(file => async () => ({ file })), pasted); }
   function removeAttachment(id: string) {
     if (!tray.value.includes(id)) return;
     if (attachmentPreview.value?.id === id) attachmentPreview.value = null;
@@ -313,6 +330,27 @@ export function createAsk(deps: {
     disposed = false,
     stateTimer: ReturnType<typeof setTimeout> | undefined;
   const layers = new Set<() => boolean>();
+  const externalEvents = new Set<(origin: ExternalOrigin, receipt: InboxReceipt) => void>();
+  const externalRevision = shallowRef(0);
+  function externalStatus(record: DraftRecord, status: InboxReceipt["status"], error?: string) {
+    const origin = record.draft.external, owner = conversations.get(record.conversationId);
+    if (!origin || !owner) return;
+    const rows = (owner === conversations.current ? entries.value : owner.entries).map(e => e.id === record.turnId && e.type === "note"
+      ? { ...e, external: { origin, status, ...(error ? { error } : {}) } } : e);
+    owner.entries = rows;
+    if (owner === conversations.current) entries.value = rows;
+    for (const fn of externalEvents) fn(origin, { draft_id: origin.draftId, status, ...(error ? { error } : {}) });
+    saveFavorite(owner);
+  }
+  function promoteExternal() {
+    if (disposed || !favoritesReady.value || favoriteBusy.value || running.value || writingDraft.value || draft.value || preparing.value || controller) return;
+    const owner = conversations.current, next = owner.externalQueue.shift();
+    if (!next) return;
+    draft.value = next; owner.draft = next;
+    externalRevision.value++; draftRevision.value++;
+    say("外部草稿已就绪，等待确认"); saveFavorite(owner);
+  }
+  const stopExternal = watch([running, writingDraft, draft, preparing, favoritesReady, favoriteBusy, conversationId, externalRevision], promoteExternal);
   const inlineObserver = new ResizeObserver(placeInline);
   const stopInline = watch([visible, inline], () => {
     inlineObserver.disconnect();
@@ -326,10 +364,10 @@ export function createAsk(deps: {
       void nextTick(placeInline);
     }
   });
-  function readDraftState(boardId?: string): DraftState {
+  function readDraftState(boardId?: string, slateId?: string): DraftState {
     const d = drawing.snapshot(), c = chat.snapshot().current;
     const board = d.boards.find(b => b.id === (boardId ?? d.activeBoardId));
-    return { boardId: boardId ?? d.activeBoardId, boardName: board?.name, boardPresent: !!board, nextCharacterId: board?.nextCharacterId, form: structuredClone({ ...d.form, ...board?.form }), composer: c.prompt, conversationId: c.id, chat: chatSnapshot(chat.snapshot()), models: [...d.models], samplers: [...d.samplers], samplersByModel: Object.fromEntries(d.models.map((m) => [m.id, drawing.samplersFor(m.id)])),
+    return { fileContext: filePort?.context(), slate: deps.slates?.get(slateId ?? conversations.current.slateId ?? "") ?? null, boardId: boardId ?? d.activeBoardId, boardName: board?.name, boardPresent: !!board, nextCharacterId: board?.nextCharacterId, form: structuredClone({ ...d.form, ...board?.form }), composer: c.prompt, conversationId: c.id, chat: chatSnapshot(chat.snapshot()), models: [...d.models], samplers: [...d.samplers], samplersByModel: Object.fromEntries(d.models.map((m) => [m.id, drawing.samplersFor(m.id)])),
       workspace: router.route.value.workspace, chatModel: chatDraftModel(chat.snapshot()) };
   }
   /** Handoff images are checked live: IMAGE records by ID, CHAT pictures by asset. */
@@ -340,7 +378,7 @@ export function createAsk(deps: {
   }
   const draftPlan = computed(() => {
     void draftRevision.value;
-    return draft.value ? validateDraft(draft.value.draft, readDraftState(draft.value.draft.base.boardId), { off: draft.value.off, has: hasImage }) : null;
+    return draft.value ? validateDraft(draft.value.draft, readDraftState(draft.value.draft.base.boardId, draft.value.draft.steps.find(s => s.kind === "slate_edit")?.change.before?.id), { off: draft.value.off, has: hasImage }) : null;
   });
   const undoTarget = computed(() => {
     void draftRevision.value;
@@ -359,9 +397,23 @@ export function createAsk(deps: {
     const owner = conversations.get(record.conversationId);
     if (!owner || !record.plan || record.status === "pending") return;
     const { added, removed } = draftView(record.plan);
-    const view: CheckpointView = { id: record.id, title: record.plan.title, status: record.status, added, removed };
+    const receipts: ToolRow[] = [];
+    const change = record.plan.slate;
+    if (change) {
+      for (const todo of change.after?.todos ?? []) {
+        const old = change.before?.todos.find(t => t.id === todo.id);
+        if (canonical(old ?? null) === canonical(todo)) continue;
+        receipts.push({ id: todo.id, name: 'slate_edit', verb: todo.status === 'done' && old?.status !== 'done' ? '完成' : old ? '更新' : '添加', object: todo.title, stat: '', state: 'done' });
+      }
+      for (const todo of change.before?.todos ?? []) if (!change.after?.todos.some(t => t.id === todo.id)) receipts.push({ id: todo.id, name: 'slate_edit', verb: '移除', object: todo.title, stat: '', state: 'done' });
+      if (canonical(change.before?.golden_recipe ?? null) !== canonical(change.after?.golden_recipe ?? null)) receipts.push({ id: `${change.id}-recipe`, name: 'propose_draft', verb: '更新', object: '任务配方', stat: '', state: 'done' });
+      if (!receipts.length) receipts.push({ id: change.id, name: 'slate_edit', verb: change.after ? '更新清单' : '删除清单', object: change.after?.title ?? change.before?.title ?? '', stat: '', state: 'done' });
+    }
+    for (const file of record.plan.files ?? []) receipts.push({ id: file.id, name: 'save_ref', verb: file.context.id === null ? '准备下载' : '保存', object: file.title, stat: file.context.id === null ? '下载' : 'refs/', state: 'done' });
+    if (receipts.length && record.plan.changes.length) receipts.push({ id: `${record.id}-board`, name: 'propose_draft', verb: '更新', object: '画板', stat: `${record.plan.changes.length} 项`, state: 'done' });
+    const view: CheckpointView = { id: record.id, title: record.plan.title, status: record.status, added, removed, ...(receipts.length ? { receipts } : {}) };
     const next = (owner === conversations.current ? entries.value : owner.entries).map((e) =>
-      e.type === "turn" && e.id === record.turnId ? { ...e, turn: { ...e.turn, checkpoint: view } } : e);
+      e.id !== record.turnId ? e : e.type === "turn" ? { ...e, turn: { ...e.turn, checkpoint: view } } : { ...e, checkpoint: view });
     const turn = next.find(e => e.type === "turn" && e.id === record.turnId);
     if (turn?.type === "turn" && turn.turn.turnId) owner.session.updateDraft(turn.turn.turnId, record.status, record.plan);
     owner.entries = next;
@@ -370,6 +422,8 @@ export function createAsk(deps: {
   }
   const draftApplyLabel = computed(() => {
     const plan = draftPlan.value, workspace = plan?.workspace;
+    if (plan?.files?.length) return "应用";
+    if (plan?.slate && !plan.changes.length && !plan.newBoardName) return "应用到任务板";
     if (plan?.steps.some((s) => s.kind === "handoff")) return router.route.value.workspace === "chat" ? "新开对话并应用" : "切到对话并新开";
     if (workspace === "image" && plan?.newBoardName) return router.route.value.workspace === "image" ? "新建并应用" : "切回绘图并新建";
     if (workspace === "image" && plan?.boardId && drawing.snapshot().activeBoardId !== plan.boardId) return `切回${drawing.board(plan.boardId)?.name ?? "源画板"}并应用`;
@@ -405,9 +459,10 @@ export function createAsk(deps: {
     writingDraft.value = true;
     try { await chat.warm(); } finally { writingDraft.value = false; }
     if (draft.value !== record || controller || disposed) return;
-    let plan = validateDraft(record.draft, readDraftState(record.draft.base.boardId), { off: record.off, has: hasImage });
+    let plan = validateDraft(record.draft, readDraftState(record.draft.base.boardId, record.draft.steps.find(s => s.kind === "slate_edit")?.change.before?.id), { off: record.off, has: hasImage });
     if (plan.fingerprint !== fingerprint) { draftRevision.value++; notice.value = "内容已变化，请核对更新后的草稿再应用"; return; }
-    if (!plan.changes.length && !plan.branch && !plan.handoff) return;
+    if (!plan.changes.length && !plan.branch && !plan.handoff && !plan.slate && !plan.files?.length) return;
+    if (plan.files?.length && plan.steps.some(step => step.issue)) { notice.value = "草稿有冲突，请先核对"; return; }
     writingDraft.value = true; notice.value = "";
     try {
       if ((!!plan.newBoardName || newBoard === true) && plan.workspace === "image" && plan.boardId) {
@@ -417,13 +472,16 @@ export function createAsk(deps: {
         plan = { ...plan, createdBoard: { ...structuredClone(source), id: crypto.randomUUID(), name: plan.newBoardName ?? `${source.name} 副本`.slice(0, 80), color: boardColors[drawing.snapshot().boards.length % boardColors.length], nextCharacterId: Math.max(source.nextCharacterId, nextCharacterId(form.characters)), form } };
       }
       await history.apply(record, plan);
+      if (plan.slate?.after) conversations.current.slateId = plan.slate.id;
       checkpoint(record);
+      if (plan.slate) notice.value = deps.slates?.error.value ?? "";
+      externalStatus(record, "applied", notice.value || undefined);
       draft.value = null;
       appliedDraft.value = { id: record.id, workspace: plan.workspace };
-      const count = plan.handoff ? plan.steps.filter((s) => s.enabled && !s.issue && !s.locked).length : plan.changes.length;
+      const count = plan.handoff ? plan.steps.filter((s) => s.enabled && !s.issue && !s.locked).length : plan.changes.length + (plan.slate ? 1 : 0) + (plan.files?.length ?? 0);
       say(`已应用草稿 ${plan.title} · ${count} 项 · ${plan.workspace === "image" ? "未生成" : "未发送"}`);
       await focusWritten(plan);
-    } catch (error) { notice.value = message(error); }
+    } catch (error) { notice.value = message(error); externalStatus(record, "pending", notice.value); }
     finally { saveFavorite(); await flushFavorites().catch(() => {}); writingDraft.value = false; draftRevision.value++; }
   }
   async function moveDraft(id: number, restore: boolean) {
@@ -434,6 +492,7 @@ export function createAsk(deps: {
       await chat.warm();
       await (restore ? history.restore(id) : history.undo(id));
       checkpoint(record);
+      if (record.plan?.slate) notice.value = deps.slates?.error.value ?? "";
       appliedDraft.value = restore ? { id, workspace: record.plan!.workspace } : null;
       say(`${restore ? "已恢复" : "已回退"}草稿 ${record.plan!.title}`);
       await focusWritten(record.plan!);
@@ -448,6 +507,7 @@ export function createAsk(deps: {
     if (!draft.value || writingDraft.value || controller || disposed) return;
     const entry = entries.value.find(e => e.type === "turn" && e.id === draft.value?.turnId);
     if (entry?.type === "turn" && entry.turn.turnId) conversations.current.session.updateDraft(entry.turn.turnId, "dismissed");
+    externalStatus(draft.value, "dismissed");
     draft.value = null; notice.value = ""; say("已忽略草稿，内容未修改");
   }
 
@@ -493,7 +553,10 @@ export function createAsk(deps: {
       chatModel: chatModelState(c),
       ids,
     }, { formText });
-    return inline.value ? { ...digest, json: JSON.stringify({ ...JSON.parse(digest.json), inline_selection: inline.value }) } : digest;
+    return { ...digest, json: JSON.stringify({ ...JSON.parse(digest.json),
+      active_slate: slateSummary(deps.slates?.get(conversations.current.slateId ?? "") ?? null),
+      ...(referenceSource ? { refs_index: referenceSource.index() } : {}),
+      ...(inline.value ? { inline_selection: inline.value } : {}) }) };
   }
   const currentHash = () => stateHash(readDraftState());
   // Numbers are handed out as images arrive, so every #h keeps its order.
@@ -512,6 +575,7 @@ export function createAsk(deps: {
   syncDrawing();
   const stops = [
     drawing.subscribe(syncDrawing),
+    ...(deps.slates ? [deps.slates.subscribe(() => { stateRevision.value++; draftRevision.value++; })] : []),
     chat.subscribe(() => { draftRevision.value++; libraryRevision.value++; }),
     watch(open, (shown) => { if (shown) void chat.warm(); }, { immediate: true }),
     preferences.subscribe((key) => {
@@ -533,11 +597,12 @@ export function createAsk(deps: {
       items: e.turn.items.map(item => item.kind !== "tools" ? item : { ...item, rows: item.rows.map(row => row.state === "run" ? { ...row, state: "stopped" as const } : row) }),
       attachments: e.turn.attachments.map(({ url: _url, ...a }) => a),
     } });
-    return { version: 1, id: c.id, title: c.title, named: c.named, origin: c.origin, createdAt: c.createdAt,
+    return { version: 1, id: c.id, title: c.title, named: c.named, origin: c.origin, createdAt: c.createdAt, slateId: c.slateId,
       scope: { id: c.scope.id, labels: c.scope.ids.snapshot() }, session, entries: savedEntries,
       input: c.input, anchor: c.anchor, tray: c.tray,
       attachments: c.scope.attachments.snapshot([...c.tray, ...entryAttachments(savedEntries), ...session.archive.flatMap(t => t.attachments)]),
-      draft: c.draft ? { value: c.draft.draft, off: [...c.draft.off], turnId: c.draft.turnId } : null };
+      draft: c.draft ? { value: c.draft.draft, off: [...c.draft.off], turnId: c.draft.turnId } : null,
+      externalQueue: c.externalQueue.map(r => ({ value: r.draft, turnId: r.turnId })) };
   }
   function saveFavorite(c = conversations.current) {
     if (!favoritesReady.value || disposed || !c.favorite) return;
@@ -584,7 +649,7 @@ export function createAsk(deps: {
         context.ids.restore(record.scope.labels);
         context.attachments.restore(record.attachments, [...record.tray, ...entryAttachments(record.entries)]);
         const session = restoreSavedSession(record, addUsage);
-        const restoredEntries = record.entries.map(e => e.type === "note" ? e : { ...e, turn: { ...e.turn,
+        const restoredEntries = record.entries.map(e => e.type === "note" ? { ...e, checkpoint: e.checkpoint ? { ...e.checkpoint, id: --checkpointId } : null } : { ...e, turn: { ...e.turn,
           turnId: e.turn.turnId ?? (e.turn.committed ? session.records[e.turn.committed - 1]?.turnId ?? null : null),
           // Historical checkpoints remain visible, but can never alias a new page's undo record.
           checkpoint: e.turn.checkpoint ? { ...e.turn.checkpoint, id: --checkpointId } : null,
@@ -593,9 +658,9 @@ export function createAsk(deps: {
         for (const entry of restoredEntries) sequence = Math.max(sequence, entry.id);
         const pending = record.draft ? history.create(record.draft.value, record.id, record.draft.turnId) : null;
         if (pending && record.draft) pending.off = new Set(record.draft.off);
-        return { id: record.id, title: record.title, named: record.named, favorite: true, createdAt: record.createdAt, origin: record.origin,
+        return { id: record.id, slateId: record.slateId ?? null, title: record.title, named: record.named, favorite: true, createdAt: record.createdAt, origin: record.origin,
           scope: context, session, entries: restoredEntries,
-          input: record.input, anchor: record.anchor, tray: record.tray, draft: pending, preparing: 0 };
+          input: record.input, anchor: record.anchor, tray: record.tray, draft: pending, preparing: 0, externalQueue: (record.externalQueue ?? []).map(r => history.create(r.value, record.id, r.turnId)) };
       });
       conversations.restore(restored);
       if (restored.length) load();
@@ -851,6 +916,15 @@ export function createAsk(deps: {
       checkpoint: null,
       attachments: attached.map(attachmentView),
     };
+    const visual = { signal: abort.signal, metadataOnly, budget: turn.budget.vision, viewed: turnViewed };
+    const readRef = createReferenceReader({ source: referenceSource?.snapshot() ?? null, pool: owner.scope.attachments,
+      attached, limits: config.textAttachments, pageBytes: pageAttachmentBytes, visual, vision,
+      added(item) {
+        working.attachments = [...working.attachments, attachmentView(item)];
+        library.push(...attachmentPictures([item])); libraryRevision.value++;
+        schedule(); saveFavorite(owner);
+      },
+    });
     let frame = 0, proposed: Draft | undefined;
     const commit = () => {
       cancelAnimationFrame(frame);
@@ -894,11 +968,13 @@ export function createAsk(deps: {
           metadataOnly,
           library,
           vision,
-          visual: { signal: abort.signal, metadataOnly, budget: turn.budget.vision, viewed: turnViewed },
+          visual,
+          readRef,
           tags: services.tags.suggest,
           snapshotTime,
           chatContext: turnChatContext,
           draftBase,
+          readSlate: scope => scope === "latest" ? deps.slates?.get(conversations.current.slateId ?? "") ?? null : draftBase.slate ?? null,
           question,
           recall: input => owner.session.recall(input, id => owner.scope.attachments.get(id)),
           state: (scope, boardId) => {
@@ -1103,6 +1179,10 @@ export function createAsk(deps: {
     const before = conversations.current;
     const gone = conversations.remove(id);
     if (!gone) return;
+    for (const r of [...gone.externalQueue, ...(gone.draft ? [gone.draft] : [])]) {
+      const origin = r.draft.external;
+      if (origin) for (const fn of externalEvents) fn(origin, { draft_id: origin.draftId, status: "dismissed" });
+    }
     gone.scope.attachments.release([...gone.tray, ...entryAttachments(gone.entries)]);
     history.removeConversation(id);
     draftRevision.value++;
@@ -1114,9 +1194,9 @@ export function createAsk(deps: {
     if (!manageable() || preparing.value) return false;
     const index = entries.value.findIndex(e => e.type === "turn" && e.id === id);
     const entry = entries.value[index];
-    if (!entry || entry.type !== "turn" || (!text.trim() && !entry.turn.attachments.length) || !providerForSend()) return false;
-    const removed = entries.value.slice(index), turnIds = new Set(removed.filter(e => e.type === "turn").map(e => e.id));
-    const applied = removed.flatMap(e => e.type === "turn" && e.turn.checkpoint?.status === "applied" ? [e.turn.checkpoint.id] : []);
+    if (!entry || entry.type !== "turn" || (!text.trim() && !entry.turn.attachments.some(a => !a.toolRead)) || !providerForSend()) return false;
+    const removed = entries.value.slice(index), turnIds = new Set(removed.map(e => e.id));
+    const applied = removed.flatMap(e => { const c = e.type === "turn" ? e.turn.checkpoint : e.checkpoint; return c?.status === "applied" ? [c.id] : []; });
     const retained = entries.value.slice(0, index).reduce((count, e) => e.type === "turn" ? Math.max(count, e.turn.committed ?? 0) : count, 0);
     writingDraft.value = true; notice.value = "";
     try {
@@ -1130,13 +1210,19 @@ export function createAsk(deps: {
       const provider = providerForSend();
       if (!provider) return false;
       conversations.current.session.truncate(retained, attachments.get);
-      const originalAttachments = entry.turn.attachments.map(a => a.id);
+      for (const r of [...conversations.current.externalQueue, ...(draft.value ? [draft.value] : [])])
+        if (turnIds.has(r.turnId)) externalStatus(r, "dismissed");
+      conversations.current.externalQueue = conversations.current.externalQueue.filter(r => !turnIds.has(r.turnId));
+      externalRevision.value++;
+      const originalAttachments = entry.turn.attachments.filter(a => !a.toolRead).map(a => a.id);
       attachments.retain(originalAttachments);
       attachments.release(entryAttachments(removed));
       // Keep an editable stopped row until a normal request actually starts.
       // Stopping pre-send compaction must not discard the edited text/attachments.
       entries.value = [...entries.value.slice(0, index), { ...entry, turn: { ...entry.turn, question: text,
-        status: "stopped", items: [], failure: null, truncated: false, committed: null, turnId: null, checkpoint: null } }];
+        attachments: entry.turn.attachments.filter(a => !a.toolRead),
+        status: "stopped", items: [], failure: null, truncated: false, committed: null, turnId: null, checkpoint: null } },
+        ...entries.value.slice(index).filter(e => e.type === "note" && e.external && !turnIds.has(e.id))];
       history.removeTurns(conversationId.value, turnIds);
       if (draft.value && turnIds.has(draft.value.turnId)) draft.value = null;
       appliedDraft.value = null;
@@ -1162,7 +1248,7 @@ export function createAsk(deps: {
       favorite: false, createdAt: Date.now(), scope: source.scope,
       session: source.session.fork(count, attachments.get),
       entries: entries.value.slice(0, index + 1).flatMap(e => e.type === "turn" ? [{ ...e, turn: { ...e.turn, checkpoint: null } }] : []),
-      anchor: entry.turn.anchor, input: "", draft: null, tray: [], preparing: 0,
+      slateId: source.slateId, anchor: entry.turn.anchor, input: "", draft: null, externalQueue: [], tray: [], preparing: 0,
     }));
     if (fork === "limit") { deps.ui.toast("最多 20 个对话"); return "limit"; }
     attachments.retain(entryAttachments(fork.entries));
@@ -1180,7 +1266,7 @@ export function createAsk(deps: {
     const provider = providerForSend();
     if (!provider) return;
     void dispatch(entry.turn.question, { metadataOnly: mode === "metadata" || entry.turn.metadataOnly, anchor: entry.turn.anchor,
-      preserveInput: true, attachments: entry.turn.attachments.map(a => a.id), replaceId: entry.id }, provider);
+      preserveInput: true, attachments: entry.turn.attachments.filter(a => !a.toolRead).map(a => a.id), replaceId: entry.id }, provider);
   }
   /** Esc: popovers, then the draft (A2), then the running turn, then the drawer. */
   function escape() {
@@ -1242,9 +1328,85 @@ export function createAsk(deps: {
     escape();
   }
   window.addEventListener("keydown", onKey);
-  void restoreFavorites();
+  function proposeFile(document: 'recipe' | 'memo' | 'slate', content?: { title: string; text: string }) {
+    if (!manageable() || writingDraft.value) return;
+    try {
+      const base = readDraftState();
+      const latest = [...entries.value].reverse().find(e => e.type === 'turn' && e.turn.status === 'done');
+      const body = content?.text ?? (latest?.type === 'turn' ? latest.turn.items.flatMap(i => i.kind === 'text' ? [i.text] : []).join('\n\n') : '');
+      const step = parseFile({ kind: 'save_ref', document, document_title: (content?.title ?? conversations.current.title).slice(0, 80), ...(document === 'memo' ? { text: body } : {}) }, base);
+      if (draft.value) {
+        if (draft.value.draft.steps.length >= 12) throw new Error('草稿步骤已满');
+        if (draft.value.draft.steps.some(s => s.kind === 'save_ref' && s.file.document === document)) return;
+        draft.value = { ...draft.value, draft: { ...draft.value.draft, steps: [...draft.value.draft.steps, step] } };
+      } else {
+        const id = ++sequence;
+        entries.value = [...entries.value, { type: 'note', id, text: step.file.title }];
+        draft.value = history.create({ title: step.file.title, baseHash: stateHash(base), question: '', base, steps: [step] }, conversations.current.id, id);
+      }
+      draftRevision.value++; saveFavorite();
+    } catch (error) { notice.value = message(error); }
+  }
+  async function openSlate(id: string, fresh = false) {
+    if (!manageable() || !deps.slates?.get(id)) return false;
+    try { await deps.slates.select(id); }
+    catch (error) { notice.value = message(error); return false; }
+    if (!manageable()) return false;
+    const owner = conversations.list().find(c => c.slateId === id);
+    if (owner && !fresh) selectConversation(owner.id);
+    else { if (newConversation() !== true) { notice.value = '会话已达上限，请先关闭一个会话'; return false; } conversations.current.slateId = id; const slate = deps.slates.get(id); if (slate) conversations.current.title = slate.title; listRevision.value++; }
+    draftRevision.value++;
+    open.value = true; deps.slates.visible.value = false; saveFavorite();
+    return true;
+  }
+  const restored = Promise.resolve(deps.slates?.restored).then(() => restoreFavorites());
 
   return {
+    proposeFile, openSlate,
+    activeSlate: computed(() => { void conversationId.value; void draftRevision.value; return deps.slates?.get(conversations.current.slateId ?? "") ?? null; }),
+    connectFileExports(port: FilePort) { filePort = port; draftRevision.value++; return () => { if (filePort === port) filePort = null; }; },
+    connectReferences(source: RefSource) { referenceSource = source; stateRevision.value++; return () => { if (referenceSource === source) { referenceSource = null; stateRevision.value++; } }; },
+    referencesChanged() { stateRevision.value++; },
+    restored,
+    externalWaiting: computed(() => { void externalRevision.value; void conversationId.value; return conversations.current.externalQueue.map(r => ({ id: r.turnId, title: r.draft.title })); }),
+    externalSnapshot() {
+      const d = drawing.snapshot();
+      return { base: { ...readDraftState(), workspace: "image" as const }, library: snapshotPictures(d.history, d.favorites, ids), pictureScope: activeScope.id, ownerId: conversations.current.id };
+    },
+    reviewExternal(context: string, id: string) {
+      if (!manageable()) return false;
+      stash();
+      const owner = conversations.list().find(c => c.entries.some(e => e.type === "note" && e.external?.origin.context === context && e.external.origin.draftId === id));
+      if (!owner) return false;
+      selectConversation(owner.id); open.value = true; return true;
+    },
+    externalRecord(context: string, id: string) {
+      stash();
+      for (const c of conversations.list()) for (const e of c.entries)
+        if (e.type === "note" && e.external?.origin.context === context && e.external.origin.draftId === id) return e.external;
+      return null;
+    },
+    receiveExternal(value: Draft, origin: ExternalOrigin, ownerId = conversations.current.id) {
+      if (!favoritesReady.value || disposed) throw new Error("ASK 会话尚未就绪，请稍后重试");
+      stash();
+      const owner = conversations.get(ownerId);
+      if (!owner) throw new Error("接收草稿的会话已删除");
+      if (owner.externalQueue.length >= 32) throw new Error("外部草稿等待队列已满，请先处理现有草稿");
+      const record = history.create({ ...value, external: origin }, owner.id, ++sequence);
+      owner.externalQueue.push(record);
+      const entry: AskEntry = { type: "note", id: record.turnId, text: value.title, external: { origin, status: "pending" } };
+      owner.entries = [...owner.entries, entry];
+      if (owner === conversations.current) entries.value = owner.entries;
+      externalRevision.value++; saveFavorite(owner);
+      say(draft.value || running.value ? "有外部草稿待处理" : "收到外部草稿");
+    },
+    dismissExternal(id: number) {
+      const owner = conversations.current, record = owner.externalQueue.find(r => r.turnId === id);
+      if (!record || writingDraft.value || favoriteBusy.value) return;
+      externalStatus(record, "dismissed"); owner.externalQueue = owner.externalQueue.filter(r => r !== record);
+      externalRevision.value++; saveFavorite(owner);
+    },
+    onExternal(fn: (origin: ExternalOrigin, receipt: InboxReceipt) => void) { externalEvents.add(fn); return () => externalEvents.delete(fn); },
     debug: debug as Readonly<ShallowRef<CallLogView>>,
     debugCall: callLog.get,
     debugPrevious: callLog.previous,
@@ -1347,6 +1509,7 @@ export function createAsk(deps: {
     },
     reproposeDraft() {
       if (!draft.value || writingDraft.value || controller) return;
+      if (draft.value.draft.external) { notice.value = "请从外部基于最新状态重新投递"; return; }
       const question = draft.value.draft.question;
       ignoreDraft();
       void send(`基于当前内容重新提议。\n${question}`);
@@ -1444,6 +1607,7 @@ export function createAsk(deps: {
       saveFavorite();
       void flushFavorites().catch(() => {});
       disposed = true;
+      stopExternal(); externalEvents.clear();
       stopFavoriteSave();
       unregisterFavorites();
       clearTimeout(favoriteTimer);

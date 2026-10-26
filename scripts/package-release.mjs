@@ -59,7 +59,9 @@ export async function packageRelease(output = join(root, ".local/releases")) {
     for (const file of await files(join(root, "dist"))) {
       if (
         !/\.(?:html|js|css|svg|woff2|png|json|txt)$/.test(file) &&
-        !/(?:^|\/)[\w-]*LICENSE$/.test(file)
+        !/(?:^|\/)[\w-]*LICENSE$/.test(file) &&
+        file !== "_headers" &&
+        file !== "skills/koma-bridge/SKILL.md"
       )
         throw new Error(`构建产物包含未审查文件：${file}`);
     }

@@ -176,7 +176,7 @@ test("single document, cached drafts and nodes, back/forward, and global overlay
     {
       local: ["koma.tag.categories.v1", "koma.prefs.v1", "koma.chat.rail.v1"],
       session: [],
-      dbs: ["koma-ask", "koma-chat", "koma-handoff", "koma-image-favorites"],
+      dbs: ["koma-ask", "koma-bridge", "koma-chat", "koma-handoff", "koma-image-favorites", "koma-slate"],
     },
   );
   await clean(result);

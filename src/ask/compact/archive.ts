@@ -48,7 +48,8 @@ function textBlock(block: AskText, read: AttachmentReader, restore: boolean): As
   const heading = block.source.heading ?? dataText(`附件 ${a.id} · ${a.name} · ${a.text.length} 字`);
   const { archived: _archived, ...source } = block.source;
   return { type: "text", source: { ...source, ...(!restore ? { archived: true } : {}) },
-    text: restore ? `${heading}\n${dataBlock(a.text)}` : `${heading} · 正文见 get_turn attachments=["${a.id}"]` };
+    text: restore ? `${heading}\n${dataBlock(a.text.slice(source.offset ?? 0, source.end))}`
+      : `${heading} · 正文见 get_turn attachments=["${a.id}"]${source.offset !== undefined ? ` offset=${source.offset}` : ""}` };
 }
 /** No body matching: only locally attributed blocks can become placeholders. */
 export function archiveTurn(turn: CommittedTurn, read: AttachmentReader): CommittedTurn {
@@ -101,10 +102,10 @@ export function getTurn(input: Readonly<Record<string, unknown>>, turns: readonl
       if (!allowed.has(id)) throw new Error(`${id} 不在本会话的成功轮次中`);
       const a = read(id);
       if (!a) throw new Error(`附件 ${id} 已不可用`);
-      if (a.kind === "image") return { id, name: a.name, kind: a.kind, size: a.size, mime: a.mime };
+      if (a.kind === "image") return { id, name: a.name, kind: a.kind, size: a.size, mime: a.mime, ...(a.origin ? { origin: a.origin } : {}) };
       if (offset > a.text.length) throw new Error(`${id} 的 offset 超过正文长度 ${a.text.length}`);
       const end = Math.min(a.text.length, offset + TEXT_PAGE_CHARS);
-      return { id, name: a.name, kind: a.kind, text: a.text.slice(offset, end), total_chars: a.text.length, offset,
+      return { id, name: a.name, kind: a.kind, ...(a.origin ? { origin: a.origin } : {}), text: a.text.slice(offset, end), total_chars: a.text.length, offset,
         next_offset: end < a.text.length ? end : null };
     }),
   };

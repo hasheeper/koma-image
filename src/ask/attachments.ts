@@ -6,6 +6,7 @@ import type { Picture } from "./library.ts";
 import { fitSize } from "./vision.ts";
 import { DEFAULT_TEXT_ATTACHMENT_LIMITS } from "./settings.ts";
 import type { TextAttachmentLimits } from "./settings.ts";
+import type { RefOrigin } from "./reference-source.ts";
 
 export const ATTACHMENT_LIMITS = Object.freeze({ images: 4, texts: 4, paste: 2000, bytes: 20 * 1024 ** 2, pageBytes: 200 * 1024 ** 2, pixels: 40_000_000, edge: 1568, sentBytes: 1024 ** 2 });
 export const attachmentAccept = "image/png,image/jpeg,image/webp,image/gif,image/avif,image/bmp,image/heic,image/heif,.txt,.md,.markdown,.json,.csv,.tsv,.yaml,.yml,.log";
@@ -13,7 +14,7 @@ const textExtensions = /\.(?:txt|md|markdown|json|csv|tsv|ya?ml|log)$/i;
 const extension = (name: string) => name.match(/\.([a-z0-9]+)$/i)?.[1].toUpperCase() ?? "";
 export const charLabel = (n: number) => n >= 1000 ? `${(n / 1000).toFixed(1)}k 字` : `${n} 字`;
 type Size = { readonly width: number; readonly height: number };
-interface Base { readonly id: string; readonly name: string; readonly bytes: number; readonly mime: string }
+interface Base { readonly id: string; readonly name: string; readonly bytes: number; readonly mime: string; readonly origin?: RefOrigin; readonly toolRead?: boolean }
 export interface ImageAttachment extends Base {
   readonly kind: "image";
   readonly blob: Blob;
@@ -27,9 +28,10 @@ export interface ImageAttachment extends Base {
 export interface TextAttachment extends Base { readonly kind: "text"; readonly text: string; readonly pasted: boolean }
 export type Attachment = ImageAttachment | TextAttachment;
 export type SavedAttachment = Omit<ImageAttachment, "url"> | TextAttachment;
-export type AttachmentView = Pick<Base, "id" | "name"> & { readonly kind: "image" | "text"; readonly meta: string; readonly url?: string; readonly pasted?: boolean };
+export type AttachmentView = Pick<Base, "id" | "name" | "origin" | "toolRead"> & { readonly kind: "image" | "text"; readonly meta: string; readonly url?: string; readonly pasted?: boolean };
 export const attachmentView = (a: Attachment): AttachmentView => ({
   id: a.id, name: a.name, kind: a.kind,
+  ...(a.origin ? { origin: a.origin } : {}), ...(a.toolRead ? { toolRead: true } : {}),
   ...(a.kind === "image" ? { url: a.url, meta: `${a.size.width}×${a.size.height} → ${a.sentSize.width}×${a.sentSize.height} · ${Math.ceil(a.sentBytes / 1024)} KB` }
     : { pasted: a.pasted, meta: `${a.pasted ? "" : `${extension(a.name) || "文本"} · `}${charLabel(a.text.length)}` }),
 });

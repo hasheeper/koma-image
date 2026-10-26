@@ -1,13 +1,25 @@
 <script setup lang="ts">
 import { useAsk } from "../app/ask";
 import AppIcon from "../shared/AppIcon.vue";
-import type { CheckpointView } from "./service.ts";
+import AskToolGroup from "./AskToolGroup.vue";
+import { computed } from "vue";
+import type { CheckpointView, ToolRow } from "./service.ts";
 
-defineProps<{ checkpoint: CheckpointView }>();
+const props = defineProps<{ checkpoint: CheckpointView; source?: string }>();
 const ask = useAsk();
+const rows = computed<readonly ToolRow[]>(() => props.checkpoint.receipts ?? [{ id: String(props.checkpoint.id), name: 'propose_draft', verb: '应用', object: props.checkpoint.title, state: 'done', stat: '' }]);
+const summary = computed(() => {
+  if (rows.value.length <= 1) return undefined;
+  const tasks = rows.value.filter(r => r.name === 'slate_edit').length, files = rows.value.filter(r => r.name === 'save_ref').length;
+  if (tasks + files !== rows.value.length) return `已应用 ${rows.value.length} 项更改`;
+  return [tasks ? `已更新 ${tasks} 项待办` : '', files ? `已保存 ${files} 份资料` : ''].filter(Boolean).join('、');
+});
 </script>
 <template>
-  <div class="ask-checkpoint" :data-state="checkpoint.status" :data-id="checkpoint.id">
+  <div v-if="checkpoint.receipts?.length || source" class="ask-checkpoint receipt-checkpoint" :data-state="checkpoint.status" :data-id="checkpoint.id">
+    <AskToolGroup :rows="rows" :source="source" :label="summary" :reverted="checkpoint.status === 'reverted'"><template #action><button v-if="ask.undoId.value === checkpoint.id" type="button" aria-label="回退" title="回退" :disabled="ask.running.value || ask.writingDraft.value" @click="ask.undoDraft(checkpoint.id)"><AppIcon name="i-undo" /></button><button v-else-if="ask.redoId.value === checkpoint.id" type="button" aria-label="恢复" title="恢复" :disabled="ask.running.value || ask.writingDraft.value" @click="ask.restoreDraft(checkpoint.id)"><AppIcon name="i-redo" /></button></template></AskToolGroup>
+  </div>
+  <div v-else class="ask-checkpoint" :data-state="checkpoint.status" :data-id="checkpoint.id">
     <AppIcon :name="checkpoint.status === 'applied' ? 'i-check' : 'i-undo'" />
     <span class="checkpoint-title" :title="checkpoint.title">{{ checkpoint.status === 'applied' ? '已写入' : '已回退' }}<b>{{ checkpoint.title }}</b></span>
     <span class="checkpoint-stat" :aria-label="`新增 ${checkpoint.added} 项，删除 ${checkpoint.removed} 项`"><span v-if="checkpoint.added" class="ins">+{{ checkpoint.added }}</span><span v-if="checkpoint.removed" class="del">−{{ checkpoint.removed }}</span></span>
@@ -32,4 +44,5 @@ const ask = useAsk();
 .ask-checkpoint[data-state="reverted"] > .ico, .ask-checkpoint[data-state="reverted"] :is(b, .ins, .del) { color: var(--fg-3); }
 .ask-checkpoint[data-state="reverted"] .checkpoint-stat { text-decoration: line-through; }
 @media (hover: none) { .ask-checkpoint button { width: 36px; height: 36px; } }
+.receipt-checkpoint { display: block; min-height: 26px; padding: 0; background: none; border: 0; border-radius: 0; }
 </style>

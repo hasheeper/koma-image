@@ -7,6 +7,7 @@ import ModelIcon from "../shared/ModelIcon.vue";
 import { familyOf } from "./model-family.ts";
 import AskAttachments from "./AskAttachments.vue";
 import AskMenu from "./AskMenu.vue";
+import DirectoryChip from "../bridge/DirectoryChip.vue";
 import { attachmentAccept } from "./attachments.ts";
 
 const ask = useAsk(), ui = useUi();
@@ -92,6 +93,7 @@ defineExpose({
       <div class="ask-cbar">
         <input ref="fileInput" type="file" :accept="attachmentAccept" multiple hidden @change="files" />
         <button class="ask-add" type="button" aria-label="添加图片或文本文件" :aria-busy="ask.preparing.value > 0" @click="fileInput?.click()"><AppIcon name="i-plus" /></button>
+        <DirectoryChip />
         <span v-if="capsule" class="ask-capsule">
           <span class="ask-capsule-id">{{ capsule }}</span>
           <button
@@ -184,13 +186,13 @@ defineExpose({
 <style scoped>
 .ask-inline-target { padding: 0 10px 6px; color: var(--fg-3); font-size: var(--fz-xs); }
 .ask-dock { position: relative; display: flex; flex-direction: column; gap: var(--sp-2); }
-.ask-composer { padding: 8px 6px 6px 12px; background: var(--ask-layer, var(--raised)); border: 1px solid var(--line-2); border-radius: 14px; }
-.ask-composer textarea { display: block; width: 100%; min-height: 24px; max-height: 30dvh; padding: 0 2px 2px; color: var(--fg); font: var(--fw-regular) 13.5px/1.55 var(--sans); background: transparent; border: 0; box-shadow: none; resize: none; }
+.ask-composer { padding: 14px 6px 10px 12px; background: var(--ask-layer, var(--raised)); border: 1px solid var(--line-2); border-radius: 14px; }
+.ask-composer textarea { display: block; width: 100%; min-height: 26px; max-height: 30dvh; padding: 0 2px 2px; color: var(--fg); font: var(--fw-regular) 13px/1.6 var(--sans); background: transparent; border: 0; box-shadow: none; resize: none; }
 .ask-composer textarea:focus { outline: none; box-shadow: none; }
 .ask-composer textarea::placeholder { color: var(--fg-3); }
 .ask-notice { color: var(--err); font-size: var(--fz-xs); overflow-wrap: anywhere; }
 .ask-notice:not(:empty) { margin: 2px 4px 6px; }
-.ask-cbar { display: flex; flex-wrap: wrap; align-items: center; gap: 4px 6px; margin-top: 2px; color: var(--fg-3); font-size: 12px; }
+.ask-cbar { display: flex; flex-wrap: wrap; align-items: center; gap: 4px 6px; margin-top: 14px; color: var(--fg-3); font-size: 12px; }
 .ask-add { display: grid; flex: none; place-items: center; width: 28px; height: 28px; margin-left: -6px; color: var(--fg-3); border-radius: 8px; }
 .ask-add:hover { color: var(--fg); background: var(--ask-hover); }
 .ask-add .ico { --ico: var(--ico-md); }

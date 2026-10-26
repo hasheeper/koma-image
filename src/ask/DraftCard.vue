@@ -3,6 +3,9 @@ import { computed, nextTick, onBeforeUnmount, shallowRef, useId, watch } from "v
 import { useAsk } from "../app/ask";
 import AppIcon from "../shared/AppIcon.vue";
 import AskReference from "./AskReference.vue";
+import DraftSlate from "./DraftSlate.vue";
+import DraftFiles from "./DraftFiles.vue";
+import { filePreviews } from "./draft/file-view.ts";
 import { draftView } from "./draft/view.ts";
 import type { FieldKey } from "./draft/view.ts";
 import { menuKeys, placeMenu } from "../shared/popover";
@@ -13,19 +16,22 @@ const ask = useAsk(), plan = ask.draftPlan;
 // The body stays as the user last left it, across drafts.
 const open = shallowRef(false), body = shallowRef<HTMLElement | null>(null), more = shallowRef(false);
 const fulls = shallowRef<ReadonlySet<FieldKey>>(new Set());
+const fileRows = computed(() => plan.value ? filePreviews(plan.value) : []);
+const slateStep = computed(() => plan.value?.steps.find(s => s.kind === "slate"));
 watch(() => !!plan.value, () => { fulls.value = new Set(); });
 const view = computed(() => plan.value ? draftView(plan.value) : null);
 const issues = computed(() => plan.value?.steps.some((s) => !!s.issue));
 const toggles = computed(() => (plan.value?.steps.length ?? 0) > 1);
-const blocked = computed(() => !plan.value || (!plan.value.changes.length && !plan.value.branch && !plan.value.handoff) || ask.writingDraft.value || ask.running.value);
+const blocked = computed(() => !plan.value || (!plan.value.changes.length && !plan.value.branch && !plan.value.handoff && !plan.value.slate && !plan.value.files?.length) || (!!(plan.value.slate || plan.value.files?.length) && issues.value) || ask.writingDraft.value || ask.running.value);
 const menuId = `draftApply-${useId()}`;
 const menu = shallowRef<HTMLElement | null>(null), menuTrigger = shallowRef<HTMLButtonElement | null>(null), menuOpen = shallowRef(false);
 const hasApplyMenu = computed(() => plan.value?.workspace === "image" && !plan.value.newBoardName && !props.compact);
+const canChooseBoard = computed(() => !!plan.value?.changes.length);
 const destinations = [
   { newBoard: false, label: "应用到来源画板" },
   { newBoard: true, label: "应用到新画板" },
 ];
-const applyTitle = computed(() => plan.value?.newBoardName ? `新建画板「${plan.value.newBoardName}」并应用，不会生成 · Tab`
+const applyTitle = computed(() => plan.value?.slate && !plan.value.changes.length && !plan.value.newBoardName ? "写入任务板，不会生成 · Tab" : plan.value?.newBoardName ? `新建画板「${plan.value.newBoardName}」并应用，不会生成 · Tab`
   : view.value?.destination ? "新开对话写入参考图、画幅和输入框，不会发送 · Tab"
   : `${plan.value?.workspace === 'image' ? '写入来源画板，不会生成' : '写入输入框，不会发送'} · Tab`);
 const applyIcon = computed(() => plan.value?.newBoardName ? "i-copy" : view.value?.destination ? "i-compose" : "i-check");
@@ -94,11 +100,11 @@ function apply(event: MouseEvent) {
       <header class="draft-head">
         <button v-if="compact" class="draft-toggle draft-review" type="button" aria-label="查看草稿修改" :title="plan.title" @click="review">
           <AppIcon name="i-edit" class="draft-lead" />
-          <span class="draft-heading"><span class="draft-title"><strong>{{ plan.title }}</strong><span class="draft-stat"><span v-if="view.added" class="i">+{{ view.added }}</span><span v-if="view.removed" class="d">−{{ view.removed }}</span></span></span><span v-if="view.destination" class="draft-destination" :title="`${view.destination.label} · ${view.destination.name}`"><span>{{ view.destination.label }}</span><span aria-hidden="true">·</span><span class="draft-board-name">{{ view.destination.name }}</span></span></span>
+          <span class="draft-heading"><span class="draft-title"><strong>{{ plan.title }}</strong><span v-if="!fileRows.length" class="draft-stat"><span v-if="view.added" class="i">+{{ view.added }}</span><span v-if="view.removed" class="d">−{{ view.removed }}</span></span></span><span v-if="view.destination" class="draft-destination" :title="`${view.destination.label} · ${view.destination.name}`"><span>{{ view.destination.label }}</span><span aria-hidden="true">·</span><span class="draft-board-name">{{ view.destination.name }}</span></span></span>
         </button>
         <button v-else class="draft-toggle" type="button" :aria-expanded="open" aria-controls="askDraftBody" :title="plan.title" @click="open = !open">
           <AppIcon name="i-chevron" class="draft-chev" />
-          <span class="draft-heading"><span class="draft-title"><strong>{{ plan.title }}</strong><span class="draft-stat" :title="`新增 ${view.added} 项 · 删除 ${view.removed} 项`"><span v-if="view.added" class="i">+{{ view.added }}</span><span v-if="view.removed" class="d">−{{ view.removed }}</span></span></span><span v-if="view.destination" class="draft-destination" :title="`${view.destination.label} · ${view.destination.name}`"><span>{{ view.destination.label }}</span><span aria-hidden="true">·</span><span class="draft-board-name">{{ view.destination.name }}</span></span></span>
+          <span class="draft-heading"><span class="draft-title"><strong>{{ plan.title }}</strong><span v-if="!fileRows.length" class="draft-stat" :title="`新增 ${view.added} 项 · 删除 ${view.removed} 项`"><span v-if="view.added" class="i">+{{ view.added }}</span><span v-if="view.removed" class="d">−{{ view.removed }}</span></span></span><span v-if="view.destination" class="draft-destination" :title="`${view.destination.label} · ${view.destination.name}`"><span>{{ view.destination.label }}</span><span aria-hidden="true">·</span><span class="draft-board-name">{{ view.destination.name }}</span></span></span>
         </button>
         <div class="draft-actions">
           <button class="btn btn-sm draft-ignore" type="button" title="忽略 · Esc" :disabled="ask.writingDraft.value || ask.running.value" @click="ask.ignoreDraft()">忽略</button>
@@ -109,13 +115,18 @@ function apply(event: MouseEvent) {
         </div>
       </header>
       <div v-if="hasApplyMenu" :id="menuId" ref="menu" class="draft-apply-menu" popover="auto" role="menu" aria-label="应用方式" @beforetoggle="beforeMenu" @keydown.stop="actionKeys">
-        <button v-for="destination in destinations" :key="String(destination.newBoard)" type="button" role="menuitem" :data-fingerprint="plan.fingerprint" :data-new-board="String(destination.newBoard)" :disabled="blocked" @click="apply">
+        <button v-for="destination in (canChooseBoard ? destinations : [])" :key="String(destination.newBoard)" type="button" role="menuitem" :data-fingerprint="plan.fingerprint" :data-new-board="String(destination.newBoard)" :disabled="blocked" @click="apply">
           <AppIcon :name="destination.newBoard ? 'i-copy' : 'i-check'" /><span>{{ destination.label }}</span>
         </button>
+        <hr v-if="canChooseBoard" />
+        <button type="button" role="menuitem" @click="closeMenu(); ask.proposeFile('recipe')"><AppIcon name="i-parameters" /><span>附加画板配方</span></button>
+        <button type="button" role="menuitem" @click="closeMenu(); ask.proposeFile('memo')"><AppIcon name="i-file" /><span>附加创作备忘录</span></button>
+        <button v-if="ask.activeSlate.value" type="button" role="menuitem" @click="closeMenu(); ask.proposeFile('slate')"><AppIcon name="i-tasks" /><span>附加任务交接资料</span></button>
       </div>
       <p v-if="plan.aligned" class="draft-aligned">已按当前内容对齐，请核对后应用</p>
       <div v-show="open && !compact" id="askDraftBody" ref="body" class="draft-body" :class="{ more }" @scroll.passive="fade">
-        <section v-for="field in view.fields" :key="field.key" class="draft-field" :data-field="field.key">
+        <DraftSlate v-if="slateStep" :key="`${plan.title}-${slateStep.after}`" :change="plan.slate" :step="slateStep" />
+        <section v-for="field in view.fields.filter(f => f.key !== 'slate')" :key="field.key" class="draft-field" :data-field="field.key">
           <header class="draft-field-head">
             <span class="draft-name"><AppIcon :name="field.icon" /><span>{{ field.label }}</span></span>
             <span v-if="field.full" class="draft-seg" role="group" :aria-label="`${field.label} 查看方式`">
@@ -141,19 +152,20 @@ function apply(event: MouseEvent) {
                 <AppIcon name="i-image" /><span class="draft-key">{{ s.step.label }}</span>
                 <span class="draft-value"><span class="draft-thumb" :class="{ gone: !picture(s.label) }"><img v-if="picture(s.label)" :src="picture(s.label)!.url" alt="" /></span><AskReference :label="s.label" /><span v-if="picture(s.label)" class="draft-dim">{{ picture(s.label)!.width }}×{{ picture(s.label)!.height }}</span></span>
               </div>
-              <p v-else class="draft-note">{{ s.text }}</p>
+              <p v-else-if="s.kind === 'note'" class="draft-note">{{ s.text }}</p>
               <p v-if="s.step.issue" class="draft-issue">{{ s.step.issue }}</p>
               <button v-if="toggles && !s.step.locked" class="draft-undo" type="button" :disabled="!!s.step.issue || ask.writingDraft.value || ask.running.value" :aria-label="`${s.step.enabled ? '撤回' : '恢复'} ${s.step.label}`" :title="s.step.enabled ? '撤回此处' : '恢复此处'" @click="ask.toggleDraftStep(s.step.id)"><AppIcon :name="s.step.enabled ? 'i-undo' : 'i-redo'" /></button>
             </div>
           </div>
         </section>
+        <DraftFiles :key="plan.files?.map(f => f.id).join(',')" :files="fileRows" :issue="plan.steps.find(s => s.kind === 'file' && s.issue)?.issue" />
       </div>
       <footer v-if="issues" class="draft-conflict"><span>冲突步骤不会写入</span><button v-if="compact" type="button" @click="review">核对草稿</button><button v-else type="button" :disabled="ask.writingDraft.value || ask.running.value" @click="ask.reproposeDraft()">基于当前内容重新提议</button></footer>
   </section>
 </template>
 <style scoped>
 /* One grid: column A (14px chevron, icons, ± signs) at 12px, column B (text) at 34px, right edge at 8px. */
-.ask-draft { --draft-a: 12px; --draft-b: 34px; --draft-r: 8px; --draft-del: rgba(232, 135, 135, .1); --draft-ins: rgba(116, 207, 155, .085); --draft-del-hi: rgba(232, 135, 135, .17); --draft-ins-hi: rgba(116, 207, 155, .15); display: flex; flex: 0 1 auto; flex-direction: column; min-height: 0; margin-bottom: 8px; overflow: hidden; color: var(--fg-2); background: var(--ask-layer, var(--raised)); border: 1px solid var(--line-2); border-radius: 14px; }
+.ask-draft { --draft-content: color-mix(in srgb, var(--fg) 72%, var(--fg-2)); --draft-a: 12px; --draft-b: 34px; --draft-r: 8px; --draft-del: rgba(232, 135, 135, .1); --draft-ins: rgba(116, 207, 155, .085); --draft-del-hi: rgba(232, 135, 135, .17); --draft-ins-hi: rgba(116, 207, 155, .15); display: flex; flex: 0 1 auto; flex-direction: column; min-height: 0; margin-bottom: 8px; overflow: hidden; color: var(--fg-2); background: var(--ask-layer, var(--raised)); border: 1px solid var(--line-2); border-radius: 14px; }
 .draft-head { display: flex; flex: none; flex-wrap: wrap; align-items: center; gap: 0 8px; min-height: 44px; padding: 6px var(--draft-r) 6px 0; }
 .draft-toggle { display: flex; flex: 1; align-items: center; gap: 8px; min-width: min(140px, 100%); min-height: 32px; align-self: stretch; padding-left: var(--draft-a); text-align: left; }
 .draft-chev { flex: none; --ico: var(--ico-sm); color: var(--fg-3); transform: rotate(-90deg); transition: transform var(--t1) var(--e), color var(--t1) var(--e); }
@@ -192,13 +204,14 @@ function apply(event: MouseEvent) {
 .draft-apply-menu button { display: flex; align-items: center; gap: 8px; min-height: 34px; padding: 0 9px; color: var(--fg); text-align: left; font-size: 13px; border-radius: 5px; }
 .draft-apply-menu button:is(:hover, :focus-visible):not(:disabled) { background: rgb(255 255 255 / 5.5%); outline: none; }
 .draft-apply-menu button:disabled { color: var(--fg-4); cursor: default; }
+.draft-apply-menu hr { margin: 3px 5px; border: 0; border-top: 1px solid var(--line); }
 .draft-apply-menu .ico { flex: none; --ico: var(--ico-sm); }
 .draft-aligned { flex: none; padding: 0 var(--draft-r) 8px var(--draft-b); color: var(--warn); font-size: var(--fz-xs); }
 .draft-body { display: grid; flex: 0 1 auto; grid-auto-rows: max-content; min-height: 0; max-height: min(44dvh, 340px); padding: 4px 0 10px; overflow-y: auto; overscroll-behavior: contain; border-top: 1px solid var(--line); }
 .draft-body.more { -webkit-mask-image: linear-gradient(to bottom, #000 calc(100% - 28px), transparent); mask-image: linear-gradient(to bottom, #000 calc(100% - 28px), transparent); }
 .draft-field + .draft-field { margin-top: 6px; }
-.draft-field-head { display: flex; align-items: center; justify-content: space-between; gap: 8px; height: 36px; padding: 0 var(--draft-r) 0 var(--draft-a); }
-.draft-name { display: flex; align-items: center; gap: calc(var(--draft-b) - var(--draft-a) - 14px); min-width: 0; color: var(--fg-2); font-size: 13px; font-weight: var(--fw-medium); }
+.draft-field-head { display: flex; align-items: center; justify-content: space-between; gap: 8px; height: 30px; padding: 0 var(--draft-r) 0 var(--draft-a); }
+.draft-name { display: flex; align-items: center; gap: calc(var(--draft-b) - var(--draft-a) - 14px); min-width: 0; color: var(--fg); font-size: 13px; font-weight: var(--fw-medium); }
 .draft-name .ico, .draft-kv > .ico { flex: none; --ico: var(--ico-sm); color: var(--fg-3); }
 /* The site's .seg language: a well with one raised pill. */
 .draft-seg { display: inline-grid; grid-auto-flow: column; gap: 2px; padding: 2px; background: var(--ask-field, var(--well)); border: 1px solid var(--line); border-radius: var(--r2); }
@@ -206,7 +219,7 @@ function apply(event: MouseEvent) {
 .draft-seg button:hover { color: var(--fg-2); }
 .draft-seg button[aria-pressed="true"] { color: var(--fg); background: var(--raised); box-shadow: 0 1px 2px rgba(0, 0, 0, .3); }
 .draft-seg button:focus-visible { outline: 1.5px solid var(--a); outline-offset: -1.5px; }
-.draft-diff { display: grid; gap: 4px; padding: 0 var(--draft-r) 0 calc(var(--draft-a) - 6px); }
+.draft-diff { display: grid; gap: 4px; padding: 0 var(--draft-r) 0 calc(var(--draft-b) - 6px); }
 /* A step is one rounded block; its − and + rows touch. */
 .draft-step { position: relative; display: grid; gap: 4px; transition: opacity var(--t1) var(--e); }
 .draft-step.off { opacity: .38; }
@@ -264,8 +277,8 @@ function apply(event: MouseEvent) {
   .draft-seg button { height: 30px; }
 }
 @media (max-width: 360px) {
-  .draft-head { flex-wrap: wrap; padding-bottom: 6px; }
-  .draft-toggle { flex-basis: 100%; min-height: 40px; }
+  .draft-head { flex-wrap: nowrap; gap: 0; padding-bottom: 6px; }
+  .draft-toggle { min-width: 0; min-height: 36px; }
   .draft-actions { margin-left: auto; }
 }
 @media (prefers-reduced-motion: reduce) {

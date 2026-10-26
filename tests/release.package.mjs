@@ -90,6 +90,15 @@ test("M7 release: allowlisted archive, checksums, dependency-free extracted serv
         assert.equal(html.includes("synthetic-package-secret"), false);
         assert.equal(html.includes("gateway.example.test"), false);
         assert.equal((await fetch(origin + mount + ".env")).status, 404);
+        const skill = await fetch(origin + mount + "skills/koma-bridge/SKILL.md");
+        assert.equal(skill.status, 200);
+        assert.match(skill.headers.get("content-type"), /^text\/plain;\s*charset=utf-8$/i);
+        assert.equal(
+          await skill.text(),
+          await readFile("public/skills/koma-bridge/SKILL.md", "utf8"),
+          "public skill is readable without runtime injection or an upstream request",
+        );
+        assert.equal(seen, 0);
         if (mount === "/app/") {
           const token = JSON.parse(
             html.match(/id="koma-runtime"[^>]*>(.*?)<\/script>/)[1],
