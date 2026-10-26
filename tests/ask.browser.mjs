@@ -800,6 +800,8 @@ test("ASK Markdown: headings, nested lists, tables, literal code and links rende
     assert.equal(await md.locator('del').textContent(), '重复动作');
     assert.equal(await md.locator('blockquote').count(), 1);
     assert.equal(await md.locator('table tbody tr').count(), 2);
+    assert.equal(await md.locator('table tbody tr').nth(1).locator('br').count(),3);
+    assert.doesNotMatch(await md.locator('table').textContent(),/<br\s*\/?>/i);
     assert.deepEqual(await md.locator('input[type="checkbox"]').evaluateAll(nodes => nodes.map(n => [n.checked,n.disabled])), [[true,true],[false,true]]);
     assert.equal(await md.locator('pre h3, pre .ask-id, img, script').count(), 0);
     assert.match(await md.locator('pre code').textContent(), /### 这里是原始提示词/);
@@ -841,6 +843,8 @@ test("ASK Markdown: headings, nested lists, tables, literal code and links rende
       assert.ok(Math.abs(message.rightGap) < 1, `question and actions use the right edge at ${width}`);
       assert.equal(await md.locator('h3').first().evaluate(el=>getComputedStyle(el).fontSize), '14px');
       await drawer(page).screenshot({path:`.local/ask/markdown/reply-${width}.png`});
+      await md.locator('table').scrollIntoViewIfNeeded();
+      await drawer(page).screenshot({path:`.local/ask/markdown/table-${width}.png`});
       await md.locator('pre').scrollIntoViewIfNeeded();
       assert.ok(await md.locator('pre').evaluate(el=>el.scrollWidth>el.clientWidth), 'long code scrolls inside the block');
       await drawer(page).screenshot({path:`.local/ask/markdown/code-${width}.png`});

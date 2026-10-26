@@ -99,6 +99,19 @@ test('ASK Markdown: HTML is text, links validate decoded schemes and images beco
   assert.equal(blocks('[label][ref]\n\n[ref]: https://example.test')[0].parts[0].t, 'a');
   assert.equal(blocks('[label][ref]')[0].parts[0].t, 'text', 'reference definitions stay within one message');
 });
+test('ASK Markdown: bare HTML breaks render in table cells without enabling HTML or changing code', () => {
+  for(const tag of ['<br>','<br/>','<br />','<BR>','<Br />']){
+    assert.deepEqual(inline(`标题${tag}副标题`),[{t:'text',v:'标题'},{t:'br'},{t:'text',v:'副标题'}]);
+    const table=blocks(`| 剧目 |\n| --- |\n| **现实的静止**${tag}角落里的空壳人偶 |`)[0];
+    assert.deepEqual(table.rows[0][0],[{t:'strong',parts:[{t:'text',v:'现实的静止'}]},{t:'br'},{t:'text',v:'角落里的空壳人偶'}]);
+  }
+  for(const html of ['<br onclick="alert(1)">','<br style="display:none">','<br data-test="x"/>','<img src=x onerror=alert(1)>','<script>alert(1)</script>'])
+    assert.ok(inline(html).every(p=>p.t==='text'),html);
+  assert.deepEqual(inline('`<br>`'),[{t:'code',v:'<br>'}]);
+  assert.deepEqual(inline('&lt;br&gt;'),[{t:'text',v:'<br>'}]);
+  assert.deepEqual(blocks('```html\n<br>\n```'),[{t:'pre',text:'<br>',language:'html'}]);
+  assert.equal(summary('标题<br>副标题').map(p=>p.v).join(''),'标题 副标题');
+});
 test('ASK Markdown: incomplete streamed syntax is readable and all block types have a compact summary', () => {
   for (let length=0; length<=sample.length; length+=11) assert.doesNotThrow(()=>blocks(sample.slice(0,length)));
   assert.equal(summary('### 1. **结论**')[0].v, '1. ');

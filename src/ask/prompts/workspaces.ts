@@ -1,6 +1,6 @@
 /** L1: Koma UI, state indexing and supported draft actions; no engine recipes. */
 export const workspaces = {
-  version: 16,
+  version: 17,
   overview: `## 工作区与界面机制（UI 规范）
 Koma 包含四个工作区，你在顶栏右侧的浮岛中跨工作区常驻。每条消息末尾的 \`<workspace_state>\` 会标明当前所在的 \`workspace\`、表单快照、历史索引、任务板与协同目录摘要。
 ### 1. IMAGE 绘图工作区（多画板与表单模式）
@@ -23,8 +23,9 @@ Koma 包含四个工作区，你在顶栏右侧的浮岛中跨工作区常驻。
   2. 提纯并新开分支（\`chat_distill_branch\`）：仅在 CHAT 工作区可用。当多轮叠改导致底图画质劣化时，回退到早期完好轮次创建新分支、排除后续污染轮次，并将合并提纯后的描述填入输入框。
   3. 交接到新对话（\`chat_handoff\`）：在任意工作区均可使用（在 IMAGE/TAGS 下向 CHAT 写入时必须用此步骤，且须为草稿唯一步骤）。将选定的 \`#h / #f / #c\` 参考图（不含 \`#a\` 附件，不超过 \`max_images\`）、\`writable\` 尺寸选项与描述文字一次备好写入新开的 CHAT 会话。
 ### 3. 任务板（Slate / Todo）与外部协同（\`refs/\`）
-- 任务板（Slate）：默认本机能力。\`active_slate\` 提供当前任务清单摘要（若 \`requirements_truncated\` 为真，可调 \`get_state({ include_slate: true })\` 读取完整任务与 \`golden_recipe\`）。
+- 任务板（Slate）：默认浏览器本地能力，在线站点与本地运行均可用，不依赖目录挂载。\`active_slate\` 提供当前任务清单摘要（若 \`requirements_truncated\` 为真，可调 \`get_state({ include_slate: true })\` 读取完整任务与 \`golden_recipe\`）。
   - 可主动按用户目标用 \`slate_edit\` 草稿拆解新建 Todo、追加 Bonus、修改要求、记录妥协原因（\`mutation\`）或锁定黄金基底（\`golden_recipe.capture_current\` 保存同稿修改后的画板，已锁定的基底修改前需显式 \`unlock\`）。更新已有清单需带 \`slate_id\` 与 \`expected_version\`。
+  - 新增 Todo 使用 \`{op:"add", todo_title:"任务标题"}\`，不要填写 \`id\`，编号由应用自动生成；\`update/remove\` 必须使用状态中已有的稳定 Todo ID，不用 CG 序号或自行编造的编号替代。
   - 需交图的待办完成时须同时 \`bind\` 本轮 \`#h / #f\` 图片（明确指定打标来源 \`base / sent / character\` 及模式 \`full / strip_syntax\`；仅在用户明确要求落盘到外部目录时才设 \`directory_required: true\`）。支持在同一份草稿里完成上一张 Todo 的绑图结单，并同时用 \`prompt_patch / params_patch\` 起草下一张图。
 - 协同目录资料（\`refs/\`）：
   - 读取（\`read_ref\`）：当 \`refs_index\` 非空且用户提及相关资料时，用 \`read_ref\` 按完整相对路径读取文本（支持 \`next_offset\` 续读）或图片（遵循视觉预算）；同名文件先消歧。

@@ -140,13 +140,15 @@ Diff、逐项勾选、参数冲突、应用到来源板／新板、Tab 确认与
 
 无需 ASK Key、目录挂载或目录 API 即可从总览创建清单、手动交付／勾选，或导入外部草稿；内置 AI 推进仍需配置推理模型。任务和成果独立保存在 `koma-slate`，刷新、删除 ASK 会话、清空普通历史或卸载目录均不移除已绑成果。会话保存关联的 Slate ID；从总览选择时同步活动清单身份，没有任务的会话不留关联占位。
 
+这里的「本机」指当前站点在浏览器中的本地存储，Cloudflare Pages 等 HTTPS 静态托管同样支持 Todo；不要求启动本地服务。不同域名／浏览器的数据相互独立，目录 API 的支持情况只影响外部文件同步。
+
 任务进度为 `todo`／`in_progress`／`done`／`abandoned`；默认需要交图，纯文本任务可关闭「需交图」。需交图任务没有持久绑定时不能完成。任务进度、本机成果与目录同步分开显示。挂载失败不禁用本机任务。
 
 ## ASK 推进与复合草稿
 
 内置 ASK 可从零拆解任务清单、追加 Bonus、修改描述与 `mutation`、推进状态、绑定本轮 `#h`／`#f`、更新并锁定 `golden_recipe`。`get_state({include_slate:true})` 按需返回完整冻结任务板；默认初始状态只含摘要，`scope: latest` 仅用于检查当前变化。没有新增直接写入工具。
 
-共享 `slate_edit` 支持 `op: create/update/delete`；已有目标必须带 `slate_id`、`expected_version`，创建标题使用 `slate_title`／`todo_title`（持久数据仍用 `title`），避免兼容中转剥离 Schema 标题元数据；新 Slate／Todo ID 由本机分配。每份草稿最多一个 `slate_edit`，其中 `todos` 最多 100 项操作，单板正文最多 900KiB。Todo 操作使用 `add/update/remove` 和稳定 `id`；绑定使用 `bind: {source, caption_source, caption_mode, target_path?, character_id?}`，解绑使用 `unbind: true`。图像只接受本轮历史／收藏，不能伪造本机资产或交付回执。
+共享 `slate_edit` 支持 `op: create/update/delete`；已有目标必须带 `slate_id`、`expected_version`，创建标题使用 `slate_title`／`todo_title`（持久数据仍用 `title`），避免兼容中转剥离 Schema 标题元数据；新 Slate／Todo ID 由应用分配。每份草稿最多一个 `slate_edit`，其中 `todos` 最多 100 项操作，单板正文最多 900KiB。新增 Todo 使用 `{op:"add",todo_title:"任务标题"}`，省略 `id`；若 Agent 误填字符串 ID，解析时忽略该值并生成新稳定 ID，不因此拒绝整稿，也不据此覆盖或引用已有任务。`update/remove` 仍须引用状态中的真实稳定 `id`，不接受 CG 序号或自行编造的 ID。绑定使用 `bind: {source, caption_source, caption_mode, target_path?, character_id?}`，解绑使用 `unbind: true`。图像只接受本轮历史／收藏，不能伪造本机资产或交付回执。
 
 配方可用 `golden_recipe.capture_current: true` 保存同稿修改后的完整画板，也可提议经结构校验的 `form`；`locked` 控制锁定，锁定配方修改必须显式 `unlock: true`。配方是创作数据，不改变生成锁，不自动应用到画板或补造图片回执。
 

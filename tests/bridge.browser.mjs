@@ -367,7 +367,8 @@ test('B3 local tasks use an inline Todo list and a small overview, with native p
   try {
     await page.getByRole('button',{name:'打开任务总览',exact:true}).click();await page.getByRole('button',{name:'任务总览选项',exact:true}).click();await page.getByRole('menuitem',{name:'新建清单',exact:true}).click();
     await page.getByRole('textbox',{name:'清单名称',exact:true}).fill('本机创作清单');await page.getByRole('button',{name:'创建',exact:true}).click();await page.waitForFunction(()=>slate.snapshot()?.title==='本机创作清单'&&!slate.busy.value);
-    const base=await page.evaluate(()=>slate.snapshot());await receive(page,draft('local-task',[editSlate(base,[{op:'add',todo_title:'完成构图',requirements:'远景构图，保持天空留白',image_required:false,status:'in_progress'}]) ]));await apply(page);
+    const base=await page.evaluate(()=>slate.snapshot());await receive(page,draft('local-task',[editSlate(base,[{op:'add',id:'CG01',todo_title:'完成构图',requirements:'远景构图，保持天空留白',image_required:false,status:'in_progress'}]) ]));await apply(page);
+    const todoId=await page.evaluate(()=>slate.snapshot().todos[0].id);assert.notEqual(todoId,'CG01');
     const receipt=page.locator('.receipt-checkpoint').last();
     assert.equal(await page.locator('.ask-external').count(),0,'applied notes reuse the tool row without an external card');
     assert.equal(await receipt.locator('.ask-tools-line').textContent(),'已添加 完成构图');
@@ -381,7 +382,7 @@ test('B3 local tasks use an inline Todo list and a small overview, with native p
     await page.getByRole('checkbox',{name:'完成构图 · 进行中',exact:true}).click();await page.waitForFunction(()=>ask.activeSlate.value.todos[0].status==='done');
     for(const width of [320,390,768,1440]) {await page.setViewportSize({width,height:900});assert.equal(await page.locator('.ask-todos').evaluate(e=>e.scrollWidth>e.clientWidth),false);await page.screenshot({path:`.local/bridge/todo-${width}.png`});}
     await page.evaluate(()=>ask.proposeFile('slate'));const downloading=page.waitForEvent('download');await apply(page);const file=await downloading;assert.equal(JSON.parse(await readFile(await file.path(),'utf8')).slate.todos[0].status,'done');
-    await page.reload();await bind(page);assert.equal(await page.evaluate(()=>slate.snapshot().todos[0].status),'done');
+    await page.reload();await bind(page);assert.equal(await page.evaluate(()=>slate.snapshot().todos[0].status),'done');assert.equal(await page.evaluate(()=>slate.snapshot().todos[0].id),todoId);
     await page.evaluate(()=>ask.openSlate(slate.snapshot().id));assert.equal(await page.locator('.ask-todos').count(),1);
     assert.ok(!requests.some(p=>p.includes('completions')||p.includes('generate')));assert.deepEqual(errors,[]);
   }finally{await context.close();}
@@ -499,15 +500,16 @@ test('B3 failed persistence compensates board; interrupted journal recovers and 
 
 for(const protocol of ['openai-chat-v1','anthropic-messages-v1']) test(`B3 ${protocol}: ASK reads frozen Slate details and proposes compound advancement through the shared card`,async()=>{
   const calls=[];let script=[];
-  const {page,context,errors}=await setup({llm:true,protocol,respond(body){calls.push(body);const [name,input]=script.shift()??[null,{}];return refResponse(protocol,name,input,'已整理下一步，等待你确认。');}});
+  const {page,context,errors}=await setup({llm:true,directory:false,protocol,respond(body){calls.push(body);const [name,input]=script.shift()??[null,{}];return refResponse(protocol,name,input,'已整理下一步，等待你确认。');}});
   try {
     const s=await createSlate(page);
     const base=await page.evaluate(async()=>{const {stateHash}=await import('/src/ask/draft/validate.ts');return stateHash(ask.externalSnapshot().base);});
-    script=[['get_state',{include_slate:true}],['propose_draft',{draft_title:'推进下一图',base_hash:base,steps:[editSlate(s,[{op:'update',id:s.todos[0].id,status:'done',mutation:'保留空白'},{op:'add',todo_title:'第二张',bonus:true,image_required:false}]),patch(', next composition')]}],[null,{}]];
+    script=[['get_state',{include_slate:true}],['propose_draft',{draft_title:'推进下一图',base_hash:base,steps:[editSlate(s,[{op:'update',id:s.todos[0].id,status:'done',mutation:'保留空白'},{op:'add',id:s.todos[0].id,todo_title:'第二张',bonus:true,image_required:false}]),patch(', next composition')]}],[null,{}]];
     await page.evaluate(()=>{ask.show();ask.setInput('完成第一项并准备下一张');void ask.send();});
     await page.waitForFunction(()=>!ask.running.value&&!!ask.draftPlan.value);
     assert.match(JSON.stringify(calls[0].messages),/active_slate/);assert.match(JSON.stringify(calls[1].messages),/golden_recipe/);assert.equal(await page.evaluate(()=>slate.snapshot().todos[0].status),'todo');
-    await apply(page);assert.equal(await page.evaluate(()=>slate.snapshot().todos[1].bonus),true);assert.match(await page.evaluate(()=>drawing.snapshot().form.prompt),/next composition/);
+    assert.equal(await page.evaluate(()=>bridge.supported),false);assert.equal(await page.locator('.ask-tool[data-state="error"]').count(),0);
+    await apply(page);assert.equal(await page.evaluate(()=>slate.snapshot().todos[1].bonus),true);assert.notEqual(await page.evaluate(()=>slate.snapshot().todos[1].id),s.todos[0].id);assert.match(await page.evaluate(()=>drawing.snapshot().form.prompt),/next composition/);
     await page.evaluate(()=>ask.undoDraft());assert.equal(await page.evaluate(()=>slate.snapshot().todos.length),1);assert.deepEqual(errors,[]);
   }finally{await context.close();}
 });

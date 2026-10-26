@@ -84,12 +84,12 @@ Koma 是浏览器中的图像工作台，负责表单、草稿审阅和生成。
 
 ## Slate 待办与交付
 
-Todo 是 Koma 默认本机能力，不依赖协同目录或 ASK Key。`active_slate` 是轻量摘要；完整任务与配方通常位于对应 `slates/*.slate.json`，没有该文件时不要把摘要当成完整内容。摘要存在也不证明目录同步成功。
+Todo 是 Koma 默认浏览器本地能力，HTTPS 在线站点与本地运行均可用，不依赖协同目录或 ASK Key。`active_slate` 是轻量摘要；完整任务与配方通常位于对应 `slates/*.slate.json`，没有该文件时不要把摘要当成完整内容。摘要存在也不证明目录同步成功。
 
 修改已有清单优先向投递槽提交 `slate_edit`：
 
 - `op` 为 `create`／`update`／`delete`；更新和删除带 `slate_id`、`expected_version`。新 Slate 和 Todo 的 ID 由 Koma 分配。
-- 创建标题用 `slate_title`，Todo 标题用 `todo_title`；`todos` 使用 `add`／`update`／`remove` 和已有稳定 ID。状态是 `todo`、`in_progress`、`done`、`abandoned`。
+- 创建标题用 `slate_title`，Todo 标题用 `todo_title`。新增用 `{op:"add",todo_title:"任务标题"}`，省略 `id`；误填 ID 会被忽略，由 Koma 生成新编号。`update`／`remove` 必须使用状态中已有的稳定 ID，不能用 CG 序号替代。状态是 `todo`、`in_progress`、`done`、`abandoned`。
 - `mutation` 表示更改记录；按用户目标主动拆解、追加或推进待办，并通过草稿确认，不只给口头清单。一稿最多一个 `slate_edit`，可与提示词和参数修改组合。
 - `golden_recipe.capture_current` 捕获同稿应用后的画板配方；锁定配方修改需明确 `unlock`。
 - 默认 Todo 需要交图，必须有绑定才能完成。纯文本任务明确使用 `image_required: false`。

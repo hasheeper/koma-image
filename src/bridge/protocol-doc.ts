@@ -64,7 +64,7 @@ boards/form 保留画板与表单字段；selected_image/recent_history.params �
 
 任务板无需目录或 ASK Key。active_slate 为轻量摘要，完整任务/配方位于 slates 文件；内置 ASK 使用 get_state(include_slate=true) 按需读取。
 挂载自动加入当刻的活动任务板；挂载期间手动新建或经草稿确认创建的活动任务板也自动加入。通过外部任务文件创建时沿用原文件映射，不重复生成任务文件。切换到其他已有且未映射的任务板，仍需点击「同步到当前目录」。同步失败或尚未完成时 active_slate 摘要不代表任务文件已经写出；请检查 slates/，可用摘要中的 ID/版本继续提交草稿。
-slate_edit 的 op 为 create/update/delete；现有目标带 slate_id 和 expected_version。创建使用 slate_title，Todo 标题用 todo_title，避免兼容中转剥离 Schema 的 title 元数据。每份草稿一个 slate_edit，todos 内 add/update/remove；每板最多 100 Todo、任务正文总计最多 900 KiB。新对象 ID 由本机分配。
+slate_edit 的 op 为 create/update/delete；现有目标带 slate_id 和 expected_version。创建使用 slate_title，Todo 标题用 todo_title，避免兼容中转剥离 Schema 的 title 元数据。每份草稿一个 slate_edit，todos 内 add/update/remove；每板最多 100 Todo、任务正文总计最多 900 KiB。新增 Todo 用 {op:"add",todo_title:"任务标题"}，省略 id；误填的 id 会被忽略，由应用生成新的稳定 ID。update/remove 必须使用状态中已有 Todo 的稳定 id，不能使用 CG 序号或自行编造编号。
 可以在同稿记录 mutation/绑图/完成并用 prompt_patch/params_patch 准备下一张，用户整体确认。需交图任务没有绑定不能完成；锁定配方修改须显式 unlock。
 绑定仅接受本轮 #h/#f，带 picture_scope_id；目标默认 assets/ 唯一路径。caption_source 明确选择 base/sent/character，caption_mode 仅 full/strip_syntax，角色须给 character_id；缺失来源不替换原文。
 strip_syntax 只剥离配对 {}、[]、数字::正文:: 和无属性的配对 XML 标签；转义、畸形或其他语法保留，不筛画师名。

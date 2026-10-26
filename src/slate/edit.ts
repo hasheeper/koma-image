@@ -16,7 +16,9 @@ export const slateEditSchema = { type: "object", additionalProperties: false, re
   slate_id: string(100), expected_version: { type: "integer", minimum: 1 }, slate_title: string(120), directory_required: bool,
   golden_recipe: { type: "object", additionalProperties: false, properties: { capture_current: bool, form: { type: "object" }, unlock: bool, locked: bool } },
   todos: { type: "array", maxItems: 100, items: { type: "object", additionalProperties: false, required: ["op"], properties: {
-    op: { type: "string", enum: ["add", "update", "remove"] }, id: string(100), todo_title: string(120), description: string(), requirements: string(), mutation: string(),
+    op: { type: "string", enum: ["add", "update", "remove"] },
+    id: { ...string(100), description: "仅 update/remove 填已有 Todo 的稳定 ID；add 省略，编号由应用自动生成，误填值不会用作任务身份。" },
+    todo_title: string(120), description: string(), requirements: string(), mutation: string(),
     status: { type: "string", enum: statuses }, bonus: bool, image_required: bool, unbind: bool,
     bind: { type: "object", additionalProperties: false, required: ["source", "caption_source", "caption_mode"], properties: {
       source: string(30), target_path: string(240), caption_source: { type: "string", enum: ["base", "sent", "character"] }, caption_mode: { type: "string", enum: ["full", "strip_syntax"] }, character_id: string(100),
@@ -52,7 +54,7 @@ export function parseSlateEdit(raw: unknown, active: Slate | null, form: Drawing
   checkShape(raw, slateEditSchema, "任务草稿");
   const edit = raw as SlateEdit;
   if (edit.op !== "create" && (!active || edit.slate_id !== active.id || edit.expected_version !== active.version)) throw new Error("任务板 ID 或版本已变化，请读取当前任务板后重新提议");
-  if (edit.op === "create" && (edit.slate_id !== undefined || edit.expected_version !== undefined)) throw new Error("新任务板 ID 由本机分配");
+  if (edit.op === "create" && (edit.slate_id !== undefined || edit.expected_version !== undefined)) throw new Error("新建清单请省略 slate_id 和 expected_version，应用会自动生成编号");
   const before = edit.op === "create" ? null : structuredClone(active!);
   const after: Slate = before ? structuredClone(before) : { id: crypto.randomUUID(), title: "新任务板", version: 1, todos: [], golden_recipe: null };
   if (edit.slate_title !== undefined) { if (!edit.slate_title.trim()) throw new Error("任务板标题不能为空"); after.title = edit.slate_title.trim(); }
@@ -72,10 +74,12 @@ export function parseSlateEdit(raw: unknown, active: Slate | null, form: Drawing
   }
   const seen = new Set<string>();
   for (const item of edit.todos ?? []) {
-    if (item.op === "add" && item.id !== undefined) throw new Error("新 Todo ID 由本机分配");
-    if (item.id && seen.has(item.id)) throw new Error("同一 Todo 请合并在一个操作中");
-    if (item.id) seen.add(item.id);
-    let todo = item.op === "add" ? null : after.todos.find(t => t.id === item.id);
+    // A suggested ID on add is never an existing-task reference or a stored identity.
+    // Generate it here so model-supplied names cannot collide with saved tasks.
+    const id = item.op === "add" ? undefined : item.id;
+    if (id && seen.has(id)) throw new Error("同一 Todo 请合并在一个操作中");
+    if (id) seen.add(id);
+    let todo = item.op === "add" ? null : after.todos.find(t => t.id === id);
     if (item.op !== "add" && !todo) throw new Error("Todo 不存在");
     if (item.op === "remove") { after.todos = after.todos.filter(t => t !== todo); continue; }
     if (!todo) {

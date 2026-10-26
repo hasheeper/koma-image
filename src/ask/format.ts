@@ -95,7 +95,10 @@ function inlineTokens(tokens: readonly Token[], refs = true): Inline[] {
       case "text":
         out.push(...(token.tokens ? inlineTokens(token.tokens, refs) : ids(token.escaped ? token.text : decodeHTMLStrict(token.text), refs)));
         break;
-      case "escape": case "html": out.push({ t: "text", v: token.text }); break;
+      case "escape": out.push({ t: "text", v: token.text }); break;
+      // Tables commonly use a bare HTML break; render only this exact tag as
+      // a Vue node. Attributes, other HTML, escapes and code stay literal.
+      case "html": out.push(/^<br\s*\/?>$/i.test(token.text) ? { t: "br" } : { t: "text", v: token.text }); break;
       case "codespan":
         out.push({ t: refs && /^#(?:h\d+|f\d+|a\d+|c\d+\.\d+(?:\.\d+)?)$/.test(token.text) ? "id" : "code", v: token.text });
         break;

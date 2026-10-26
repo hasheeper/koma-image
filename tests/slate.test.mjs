@@ -21,7 +21,25 @@ test('B3 local IDs, task operations, image completion guard and version gate',()
   assert.equal(change.after.todos[0].status,'done');assert.equal(change.after.todos[1].bonus,true);assert.equal(change.after.version,2);
   assert.throws(()=>parseSlateEdit({...update(slate),expected_version:99},slate,form,[]),/版本/);
   assert.throws(()=>parseSlateEdit({...update(slate),todos:[{op:'update',id:slate.todos[0].id,status:'done',image_required:true}]},slate,form,[]),/绑图/);
-  assert.throws(()=>parseSlateEdit({kind:'slate_edit',op:'create',slate_title:'x',slate_id:'foreign'},null,form,[]),/本机/);
+  assert.throws(()=>parseSlateEdit({kind:'slate_edit',op:'create',slate_title:'x',slate_id:'foreign'},null,form,[]),/省略 slate_id/);
+});
+test('B3 new Todo IDs are generated even when agents supply repeated or existing IDs',()=>{
+  const slate=create(),existing=slate.todos[0].id;
+  const raw={...update(slate),todos:[
+    {op:'add',id:existing,todo_title:'新增一',image_required:false},
+    {op:'add',id:existing,todo_title:'新增二',image_required:false},
+    {op:'update',id:existing,mutation:'保留已有任务身份'},
+  ]};
+  const before=structuredClone(raw),after=parseSlateEdit(raw,slate,form,[]).change.after;
+  assert.deepEqual(raw,before,'parsing does not rewrite the agent input');
+  assert.equal(after.todos.length,3);assert.equal(new Set(after.todos.map(t=>t.id)).size,3);
+  assert.equal(after.todos[0].id,existing);assert.equal(after.todos[0].mutation,'保留已有任务身份');
+  for(const todo of after.todos.slice(1))assert.match(todo.id,/^[0-9a-f-]{36}$/);
+  assert.equal(slate.todos.length,1,'proposal does not write the active Slate');
+  const state={...base(),slate},received=receiveDraft({schema:'koma.bridge.draft.v1',draft_id:'new-ids',draft_title:'追加清单',steps:[raw]},{base:state,library:[],pictureScope:'scope'});
+  assert.ok(received);
+  assert.throws(()=>parseSlateEdit({...update(slate),todos:[{op:'add',id:'CG01',todo_title:'新增'},{op:'update',id:'CG01',mutation:'不是稳定身份'}]},slate,form,[]),/不存在/,'a discarded add ID cannot address another task');
+  assert.throws(()=>parseSlateEdit({...update(slate),todos:[{op:'update',id:existing},{op:'remove',id:existing}]},slate,form,[]),/合并/,'existing-task duplicate protection remains');
 });
 test('B3 composite IMAGE + Slate validates the full group, previews detail and captures the final recipe',()=>{
   const state={...base(),slate:create()};
