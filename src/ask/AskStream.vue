@@ -257,8 +257,31 @@ onBeforeUnmount(() => { resized.disconnect(); cancelAnimationFrame(frame); clear
 .ask-turn + .ask-turn { margin-top: 30px; }
 .ask-turn > * + * { margin-top: 12px; }
 .ask-turn > p + p, .ask-turn > p + ul, .ask-turn > p + ol { margin-top: 6px; }
-.ask-turn > *, .ask-thinking { color: var(--fg-3); font-size: 13px; line-height: 26px; }
-.ask-thinking .ask-tool-text, .ask-compaction-label { color: transparent; background: linear-gradient(90deg, var(--fg-3), var(--fg), var(--fg-3)) 130% 0 / 200% 100%; background-clip: text; animation: ask-sheen 2.4s linear infinite; }
+.ask-turn > *, .ask-thinking .ask-tool { animation: ask-fade var(--t3) cubic-bezier(.25, .1, .25, 1) both, ask-rise var(--t3) cubic-bezier(.2, .7, .2, 1) both; }
+.ask-u { display: flex; flex-direction: column; align-items: flex-end; align-self: flex-end; max-width: 84%; }
+.ask-q { padding: 6px 12px; color: var(--fg); font-size: 13px; line-height: 1.6; background: var(--ask-hover, var(--hover)); border-radius: 14px; overflow-wrap: anywhere; white-space: pre-wrap; }
+.ask-turn p { overflow-wrap: anywhere; white-space: pre-line; }
+.ask-stream :deep(.ask-id) { font-family: var(--mono); font-size: var(--fz-sm); color: var(--a); }
+/* Question actions sit bottom-right; answer actions sit bottom-left. */
+.ask-acts { display: flex; align-items: center; gap: 2px; height: 28px; }
+.ask-turn > .ask-q-acts { align-self: flex-end; margin: 4px -4px 10px 0; }
+.ask-turn > .ask-q-acts + * { margin-top: 0; }
+.ask-turn > .ask-a-acts { align-self: flex-start; margin: 6px 0 -6px -6px; }
+.ask-turn > .ask-checkpoint { margin-top: 8px; }
+.ask-turn > .ask-checkpoint + .ask-a-acts { margin-top: 4px; }
+.ask-act { display: grid; place-items: center; width: 28px; height: 28px; color: var(--fg-3); border-radius: 8px; opacity: 0; transition: opacity var(--t1) var(--e); }
+.ask-act .ico { --ico: var(--ico-sm); }
+.ask-act:hover { color: var(--fg); background: var(--ask-hover, var(--hover)); }
+.ask-u:hover + .ask-q-acts .ask-act, .ask-acts:is(:hover, :focus-within) .ask-act, .ask-turn:hover > .ask-a-acts .ask-act, .ask-turn:last-of-type > .ask-a-acts .ask-act { opacity: 1; }
+.ask-turn > .ask-tool-group, .ask-turn > .ask-thinking { margin-top: 8px; }
+.ask-thinking .ask-tool { min-width: 0; color: var(--fg-3); font-size: 13px; line-height: 26px; }
+.ask-thinking .ask-tool-text { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.ask-pick { display: flex; gap: 10px; overflow-x: auto; }
+.ask-pick button { display: flex; flex: none; flex-direction: column; gap: 5px; align-items: center; padding: 2px; color: var(--a); font: var(--fw-regular) var(--fz-xs)/1.4 var(--mono); border: 1px solid transparent; border-radius: 9px; }
+.ask-pick button:hover, .ask-pick button:focus-visible { border-color: var(--a); }
+.ask-pick button:disabled { color: var(--fg-4); }
+.ask-pick img { width: 64px; height: 86px; object-fit: cover; border-radius: 7px; }
+.ask-thinking .ask-tool-text, .ask-compaction-label { color: transparent; background: linear-gradient(90deg, var(--fg-3) 0% 26%, color-mix(in srgb, var(--fg) 22%, var(--fg-3)) 35%, color-mix(in srgb, var(--fg) 72%, var(--fg-3)) 44%, var(--fg) 50%, color-mix(in srgb, var(--fg) 72%, var(--fg-3)) 56%, color-mix(in srgb, var(--fg) 22%, var(--fg-3)) 65%, var(--fg-3) 74% 100%) 130% 0 / 200% 100%; background-clip: text; animation: ask-sheen 2.4s linear infinite; }
 .ask-external { display: flex; align-items: center; gap: 8px; margin: 10px 0; color: var(--fg-3); font-size: 12px; }
 .ask-external > span { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .ask-external > button { flex: none; }
@@ -300,10 +323,9 @@ onBeforeUnmount(() => { resized.disconnect(); cancelAnimationFrame(frame); clear
 @keyframes ask-sheen { from { background-position: 130% 0; } to { background-position: -70% 0; } }
 @keyframes ask-compaction-sweep { from { transform: translateX(-100%); } to { transform: translateX(340%); } }
 @media (prefers-reduced-motion: reduce) {
-  .ask-turn > *, .ask-tool { animation: ask-fade var(--t1) linear both; }
-  .ask-tool[data-state="run"] .ask-tool-text, .ask-tools-summary.run { color: var(--fg-3); background: none; animation: none; }
-  .ask-tool[data-state="run"] .ask-tool-text::after { content: "…"; }
-  .ask-tools-line .ico { transition: none; }
+  .ask-turn > *, .ask-thinking .ask-tool { animation: ask-fade var(--t1) linear both; }
+  .ask-thinking .ask-tool-text { color: var(--fg-3); background: none; animation: none; }
+  .ask-thinking .ask-tool-text::after { content: "…"; }
   .ask-compaction-label { color: var(--fg-3); background: none; animation: none; }
   .ask-compaction-label::after { content: "…"; }
   .ask-organizing .ask-compaction-rule::after { animation: none; }

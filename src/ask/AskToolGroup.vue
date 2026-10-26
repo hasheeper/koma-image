@@ -45,7 +45,7 @@ function summary(rows: readonly ToolRow[]) {
 .ask-tools { display: flex; flex-direction: column; }
 .tool-source { color: var(--fg-3); font-size: 11px; line-height: 22px; }
 .tool-origin { flex: none; color: var(--fg-4); font-size: 11px; line-height: 26px; }
-.ask-tool { min-width: 0; min-height: 22px; color: var(--fg-3); font-size: 12px; line-height: 22px; }
+.ask-tool { min-width: 0; min-height: 22px; color: var(--fg-3); font-size: 12px; line-height: 22px; animation: ask-fade var(--t3) cubic-bezier(.25, .1, .25, 1) both, ask-rise var(--t3) cubic-bezier(.2, .7, .2, 1) both; }
 .ask-tool-head { display: flex; align-items: baseline; gap: 6px; min-width: 0; min-height: 22px; }
 .ask-tool .ico { flex: none; align-self: center; --ico: var(--ico-sm); }
 .ask-tool-text { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
@@ -62,5 +62,6 @@ function summary(rows: readonly ToolRow[]) {
 
 @keyframes ask-sheen { to { background-position: -70% 0; } }
 @keyframes ask-fade { from { opacity: 0; } }
-@media (prefers-reduced-motion: reduce) { .ask-tools-summary.run, .ask-tool[data-state="run"] .ask-tool-text { animation: none; color: var(--fg-3); background: none; } .ask-tools-line .ico { transition: none; } }
+@keyframes ask-rise { from { transform: translateY(4px); } }
+@media (prefers-reduced-motion: reduce) { .ask-tool { animation: ask-fade var(--t1) linear both; } .ask-tools-summary.run, .ask-tool[data-state="run"] .ask-tool-text { animation: none; color: var(--fg-3); background: none; } .ask-tool[data-state="run"] .ask-tool-text::after { content: "…"; } .ask-tools-line .ico { transition: none; } }
 </style>

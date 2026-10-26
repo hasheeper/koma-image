@@ -813,12 +813,42 @@ test("ASK Markdown: headings, nested lists, tables, literal code and links rende
       await page.waitForTimeout(120);
       assert.ok(await md.evaluate(el=>el.scrollWidth<=el.clientWidth+1), `reply overflow at ${width}`);
       assert.ok(await drawer(page).evaluate(el=>el.scrollWidth<=el.clientWidth+1), `window overflow at ${width}`);
+      const message = await drawer(page).locator('.ask-turn').evaluate(el => {
+        const question = el.querySelector('.ask-q'), user = question.parentElement;
+        const q = getComputedStyle(question), u = getComputedStyle(user);
+        const actions = getComputedStyle(el.querySelector('.ask-q-acts'));
+        const button = getComputedStyle(el.querySelector('.ask-q-acts .ask-act'));
+        const reply = getComputedStyle(el.querySelector('.ask-markdown'));
+        const stream = getComputedStyle(el.closest('.ask-stream'));
+        return {
+          userAlignment: u.alignSelf, userDisplay: u.display, bubbleRadius: q.borderRadius,
+          bubbleBackground: q.backgroundColor, actionsAlignment: actions.alignSelf,
+          actionsDisplay: actions.display, buttonWidth: button.width,
+          replyColor: reply.color, streamColor: stream.color,
+          replyLineHeight: reply.lineHeight, streamLineHeight: stream.lineHeight,
+          rightGap: el.getBoundingClientRect().right - user.getBoundingClientRect().right,
+        };
+      });
+      assert.equal(message.userAlignment, 'flex-end', `question stays right-aligned at ${width}`);
+      assert.equal(message.userDisplay, 'flex');
+      assert.equal(message.bubbleRadius, '14px');
+      assert.notEqual(message.bubbleBackground, 'rgba(0, 0, 0, 0)', 'question retains its bubble surface');
+      assert.equal(message.actionsAlignment, 'flex-end');
+      assert.equal(message.actionsDisplay, 'flex');
+      assert.equal(message.buttonWidth, '28px');
+      assert.equal(message.replyColor, message.streamColor, 'reply keeps the approved text contrast');
+      assert.equal(message.replyLineHeight, message.streamLineHeight, 'reply keeps the message line height');
+      assert.ok(Math.abs(message.rightGap) < 1, `question and actions use the right edge at ${width}`);
       assert.equal(await md.locator('h3').first().evaluate(el=>getComputedStyle(el).fontSize), '14px');
       await drawer(page).screenshot({path:`.local/ask/markdown/reply-${width}.png`});
       await md.locator('pre').scrollIntoViewIfNeeded();
       assert.ok(await md.locator('pre').evaluate(el=>el.scrollWidth>el.clientWidth), 'long code scrolls inside the block');
       await drawer(page).screenshot({path:`.local/ask/markdown/code-${width}.png`});
     }
+    assert.doesNotMatch(await md.evaluate(el => getComputedStyle(el).animationName), /ask-rise/, 'reduced motion removes message movement');
+    await page.emulateMedia({ reducedMotion: 'no-preference' });
+    assert.match(await md.evaluate(el => getComputedStyle(el).animationName), /ask-rise/, 'normal motion retains the original message entrance');
+    await page.emulateMedia({ reducedMotion: 'reduce' });
     const ref = md.locator('.ask-id').first();
     await ref.scrollIntoViewIfNeeded(); await ref.hover(); await page.locator('.ask-preview').waitFor();
     await page.mouse.move(0,0); await page.locator('.ask-preview').waitFor({state:'detached'});
@@ -3266,6 +3296,17 @@ test('ASK W5: GIF sends its first frame as WebP; touch tray and history actions 
     await page.waitForFunction(()=>!ask.preparing.value&&ask.tray.value.length===1);
     assert.equal(await page.locator('.ask-att-x').evaluate(el=>getComputedStyle(el).opacity),'1');
     await askText(page,llm,'第一帧');
+    const question = drawer(page).locator('.ask-q'), questionActions = drawer(page).locator('.ask-q-acts');
+    assert.equal(await questionActions.evaluate(el => el.clientHeight), 0, 'touch question actions start folded');
+    await question.tap();
+    await drawer(page).locator('.ask-turn.revealed').waitFor();
+    await page.waitForFunction(() => document.querySelector('#askDrawer .ask-q-acts')?.clientHeight === 36);
+    assert.equal(await questionActions.evaluate(el => el.clientHeight), 36, 'tapping the bubble reveals touch actions');
+    assert.equal(await questionActions.locator('.ask-act').first().evaluate(el => el.clientWidth), 36);
+    await question.tap();
+    await drawer(page).locator('.ask-turn.revealed').waitFor({ state: 'detached' });
+    await page.waitForFunction(() => document.querySelector('#askDrawer .ask-q-acts')?.clientHeight === 0);
+    assert.equal(await questionActions.evaluate(el => el.clientHeight), 0, 'tapping again folds touch actions');
     const url=attachedImages(calls[0].body)[0].image_url.url;assert.match(url,/^data:image\/webp;base64,/);
     const pixel=await page.evaluate(async url=>{const bytes=Uint8Array.from(atob(url.split(',')[1]),c=>c.charCodeAt(0));const b=await createImageBitmap(new Blob([bytes],{type:'image/webp'}));const c=new OffscreenCanvas(1,1),g=c.getContext('2d');g.drawImage(b,0,0);const pixel=[...g.getImageData(0,0,1,1).data];b.close();return pixel;},url);
     assert.ok(pixel[0]>240&&pixel[2]<20,'the sent pixels are the first red frame');
