@@ -1,20 +1,35 @@
 import { normalizeOptions } from "./catalog.ts";
 import type { CatalogModel } from "./catalog.ts";
 import { imageDimensions } from "../native/image-dimensions.ts";
+import { naiCapabilities, compileNaiPrompt, NAI_OFFICIAL_UPSCALE, NAI_OFFICIAL_EDIT_MAX_PIXELS } from "./nai.ts";
+import { modelSamplers, naiSamplers, naiNoiseSchedule, editStrengthRange, validateNaiParameters } from "./nai-parameters.ts";
+import type { WireNoiseSchedule, NoiseSchedule } from "./nai-parameters.ts";
+import { naiEnhanceSize, naiEnhancePrompt, supportsNaiEnhance } from "./nai-enhance.ts";
+import { readInpaintFocus, supportsFocusedInpaint } from "./inpaint-focus.ts";
+import type { InpaintFocus } from "./inpaint-focus.ts";
+import type { EnhanceScale } from "./nai-enhance.ts";
 
 export type EditMode = "img2img" | "inpaint";
 export type EditorMode = EditMode | "upscale";
-export interface EditorFields {
+import type { NaiSettings } from "./nai.ts";
+
+export interface EditorFields extends Partial<NaiSettings> {
+  transparentBg?: boolean;
   prompt?: string;
   negative_prompt?: string;
   sampler?: string;
   steps?: number;
   scale?: number;
+  cfgRescale?: number;
   seed?: number;
   strength?: number;
   noise?: number;
   detail?: string;
   options?: Record<string, string>;
+  enhance?: boolean;
+  enhanceScale?: EnhanceScale;
+  enhanceMagnitude?: number | null;
+  inpaintFocus?: InpaintFocus;
 }
 type ModelCatalog = { models: CatalogModel[] };
 type PayloadBase = {
@@ -41,9 +56,17 @@ export type NAIEditPayload = PayloadBase & EditNumbers & {
   init_image: string;
   negative_prompt: string;
   sampler: string;
-  noise_schedule: "karras";
-  cfg_rescale: 0;
+  noise_schedule: WireNoiseSchedule;
+  noiseSchedule?: NoiseSchedule;
+  varietyPlus?: boolean;
+  cfg_rescale?: number;
   max_cost?: number;
+  width?: number;
+  height?: number;
+  enhance?: true;
+  enhanceScale?: EnhanceScale;
+  enhanceMagnitude?: number | null;
+  inpaintFocus?: InpaintFocus;
 } & (
   | { tool: "img2img"; mask_image?: never }
   | { tool: "inpaint"; mask_image: string }
@@ -72,6 +95,7 @@ type NAIEditInput = EditSettings & {
 export const MAX_INPUT_BYTES = 8 * 1024 * 1024;
 export const MAX_TOTAL_BYTES = 32 * 1024 * 1024;
 export const NAI_UPSCALE_MAX_PIXELS = 1_048_576;
+export const naiUpscaleLimit = (model: CatalogModel) => model.profileId === "nai-official-v1" ? NAI_OFFICIAL_UPSCALE.maxPixels : NAI_UPSCALE_MAX_PIXELS;
 const DEFAULT_UPSCALE_PROMPT =
   "Upscale the image while preserving the original composition, colors and details.";
 export function chatModels(catalog: ModelCatalog): CatalogModel[] {
@@ -149,9 +173,9 @@ function validateUpscalePayload(
     throw new Error("源图不超过 8MB，请缩小后重新上传");
   const size = imageDimensions(image),
     pixels = size.width * size.height;
-  if (model.provider === "novelai" && pixels > NAI_UPSCALE_MAX_PIXELS)
+  if (model.provider === "novelai" && pixels > naiUpscaleLimit(model))
     throw new Error(
-      "NAI 原生放大源图面积最多 1,048,576 像素，请改用专用放大模型",
+      `NAI 放大源图面积最多 ${naiUpscaleLimit(model).toLocaleString("en-US")} 像素，请改用专用放大模型`,
     );
   if (pixels > model.sourceMaxPixels)
     throw new Error(
@@ -245,6 +269,7 @@ export function buildNAIEditPayload(
   image: string | undefined,
   settings: EditSettings = {},
   mask?: string | null,
+  samplers: readonly string[] = naiSamplers,
 ): NAIEditPayload {
   return validateNAIEditPayload(
     {
@@ -254,7 +279,7 @@ export function buildNAIEditPayload(
       init_image: image,
       ...(mask ? { mask_image: mask } : {}),
     },
-    { models: [model], samplers: [settings.sampler || "k_euler_ancestral"] },
+    { models: [model], samplers: modelSamplers(model, samplers) },
   );
 }
 
@@ -287,15 +312,13 @@ function validateNAIEditPayload(
     return { image, ...imageDimensions(image) };
   };
   const size = checkImage(input.init_image, "底图");
-  if (
-    size.width * size.height >
-      Math.min(model.maxPixels, model.sourceMaxPixels) ||
-    Math.max(size.width, size.height) > 2048 ||
-    Math.min(size.width, size.height) < 64
-  )
-    throw new Error(
-      "底图尺寸超出模型范围，请使用边长 64–2048 且在模型像素上限内的图片",
-    );
+  const sourceProblem = validateEditorSource(input.tool, model, size);
+  if (sourceProblem) throw new Error(sourceProblem);
+  if (input.enhance && (input.tool !== "img2img" || !supportsNaiEnhance(model))) throw new Error("Enhance 仅支持 NovelAI 官方图生图");
+  const enhancedSize = input.enhance ? naiEnhanceSize(size, input.enhanceScale, model.id) : undefined;
+  const focus = input.inpaintFocus === undefined ? undefined : readInpaintFocus(input.inpaintFocus);
+  if (input.inpaintFocus !== undefined && (!focus || input.tool !== "inpaint" || input.enhance || !supportsFocusedInpaint(model) ||
+    size.width !== focus.targetWidth || size.height !== focus.targetHeight)) throw new Error("聚焦重绘参数或预处理尺寸无效");
   const prompt = input.prompt ?? "";
   if (
     typeof prompt !== "string" ||
@@ -306,7 +329,7 @@ function validateNAIEditPayload(
     throw new Error("描述长度无效");
   const out: PayloadBase & {
     tool: EditMode; init_image: string; negative_prompt: string;
-    noise_schedule: "karras"; cfg_rescale: 0;
+    noise_schedule: WireNoiseSchedule; cfg_rescale?: number;
   } = {
     model: model.id,
     tool: input.tool,
@@ -317,9 +340,8 @@ function validateNAIEditPayload(
     transform_prompt: false,
     transform_mode: "off",
     noise_schedule: "karras",
-    cfg_rescale: 0,
   };
-  function number(key: keyof EditNumbers, min: number, max: number, fallback: number): number {
+  function number(key: keyof EditNumbers | "cfgRescale", min: number, max: number, fallback: number): number {
     const n = Number(input[key] ?? fallback);
     if (
       !Number.isFinite(n) ||
@@ -330,15 +352,25 @@ function validateNAIEditPayload(
       throw new Error(`参数 ${key} 超出范围`);
     return n;
   }
+  const official = model.profileId === "nai-official-v1";
+  const range = editStrengthRange(official, input.tool === "inpaint");
   const fields = Object.assign(out, {
-    steps: number("steps", 1, 50, 25),
-    scale: number("scale", 0, 20, 5),
+    steps: naiCapabilities(model.id).medium ? 14 : number("steps", 1, 50, 25),
+    scale: number("scale", 0, Infinity, 5),
     seed: number("seed", -1, 4294967295, -1),
-    strength: number("strength", 0, 1, input.tool === "inpaint" ? 1 : 0.5),
-    noise: number("noise", 0, 1, 0),
-    sampler: input.sampler || "k_euler_ancestral",
+    strength: number("strength", range.min, range.max, input.tool === "inpaint" ? 1 : 0.5),
+    noise: number("noise", 0, official ? .99 : 1, 0),
+    sampler: naiCapabilities(model.id).medium ? "k_euler_ancestral" : input.sampler || "k_euler_ancestral",
   });
-  if (!catalog.samplers.includes(fields.sampler)) throw new Error("采样器无效");
+  fields.noise_schedule = official ? naiNoiseSchedule(model.id, fields.sampler, input.noiseSchedule) : "karras";
+  if (input.noiseSchedule !== undefined) Object.assign(fields, { noiseSchedule: input.noiseSchedule });
+  if (input.varietyPlus !== undefined) Object.assign(fields, { varietyPlus: input.varietyPlus });
+  if (enhancedSize) Object.assign(fields, { ...(input.enhanceScale === "max" ? { width: size.width, height: size.height } : enhancedSize), enhance: true, enhanceScale: input.enhanceScale,
+    enhanceMagnitude: input.enhanceMagnitude ?? null });
+  if (focus) Object.assign(fields, { inpaintFocus: focus });
+  if (!naiCapabilities(model.id).medium) fields.cfg_rescale = number("cfgRescale", 0, 1, 0);
+  if (official) validateNaiParameters({ ...fields, noiseSchedule: input.noiseSchedule });
+  if (!naiCapabilities(model.id).medium && !catalog.samplers.includes(fields.sampler)) throw new Error("采样器无效");
   let payload: NAIEditPayload;
   if (input.tool === "inpaint") {
     const mask = checkImage(input.mask_image, "蒙版", true);
@@ -380,18 +412,20 @@ export function validateEditorSource(
     format = (n: number) => n.toLocaleString("en-US");
   if (bytes > MAX_INPUT_BYTES) return "底图超过 8MB";
   if (mode === "upscale") {
-    if (model.provider === "novelai" && pixels > NAI_UPSCALE_MAX_PIXELS) {
-      return `${width}×${height} 超过 NAI 放大上限 ${format(NAI_UPSCALE_MAX_PIXELS)} 像素，请换专用放大模型`;
+    if (model.provider === "novelai" && pixels > naiUpscaleLimit(model)) {
+      return `${width}×${height} 超过 NAI 放大上限 ${format(naiUpscaleLimit(model))} 像素，请换专用放大模型`;
     }
     return pixels > model.sourceMaxPixels
       ? `超过此模型上限 ${format(model.sourceMaxPixels)} 像素`
       : null;
   }
-  const limit = Math.min(model.maxPixels, model.sourceMaxPixels);
-  return Math.max(width, height) > 2048 ||
+  const official = model.profileId === "nai-official-v1";
+  if (official && (width % 64 || height % 64)) return "NovelAI 编辑底图宽高须为 64 的倍数，请先调整图片尺寸";
+  const limit = Math.min(model.maxPixels, model.sourceMaxPixels, official ? NAI_OFFICIAL_EDIT_MAX_PIXELS : Infinity);
+  return !official && Math.max(width, height) > 2048 ||
     Math.min(width, height) < 64 ||
     pixels > limit
-    ? `${width}×${height} 超出编辑范围：边长 64–2048，面积 ≤ ${format(limit)} 像素`
+    ? `${width}×${height} 超出编辑范围：${official ? "边长至少 64" : "边长 64–2048"}，面积 ≤ ${format(limit)} 像素`
     : null;
 }
 
@@ -404,6 +438,7 @@ export function buildEditorPayload(
   source: { original?: string; png?: string },
   fields: EditorFields = {},
   mask: string | null = null,
+  samplers?: readonly string[],
 ): EditorPayload {
   if (mode === "upscale") {
     return buildUpscalePayload(
@@ -414,21 +449,30 @@ export function buildEditorPayload(
     );
   }
   if (mode === "inpaint" && !mask) throw new Error("请先涂抹需要重绘的区域");
+  const compiled = compileNaiPrompt({ ...fields, prompt: fields.prompt ?? "", negative: fields.negative_prompt ?? "" }, model);
+  const medium = naiCapabilities(model.id).medium;
   const {
-    prompt,
-    negative_prompt,
     sampler,
     steps,
     scale,
+    cfgRescale,
+    noiseSchedule,
+    varietyPlus,
     seed,
     strength,
     noise,
+    enhance,
+    enhanceScale,
+    enhanceMagnitude,
+    inpaintFocus,
   } = fields;
   return buildNAIEditPayload(
     model,
     mode,
     source.png,
-    { prompt, negative_prompt, sampler, steps, scale, seed, strength, noise },
+    { prompt: enhance ? naiEnhancePrompt(compiled.prompt, enhanceScale) : compiled.prompt, negative_prompt: compiled.negative_prompt, sampler: medium ? "k_euler_ancestral" : sampler, steps: medium ? 14 : steps, scale, cfgRescale, noiseSchedule, varietyPlus, seed, strength, noise,
+      ...(enhance ? { enhance, enhanceScale, enhanceMagnitude } : {}), ...(inpaintFocus ? { inpaintFocus } : {}) },
     mode === "inpaint" ? mask : null,
+    samplers,
   );
 }

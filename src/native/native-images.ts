@@ -17,9 +17,14 @@ function crc32(bytes: Uint8Array): number {
 }
 
 /** Native responses can be a ZIP even when Content-Type is octet-stream. */
-export async function decodeNativeImages(buffer: ArrayBuffer): Promise<Blob[]> {
+export interface NativeImageLimits { maxImageBytes: number; maxTotalBytes: number }
+export async function decodeNativeImages(buffer: ArrayBuffer, limits: NativeImageLimits = { maxImageBytes: 32 * 1024 * 1024, maxTotalBytes: 64 * 1024 * 1024 }): Promise<Blob[]> {
+  return (await decodeNativeImageEntries(buffer, limits)).map(entry => entry.blob);
+}
+/** Retain names for operations whose ZIP members have distinct meanings. */
+export async function decodeNativeImageEntries(buffer: ArrayBuffer, limits: NativeImageLimits = { maxImageBytes: 32 * 1024 * 1024, maxTotalBytes: 64 * 1024 * 1024 }): Promise<{ name: string; blob: Blob }[]> {
   const bytes = new Uint8Array(buffer), view = new DataView(bytes.buffer, bytes.byteOffset, bytes.byteLength);
-  if (bytes.length < 4 || view.getUint32(0, true) !== 0x04034b50) return [imageBlob(bytes)];
+  if (bytes.length < 4 || view.getUint32(0, true) !== 0x04034b50) return [{ name: "", blob: imageBlob(bytes) }];
   const fail = (): never => { throw new Error("原生图片包损坏或格式不支持，请勿重复提交"); };
   let end = bytes.length - 22;
   while (end >= Math.max(0, bytes.length - 65557) && view.getUint32(end, true) !== 0x06054b50) end--;
@@ -28,7 +33,7 @@ export async function decodeNativeImages(buffer: ArrayBuffer): Promise<Blob[]> {
   let offset = view.getUint32(end + 16, true), totalSize = 0;
   if (view.getUint16(end + 4, true) || view.getUint16(end + 6, true)
     || view.getUint16(end + 8, true) !== count || count > 16 || offset + directorySize > end) return fail();
-  const blobs: Blob[] = [];
+  const blobs: { name: string; blob: Blob }[] = [];
   for (let i = 0; i < count; i++) {
     if (offset + 46 > end || view.getUint32(offset, true) !== 0x02014b50) return fail();
     const flags = view.getUint16(offset + 8, true), method = view.getUint16(offset + 10, true);
@@ -40,7 +45,7 @@ export async function decodeNativeImages(buffer: ArrayBuffer): Promise<Blob[]> {
     offset = next;
     if (!/\.(png|jpe?g|webp)$/i.test(name)) continue;
     totalSize += size;
-    if (flags & 1 || ![0, 8].includes(method) || size > 32 * 1024 * 1024 || totalSize > 64 * 1024 * 1024
+    if (flags & 1 || ![0, 8].includes(method) || size > limits.maxImageBytes || totalSize > limits.maxTotalBytes
       || local + 30 > end || view.getUint32(local, true) !== 0x04034b50) return fail();
     const start = local + 30 + view.getUint16(local + 26, true) + view.getUint16(local + 28, true);
     if (start + packed > end) return fail();
@@ -65,7 +70,7 @@ export async function decodeNativeImages(buffer: ArrayBuffer): Promise<Blob[]> {
       for (const chunk of chunks) { decoded.set(chunk, position); position += chunk.length; }
     }
     if (decoded.length !== size || crc32(decoded) !== crc) return fail();
-    blobs.push(imageBlob(decoded));
+    blobs.push({ name, blob: imageBlob(decoded) });
   }
   if (!blobs.length) return fail();
   return blobs;

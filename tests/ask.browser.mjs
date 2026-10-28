@@ -1071,13 +1071,13 @@ test("ASK drawer layering: settings above it, hidden with the editor, Anthropic 
       canvas.getContext("2d").fillRect(0, 0, 256, 256);
       await editor.open("image", await canvas.convertToBlob({ type: "image/png" }), "synthetic.png", { mode: "img2img" });
     });
-    await page.waitForSelector("#imageEditor[open]");
+    await page.waitForSelector("#imageEditor[data-active=true]");
     await drawer(page).waitFor({ state: "hidden" });
     await page.keyboard.press("Control+j");
     await page.waitForTimeout(150);
     assert.equal(await drawer(page).isVisible(), false);
-    await page.locator("#imageEditor .editor-back").click();
-    await page.waitForFunction(() => !document.querySelector("#imageEditor").open);
+    await page.evaluate(() => { location.hash = "#/image"; });
+    await page.waitForSelector("#imageEditor", { state: "hidden" });
     await drawer(page).waitFor();
 
     // An empty stream fails like a silent filter; images are off, so the retry is plain.
@@ -1762,7 +1762,7 @@ test('ASK A2: cross-workspace application reveals destination, chat composer sta
   }finally{await context.close();}
 });
 
-test('ASK H0: unopened CHAT is read from storage; warming issues no quote or quota; opening CHAT resumes them',{timeout:45000},async()=>{
+test('ASK H0: HOME restores local CHAT only; ASK warming issues no quote or quota; opening CHAT resumes them',{timeout:45000},async()=>{
   const {page,context,llm,calls,requests,errors}=await open('/#/chat',{ready:'#chatPrompt',ask:askSettings(),standard:true,chatModel:true});
   try {
     await bind(page);await page.waitForFunction(()=>chat.snapshot().ready);
@@ -1771,7 +1771,10 @@ test('ASK H0: unopened CHAT is read from storage; warming issues no quote or quo
     await page.evaluate(()=>chat.flush());
     await page.evaluate(()=>{location.hash='#/image';});await page.reload();await page.waitForSelector('.switcher');
     await bind(page);await page.waitForTimeout(800);
-    assert.equal(await page.evaluate(()=>chat.snapshot().loaded),false);
+    // HOME reads stored lines even before CHAT opens; remote catalog and billing stay cold.
+    assert.deepEqual(await page.evaluate(()=>{
+      const s=chat.snapshot();return {loaded:s.loaded,ready:s.ready,models:s.models.length,quote:s.quote,quota:s.quota,prompt:s.current.prompt};
+    }),{loaded:true,ready:false,models:0,quote:null,quota:null,prompt:'stored text'});
     const start=requests.length;
     llm.push({body:openai(tool('ctx','get_chat_context'),end('tool_calls'))},{body:openai(text('输入框里已有内容。'),end())});
     await page.evaluate(()=>ask.show());await page.locator('#askPrompt').fill('对话输入框写了什么？');await page.locator('#askPrompt').press('Enter');
@@ -1924,11 +1927,11 @@ test('ASK A2: restore checklist reuses import rules; apply/undo issue zero quote
     const initial=await form(page),start=requests.length;
     await askDraft(page,llm,[{kind:'restore_partial',source:'#h1',fields:['model','sampler','width','height','scale','seed','steps']}],'恢复 #h1 参数','从 #h1 恢复');
     assert.deepEqual(await form(page),initial);
-    assert.match(await page.locator('[data-step="0:scale"]').textContent(),/7.5/);
+    assert.match(await page.locator('[data-step="0:scale"]').textContent(),/7.3/);
     await page.locator('[data-step="0:steps"] button').click();
     for(const width of [320,390,768,1440]){await page.setViewportSize({width,height:900});assert.ok(await page.locator('.ask-draft').evaluate(el=>el.scrollWidth<=el.clientWidth+1));await page.screenshot({path:`.local/ask/a2/restore-${width}.png`});}
     await applyDraft(page);let current=await form(page);
-    assert.equal(current.model,'nai-diffusion-4-5-full');assert.equal(current.scale,7.5);assert.equal(current.seed,'0');assert.equal(current.steps,initial.steps);assert.equal(current.width,512);assert.equal(current.sampler,'k_euler');
+    assert.equal(current.model,'nai-diffusion-4-5-full');assert.equal(current.scale,7.3);assert.equal(current.seed,'0');assert.equal(current.steps,initial.steps);assert.equal(current.width,512);assert.equal(current.sampler,'k_euler');
     await page.waitForTimeout(700);assert.equal(generation(requests.slice(start)).length,0,JSON.stringify(generation(requests.slice(start))));
     await undoCheckpoint(page);
     assert.deepEqual(await form(page),initial);await page.waitForTimeout(700);assert.equal(generation(requests.slice(start)).length,0,JSON.stringify(generation(requests.slice(start))));

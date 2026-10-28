@@ -1,6 +1,9 @@
+import { readInpaintFocus } from "../domain/inpaint-focus.ts";
 import { referenceSummary } from "../domain/nai-references.ts";
 import { readCharacters } from "../domain/characters.ts";
 import { canonical } from "./canonical.ts";
+import { imageParameters } from "../domain/image-parameters.ts";
+import { imageOrigin } from "../domain/image-origin.ts";
 import type { DigestImage } from "./digest/index.ts";
 import type { Ids } from "./ids.ts";
 
@@ -23,15 +26,23 @@ export const promptOf = (image: DigestImage) => String(image.params.basePrompt ?
 export const comparisonPrompt = (image: DigestImage) => [promptOf(image), ...readCharacters(image.params.characters).filter(c => c.on).map(c => c.prompt)].join("\n");
 export function metadata(image: DigestImage): Record<string, unknown> {
   const out: Record<string, unknown> = {
+    ...imageOrigin(image.params),
     prompt: promptOf(image),
     negative: String(image.params.baseNegative ?? image.params.negative_prompt ?? image.params.negative ?? ""),
     width: image.size.width,
     height: image.size.height,
   };
+  if (image.params.tool === "manual-edit") {
+    const manual = imageParameters(image.params);
+    out.edit_source = manual.editSource;
+    out.source_recipe = manual.sourceRecipe;
+  }
   // All parameters currently persisted by drawing/editor; omit routing and binary inputs.
-  for (const key of ["model", "modelName", "seed", "steps", "scale", "cfg", "cfgRescale", "naiMode", "complexity", "qualityPreset", "negativePreset", "sampler", "strength", "noise", "noise_schedule", "cfg_rescale", "tool", "transparentBg", "optimize", "cache", "transform_prompt", "transform_mode", "randomSeed", "batchCount", "batchIndex", "batchTotal", "isComparison", "comparisonTotal", "seedStart", "version", "image_index", "selected"])
+  for (const key of ["model", "modelName", "seed", "steps", "scale", "cfg", "cfgRescale", "noiseSchedule", "naiMode", "complexity", "qualityPreset", "negativePreset", "sampler", "strength", "noise", "noise_schedule", "cfg_rescale", "enhance", "enhanceScale", "enhanceMagnitude", "tool", "transparentBg", "optimize", "cache", "transform_prompt", "transform_mode", "randomSeed", "batchCount", "batchIndex", "batchTotal", "isComparison", "comparisonTotal", "seedStart", "version", "image_index", "selected"])
     if (image.params[key] === null || ["string", "number", "boolean"].includes(typeof image.params[key])) out[key] = image.params[key];
   if (image.params.naiReferences) out.references = referenceSummary(image.params.naiReferences);
+  const focus = readInpaintFocus(image.params.inpaintFocus);
+  if (focus) out.inpaintFocus = focus;
   if (Array.isArray(image.params.characters)) {
     out.characters = readCharacters(image.params.characters);
     out.placement = image.params.placement === "manual" ? "manual" : "auto";

@@ -40,7 +40,8 @@ after(async () => {
   await browser?.close();
   await server?.close();
 });
-async function open(path = "/", options = {}) {
+async function open(path = "/#/image", options = {}) {
+  if (!path.includes("#") && !path.includes("transfer.html")) path += "#/image";
   const context = await browser.newContext({
       viewport: { width: 1440, height: 900 },
     }),
@@ -863,7 +864,7 @@ test("shared Tag controls and editor highlighting do not depend on image CSS; ve
         canvas.getContext("2d").fillRect(0, 0, canvas.width, canvas.height);
         await editor.open(workspace, await new Promise((done) => canvas.toBlob(done)), "synthetic.png", { mode: "img2img" });
       }, workspace);
-      await page.waitForSelector("#imageEditor[open]");
+      await page.waitForSelector("#imageEditor[data-active=true]");
       await page.locator("#editorPrompt").fill("{blue_hair}");
       const styles = await page.evaluate(() => {
         const textarea = document.querySelector("#editorPrompt"), mirror = textarea.previousElementSibling;
@@ -888,8 +889,8 @@ test("shared Tag controls and editor highlighting do not depend on image CSS; ve
       await page.waitForFunction(() => document.querySelector(".editor-rail").getBoundingClientRect().width <= 1);
       await page.getByRole("button", { name: "版本栏", exact: true }).click();
       await page.waitForFunction(() => document.querySelector(".editor-rail").getBoundingClientRect().width === 132);
-      await page.locator("#imageEditor .editor-back").click();
-      await page.waitForSelector("#imageEditor[open]", { state: "hidden" });
+      await page.evaluate(() => { location.hash = "#/image"; });
+      await page.waitForSelector("#imageEditor[data-active=true]", { state: "hidden" });
     }
     await clean(t);
   } finally { await t.context.close(); }

@@ -9,21 +9,23 @@ import { download } from "../shared/files.ts";
 import { parseSlateEdit } from "./edit.ts";
 import { assetReceipt } from "./documents.ts";
 import { captionText } from "./captions.ts";
+import { sourceRecipe } from "../domain/image-parameters.ts";
 import type { Binding } from "./model.ts";
-const props = defineProps<{ slateId: string; todoId: string; complete?: boolean }>();
+const props = defineProps<{ slateId: string; todoId: string; complete?: boolean; sourceId?: string }>();
 const emit = defineEmits<{ close: [] }>();
 const slates = useSlates(), ask = useAsk(), { drawing } = useDrawing();
 const dialog = shallowRef<HTMLDialogElement | null>(null), preview = shallowRef(''), source = shallowRef(''), error = shallowRef('');
 const slate = computed(() => slates.get(props.slateId)), todo = computed(() => slate.value?.todos.find(t => t.id === props.todoId));
 const pictures = ask.externalSnapshot().library, urls = new Map<string, string>();
 for (const p of pictures) urls.set(p.label, URL.createObjectURL(p.blob));
+source.value = pictures.find(p => p.id === props.sourceId)?.label ?? '';
 const binding = computed(() => todo.value?.binding), selected = computed(() => pictures.find(p => p.label === source.value));
 const captionKey = shallowRef('');
 const captions = computed(() => {
-  const params = selected.value?.params;
+  const params = sourceRecipe(selected.value?.params ?? {}), manual = selected.value?.params.tool === 'manual-edit';
   const options: { key: string; label: string; caption: Binding['caption'] }[] = [];
-  if (typeof params?.basePrompt === 'string') options.push({ key: 'base', label: '画板原文', caption: { source: 'base', mode: 'full' } });
-  if (typeof params?.prompt === 'string') options.push({ key: 'sent', label: '实际发送', caption: { source: 'sent', mode: 'full' } });
+  if (typeof params?.basePrompt === 'string') options.push({ key: 'base', label: manual ? '来源配方原文' : '画板原文', caption: { source: 'base', mode: 'full' } });
+  if (typeof params?.prompt === 'string') options.push({ key: 'sent', label: manual ? '来源图提示词' : '实际发送', caption: { source: 'sent', mode: 'full' } });
   if (Array.isArray(params?.localCharacters)) for (const c of params.localCharacters) {
     if (!c || typeof c !== 'object' || Array.isArray(c)) continue;
     if (typeof c.id === 'string' && typeof c.prompt === 'string') options.push({ key: `character:${c.id}`, label: `角色 · ${typeof c.name === 'string' && c.name ? c.name : c.id}`, caption: { source: 'character', characterId: c.id, mode: 'full' } });

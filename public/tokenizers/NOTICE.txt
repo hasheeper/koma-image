@@ -1,0 +1,20 @@
+Koma local NovelAI input counters (audited 2026-10-28)
+
+T5 tokenizer vocabulary: google-t5/t5-small
+https://huggingface.co/google-t5/t5-small/blob/main/tokenizer.json
+Copyright Google / T5 contributors. Apache License 2.0 (LICENSE).
+Changes: retained Unigram vocabulary; removed added-token recognition and
+normalizer to match the public image client's identity-normalized T5 counter.
+EOS and emphasis/whitespace handling are implemented in Koma's counter.
+
+Qwen3.5 tokenizer vocabulary and merges: Qwen/Qwen3.5-0.8B
+https://huggingface.co/Qwen/Qwen3.5-0.8B/blob/main/tokenizer.json
+Copyright Alibaba Cloud / Qwen contributors. Apache License 2.0 (LICENSE).
+Changes: retained base vocabulary, merges and first 26 special tokens;
+NFC normalization and public-client split expression; no postprocessor.
+No model weights or NovelAI application code are distributed.
+
+Tokenizer engine: @huggingface/tokenizers 0.2.0
+https://github.com/huggingface/tokenizers.js
+Copyright Hugging Face contributors. Apache License 2.0
+(tokenizers-LICENSE.txt). Engine code is bundled in the Worker.

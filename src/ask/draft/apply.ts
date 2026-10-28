@@ -12,7 +12,7 @@ import type { DrawingBoard, DrawingForm } from "../../domain/drawing.ts";
 import { imageFileName } from "../../domain/drawing.ts";
 import type { DraftPlan, Field } from "./types.ts";
 
-const labels: Partial<Record<Field, string>> = { prompt: "Prompt", negative: "Negative", composer: "对话输入框", model: "模型", width: "尺寸", height: "尺寸", seed: "Seed", steps: "步数", scale: "Guidance", cfg: "中转 CFG（旧）", cfgRescale: "Guidance Rescale", naiMode: "模式", complexity: "Complexity", qualityPreset: "质量预设", negativePreset: "负向预设", transparentBg: "透明底", sampler: "采样器", batchCount: "张数", characters: "角色组", placement: "角色定位" };
+const labels: Partial<Record<Field, string>> = { prompt: "Prompt", negative: "Negative", composer: "对话输入框", model: "模型", width: "尺寸", height: "尺寸", seed: "Seed", steps: "步数", scale: "Guidance", cfg: "中转 CFG（旧）", cfgRescale: "Guidance Rescale", varietyPlus: "Variety+", naiMode: "模式", complexity: "Complexity", qualityPreset: "质量预设", negativePreset: "负向预设", transparentBg: "透明底", sampler: "采样器", batchCount: "张数", characters: "角色组", placement: "角色定位" };
 
 /** The only ASK module with write ports. Called exclusively by user actions. */
 export function createDraftWriter(drawing: Drawing, chat: Chat, router: AppRouter, slates?: Slates, filePort?: () => FilePort | null) {

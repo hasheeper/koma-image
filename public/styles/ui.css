@@ -596,8 +596,7 @@ button.w-seg:hover { background: var(--raised); }
    a select in the 参数 drawer sat 5.5 below its own background — the "internals
    look far too dark" report. */
 .drawer,
-.gate-card,
-.dropzone-card {
+.gate-card {
   --well: #19191c;         /* ΔL* 2.6 below --raised */
   --well-focus: #17171a;
 }

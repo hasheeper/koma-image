@@ -1,62 +1,57 @@
 # 当前状态与待办
 
-更新：2026-10-26。本文是现状索引，沿用原文件路径；已完成的实施路线和验收细节转入[历史归档](archive/2026-10-25/README.md)。完成代码或模拟测试不代表真实供应商联调，也不代表当前线上版本已经包含相同提交。
+更新：2026-10-28。本文保留稳定路径，集中说明仓库现状与剩余工作。产品介绍见[产品总览](product-overview.md)，行为细节由各专题维护；阶段过程与验收数字见[历史索引](archive/README.md)。本地完成不代表真实供应商联调或线上已发布。
 
-## 已完成范围
+## 已实现范围
 
-| 范围 | 当前状态与现行说明 |
+| 范围 | 当前能力与维护入口 |
 | --- | --- |
-| 单页外壳与共享服务（M1–M7） | IMAGE／CHAT／TAGS 保活、编辑覆盖层、设置与备份、本地代理、发布包已实现；见[架构](architecture.md)、[调度与数据](gateway-data-scheduler.md)和[发布说明](release-guide.md) |
-| 绘图、对话和编辑 | 业务与合成图片／模拟网关回归已完成；见[绘图](drawing-workspace.md)与[对话／编辑](chat-editor-workspaces.md) |
-| 图像协议基础适配 | 标准网关、OpenAI Images、Gemini 原生和 NovelAI 官方基础接口已接线并模拟验证；NAI 官方账户接口已有授权只读验证，未订阅账号可识别；连接卡展示 Anlas、V5 百分比、张数估算及必要状态；见[协议能力](native-image-protocols.md)和[官方接入](novelai-official.md) |
-| NAI 型号、模式与参数 | V4.5 Full／Curated、V5 Full High／Medium／Curated 五型号文生图及常规四型号 img2img 已接线；Anime／Furry 模式及 Furry 补全、Effort、Complexity、质量／负向预设、透明底与独立 Guidance Rescale 已实现。未知费用标签暂时隐藏，不作为免费；见[能力对照](novelai-official.md#型号与模式覆盖) |
-| 供应商优先级 | 连接分为图像与文本两区，综合供应商的已配置接口分别展示；仅图像卡可上下排序，文本保持手动选模。可用来源与优先级分开；绘图／CHAT／编辑按模型、操作和额度选源，未知仍按顺序、明确不足才顺位，提交后不重试；顶栏 Logo 与额度跟随实际来源；见[设置规则](shared-settings-tags.md) |
-| 多角色与画板（C1–C5） | 独立表单、角色界面、官方／标准字段映射、参数往返、ASK 草稿与回退已完成本地收口；标准角色字段依据真实只读解析／报价探测，生成效果待验；见[专题](multi-character-boards-plan.md) |
-| NAI V4.5 参考与底部抽屉 | 参数／Vibe／Precise 共用已确认的抽屉；上传、生成时编码、本机缓存、精确参考预处理、来源筛选、持久化和备份已接线，真实效果／扣费待验；见[官方接入](novelai-official.md#vibe-与精确参考边界) |
-| TypeScript（T0–T5） | `src/` 自有实现全部为 TS／Vue TS，严格检查；测试、服务器、工具及兼容脚本保留原运行方式 |
-| 字体与样式（G0–G4） | 字体集中配置、CSS 分层、组件归属与 Stylelint 已接入；见[字体](font-style-governance.md)、[样式](style-ownership.md)和[检查](style-checks.md) |
-| ASK（A0–A4、R1–R4、W1–W6） | 两种推理协议、只读工具、视觉、草稿、CHAT 适配、代理、行内模式、检索、多会话、B v5、附件与检查点已模拟收口；见[ASK 入口](ask/ask-implementation-plan.md) |
-| ASK 后续能力 | 收藏会话及附件持久化、AI 命名、可配置文本附件上限、压缩与归档召回（CP1–CP4）、CHAT 交接与能力感知（H0–H4）已完成代码及本地双协议模拟验收；见[提示词](ask/ask-prompts.md)与[压缩](compaction-plan.md) |
-| 外部协同与任务板 B1–B3 | 目录挂载／恢复、手动 JSON、协议生成、状态／预览／轻量索引、refs 按需读取与配方／备忘录导出、内外直接设参、会话排队／审阅／撤销／回执，以及默认本地任务、复合草稿、持久绑图和目录交付已实现并本地模拟验证；见[使用与边界](ask/bridge.md) |
+| 外壳与导航 | HOME／IMAGE／CHAT／EDIT／TAGS 同级切换；HOME 为默认路由，设置为弹窗；HOME／IMAGE／CHAT／TAGS 使用 KeepAlive，EDIT 原位隐藏保活。见[架构](architecture.md) |
+| HOME | 真实创作线、继续入口、收藏定稿、行／列／拼图三种排列、每 IMAGE 画板一张 1080px 展示副本、封面与来源链；同一 ASK 停靠、状态行、原图拖入和共享元素过渡。见[HOME](koma-home.md) |
+| IMAGE 与角色 | 独立表单画板、串行批量、历史与收藏、参数往返、多角色与定位；冻结提交来源。见[绘图](drawing-workspace.md)、[角色与画板](multi-character-boards.md) |
+| CHAT | 上下文选择、分支、多版本、持久会话、逐图收藏与显式图片交接。见[对话](chat-workspace.md) |
+| EDIT | 独立 `#/edit`、每来源图一画板、每板最多 30 版本；参数／角色／参考继承、实际 Seed、同尺寸蒙版沿用、后台任务归属及 HOME 继续。编辑现场仅本页，ASK 在 EDIT 中隐藏。见[编辑](edit-workspace.md) |
+| Photopea | 单 iframe 多画板分层文档保活；三层及隐藏选区辅助层、干净图像／蒙版自动分离、同尺寸换底保图层、纯修图直入历史／收藏／Slate。Dark Blue、紧凑固定顶栏和完整视口。见[接入与工作栈](photopea-workstack-spec.md) |
+| 图像协议 | 标准网关、OpenAI Images、Gemini 原生与 NovelAI 官方基础接线及模拟验证；NAI 账户已有授权只读验证。见[协议](native-image-protocols.md) |
+| NAI | V4.5 Full／Curated、V5 Full High／Medium／Curated 五型号文生图、Img2Img 与普通 Enhance，V5 三型号另有 Max Enhance；除 V5 Curated 外四型号普通／聚焦 Inpaint、官方 4× Upscale、六项 Director Tools；模式、Effort、Complexity、预设、透明底、Guidance／Rescale、多角色与适用的 V4.5 Vibe／Precise；本地费用估算、型号输入预算和外部 PNG Vibe 编码恢复。见[NAI](novelai-official.md) |
+| 连接与选源 | 图像／文本分区、仅图像排序；按模型／操作／额度选择，未知余额按优先级，明确不足才顺位；提交失败不换源重试，连接和模型操作局部更新。见[设置](shared-settings-tags.md) |
+| ASK | 两种推理协议、只读工具、图片／附件、多会话、收藏、命名、草稿与撤销、压缩及归档召回、CHAT 交接；图片权限按轮次冻结、回复表格支持行内 `<br>`。见[ASK 入口](ask/ask-implementation-plan.md) |
+| Todo 与外部协同 | 默认本地持久任务、紧凑清单与轻量总览、内外复合草稿、持久绑图；目录挂载／权限恢复、状态／预览／索引、refs 按需读取及文件草稿、JSON 兜底、排队与回执。新建活动任务在已挂载时自动映射。见[协同与任务](ask/bridge.md) |
+| 数据与工程 | 数据租约、全应用 N=1 调度、新版 Koma ZIP、可选本地代理与发布包；严格 TS、集中字体配置、CSS 归属与检查。见[数据与调度](gateway-data-scheduler.md)、[发布](release-guide.md)、[样式](style-ownership.md) |
+
+上述功能已完成相应代码及本地模拟验收。真实 Photopea 合成图往返、单 iframe 多文档保活另有[核验记录](archive/2026-10-28-edit-workspace-verification.md)；它们不验证 NAI 的真实生成或扣费。
 
 ## 仍待真实验证
 
-- **供应商联调**：标准网关已用一次界面报价免费的 V5 Full 生成验证绑图交付，范围见[实战验收](archive/2026-10-26-bridge-field-verification.md)。各目标地址的目录、鉴权、CORS、账户权限、真实型号、请求参数、返回格式、生成效果与实际扣费仍须逐项核验；不把只读目录或报价成功当作生成成功。
-- **NovelAI 现有链路**：五型号文生图、常规四型号 img2img、多角色、Vibe 编码／缓存命中与两种参考效果，以及原图、参数和前后额度仍待真实核验；订阅优惠、V5 实际消耗／回充与各档账户规则也未完成真实验证。账户与公开词库只读、本地模拟、线上页面检查分别有证据，均不代替生成或消费验证。见[核验顺序](novelai-official.md#后续工作与核验顺序)。
-- **ASK 质量**：真实图片黄金样例、诊断和提纯质量、用户提示词效果、命名质量、交接备忘录质量、CHAT 交接尺寸项在真实供应商上的效果及真实缓存命中；目前合成样例与模拟响应仅验证程序契约。
-- **目录兼容**：自动化使用 Chromium OPFS 验证真实文件写入、句柄保存和跨页锁，目录选择与权限结果由测试模拟；另已在 macOS Edge 实际验证本地目录选择器、读写授权和页面刷新后的权限恢复。浏览器重启、权限撤销／重新授权及其他浏览器兼容仍待验证。
-- **交付状态**：远端 CI 和线上脚本须对具体提交核对。历史记录不自动延续为当前部署证明或授权。
+- **供应商联调**：逐目标地址核验鉴权、CORS、账户权限、型号、请求／返回、生成效果和实际扣费。标准网关曾用一次界面报价免费的 V5 Full 生成完成[绑图实战](archive/2026-10-26-bridge-field-verification.md)，仅证明该次路径，不覆盖其他供应商或型号。
+- **NovelAI**：五型号文生图／Img2Img／普通 Enhance、V5 三型号 Max Enhance、四型号普通／聚焦 Inpaint、4× Upscale、六项 Director Tools（含三种去背景结果）、多角色、Vibe 编码／缓存命中与两种参考效果，以及原图／参数／前后额度；Opus 资格、订阅优惠、V5 实际消耗与回充仍需核验。账户和词库只读、本地模拟与页面检查均不能代替生成验证。
+- **ASK 质量**：真实图片黄金样例、诊断／提纯／命名、用户提示词效果、交接备忘录质量、CHAT 尺寸项效果与真实缓存命中。
+- **目录兼容**：Chromium OPFS 已验证文件写入、句柄保存和跨页锁；macOS Edge 已实测本地选择器、授权、刷新恢复与外部文件闭环。浏览器重启、撤权恢复、其他浏览器与跨进程竞争仍待验。
+- **编辑兼容**：实际 Safari、移动真机、Photopea 复杂分层长时使用及 Pages 发布后体验仍待独立核验。Playwright WebKit 不等于实际 Safari。
+- **发布状态**：CI、静态产物和线上页面须对具体提交核验；历史发布记录不延续为本工作树的发布证明。
 
-真实收费生成、推送和部署均须按工程约定取得对应授权。
+真实收费生成、推送和部署按工程约定取得对应授权。
 
-## NAI 尚未完成的适配
+## NAI 适配收口与剩余项
 
-| 范围 | 当前缺口 |
+| 范围 | 缺口 |
 | --- | --- |
-| 单次消耗与账户规则 | 尚无完整的 Anlas／V5 用量估算及经核验的 Opus 免费资格判断；账户约张数不能替代当前画板报价 |
-| 参数与编辑器 | 常规模型仍共用采样器列表和面积上限，须按型号核对；Variety Boost 尚未接入，编辑器缺少绘图页的预设入口与可调 Rescale |
-| 官方编辑与独立工具 | Medium img2img、官方蒙版重绘／Focused Inpainting、Upscale、Enhance 与 Director Tools 尚未接入 |
-| 导入与输入检查 | 外部 PNG 的参考编码恢复、型号专用 token 计数／超长检查、`Text:` 字符限制检查尚未实现 |
-| 界面精简 | V4.5 的质量入口仍在 Prompt 底栏，迁入参数抽屉的调整尚未实施 |
+| 单次消耗 | 本地 Anlas、参考／编码费和 Opus 资格已按公开客户端接入；V5 百分比仅 FAQ 基准近似，实际扣费与权益仍须真实核验，未知标签隐藏且不视为免费 |
+| 型号参数 | 官方六采样器、3MP／64 对齐、步数、V4.5 可调调度／Variety+、V5 Karras、强度／噪声和 Medium Heavy 已按公开客户端对齐，实际采用与效果仍须真实核验。Variety+ 仅开放官方 V4.5，按实际请求尺寸换算 sigma；Guidance／Rescale 使用 `scale`／`cfg_rescale`，不发送遗留 `cfg` |
+| 工具 | 普通 Enhance 与 V5 Max Enhance（`upscaled_enhance`、原尺寸请求与实际输出校验）已接入；Focused Inpainting 已接手动蒙版／框选、裁切放大与原尺寸回贴；六项 Director Tools 已接独立协议／费用、尺寸预处理与去背景三种结果，真实效果与消费待验；V5 Curated 不开放独立重绘 |
+| 导入与检查 | 外部 PNG Vibe 编码／Alpha 隐藏元数据、型号 token 预算及 `Text:` 上限已接入；未附带的参考原图／Precise 无法恢复，V5 自动引号提取未开放 |
+| 界面 | V4.5 质量入口迁入参数抽屉尚未实施 |
 
-完整范围、能力依据与验收顺序由 [NAI 专题](novelai-official.md#后续工作与核验顺序)维护。V5 的两种参考保持不开放，须先补充适用能力证据，不列为已确认应实现的功能。
+能力依据与核验顺序由[NAI 专题](novelai-official.md#后续工作与核验顺序)维护。V5 的两种参考保持不开放，须先有适用能力证据。
 
-## 外部协同与任务板收口
+## 当前范围之外与已取消事项
 
-[外部协同桥与 Slate](ask/bridge-plan.md) 的 B1–B3 已实现并完成本地模拟验证，包括默认本地 Todo／Slate、内外 `slate_edit` 与复合草稿、绑图持久化及目录同步。挂载期间新建的活动任务板自动加入目录。当前界面为会话内紧凑 Todo 与轻量总览；目录标签在输入框旁，手动兜底归现有设置 → ASK。任务／配方／文件统一在 DraftCard 审阅，`save_ref` 确认后保存，完成记录复用工具完成态并同行标识外部来源；见[UI 与文件草稿验收](archive/2026-10-26-bridge-ui-verification.md)。macOS Edge 的原生目录挂载、刷新恢复和外部文件协作已通过一次[实战验收及收口补验](archive/2026-10-26-bridge-field-verification.md)；其他浏览器、撤销权限后的恢复与跨进程并发竞争仍待验。**Todo 默认可用且不依赖挂载目录**；`src/bridge/` 只负责外部协同，任务领域与持久化独立，与现有内部图片交接及 CHAT H0–H4 分开。
-
-## 当前范围之外
-
-- OpenAI Responses／蒙版／流式部分图片，Gemini 原生有状态多轮与签名续传，以及原生图像协议的本地代理，均未包含在基础适配中。
-- ASK 不做 RAG／Embedding、跨会话记忆、云端同步、后台静默压缩、自动生成或自动发送；编辑器内 ASK 和其他新入口需独立确认范围。
-- 自定义并发与额度预占只保留边界，默认仍为全应用 N=1。
-
-## 已取消事项
-
-旧应用数据迁移整条线已取消：没有迁移桥、旧库检测／清理、旧备份转换或相关 UI，不列为后续任务或发布门槛。新版 Koma 字段的向后兼容读取不构成旧应用迁移。
+- EDIT 跨刷新恢复、PSD 持久化与 EDIT 专用 ASK／Bridge 草稿未开放；当前编辑原图可通过收藏或 Slate 保存，分层由用户另存 PSD。
+- OpenAI Responses／蒙版／流式部分图片、Gemini 有状态多轮与签名续传、原生图像协议的本地代理不在基础适配范围。
+- ASK 不做 RAG／Embedding、跨会话记忆、云端同步、后台静默压缩、自动生成或自动发送。
+- 自定义并发和额度预占只保留边界，默认全应用 N=1。
+- 旧应用数据迁移整条线已取消：没有迁移桥、旧库检测／清理、旧备份转换或对应 UI，不列为待办。新版 Koma 字段的兼容读取不构成旧应用迁移。
 
 ## 检查与证据
 
-当前命令和套件见[项目说明](../README.md#开发与检查)。按变更执行必要检查；将新验收注明提交、日期、实际运行范围及模拟／真实边界。历史数字和授权保留在归档，不累计成当前版本的测试总数。
-
-已发布的 NAI 适配版本、检查范围及生产页面证据见 [2026-10-25 发布核验](archive/2026-10-25-nai-release-verification.md)。
+命令见[项目说明](../README.md#开发与检查)，按变更运行相关检查。验收记录须注明日期、基线、执行范围及模拟／真实边界；历史数字不累计成当前测试总数。[历史索引](archive/README.md)集中链接各阶段证据，不在现状文档重复过程。

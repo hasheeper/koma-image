@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { nextTick, onBeforeUnmount, shallowRef, watch } from "vue";
+import { nextTick, onBeforeUnmount, onDeactivated, shallowRef, watch } from "vue";
 import { useAsk } from "../app/ask";
 import { menuKeys } from "../shared/popover";
 const props = defineProps<{ id: string; label: string; side: "left" | "right" | "up"; escape?: () => boolean }>();
@@ -53,6 +53,7 @@ watch(open, on => {
   if (on) { stopLayer = ask.layer(escape); document.addEventListener('pointerdown', outside, true); window.addEventListener('resize', resized); window.visualViewport?.addEventListener('resize', resized); }
   else { sizeObserver.disconnect(); cancelAnimationFrame(frame); document.removeEventListener('pointerdown', outside, true); window.removeEventListener('resize', resized); window.visualViewport?.removeEventListener('resize', resized); }
 });
+onDeactivated(() => close());
 watch(ask.visible, visible => { if (!visible) close(); });
 onBeforeUnmount(() => { close(); stopLayer(); sizeObserver.disconnect(); cancelAnimationFrame(frame); document.removeEventListener('pointerdown', outside, true); window.removeEventListener('resize', resized); window.visualViewport?.removeEventListener('resize', resized); });
 </script>

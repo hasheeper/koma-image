@@ -1,6 +1,6 @@
 # 图像协议能力与边界
 
-更新：2026-10-25。基础适配已经完成代码和模拟验证；供应商型号、权限、CORS、实际生成与扣费仍须逐项核验。NovelAI 官方已有授权的账户只读验证，范围见[官方接入](novelai-official.md)，不能推导为生成成功。历史协议勘探和测试范围见[归档](archive/2026-10-25/README.md)。
+更新：2026-10-28。基础适配已经完成代码和模拟验证；供应商型号、权限、CORS、实际生成与扣费仍须逐项核验。NovelAI 官方已有授权的账户只读验证，范围见[官方接入](novelai-official.md)，不能推导为生成成功。历史协议勘探和测试范围见[归档](archive/2026-10-25/README.md)。
 
 ## 接口能力与当前范围
 
@@ -9,12 +9,12 @@
 | --- | --- | --- | --- | --- |
 | OpenAI Images | GET /v1/models；Bearer；读取 ID，由现有模型页匹配 | POST /v1/images/generations：JSON；POST /v1/images/edits：multipart，参考图使用 image[]；返回 data[].b64_json | 不假造预报价或账户余额；费用未知 | 对话页生图与参考图修改；不包含 Responses、流式部分图片、DALL·E、蒙版编辑或远程结果 URL 下载 |
 | Gemini 原生 | GET /v1beta/models?pageSize=1000，单次读取 ID；x-goog-api-key | POST /v1beta/models/{model}:generateContent；contents/parts/inlineData；generationConfig；读取文本和内嵌图片 | 不套用标准网关的积分；费用未知 | 对话页生图与参考图修改；沿用现有拼接上下文，每次请求独立，不宣称已经实现有状态的原生多轮和 thoughtSignature 续传 |
-| NovelAI 官方 | 账户与图片统一为 image.novelai.net；Bearer；GET /user/subscription；未订阅不阻止 Key 识别 | POST /ai/generate-image；五型号文生图、常规四型号 img2img、ZIP 原图解包；V4.5 官方来源接入 Vibe／Precise，Vibe 编码为 POST /ai/encode-vibe | 读取 Anlas、V5 百分比、基准约张数及加购百分比；未实现单次消耗估算，未知费用标签隐藏；不推断免费 | 模式／Effort／Complexity／预设／Rescale 与参考链路已模拟核验，真实生成／编码／扣费待验；Medium img2img、官方蒙版和独立工具未接入；按型号参数约束仍待收口 |
+| NovelAI 官方 | 账户与图片统一为 image.novelai.net；Bearer；GET /user/subscription；未订阅不阻止 Key 识别 | POST /ai/generate-image；五型号文生图／img2img／普通 Enhance、V5 Max Enhance，V4.5 与 V5 Full High／Medium 的普通／聚焦 infill；POST /ai/upscale 提交独立 4× 放大，ZIP／原图解包；V4.5 官方来源接入 Vibe／Precise，Vibe 编码为 POST /ai/encode-vibe；六项 Director Tools 为 POST /ai/augment-image | 读取 Anlas、V5 百分比、基准约张数及加购百分比；本地 Anlas／参考／编码费估算及 Opus 判断，V5 用量仅基准近似；未知标签隐藏 | 模式／Effort／Complexity／预设／Rescale、Enhance 与参考链路已模拟核验，真实生成／编码／扣费待验；V5 Curated 无独立重绘接口；Focused Inpainting 已接入客户端裁切／放大／原尺寸合成，沿用单次 infill；Director Tools 已接独立工具请求、尺寸预处理与去背景三种结果；型号采样器／调度／数值边界已有统一校验，Max 使用独立服务端标记和输出尺寸校验，实际参数采用仍待真实核验 |
 | Koma 标准网关 | 原目录、统计与鉴权 | 原三条执行路线 | 650/400ms 报价、执行前重报、max_cost、涨价提示、批量最多提示一次、余额不足不提交 | 行为保持；新增协议不关闭此协议的报价保护 |
 
 这里的“协议”与连接名称、渠道无关。用户配置的兼容服务可以选择其真正提供的 OpenAI Images 或 Gemini 原生协议；不按域名推断，不在正式源码中内置私有服务名称、地址或 Key。新环境连接仍为空。
 
-多角色映射：标准报价／Studio／工具发送 `characters: [{ prompt, uc, center }]` 与顶层 `use_coords`；免费原生与官方继续使用同一领域快照构造 `v4_prompt`／`v4_negative_prompt` 正负数组，避免标准转换影响原生内容。字段依据为实际只读解析与报价探测，请求及参数往返已模拟验证，真实生成仍待实测。详情见[多角色与画板](multi-character-boards-plan.md#协议映射与元数据)。
+多角色映射：标准报价／Studio／工具发送 `characters: [{ prompt, uc, center }]` 与顶层 `use_coords`；免费原生与官方继续使用同一领域快照构造 `v4_prompt`／`v4_negative_prompt` 正负数组，避免标准转换影响原生内容。字段依据为实际只读解析与报价探测，请求及参数往返已模拟验证，真实生成仍待实测。详情见[多角色与画板](multi-character-boards.md#协议映射与元数据)。
 
 ## 已落地的结构
 
@@ -36,10 +36,12 @@ OpenAI／Gemini 每次拉取只发一次模型列表请求；Gemini 使用 `page
 
 ## 费用、运行与待验
 
-标准网关的报价、重报、`max_cost`、分流与余额检查保持。其他图像协议没有预报价时保留未知费用状态，生成按钮暂不显示费用标签；不推算免费或每次实际扣费。所有图像任务共用 N=1，取消、超时、失败停止和不自动重试保持。
+标准网关的报价、重报、`max_cost`、分流与余额检查保持。NAI 官方提供独立的本地估算，区别于服务端报价；其他图像协议没有预报价时保留未知费用状态，生成按钮暂不显示费用标签；不推算免费或每次实际扣费。所有图像任务共用 N=1，取消、超时、失败停止和不自动重试保持。
 
 真实联调须分别记录目录／鉴权、参数、响应格式、CORS、生成效果及扣费；只读成功不能代替生成实测。NAI 高级能力见[官方接入](novelai-official.md)，其他未实现范围见[当前待办](implementation-plan.md)。
 
-NAI 官方另声明固定 `POST /ai/encode-vibe`，仅任务作用域可调用。V4.5 参考请求与原图预处理、编码缓存和费用下限见[参考契约](novelai-official.md#vibe-与精确参考边界)；标准网关和其他协议未声明这些字段时明确拒绝，不转发应用内参考计划。
+NAI 官方另声明固定 `POST /ai/upscale`（multipart 原图与 JSON request，固定 4×；不携带生图提示词、Seed 或 max_cost）及 `POST /ai/encode-vibe`，仅任务作用域可调用。V4.5 参考请求与原图预处理、编码缓存和费用下限见[参考契约](novelai-official.md#vibe-与精确参考边界)；标准网关和其他协议未声明这些字段时明确拒绝，不转发应用内参考计划。
+
+NAI 官方另提供固定 `POST /ai/augment-image` JSON：`req_type`、PNG Base64、宽高及上色／表情的 Prompt、defry。六项工具与生图型号独立，不发送 Seed／CFG／蒙版／参考／max_cost；返回 ZIP 全部解码后才写入，去背景三种结果按成员身份分组。按独立 Anlas 规则估算，不套用 V5 百分比；当前只对官方来源声明，标准网关不自动代发。尺寸、费用和结果边界见[Director Tools](novelai-official.md#director-tools)。
 
 NAI 五型号的实际覆盖、V5 参考能力边界、未接入功能与核验顺序统一见[官方接入](novelai-official.md#后续工作与核验顺序)。官方文档存在某项能力，不代表本项目已经接入；已接线也不代表真实生成与扣费已通过。

@@ -9,11 +9,22 @@ import { draftView } from '../src/ask/draft/view.ts';
 import { receiveDraft } from '../src/bridge/protocol.ts';
 import { externalEdit, slateFile, combineSlateDocument } from '../src/slate/documents.ts';
 import { createTools } from '../src/ask/tools.ts';
+import { imageParameters } from '../src/domain/image-parameters.ts';
 const form = {...structuredClone(DEFAULTS),prompt:'sky'};
 const base = () => ({form:structuredClone(form),composer:'',conversationId:'chat',workspace:'image',boardId:'b',boardName:'one',boardPresent:true,models:[],samplers:[]});
 const create = () => parseSlateEdit({kind:'slate_edit',op:'create',slate_title:'系列',todos:[{op:'add',todo_title:'首图',image_required:false}]},null,form,[]).change.after;
 const update = slate => ({kind:'slate_edit',op:'update',slate_id:slate.id,expected_version:slate.version});
 const picture={id:'record',label:'#h1',aliases:['#h1'],origins:[{source:'history',label:'#h1',order:1}],params:{prompt:'sent',basePrompt:'base',seed:0},size:{width:128,height:192},blob:new Blob(['synthetic'],{type:'image/png'})};
+
+test('PE1 manual delivery retains a filtered source recipe, explicit lineage and source captions',()=>{
+  const params=imageParameters({tool:'manual-edit',modelName:'手动编辑',editSource:'photopea',editId:'edit-1',editParent:'history:source',editedAt:'2026-10-27T00:00:00Z',width:256,height:384,
+    sourceRecipe:{prompt:'sent',basePrompt:'raw',seed:0,model:'nai-diffusion-4-5-full',localCharacters:[{id:'c1',on:true,prompt:'character',negative:'',centers:[{x:.5,y:.5}]}],apiKey:'do-not-copy',sourceRecipe:{secret:'nested'}},apiKey:'do-not-copy'});
+  assert.equal(params.tool,'manual-edit');assert.equal(params.seed,undefined);assert.equal(params.sourceRecipe.seed,0);
+  assert.equal(params.editParent,'history:source');assert.equal(params.apiKey,undefined);assert.equal(params.sourceRecipe.apiKey,undefined);assert.equal(params.sourceRecipe.sourceRecipe,undefined);
+  assert.equal(captionText({params},{source:'base',mode:'full'}),'raw');
+  assert.equal(captionText({params},{source:'sent',mode:'full'}),'sent');
+  assert.equal(captionText({params},{source:'character',characterId:'c1',mode:'full'}),'character');
+});
 
 test('B3 local IDs, task operations, image completion guard and version gate',()=>{
   const slate=create();assert.ok(slate.id);assert.ok(slate.todos[0].id);assert.notEqual(slate.id,slate.todos[0].id);

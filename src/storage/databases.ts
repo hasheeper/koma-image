@@ -1,6 +1,7 @@
 import { names } from "./names.ts";
 
 export const schemas = [
+  { name: names.databases.home, version: 1, stores: [{ name: "previews", keyPath: "boardId" }] },
   { name: names.databases.slate, version: 1, stores: [{ name: "state", keyPath: undefined }, { name: "assets", keyPath: "id" }] },
   { name: names.databases.favorites, version: 2, stores: [{ name: "favorites", keyPath: "id" }, { name: "referenceAssets", keyPath: "id" }, { name: "vibeEncodings", keyPath: "id" }] },
   { name: names.databases.chat, version: 1, stores: [{ name: "conversations", keyPath: "id" }, { name: "assets", keyPath: "id" }] },

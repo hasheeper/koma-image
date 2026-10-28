@@ -1,4 +1,4 @@
-export const workspaces = ["image", "chat", "tags"] as const;
+export const workspaces = ["home", "image", "chat", "edit", "tags"] as const;
 export type WorkspaceId = (typeof workspaces)[number];
 export const settingsSections = [
   "connections",
@@ -9,15 +9,17 @@ export const settingsSections = [
   "ask",
 ] as const;
 export type SettingsSection = (typeof settingsSections)[number];
-export type OverlayId = "settings" | "editor";
+export type OverlayId = "settings";
 export interface AppRoute {
   workspace: WorkspaceId;
   overlay: OverlayId | null;
   section: SettingsSection;
 }
 export const workspaceInfo = {
+  home: { name: "首页", subtitle: "HOME", description: "继续创作与定稿" },
   image: { name: "绘图", subtitle: "IMAGE", description: "NovelAI 文生图" },
   chat: { name: "对话", subtitle: "CHAT", description: "多模型对话改图" },
+  edit: { name: "编辑", subtitle: "EDIT", description: "图生图、重绘与放大" },
   tags: {
     name: "词典",
     subtitle: "TAGS",
@@ -30,10 +32,10 @@ export function parseRoute(hash: string): AppRoute {
     .split("?", 1)[0]!
     .split("/");
   return {
-    workspace: workspaces.includes(workspace as WorkspaceId)
+    workspace: overlay === "editor" ? "edit" : workspaces.includes(workspace as WorkspaceId)
       ? (workspace as WorkspaceId)
-      : "image",
-    overlay: overlay === "settings" || overlay === "editor" ? overlay : null,
+      : "home",
+    overlay: overlay === "settings" ? overlay : null,
     section: settingsSections.includes(section as SettingsSection)
       ? (section as SettingsSection)
       : "connections",
@@ -43,8 +45,6 @@ export function routeHash(route: AppRoute): string {
   const panel =
     route.overlay === "settings"
       ? `/settings/${route.section}`
-      : route.overlay === "editor"
-        ? "/editor"
-        : "";
+      : "";
   return `#/${route.workspace}${panel}`;
 }

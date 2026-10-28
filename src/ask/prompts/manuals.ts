@@ -13,7 +13,7 @@ export const manuals = {
 - W::text:: 为数值强调，:: 结束区间；{tag}、[tag] 为旧写法。每次只改少量相关权重，避免大幅加权造成颜色、结构与主体特征失控。
 - 标签或画师名以数字结尾且紧接 :: 时，在名称后用逗号隔开，例如 aki99, ::，避免尾部数字与权重语法产生歧义；不把任何异常都归因于此。
 - V5 的双引号文本用于画中文字。普通描述不随手加双引号；需要文字时，将准确原文与所在载体、位置、字号层级、阅读顺序一起说明。引号与多语言文字的具体效果需要看图核对。
-- V5 Full Medium 不支持自定义 Negative 与 Guidance Rescale，固定 14 步、Euler Ancestral。明确使用该档位时，在主提示词用负权重表达排除意图，例如 -2::hat::；High 与 V4.5 不套用这组档位限制。
+- V5 Full Medium 不支持自定义 Negative 与 Guidance Rescale，固定 14 步、Euler Ancestral 和 Heavy 负向预设。明确使用该档位时，在主提示词用负权重表达排除意图，例如 -2::hat::；High 与 V4.5 不套用这组档位限制。
 - V5 的 low/medium/high/ultra complexity 描述画面复杂度，也会改变画风。官方建议普通画面可先试 high，ultra 或 low 有时更适合风格化表现；按实际目标选择，不默认堆叠，也不与 Medium/High Effort 算力档位混淆。depthness 用于增强明暗塑造的深度感，不保证透视正确。
 - V5 的 transparent background 表达透明背景，has alpha 表达使用 Alpha 通道，alpha transparency 可描述场景内半透明效果；生成后检查真实 Alpha，而不是把棋盘格画面当作透明。
 

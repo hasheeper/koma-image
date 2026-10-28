@@ -20,6 +20,7 @@ import { object } from "../../domain/value.ts";
 import HighlightInput from "../../shared/HighlightInput.vue";
 import TagPicker from "../../shared/TagPicker.vue";
 import AppIcon from "../../shared/AppIcon.vue";
+import NaiTokenCount from "../../shared/NaiTokenCount.vue";
 const { preferences } = useServices(),
   ui = useUi(),
   { router } = useShell();
@@ -182,11 +183,7 @@ function select(event: KeyboardEvent) {
           @click="tab = 'prompt'"
         >
           <span>Prompt</span
-          ><span
-            class="tab-count"
-            :data-filled="prompt.length ? '1' : undefined"
-            >{{ prompt.length }}</span
-          >
+          ><NaiTokenCount field="prompt" :text="prompt" />
         </button>
         <button
           id="tab-negative"
@@ -199,11 +196,7 @@ function select(event: KeyboardEvent) {
           @click="tab = 'negative'"
         >
           <span>Negative</span
-          ><span
-            class="tab-count"
-            :data-filled="negative.length ? '1' : undefined"
-            >{{ negative.length }}</span
-          >
+          ><NaiTokenCount field="negative" :text="negative" />
         </button>
       </div>
       <div class="fld-actions">

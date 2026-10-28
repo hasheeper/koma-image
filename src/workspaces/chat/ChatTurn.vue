@@ -11,6 +11,8 @@ import {
 } from "vue";
 import type { ConversationTurn } from "../../storage/records";
 import { useChat } from "../../app/chat";
+import { useDrawing } from "../../app/drawing";
+import { chatImageId, chatImageOrigin } from "../../domain/image-origin.ts";
 import { useUi, message } from "../../app/ui";
 import { useEditor } from "../../app/editor";
 import { selectSource, retainImage } from "../../domain/conversation.ts";
@@ -31,6 +33,21 @@ const props = defineProps<{
 const { chat, view } = useChat(),
   ui = useUi(),
   { editor } = useEditor();
+const { drawing, view: drawings } = useDrawing();
+const saving = shallowRef<ReadonlySet<string>>(new Set());
+const favoriteId = (id: string) => chatImageId(view.value.current.id, props.turn.id, version.value.id, id);
+const favorite = (id: string) => drawings.value.favorites.some(f => f.id === favoriteId(id));
+const favoriteBusy = (id: string) => drawings.value.favoritesLoading || saving.value.has(favoriteId(id)) || drawings.value.favoritePending.includes(favoriteId(id));
+async function toggleFavorite(assetId: string) {
+  const id = favoriteId(assetId);
+  if (favoriteBusy(assetId)) return;
+  saving.value = new Set([...saving.value, id]);
+  try {
+    const existing = drawings.value.favorites.find(f => f.id === id);
+    await drawing.toggleFavorite(existing ?? await chat.favoriteRecord(view.value.current.id, props.turn.id, version.value.id, assetId));
+  } catch (error) { ui.toast(message(error), "err"); }
+  finally { saving.value = new Set([...saving.value].filter(v => v !== id)); }
+}
 const version = computed(() => {
     view.value;
     return props.turn.versions[props.turn.selectedVersion]!;
@@ -144,6 +161,8 @@ function upscale(id: string) {
     void editor.open("chat", a.blob, a.name, {
       mode: "upscale",
       conversationId: view.value.current.id,
+      sourceId: favoriteId(a.id),
+      settings: { ...chatImageOrigin(view.value.current, props.turn, version.value, a.id), tool: "chat", prompt: props.turn.prompt, model: String(props.turn.settings.model ?? "") },
     });
 }
 const isBase = (id: string) =>
@@ -269,6 +288,9 @@ const filename = (id: string) =>
                     :url="url(b.assetId)!"
                     :filename="filename(b.assetId)"
                     :base="isBase(b.assetId)"
+                    :favorite="favorite(b.assetId)"
+                    :favorite-busy="favoriteBusy(b.assetId)"
+                    @favorite="toggleFavorite(b.assetId)"
                     @upscale="upscale(b.assetId)"
                     @continue="
                       chat.mutate((c) => selectSource(c, turn, b.assetId))

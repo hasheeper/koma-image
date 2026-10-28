@@ -216,7 +216,7 @@ function security() {
             ><span
               class="cost-tag"
               id="goCost"
-              :hidden="view.busy || !view.quote.quote"
+              :hidden="view.busy || !view.quote.quote || !quoteLabel(view.quote.quote, view.batchCount)"
               :data-stale="view.quote.status === 'loading'"
               ><AppIcon v-if="view.quote.quote" name="i-points" /><b>{{
                 quoteLabel(view.quote.quote, view.batchCount)

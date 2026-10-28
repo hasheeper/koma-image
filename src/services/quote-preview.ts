@@ -13,7 +13,7 @@ export function createQuotePreview<T>(
   publish: (state: QuoteState) => void,
 ) {
   let state: QuoteState = {
-    status: profile.quote.supported ? "idle" : "unsupported",
+    status: profile.quote.supported || profile.quote.local ? "idle" : "unsupported",
     quote: null,
   };
   let timer: ReturnType<typeof setTimeout> | undefined,
@@ -40,7 +40,7 @@ export function createQuotePreview<T>(
     update(payload: T | null) {
       if (disposed) return;
       invalidate();
-      if (!profile.quote.supported) {
+      if (!profile.quote.supported && !profile.quote.local) {
         set({ status: "unsupported", quote: null });
         return;
       }

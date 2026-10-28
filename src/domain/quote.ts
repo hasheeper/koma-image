@@ -8,10 +8,16 @@ export function validateQuote(value: unknown): Quote {
 }
 export function quoteLabel(quote: Quote | null, count = 1): string {
   if (!quote) return "费用未知";
+  if (quote.estimated && quote.unit === "Anlas") {
+    const encoding = typeof quote.encodingCost === "number" ? quote.encodingCost : 0;
+    const cost = quote.cost * count - encoding * (count - 1);
+    return cost > 0 ? `≈${Number(cost.toFixed(2))} Anlas` : "";
+  }
   if (quote.cost > 0) return `${Number((quote.cost * count).toFixed(2))} 积分`;
   return quote.mode === "unmetered" ? "不计额度" : `免费 ×${count}`;
 }
 export function costNotice(quote: Quote, shown: number | null, each = false): string {
+  if (quote.estimated) return "";
   if (!(quote.cost > 0) || (typeof shown === "number" && quote.cost <= shown)) return "";
   const price = quoteLabel(quote) + (each ? "/张" : ""), scope = each ? "之后每张" : "本次";
   if (shown !== null && shown > 0) return `报价已变为 ${price}，${scope}按新报价生成`;

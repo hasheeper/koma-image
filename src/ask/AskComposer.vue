@@ -3,10 +3,9 @@ import { computed, nextTick, onBeforeUnmount, shallowRef, watch } from "vue";
 import { useAsk } from "../app/ask";
 import { message, useUi } from "../app/ui";
 import AppIcon from "../shared/AppIcon.vue";
-import ModelIcon from "../shared/ModelIcon.vue";
-import { familyOf } from "./model-family.ts";
+import AskSend from "./AskSend.vue";
+import AskModelPicker from "./AskModelPicker.vue";
 import AskAttachments from "./AskAttachments.vue";
-import AskMenu from "./AskMenu.vue";
 import DirectoryChip from "../bridge/DirectoryChip.vue";
 import { attachmentAccept } from "./attachments.ts";
 
@@ -20,7 +19,6 @@ function files(event: Event) {
 const capsule = computed(() => ask.anchor.value);
 const limited = computed(() => !ask.settings.value.images);
 const paused = computed(() => !!ask.settings.value.preference && ask.preferencePaused.value);
-const modelTitle = computed(() => `${ask.estimate.value && !ask.running.value ? `本轮输入约 ${ask.estimate.value} tokens · ` : ""}点击切换模型`);
 const contextMeter = computed(() => {
   const tokens = ask.estimate.value, limit = ask.settings.value.compaction.highWaterTokens;
   const known = ask.ready.value === "ok" && tokens > 0;
@@ -50,12 +48,6 @@ function key(event: KeyboardEvent) {
   if (event.key !== "Enter" || event.shiftKey || event.isComposing || event.keyCode === 229) return;
   event.preventDefault();
   void ask.send();
-}
-// With nothing picked yet, the chip goes straight to settings instead of an empty menu.
-const switchable = computed(() => ask.picks.value.length > 0);
-async function useModel(connectionId: string, id: string, close: (refocus?: boolean) => void) {
-  close(true);
-  try { await ask.useModel(connectionId, id); } catch (error) { ui.toast(message(error), "err"); }
 }
 async function sendImages() {
   try { await ask.setImages(true); } catch (error) { ui.toast(message(error), "err"); }
@@ -109,41 +101,7 @@ defineExpose({
         <button v-if="limited" class="ask-flag ask-limited" type="button" title="已关闭发送图片，只提供元数据 · 点击恢复" @click="sendImages">仅元数据</button>
         <button v-if="paused" class="ask-flag ask-paused" type="button" title="本次已停用个人偏好 · 点击恢复" @click="ask.togglePreference()">偏好已停用</button>
         <span class="ask-end">
-          <AskMenu id="askModelMenu" label="切换模型" side="up">
-            <template #trigger="{ open, toggle }">
-              <button
-                class="ask-model"
-                type="button"
-                :title="modelTitle"
-                :aria-label="`ASK 模型：${ask.settings.value.model || '未选择'}`"
-                :aria-haspopup="switchable ? 'menu' : undefined"
-                :aria-expanded="switchable ? open : undefined"
-                :aria-controls="switchable ? 'askModelMenu' : undefined"
-                @click="switchable ? toggle() : ask.openSettings()"
-              >
-                <span class="ask-model-name">{{ ask.settings.value.model || "选择模型" }}</span>
-                <AppIcon name="i-chevron" class="ask-model-chev" />
-              </button>
-            </template>
-            <template #default="{ close }">
-              <template v-for="c in ask.picks.value" :key="c.id">
-                <div v-if="ask.picks.value.length > 1" class="menu-group ask-menu-group" role="presentation">{{ c.name }}</div>
-                <button
-                  v-for="id in c.ids"
-                  :key="id"
-                  class="menu-item"
-                  type="button"
-                  role="menuitemradio"
-                  :aria-checked="ask.settings.value.connectionId === c.id && ask.settings.value.model === id"
-                  :disabled="ask.running.value"
-                  :title="id"
-                  @click="useModel(c.id, id, close)"
-                ><ModelIcon :family="familyOf(id)" /><span class="menu-label">{{ id }}</span><AppIcon name="i-check" class="menu-check ask-menu-check" /></button>
-              </template>
-              <hr role="separator" />
-              <button class="menu-item" type="button" role="menuitem" @click="close(); ask.openSettings()"><AppIcon name="i-settings" /><span class="menu-label">管理模型</span></button>
-            </template>
-          </AskMenu>
+          <AskModelPicker id="askModelMenu" />
           <span class="ask-context" :role="contextMeter.known ? 'meter' : 'img'" :aria-label="contextMeter.known ? '上下文占用（按压缩阈值估算）' : contextMeter.label" :aria-valuemin="contextMeter.known ? 0 : undefined" :aria-valuemax="contextMeter.known ? contextMeter.limit : undefined" :aria-valuenow="contextMeter.known ? contextMeter.value : undefined" :aria-valuetext="contextMeter.known ? contextMeter.label : undefined" :aria-describedby="contextDetails ? 'askContextTip' : undefined" tabindex="0" @mouseenter="contextDetails = true" @mouseleave="contextDetails = false" @focus="contextDetails = true" @blur="contextDetails = false">
             <svg class="ask-context-ring" viewBox="0 0 16 16" aria-hidden="true">
               <circle class="ask-context-track" cx="8" cy="8" r="6" />
@@ -158,26 +116,7 @@ defineExpose({
               <span v-else class="ask-context-label">上下文尚未估算</span>
             </span>
           </span>
-          <span class="ask-send-slot">
-            <button
-              class="btn btn-primary ask-send"
-              type="submit"
-              aria-label="发送"
-              :hidden="ask.running.value"
-              :disabled="!ask.canManage.value || !!ask.preparing.value || (!ask.input.value.trim() && !ask.tray.value.length) || ask.ready.value === 'local'"
-            >
-              <AppIcon name="i-up" />
-            </button>
-            <button
-              class="btn ask-stop"
-              type="button"
-              aria-label="停止"
-              :hidden="!ask.running.value"
-              @click="ask.stop()"
-            >
-              <AppIcon name="i-stop" />
-            </button>
-          </span>
+          <AskSend />
         </span>
       </div>
     </form>
@@ -206,10 +145,6 @@ defineExpose({
 .ask-flag { flex: none; height: 24px; padding: 0 8px; color: var(--warn); font-size: 12px; line-height: 24px; background: color-mix(in srgb, var(--warn) 10%, transparent); border-radius: 7px; }
 .ask-flag:hover { background: color-mix(in srgb, var(--warn) 16%, transparent); }
 .ask-end { display: flex; flex: 1 1 140px; align-items: center; justify-content: flex-end; gap: 2px; min-width: 0; }
-.ask-model { display: inline-flex; align-items: center; gap: 2px; min-width: 0; height: 28px; padding: 0 0 0 8px; color: var(--fg-3); font: var(--fw-regular) 12px/1 var(--sans); border-radius: 8px; transition: color var(--t1) var(--e), background var(--t1) var(--e); }
-.ask-model:hover { color: var(--fg); background: var(--ask-hover, var(--hover)); }
-.ask-model-name { min-width: 0; overflow: hidden; line-height: 1.4; text-overflow: ellipsis; white-space: nowrap; }
-.ask-model-chev { flex: none; --ico: var(--ico-xs); color: var(--fg-4); transform: rotate(90deg); }
 .ask-context { position: relative; display: grid; flex: none; place-items: center; width: 24px; height: 28px; color: var(--fg-2); border-radius: 6px; }
 .ask-context-ring { display: block; width: 14px; height: 14px; fill: none; stroke: currentColor; stroke-width: 2.5; } /* stylelint-disable-line declaration-property-value-allowed-list -- A progress ring in its own viewBox, not a sprite glyph. */
 .ask-context-track { opacity: .28; }
@@ -227,21 +162,8 @@ defineExpose({
 .ask-context-caption { color: var(--fg-4); white-space: nowrap; }
 @keyframes ask-context-in { from { opacity: 0; transform: translateY(2px); } to { opacity: 1; transform: none; } }
 @media (prefers-reduced-motion: reduce) { .ask-context-tip { animation: none; } }
-.ask-send-slot { display: grid; flex: none; margin-left: 4px; }
-.ask-send-slot > .btn { grid-area: 1 / 1; width: 28px; height: 28px; min-height: 0; padding: 0; border-radius: 50%; transition: opacity var(--t2) var(--e), transform var(--t2) var(--e-out), visibility 0s, color var(--t2) var(--e), background-color var(--t2) var(--e); }
-.ask-send-slot > .btn[hidden] { display: inline-flex; visibility: hidden; pointer-events: none; opacity: 0; transform: scale(.72); transition: opacity var(--t1) var(--e), transform var(--t1) var(--e), visibility 0s linear var(--t1); }
-.ask-send .ico, .ask-stop .ico { --ico: var(--ico-sm); }
-.ask-send .ico { stroke-width: var(--ico-stroke-strong); }
-.ask-send:disabled { color: var(--fg-4); background: rgba(255, 255, 255, .07); }
-.ask-send-slot > .ask-stop { color: var(--fg); background: var(--ask-hover, var(--hover)); border-radius: 8px; }
-.ask-stop .ico { fill: currentColor; stroke: none; }
-@media (hover: hover) {
-  .ask-stop:hover { color: var(--err); background: rgba(232, 135, 135, .12); }
-}
 @media (max-width: 860px) {
   .ask-add { width: 36px; height: 36px; }
-  .ask-send-slot > .btn { width: 36px; height: 36px; }
-  .ask-model { height: 36px; }
   .ask-context { height: 36px; }
 }
 </style>

@@ -7,6 +7,8 @@ import {
   ref,
   shallowRef,
 } from "vue";
+import { useServices } from "../../app/services";
+import { referenceModel } from "../../domain/nai-references";
 import { useDrawing } from "../../app/drawing";
 import { useShell } from "../../app/shell";
 import { useWorkspaceLifecycle } from "../../app/workspace-lifecycle";
@@ -14,6 +16,9 @@ import { useUi, message } from "../../app/ui";
 import { resolveModel } from "../../domain/catalog";
 import { readReferences } from "../../domain/nai-references";
 import { reuseFields, samplerName } from "../../domain/drawing";
+import { canReuseDrawingParams } from "../../domain/image-origin.ts";
+import { naiCapabilities } from "../../domain/nai.ts";
+import { supportsNaiVariety } from "../../domain/nai-parameters.ts";
 import { names } from "../../storage/names";
 import { readImageParams } from "../../native/image-meta.ts";
 import type { ImageMetadata } from "../../native/image-meta.ts";
@@ -21,7 +26,9 @@ import { render as renderHighlight } from "../../domain/highlight";
 import AppIcon from "../../shared/AppIcon.vue";
 const { drawing, view } = useDrawing(),
   { image } = useShell(),
-  ui = useUi();
+  ui = useUi(),
+  services = useServices();
+const applying = ref(false);
 const file = shallowRef<HTMLInputElement | null>(null),
   card = shallowRef<HTMLElement | null>(null),
   candidate = shallowRef<ImageMetadata | null>(null),
@@ -38,6 +45,8 @@ const labels: Record<string, string> = {
   sampler: "采样器",
   scale: "Guidance",
   cfgRescale: "Guidance Rescale",
+  varietyPlus: "Variety+",
+  noiseSchedule: "噪声调度",
   naiMode: "模式",
   complexity: "Complexity",
   qualityPreset: "质量预设",
@@ -49,7 +58,7 @@ const labels: Record<string, string> = {
 const rows = computed(() => {
   const fields: Readonly<Record<string, unknown>> = candidate.value?.fields ?? {},
     form = view.value.form;
-  return Object.entries(labels).flatMap(([key, label]) => {
+  const entries = Object.entries(labels).flatMap(([key, label]) => {
     const keys = (key === "size" ? ["width", "height"] : key === "characters" ? ["characters", "placement"] : [key]).filter(
       (k) => fields[k] !== undefined,
     );
@@ -69,6 +78,16 @@ const rows = computed(() => {
       shown = samplerName(shown);
       now = samplerName(now);
     }
+    if (key === "noiseSchedule") {
+      const target = resolveModel(view.value.models, String(fields.model ?? form.model)) ?? view.value.model;
+      if (target?.profileId !== "nai-official-v1") blocked = "当前连接不支持可调噪声调度";
+      else if (naiCapabilities(target.id).v5 && !["auto", "karras"].includes(shown)) blocked = "此型号固定 Karras";
+    }
+    if (key === "varietyPlus") {
+      const target = resolveModel(view.value.models, String(fields.model ?? form.model)) ?? view.value.model;
+      if (fields[key] === true && !supportsNaiVariety(target)) blocked = "Variety+ 仅支持 NovelAI 官方 V4.5";
+      shown = fields[key] ? "开启" : "关闭"; now = form.varietyPlus ? "开启" : "关闭";
+    }
     if (key === "size") {
       shown = `${fields.width ?? "—"}×${fields.height ?? "—"}`;
       now = `${form.width}×${form.height}`;
@@ -87,6 +106,13 @@ const rows = computed(() => {
         : key === "naiReferences" ? JSON.stringify(readReferences(fields[key]))===JSON.stringify(form.naiReferences) : shown === now;
     return [{ key, label, keys, shown, now, blocked, same }];
   });
+  const c = candidate.value;
+  if (c?.vibes || c?.vibeError) {
+    const target = selected.value.includes("model") ? resolveModel(view.value.models, String(fields.model)) : view.value.model;
+    const blocked = c.vibeError || (!target || target.profileId !== "nai-official-v1" || !referenceModel(target.id) || target.id.replace(/@local$/, "") !== c.vibes?.model || target.upstreamId && target.upstreamId.replace(/@local$/, "") !== c.vibes?.model ? "需选择编码对应的官方 V4.5 型号" : "");
+    entries.push({ key: "pngVibes", label: "参考", keys: [], shown: c.vibes ? `Vibe · ${c.vibes.items.length}` : "无法恢复", now: referenceLabel(form.naiReferences), blocked, same: false });
+  }
+  return entries;
 });
 const texts = computed(() =>
   (["prompt", "negative_prompt"] as const)
@@ -115,8 +141,9 @@ function close() {
 async function open(result: ImageMetadata, blob: Blob) {
   if (url.value) URL.revokeObjectURL(url.value);
   focus = document.activeElement as HTMLElement;
-  candidate.value = result.fields.characters ? { ...result, extras: result.extras.filter(e => !e.label.startsWith("角色")) } : result;
+  candidate.value = { ...result, extras: result.extras.filter(e => !(result.fields.characters && e.label.startsWith("角色")) && !((result.vibes || result.vibeError) && e.label === "Vibe Transfer")) };
   url.value = URL.createObjectURL(blob);
+  selected.value = rows.value.some(r => r.key === "model" && !r.same && !r.blocked) ? ["model"] : [];
   selected.value = [
     ...texts.value.filter((r) => !r.same).map((r) => r.key),
     ...rows.value.filter((r) => !r.same && !r.blocked).map((r) => r.key),
@@ -131,7 +158,7 @@ async function read(blob: File) {
   try {
     const result = await readImageParams(blob);
     if (token !== sequence) return;
-    if (!Object.keys(result.fields).length) {
+    if (!Object.keys(result.fields).length && !result.vibes) {
       ui.toast("图片中未找到可导入的生成参数");
       return;
     }
@@ -140,17 +167,31 @@ async function read(blob: File) {
     ui.toast(message(e), "err");
   }
 }
-function apply() {
-  if (!candidate.value) return;
+async function apply() {
+  if (!candidate.value || applying.value) return;
   const values: Readonly<Record<string, unknown>> = candidate.value.fields;
   const fields: Record<string, unknown> = {};
   for (const key of selected.value)
     for (const k of key === "size" ? ["width", "height"] : key === "characters" ? ["characters", "placement"] : [key])
       if (values[k] !== undefined)
         fields[k] = values[k];
-  const n = drawing.apply(fields).length;
-  close();
-  ui.toast(`已导入 ${n} 项参数`, "ok");
+  const board = view.value.activeBoardId, token = sequence, model = view.value.form.model;
+  applying.value = true;
+  try {
+    if (selected.value.includes("pngVibes")) {
+      const vibes = candidate.value.vibes;
+      const problem = rows.value.find(r => r.key === "pngVibes")?.blocked;
+      if (!vibes || problem) throw new Error(problem || "参考编码缺失");
+      const imported = await services.references.importPng(vibes);
+      if (token !== sequence) return;
+      if (board !== view.value.activeBoardId || model !== view.value.form.model) throw new Error("画板或模型已变化，请重新确认导入");
+      fields.naiReferences = { ...readReferences(view.value.form.naiReferences), active: "vibe", normalize: vibes.normalize, vibe: imported };
+    }
+    const n = drawing.apply(fields).length;
+    close();
+    ui.toast(`已导入 ${n} 项参数`, "ok");
+  } catch (e) { ui.toast(message(e), "err"); }
+  finally { applying.value = false; }
 }
 async function copy(text: string) {
   try {
@@ -208,7 +249,7 @@ lifecycle.whileActive((signal) => {
         const item = [...view.value.history, ...view.value.favorites].find(
           (r) => r.id === id,
         );
-        if (item && item.params.tool !== "upscale")
+        if (item && item.params.tool !== "upscale" && canReuseDrawingParams(item.params))
           void open(
             {
               name: "历史记录",
@@ -219,6 +260,7 @@ lifecycle.whileActive((signal) => {
             },
             item.blob,
           );
+        else if (item && !canReuseDrawingParams(item.params)) ui.toast("对话图片没有可读取的绘图参数");
       } else {
         const blob = [...e.dataTransfer!.files].find((f) =>
           /^image\/(png|jpeg)$/.test(f.type),
@@ -413,19 +455,14 @@ defineExpose({ pick: () => file.value?.click(), close });
             class="btn btn-primary"
             id="importApply"
             type="button"
-            :disabled="!selected.length"
+            :disabled="!selected.length || applying"
             @click="apply"
           >
-            {{ selected.length ? `导入 ${selected.length} 项` : "导入" }}
+            {{ applying ? "导入中…" : selected.length ? `导入 ${selected.length} 项` : "导入" }}
           </button>
         </footer>
       </div>
     </div>
-    <div class="dropzone" aria-hidden="true">
-      <div class="dropzone-card">
-        <AppIcon class="ico-xl" name="i-import" /><strong>松手读取参数</strong
-        ><span>PNG 或 JPEG · 支持历史缩略图</span>
-      </div>
-    </div></Teleport
+    </Teleport
   >
 </template>

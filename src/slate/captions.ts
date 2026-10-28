@@ -1,4 +1,5 @@
 import type { Binding, SlateAsset } from "./model.ts";
+import { sourceRecipe } from "../domain/image-parameters.ts";
 /** Only balanced NAI {} / [] weights, numeric ::weights:: and balanced XML tags without attributes.
  * Escapes and malformed constructs are preserved; no semantic filtering. */
 export function stripSyntax(text: string): string {
@@ -48,11 +49,12 @@ export function stripSyntax(text: string): string {
   return text.split("").filter((_, i) => !remove.has(i)).join("");
 }
 export function captionText(asset: SlateAsset, caption: Binding["caption"]) {
+  const params = sourceRecipe(asset.params);
   let value: unknown;
-  if (caption.source === "base") value = asset.params.basePrompt;
-  else if (caption.source === "sent") value = asset.params.prompt;
+  if (caption.source === "base") value = params.basePrompt;
+  else if (caption.source === "sent") value = params.prompt;
   else {
-    const chars = asset.params.localCharacters;
+    const chars = params.localCharacters;
     value = Array.isArray(chars) ? chars.find(c => c.id === caption.characterId)?.prompt : undefined;
   }
   if (typeof value !== "string") throw new Error("该图片没有所选来源的提示词，请明确选择其他来源");

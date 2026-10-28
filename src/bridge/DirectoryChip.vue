@@ -1,9 +1,11 @@
 <script setup lang="ts">
-import { computed } from "vue";
+import { computed, useId } from "vue";
 import { useBridge } from "../app/bridge.ts";
 import { useAsk } from "../app/ask.ts";
 import AppIcon from "../shared/AppIcon.vue";
 import AskMenu from "../ask/AskMenu.vue";
+const props = defineProps<{ home?: boolean }>();
+const menuId = useId();
 const bridge = useBridge(), ask = useAsk();
 const attention = computed(() => !!bridge.directory.value && bridge.phase.value !== 'active');
 function activate(toggle: () => void) {
@@ -13,9 +15,9 @@ function activate(toggle: () => void) {
 }
 </script>
 <template>
-  <AskMenu id="askDirectoryMenu" label="协同目录" side="up">
+  <AskMenu :id="menuId" label="协同目录" :side="home ? 'right' : 'up'">
     <template #trigger="{ open, toggle }">
-      <button class="directory-chip" :class="{ attention }" type="button" :aria-label="bridge.directory.value ? `协同目录 · ${bridge.directory.value}` : '挂载协同目录'" :aria-expanded="open" aria-controls="askDirectoryMenu" aria-haspopup="menu" :title="bridge.error.value || (attention ? '恢复目录连接' : bridge.directory.value || '挂载协同目录')" :disabled="bridge.busy.value" @click="activate(toggle)"><AppIcon name="i-folder" /><span>{{ bridge.directory.value || '挂载目录' }}</span></button>
+      <button class="directory-chip" :class="{ attention, home: props.home }" type="button" :aria-label="bridge.directory.value ? `协同目录 · ${bridge.directory.value}` : '挂载协同目录'" :aria-expanded="open" :aria-controls="menuId" aria-haspopup="menu" :title="bridge.error.value || (attention ? '恢复目录连接' : bridge.directory.value || '挂载协同目录')" :disabled="bridge.busy.value" @click="activate(toggle)"><i v-if="home && bridge.directory.value" class="directory-dot" aria-hidden="true"></i><AppIcon name="i-folder" /><span>{{ bridge.directory.value || '挂载目录' }}</span></button>
     </template>
     <template #default="{ close }">
       <template v-if="bridge.directory.value">
@@ -32,4 +34,9 @@ function activate(toggle: () => void) {
 .directory-chip > span { min-width: 0; overflow: hidden; text-overflow: ellipsis; }
 .directory-chip:is(:hover, [aria-expanded="true"]) { color: var(--fg); background: var(--hover); }
 .directory-chip.attention { color: var(--warn); }
+.directory-chip.home { height: 26px; max-width: 180px; padding: 0 9px; gap: 5px; background: none; font-size: var(--fz-xs); border-radius: 13px; }
+.directory-chip.home > .ico { --ico: var(--ico-sm); }
+.directory-dot { flex: none; width: 5px; height: 5px; background: var(--ok); border-radius: 50%; }
+.attention .directory-dot { background: var(--warn); }
+@media (max-width: 560px) { .directory-chip.home > span { display: none; } }
 </style>

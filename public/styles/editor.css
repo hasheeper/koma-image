@@ -8,7 +8,7 @@
 .editor {
   /* Opens at the workspace's own column widths until resized here. */
   --editor-panel: var(--rail);
-  --editor-rail: var(--hist);
+  --editor-rail: 132px;
   position: fixed; inset: 0;
   width: 100%; height: 100dvh; max-width: none; max-height: none;
   margin: 0; padding: 0; border: 0;
@@ -16,29 +16,20 @@
   overflow: hidden;
 }
 
-/* The dictionary has no image rail. Its body token must not collapse the
-   global editor's version rail when opened over that workspace. */
-.tags-body > .editor {
-  --editor-rail: 132px;
-}
-@media (max-width: 1080px) {
-  .tags-body > .editor {
-    --editor-rail: 112px;
-  }
-}
-.editor[open] { display: grid; grid-template-rows: auto minmax(0, 1fr); }
-.editor::backdrop { background: var(--canvas); }
+.editor > #editorPositionLayer { position: absolute; width: 0; height: 0; z-index: 8; }
+.editor { display: grid; grid-template-rows: auto minmax(0, 1fr); }
 .editor [hidden] { display: none !important; } /* stylelint-disable-line declaration-no-important -- Hidden state must override editor layout rules. */
 .editor[data-rail="off"] { --editor-rail: 0px; }
 
-/* ── Top bar: a way back, the EDIT mark, the tools and the balances ── */
+/* ── Top bar: shared workspace switch, tools and balances ── */
 .editor-bar { gap: var(--sp-3); }
-.editor-back { width: 34px; height: 34px; margin-right: -4px; --ico: var(--ico-lg); color: var(--fg-2); }
-.editor-back[data-tip]::after { left: 0; transform: translate(0, -3px); }
-.editor-back[data-tip]:hover::after { transform: translate(0, 0); }
-.editor-title { margin: 0; font: inherit; }
 .editor-bar-end { margin-left: auto; }
 .editor-bar-end .ibtn:disabled { opacity: 0.45; pointer-events: none; }
+.editor-photopea-logo {
+  display: block; width: var(--ico); height: var(--ico);
+  background: currentColor;
+  mask: url("../assets/photopea-logo.png") center / contain no-repeat;
+}
 
 /* ── Columns ────────────────────────────────────────────────── */
 .editor-shell {
@@ -52,6 +43,9 @@
 .editor[data-rail="off"] .editor-rail { border-left-color: transparent; }
 
 /* ── Composer ───────────────────────────────────────────────── */
+.editor .editor-fields { display: contents; }
+.editor .editor-fields > * { flex: none; }
+.editor .editor-fields > .fld:not(.fld-hero) { gap: var(--sp-2); }
 .editor .fld-hero { min-height: 168px; }
 /* Once dragged, the block is exactly the well's height and the rest follows. */
 .editor .fld-hero[data-resized="1"] { min-height: 0; }
@@ -59,6 +53,13 @@
 .editor .quota-warning > span { flex: 1; min-width: 0; overflow-wrap: anywhere; }
 .editor .quota-warning .ibtn { margin: -6px -6px -6px 0; color: inherit; }
 .editor-err { color: var(--err); background: var(--err-dim); border-color: rgba(232, 135, 135, 0.28); }
+
+/* Shared NAI controls keep the drawing composer's hierarchy and drawer surface. */
+.editor .editor-controls { min-width: 0; margin: 0; border: 0; }
+.editor .composer-foot > .editor-controls { padding: 0; }
+.editor .promptbox .pane { position: relative; }
+.editor .promptbox textarea, .editor .promptbox .hl-mirror { padding-bottom: 42px; }
+.editor .composer-foot { padding-top: 10px; gap: 0; background: color-mix(in srgb,var(--chrome) 65%,var(--raised)); border-radius: var(--r3) var(--r3) 0 0; border-top: 1px solid var(--line-2); box-shadow: 0 -5px 16px -12px #000b; }
 
 /* ── Stage ──────────────────────────────────────────────────── */
 .editor-mat { padding: 0; place-items: stretch; }
@@ -154,8 +155,8 @@
   backdrop-filter: blur(10px);
 }
 .editor-mask-tools { display: flex; align-items: center; gap: 2px; flex: none; }
-/* Inpaint and upscale are tools on the picture, labelled because they are
-   the two things to do with it; the icon buttons after them only move the view. */
+.editor-picture-ops { display: flex; align-items: center; gap: 2px; flex: none; }
+/* Picture operations use compact icon flyouts; the tool picker keeps labels. */
 .editor-tool {
   display: inline-flex; align-items: center; gap: 6px; flex: none;
   height: 32px; padding: 0 10px 0 8px;
@@ -169,11 +170,10 @@
 .editor-tool[aria-pressed="true"],
 .editor-tool[aria-expanded="true"] { color: var(--a); background: var(--a-dim); }
 .editor-tool:disabled { opacity: 0.4; pointer-events: none; }
-.editor-tool .caret { width: 5px; height: 5px; margin: -3px 0 0 1px; border-color: currentColor; opacity: 0.7; }
-.editor-tool[aria-expanded="true"] .caret { margin-top: 3px; transform: rotate(225deg) translate(-1px, -1px); }
+.editor-tool .editor-caret { --ico: var(--ico-xs); flex: none; transform: rotate(90deg); color: var(--fg-3); transition: transform var(--t1) var(--e); }
+.editor-tool[aria-expanded="true"] .editor-caret { transform: rotate(-90deg); }
 .editor-toolbar .ibtn { width: 32px; height: 32px; --ico: var(--ico-md); color: var(--fg-2); }
 .editor-toolbar .ibtn:hover { color: var(--fg); background: var(--hover); }
-.editor-toolbar .ibtn[aria-pressed="false"] { color: var(--fg-3); }
 .editor-toolbar .ibtn[aria-pressed="true"] { color: var(--a); background: var(--a-dim); }
 .editor-toolbar .ibtn:disabled { opacity: 0.35; pointer-events: none; }
 .editor-sep { width: 1px; height: 18px; margin: 0 5px; background: var(--line-2); }
@@ -190,27 +190,42 @@
 .editor-toolbar [data-tip]::after { top: auto; bottom: calc(100% + 9px); transform: translate(-50%, 3px); }
 .editor-toolbar [data-tip]:hover::after { transform: translate(-50%, 0); }
 
-/* ── Upscale menu ───────────────────────────────────────────── */
-/* A popover in the top layer, so neither the mat nor the scrolling page
-   clips it; placed by script over (or under) the toolbar button. It is the
-   shared .menu sheet with a model list on top, so the list keeps menu rows;
-   the options, detail and price below are the panel's own. */
-.editor-pop {
-  /* Controls recess one notch below --raised, as in drawers and cards. */
+/* ── Canvas operation sheets ────────────────────────────────── */
+.editor-mini {
   --well: var(--chrome);
   --well-focus: var(--sunken);
-  color: var(--fg);
+  width: 264px; max-width: calc(100vw - 16px); overflow: auto;
+  color: var(--fg-2);
 }
-.editor-pop:popover-open { display: grid; gap: 6px; }
-.editor-pop[data-placement="top"] { translate: 0 -100%; }
+.editor-mini:popover-open { display: flex; flex-direction: column; gap: 0; }
+.editor-upscale-panel { width: 288px; }
+.editor-mini-params { display: grid; gap: 6px; padding: 4px 2px 6px 4px; }
+.editor-mini-row { display: flex; align-items: center; justify-content: space-between; gap: 12px; min-height: 30px; }
+.editor-mini-label { font-size: var(--fz-xs); font-weight: var(--fw-medium); color: var(--fg-3); }
+.editor-mini-value { padding-right: 6px; font-family: var(--sans); font-size: var(--fz-xs); font-weight: var(--fw-semibold); color: var(--fg); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.editor-mini-chip { display: inline-flex; align-items: center; gap: 4px; height: 28px; padding: 0 6px 0 9px; color: var(--fg); font-size: var(--fz-xs); border-radius: var(--r2); transition: background var(--t1) var(--e); }
+.editor-mini-chip:hover, .editor-mini-chip[aria-expanded="true"] { background: var(--hover); }
+.editor-mini-chip .ico { --ico: var(--ico-xs); color: var(--fg-3); transform: rotate(90deg); }
+.editor-mini-run { display: flex; align-items: center; justify-content: space-between; gap: 8px; min-height: 40px; padding: 2px 2px 6px 4px; }
+.editor-mini-run:last-child { padding-bottom: 2px; }
+.editor-mini-facts { display: flex; align-items: center; gap: 4px; min-width: 0; overflow: hidden; }
+.editor-mini-cap { flex: none; height: 22px; padding: 0 8px; font: var(--fw-medium) var(--fz-2xs)/22px var(--sans); font-variant-numeric: tabular-nums; white-space: nowrap; color: var(--fg-2); background: color-mix(in srgb, var(--fg) 6%, transparent); border-radius: 999px; }
+.editor-mini-cap.mono { font-family: var(--mono); font-weight: var(--fw-regular); }
+.editor-mini .btn-go { height: 32px; padding: 0 12px 0 10px; gap: 6px; font-size: var(--fz-xs); border-radius: var(--r2); flex: none; }
+.editor-mini .btn-go .ico { --ico: var(--ico-sm); }
+.editor-mini .btn-go .cost-tag { height: 22px; margin-left: 4px; padding: 0 9px 0 7px; font-size: var(--fz-2xs); }
+.editor-mini .btn-go:has(.cost-tag) { padding-right: 5px; }
+.editor-mini [data-tip]::after { top: auto; bottom: calc(100% + 6px); }
+.editor-mini .quota-warning { margin: 4px; }
 .editor-pop-list { display: grid; gap: 1px; font-size: var(--fz-xs); color: var(--fg-3); }
+.editor-upscale-panel .editor-pop-list .menu-label { font-family: var(--sans); font-weight: var(--fw-semibold); }
 .editor-pop-group { display: grid; gap: 1px; }
 /* Groups part on the menu's full-bleed hairline. */
 .editor-pop-group:not([hidden]) + .editor-pop-group { margin: 3px -4px 0; padding: 4px 4px 0; border-top: 1px solid var(--line-2); }
 /* The radio stays in the label for focus and arrow keys; the row shows the check. */
 .editor-pop-item input { position: absolute; opacity: 0; width: 0; height: 0; }
 /* What the chosen model takes: its options, the detail text, then the price. */
-.editor-pop-options, .editor-pop-detail, .editor-pop .quota-warning { margin: 0 4px; }
+.editor-pop-options, .editor-pop-detail { margin: 0 4px; }
 .editor-pop-options { display: grid; gap: 4px; padding-top: 6px; border-top: 1px solid var(--line); }
 .editor-pop-option { display: flex; align-items: center; justify-content: space-between; gap: var(--sp-2); }
 .editor-pop-option label { font-size: var(--fz-xs); color: var(--fg-3); }
@@ -221,10 +236,14 @@
   padding: 7px 9px;
   font-size: var(--fz-sm); line-height: 1.5;
 }
-.editor-pop .btn-go { height: 34px; margin-top: 2px; padding-inline: 12px; font-size: var(--fz-sm); border-radius: var(--r2); }
 
 /* ── Versions: the history rail ─────────────────────────────── */
 .editor-rail .tile { cursor: pointer; }
+.editor-print[data-transparent="true"] { background: repeating-conic-gradient(var(--chrome) 0% 25%, var(--sunken) 0% 50%) 0 0 / 16px 16px; }
+.director-variants.seg { flex: none; grid-auto-flow: column; grid-auto-columns: auto; gap: 2px; padding: 2px; margin-right: auto; align-self: center; }
+.director-variants.seg span { padding: 2px 9px; font-size: var(--fz-2xs); line-height: 1.5; }
+.editor-info-meta { align-items: center; }
+.director-badge { position: absolute; right: 3px; bottom: 3px; width: 17px; height: 17px; display: grid; place-items: center; color: var(--fg-2); background: color-mix(in srgb, var(--canvas) 86%, transparent); border-radius: 5px; --ico: var(--ico-xs); }
 /* The base is pinned above what came out of it. */
 .editor-rail .tile[data-base="true"] { margin-bottom: var(--sp-2); }
 .tile-pin {
@@ -236,10 +255,14 @@
   border-radius: 5px;
 }
 
+@media (min-width: 861px) and (max-width: 1080px) {
+  .editor { --editor-rail: 112px; }
+}
+
 /* ── Phones and small tablets: one scrolling column ─────────── */
 @media (max-width: 860px) {
   .editor { overflow-y: auto; overscroll-behavior: contain; }
-  .editor[open] { display: block; }
+  .editor { display: block; }
   .editor-bar { position: sticky; top: 0; }
   .editor-shell { display: flex; flex-direction: column; padding-bottom: var(--editor-foot, 64px); }
   .editor .splitter { display: none; }
@@ -262,6 +285,9 @@
   }
   .editor-toolbar .ibtn, .editor-zoom { flex: none; width: 40px; height: 40px; }
   .editor-tool { height: 40px; }
+  .editor-mini-row { min-height: 36px; }
+  .editor-mini-chip { height: 36px; }
+  .editor-mini .btn-go { height: 38px; }
   .editor-pop-option select { height: 36px; }
   .editor-zoom { width: auto; }
   .editor-zoom-step { display: none; }
@@ -283,8 +309,8 @@
   .editor .composer-foot {
     position: fixed; left: 0; right: 0; bottom: 0; z-index: 6;
     padding: var(--sp-2) var(--sp-3) calc(var(--sp-2) + env(safe-area-inset-bottom));
-    background: color-mix(in srgb, var(--chrome) 94%, transparent);
-    backdrop-filter: blur(12px);
+    background: color-mix(in srgb, var(--chrome) 65%, var(--raised));
+    backdrop-filter: none;
     box-shadow: 0 -10px 28px -20px rgba(0, 0, 0, 0.9);
   }
   .editor .btn-go, .editor .btn-stop { height: 44px; }

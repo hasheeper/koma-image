@@ -351,7 +351,7 @@ export function completeVersion(
   if (version.status !== "pending") return false;
   const image = blocks.find((b) => b.type === "image");
   if (!image) throw new Error("结果没有图片");
-  Object.assign(version, { status: "done", blocks, quote });
+  Object.assign(version, { status: "done", blocks, quote, completedAt: Date.now() });
   if (conversation.selectionRevision === selectionRevision) {
     conversation.headId = turn.id;
     // A held base stays put while the text moves on; with nothing to hold,

@@ -1,8 +1,10 @@
-# Koma 外部协同桥与 Slate 实施规划
+# 外部协同与 Slate 实施规划（归档）
 
-更新：2026-10-26。状态：B1–B3 已完成代码实现及本地模拟验证。当前使用和限制见[外部协同](bridge.md)，验证范围见 [B1 验收](../archive/2026-10-26-bridge-b1-verification.md)、[B2 验收](../archive/2026-10-26-bridge-b2-verification.md)及 [B3 验收](../archive/2026-10-26-bridge-b3-verification.md)。macOS Edge 的原生目录选择、刷新恢复与外部文件闭环已完成一次[实战验收](../archive/2026-10-26-bridge-field-verification.md)，不代表所有浏览器或跨进程并发场景均已验证。
+归档：2026-10-28。本文保留 B1–B3 阶段范围与当时决策，不作为现行规则；当前协议与界面见[外部协同与本地任务](../ask/bridge.md)。
 
-本文保存外部文件协同与本地 Slate 任务能力的阶段范围及验收契约。现有 ASK 行为仍由[现行契约与维护入口](ask-implementation-plan.md)维护，执行、数据和资源责任遵守[架构](../architecture.md)与[业务契约](../business-contracts.md)。各阶段实施后，将实际行为并入相应现行专题，验收过程另行归档。
+原记录更新：2026-10-26。状态：B1–B3 已完成代码实现及本地模拟验证。当前使用和限制见[外部协同](../ask/bridge.md)，验证范围见 [B1 验收](2026-10-26-bridge-b1-verification.md)、[B2 验收](2026-10-26-bridge-b2-verification.md)及 [B3 验收](2026-10-26-bridge-b3-verification.md)。macOS Edge 的原生目录选择、刷新恢复与外部文件闭环已完成一次[实战验收](2026-10-26-bridge-field-verification.md)，不代表所有浏览器或跨进程并发场景均已验证。
+
+本文保存外部文件协同与本地 Slate 任务能力的阶段范围及验收契约。现有 ASK 行为仍由[现行契约与维护入口](../ask/ask-implementation-plan.md)维护，执行、数据和资源责任遵守[架构](../architecture.md)与[业务契约](../business-contracts.md)。各阶段实施后，将实际行为并入相应现行专题，验收过程另行归档。
 
 ## 1. 产品边界与命名
 
@@ -99,7 +101,7 @@ B1 维护状态／预览与收件；B2 受限扫描 `refs/`，显式导出时才
 
 参数结构必须保留现有完整字段：`model`、`width`／`height`、`steps`、`scale`、`sampler`、`seed`、`batchCount`、`cfgRescale`、`naiMode`、`complexity`、`qualityPreset`、`negativePreset`、`transparentBg`、`characters`、`placement`、`naiReferences` 及其他现有表单字段。
 
-这里的 Guidance Rescale 在代码中名为 **`cfgRescale`**，协议沿用该字段，不另建 `guidanceRescale` 别名；旧中转 `cfg` 保持独立含义。`characters` 保留 `id`、`on`、`prompt`、`negative`、`centers`，不退化成数组序号和一个位置字符串。Effort 沿用当前模型 ID 的表达。表单 Seed 沿用当前字符串结构，空串表示随机，实际生成快照的 Seed 为数值，合法的 `0` 不丢失。
+这里的 Guidance Rescale 在代码中名为 **`cfgRescale`**，协议沿用该字段，不另建 `guidanceRescale` 别名；遗留 `cfg` 仅兼容历史记录，默认空、不发送上游。`characters` 保留 `id`、`on`、`prompt`、`negative`、`centers`，不退化成数组序号和一个位置字符串。Effort 沿用当前模型 ID 的表达。表单 Seed 沿用当前字符串结构，空串表示随机，实际生成快照的 Seed 为数值，合法的 `0` 不丢失。
 
 图片参数取自该图的实际记录：保留 `basePrompt`／`baseNegative` 与实际 `prompt`／`negative_prompt` 的区别、实际角色及本地角色快照等字段。不能拿当前表单补写旧图的缺失参数；没有的数据保持缺失，不声称可完整复现。
 
@@ -171,7 +173,7 @@ B1 仅接受共享 Schema 中作用于 IMAGE 的步骤：
 }
 ```
 
-- **字段白名单**：`width`、`height`、`steps`、`scale`、`cfgRescale`、`seed`、`complexity`、`model`、`sampler`、`naiMode`、`qualityPreset`、`negativePreset`、`transparentBg`、`batchCount`；旧 `cfg` 仅在目标能力支持时按独立含义校验。参数必须非空，未知字段拒绝；类型直接复用 `DrawingForm` 的对应字段。Prompt 与角色继续使用原步骤。
+- **字段白名单**：`width`、`height`、`steps`、`scale`、`cfgRescale`、`seed`、`complexity`、`model`、`sampler`、`naiMode`、`qualityPreset`、`negativePreset`、`transparentBg`、`batchCount`；不再接受遗留 `cfg` 的直接设参。参数必须非空，未知字段拒绝；类型直接复用 `DrawingForm` 的对应字段。Prompt 与角色继续使用原步骤。
 - **能力与值校验**：复用并补齐现有表单校验，检查型号／采样器可用性、尺寸对齐与面积、数值范围、枚举以及 NAI 固定参数约束。Seed 使用表单字符串，空串随机、`"0"` 合法，非空须为 uint32。不支持的透明底、Complexity 或 Rescale 等须显示原因，不静默忽略或替换为默认值。
 - **组合约束**：按勾选后的最终表单校验模型、尺寸、采样器及关联参数；改模型不能留下不兼容值，取消关联步骤也须重算。直接设参与 `restore_partial`、`prompt_patch` 可同稿使用，按步骤顺序计算，Diff 清楚显示最终值；非法组合不能部分写入。
 - **原有审阅链路**：在现有“参数”分组展示逐字段前后值，复用冲突检查、来源板／新板、`data.write` 和撤销。冻结原值后，用户又改过该参数时按现行规则呈现冲突；不由外部强制覆盖。
@@ -292,7 +294,7 @@ B2 不扫描整个外部工程，不自动把全部资料塞入上下文，不�
 
 普通 IMAGE 草稿的应用下拉可追加文件，已完成回答的保存按钮创建备忘录草稿；不覆盖当前待审内容。可读摘要、来源、真实路径与去向在文件行中按需展开。提议时冻结内容与目录身份；既有目录失联、变化或无权限时阻断整稿，不静默改为下载。未挂载时固定走浏览器下载。
 
-文件名自动生成安全名称及唯一后缀，不允许任意路径、格式或覆盖既有资料。应用与 Tab 统一确认，失败保留草稿并补偿本次文件；撤销只删除本次未被外部修改的文件，不能收回已发起下载。成功后刷新 `refs/` 清单，不额外调用推理。底层与复合写入的具体限制见[现行文件契约](bridge.md#文件保存草稿)。
+文件名自动生成安全名称及唯一后缀，不允许任意路径、格式或覆盖既有资料。应用与 Tab 统一确认，失败保留草稿并补偿本次文件；撤销只删除本次未被外部修改的文件，不能收回已发起下载。成功后刷新 `refs/` 清单，不额外调用推理。底层与复合写入的具体限制见[现行文件契约](../ask/bridge.md#文件保存草稿)。
 
 ## 8. B3：默认本地 Slate、ASK 推进与绑图持久化
 

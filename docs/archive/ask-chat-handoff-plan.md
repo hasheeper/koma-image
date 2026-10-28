@@ -1,6 +1,6 @@
 # ASK CHAT 交接与能力感知规划
 
-更新：2026-10-25。状态：已实施（H0–H4），合成图片与模拟服务下验收通过；源码基线 `219463c` 之上的工作区改动，尚未提交。现行规则已并入[协议与运行契约](../ask/ask-contracts-and-decisions.md)、[检索与状态](../ask/ask-retrieval-state.md)、[UI 规范](../ask/ask-ui-spec.md)、[提示词维护](../ask/ask-prompts.md)与[对话与编辑](../chat-editor-workspaces.md)；本文只保留勘探结论与实施过程，不作现行依据。
+更新：2026-10-25。状态：已实施（H0–H4），合成图片与模拟服务下验收通过；源码基线 `219463c` 之上的工作区改动，尚未提交。现行规则已并入[协议与运行契约](../ask/ask-contracts-and-decisions.md)、[检索与状态](../ask/ask-retrieval-state.md)、[UI 规范](../ask/ask-ui-spec.md)、[提示词维护](../ask/ask-prompts.md)与[对话与编辑](../chat-workspace.md)；本文只保留勘探结论与实施过程，不作现行依据。
 
 ## 1. 已确认决策
 
@@ -184,7 +184,7 @@ CHAT 工作区按 KeepAlive 首次进入时才挂载，`chat.start()` 只在 `Ch
 
 ## 7. 文档同步
 
-实施完成后更新：[协议与运行契约](../ask/ask-contracts-and-decisions.md)（草稿表与 ID）、[检索与状态](../ask/ask-retrieval-state.md)（CHAT 快照字段）、[UI 规范](../ask/ask-ui-spec.md)（交接卡）、[提示词维护](../ask/ask-prompts.md)（版本）、[对话与编辑](../chat-editor-workspaces.md)（ASK 交接入口）、[现行契约](../ask/ask-implementation-plan.md)与[当前状态与待办](../implementation-plan.md)；随后把本文移入归档。
+实施完成后更新：[协议与运行契约](../ask/ask-contracts-and-decisions.md)（草稿表与 ID）、[检索与状态](../ask/ask-retrieval-state.md)（CHAT 快照字段）、[UI 规范](../ask/ask-ui-spec.md)（交接卡）、[提示词维护](../ask/ask-prompts.md)（版本）、[对话与编辑](../chat-workspace.md)（ASK 交接入口）、[现行契约](../ask/ask-implementation-plan.md)与[当前状态与待办](../implementation-plan.md)；随后把本文移入归档。
 
 ## 8. 风险与待确认
 

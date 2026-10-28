@@ -372,7 +372,7 @@ test("M7 production local execution: native/Studio/tool routes, fresh max_cost, 
         "true",
     );
     await p.locator("#editBtn").click();
-    await p.waitForSelector("#imageEditor[open]");
+    await p.waitForSelector("#imageEditor[data-active=true]");
     await p.locator("#editorPrompt").fill("local synthetic edit");
     await p.locator("#editorRun").click();
     await p.waitForFunction(
@@ -387,7 +387,7 @@ test("M7 production local execution: native/Studio/tool routes, fresh max_cost, 
     );
     assert.deepEqual(t.upstreamRequests.find(r=>r.path.endsWith('/tools/run')).payload.characters,expectedRoles);
     assert.deepEqual(t.upstreamRequests.find(r=>r.path.endsWith('/tools/estimate')).payload.characters,expectedRoles);
-    await p.locator("#imageEditor .editor-back").click();
+    await p.evaluate(() => { location.hash = "#/image"; });
     await route(p, "#/chat");
     await p.locator("#chatPrompt").fill("local synthetic chat");
     await p.getByRole("button", { name: "发送绘图请求", exact: true }).click();

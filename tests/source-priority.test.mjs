@@ -78,15 +78,15 @@ test("priority execution: fresh quote skips insufficient credit before POST, rec
   assert.equal(generations(t.calls).at(-1).body.max_cost, 6);
 });
 
-test("priority execution: exhausted official V5 uses the next source; unsupported tools also use a capable source", async () => {
+test("priority execution: exhausted official V5 uses the next source; restored official supports infill", async () => {
   const t = await fixture({ official: true });
   assert.equal((await t.priority.select(t.wanted)).model.connection, "low");
   await t.priority.execute(t.wanted, t.input, r => r.json());
   assert.deepEqual(generations(t.calls).map(c => c.key), ["low"]);
   t.state.account.trainingStepsLeft.purchasedTrainingSteps = 100;
   assert.equal((await t.priority.select(t.wanted)).model.connection, "high");
-  const result = await t.priority.execute(t.wanted, { ...t.input, tool: "inpaint" }, r => r.json());
-  assert.equal(result.via.connection, "low");
+  const result = await t.priority.select(t.wanted, undefined, undefined, "inpaint");
+  assert.equal(result.model.connection, "high");
   assert.ok(generations(t.calls).every(c => c.key === "low"));
 });
 
@@ -138,4 +138,18 @@ test("priority Medium: exact model availability and exhausted funds never silent
   assert.equal(result.via.connection, "high");
   assert.equal(generations(t.calls)[0].body.model, "nai-diffusion-5-full-medium");
   assert.equal(generations(t.calls).some(c => c.key === "low"), false);
+});
+
+test('priority local estimate: known encoding minimum still blocks with unknown Opus entitlement', async()=>{
+  const t=await fixture({official:true});
+  const wanted=(await t.gateway('high').catalog()).models.find(m=>m.id==='nai-diffusion-4-5-full');
+  t.state.account={trainingStepsLeft:{fixedTrainingStepsLeft:1,purchasedTrainingSteps:0}};
+  const priority=createSourcePriority(t.connections,t.gateway,async()=>2);
+  const input={...payload,model:wanted.id,referencePlan:{kind:'vibe',normalize:false,items:[{id:'r1',assetId:'a'.repeat(64),on:true,information:.7,strength:.6,fidelity:1,type:'character&style'}]}};
+  const before=structuredClone(input),blocked=await priority.select(wanted,undefined,input);
+  assert.match(blocked.insufficient,/参考费用/);assert.equal(blocked.quote,null);
+  t.state.account.trainingStepsLeft.fixedTrainingStepsLeft=3;
+  const allowed=await priority.select(wanted,undefined,input);
+  assert.equal(allowed.insufficient,null);assert.equal(allowed.quote,null);
+  assert.deepEqual(input,before);assert.equal(generations(t.calls).length,0);
 });

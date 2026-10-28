@@ -1,12 +1,15 @@
 import type { DrawingForm } from "../../domain/drawing.ts";
 import type { CatalogModel } from "../../domain/catalog.ts";
 import { complexities, qualityPresets, negativePresets, naiModes, naiCapabilities } from "../../domain/nai.ts";
+import { noiseSchedules, supportsNaiVariety } from "../../domain/nai-parameters.ts";
 
 const numeric = (minimum: number, maximum?: number, integer = false) => ({ type: integer ? "integer" : "number", minimum, ...(maximum === undefined ? {} : { maximum }) });
 const properties = {
   width: numeric(64, 2048, true), height: numeric(64, 2048, true), steps: numeric(1, 50, true),
-  scale: numeric(0, 20), cfg: numeric(0, 30), cfgRescale: numeric(0, 1), batchCount: numeric(1, Number.MAX_SAFE_INTEGER, true),
+  scale: numeric(0), cfgRescale: numeric(0, 1), batchCount: numeric(1, Number.MAX_SAFE_INTEGER, true),
   seed: { type: "string" }, model: { type: "string" }, sampler: { type: "string" },
+  noiseSchedule: { type: "string", enum: [...noiseSchedules] },
+  varietyPlus: { type: "boolean" },
   complexity: { type: "string", enum: [...complexities] }, naiMode: { type: "string", enum: [...naiModes] },
   qualityPreset: { type: "string", enum: [...qualityPresets] }, negativePreset: { type: "string", enum: [...negativePresets] }, transparentBg: { type: "boolean" },
 };
@@ -39,6 +42,7 @@ export function parameterIssue(key: ParameterKey, form: DrawingForm, model: Cata
   if (key === "negativePreset" && !cap.negative.includes(form.negativePreset)) return "当前模型不支持此负向预设";
   if (key === "cfgRescale" && (!cap.supported || cap.medium) && value !== 0) return "当前模型不支持 Guidance Rescale";
   if (key === "steps" && cap.medium && value !== 14) return "Medium 固定 14 步";
-  if (key === "cfg" && model.profileId !== "koma-standard-v1") return "当前模型没有旧中转 CFG 能力";
+  if (key === "noiseSchedule" && value !== "auto" && (model.profileId !== "nai-official-v1" || !cap.supported || cap.v5)) return "当前模型不提供可调噪声调度";
+  if (key === "varietyPlus" && value && !supportsNaiVariety(model)) return "Variety+ 仅支持 NovelAI 官方 V4.5";
   return "";
 }

@@ -17,6 +17,10 @@ export function createRouter() {
     [...guards].every((guard) => guard(route.value, next));
   function readLocation() {
     const next = parseRoute(location.hash);
+    if (location.hash !== routeHash(next)) {
+      const url = new URL(location.href); url.hash = routeHash(next);
+      history.replaceState(history.state, "", url);
+    }
     if (routeHash(next) === routeHash(route.value)) return;
     if (!allowed(next)) {
       const url = new URL(location.href);
@@ -63,7 +67,7 @@ export function createRouter() {
   };
   window.addEventListener("popstate", readLocation);
   window.addEventListener("hashchange", readLocation);
-  if (!location.hash) navigate(route.value, true);
+  if (location.hash !== routeHash(route.value)) navigate(route.value, true);
   onScopeDispose(() => {
     window.removeEventListener("popstate", readLocation);
     window.removeEventListener("hashchange", readLocation);

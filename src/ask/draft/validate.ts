@@ -1,4 +1,5 @@
 import { parseFile, fileIssue } from "./files.ts";
+import { canReuseDrawingParams } from "../../domain/image-origin.ts";
 import { parseSlateEdit } from "../../slate/edit.ts";
 import { contentKey, describe } from "../../slate/model.ts";
 import { boardForm } from "../../domain/drawing.ts";
@@ -27,7 +28,7 @@ const text = (value: unknown, max = 24000) => {
 export const stateHash = (s: DraftState) => workspaceHash(s.form, s.composer, s.boardId);
 /** Asked outside CHAT, a CHAT write always opens a new conversation. */
 const outsideChat = (base: DraftState) => {
-  if (base.workspace && base.workspace !== "chat") throw new Error("在 IMAGE／TAGS 提问时，写入 CHAT 一律新开会话：请改用 chat_handoff");
+  if (base.workspace && base.workspace !== "chat") throw new Error("在 HOME／IMAGE／TAGS 提问时，写入 CHAT 一律新开会话：请改用 chat_handoff");
 };
 function handoffImage(label: string, base: DraftState, library: readonly Picture[]): HandoffImage {
   if (label.startsWith("#a")) throw new Error("附件不能作为交接图片");
@@ -113,6 +114,7 @@ export function parseDraft(input: Readonly<Record<string, unknown>>, base: Draft
     const source = text(step.source, 30), image = library.find((p) => p.aliases.includes(source));
     if (source.startsWith("#a")) throw new Error("附件参数仅供参考");
     if (!image) throw new Error("恢复来源不在本轮图片快照中");
+    if (!canReuseDrawingParams(image.params)) throw new Error("对话图片没有可恢复的绘图配方，请直接提议提示词或参数修改");
     if (!Array.isArray(step.fields) || !step.fields.length || step.fields.some((k) => !restoreKeys.includes(k as RestoreKey))) throw new Error("恢复字段无效");
     const values: Record<string, unknown> = reuseFields(image);
     // Import defaults are useful for full reuse, but a partial restore must not
@@ -161,7 +163,7 @@ export function matchAnchor(value: string, anchor: string) {
   return matches.length === 1 ? { start: source.starts[matches[0]], end: source.ends[matches[0] + needle.length - 1], aligned: true } : null;
 }
 const roleGroupText = (chars: DraftState["form"]["characters"], placement: string) => `${placement === "manual" ? "手动定位" : "自动定位"}\n${chars.map((c, i) => `角色 ${i + 1} (${c.id}) · ${c.on ? "启用" : "停用"} · ${c.centers.map(p => `${p.x}/${p.y}`).join("; ")}\nPrompt: ${c.prompt}\nNegative: ${c.negative || "（空）"}`).join("\n")}`;
-const labels: Partial<Record<Field, string>> = { prompt: "Prompt", negative: "Negative", composer: "对话输入框", width: "宽", height: "高", steps: "步数", scale: "Guidance", cfg: "中转 CFG（旧）", cfgRescale: "Guidance Rescale", naiMode: "模式", complexity: "Complexity", qualityPreset: "质量预设", negativePreset: "负向预设", transparentBg: "透明底", sampler: "采样器", seed: "Seed", model: "模型", batchCount: "批次" };
+const labels: Partial<Record<Field, string>> = { prompt: "Prompt", negative: "Negative", composer: "对话输入框", width: "宽", height: "高", steps: "步数", scale: "Guidance", cfg: "中转 CFG（旧）", cfgRescale: "Guidance Rescale", noiseSchedule: "噪声调度", varietyPlus: "Variety+", naiMode: "模式", complexity: "Complexity", qualityPreset: "质量预设", negativePreset: "负向预设", transparentBg: "透明底", sampler: "采样器", seed: "Seed", model: "模型", batchCount: "批次" };
 
 export function validateDraft(draft: Draft, now: DraftState, options: ValidateOptions): DraftPlan {
   if (draft.steps[0].kind === "chat_distill_branch") return validateBranch(draft, now, options);
@@ -304,7 +306,7 @@ export function validateDraft(draft: Draft, now: DraftState, options: ValidateOp
   if (direct) {
     const keys = new Set<ParameterKey>();
     draft.steps.forEach((s, i) => { if (s.kind === "params_patch") for (const key of Object.keys(s.params) as ParameterKey[]) if (!options.off.has(`${i}:${key}`)) keys.add(key); });
-    if (working.model !== initial.model) for (const key of ["steps", "cfgRescale", "complexity", "qualityPreset", "negativePreset", "transparentBg"] as const) keys.add(key);
+    if (working.model !== initial.model) for (const key of ["steps", "cfgRescale", "varietyPlus", "complexity", "qualityPreset", "negativePreset", "transparentBg"] as const) keys.add(key);
     const issue = [...keys].map(key => parameterIssue(key, working, model)).find(Boolean);
     if (issue) for (let i = 0; i < checked.length; i++) if (checked[i].enabled && checked[i].kind === "parameter") checked[i] = { ...checked[i], issue: checked[i].issue || issue };
     if (checked.some(s => s.enabled && s.issue)) Object.assign(working, structuredClone(initial));

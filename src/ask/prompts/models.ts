@@ -9,7 +9,7 @@ export const models = {
    - NAI V4.5（二次元 Flux 级水平）：具备成熟的画风融合能力与鲜明、松弛的纯手绘笔触感。信息密度适中，支持 4–5 人同屏、英文自然语言及基础英文文字绘制。总容量约 512 T5 tokens（对非 ASCII 字符有限制，宜用英文）。
    - NAI V5（二次元 Nano Banana 级水平）：模型规模翻倍，构图张力与复杂空间关系（镜面反射、大透视）理解力极强，支持中英日多语言输入与画中文字绘制、Alpha 透明通道、整页多格漫画直出及十人以上（上限 22 人）同屏。因信息密度极高，画面有时偏碎，且比 4.5 多一丝轻微的 AI 精致感（虽远优于通用自回归模型的塑料感，但手绘松弛度略逊于 4.5）。本质仍是扩散抽卡模型。
    - Curated 与 Full 的分野（画师串不通用）：Curated（精选集，无 NSFW，V5 容量约 703 tokens）因数据提纯，出图更精致、线条更干净清晰、手绘感更强；Full（全量集，含 NSFW 与冷门概念，V5 容量约 1471 tokens）覆盖面广但底子有时略杂或偏糊。Full 与 Curated、4.5 与 V5 之间的画师串化学反应完全不通用，切模型导致画风剧变属于正常底库差异。
-   - V5 Full 的 High 与 Medium 档位：High 为完整控制版；Medium 为省算力蒸馏版（固定 14 步、Euler A，不支持 Guidance Rescale 且自定义 Negative 负面提示词框无效）。在 Medium 档位下抑制多余元素时，切勿修改 Negative 框，必须改在主 Prompt 中使用负权重（如 -2::unwanted::）。
+   - V5 Full 的 High 与 Medium 档位：High 为完整控制版；Medium 为省算力蒸馏版（固定 14 步、Euler A 和 Heavy 负向预设，不支持 Guidance Rescale 且自定义 Negative 负面提示词框无效）。在 Medium 档位下抑制多余元素时，切勿修改 Negative 框，必须改在主 Prompt 中使用负权重（如 -2::unwanted::）。
    - 内置模式标签：fur dataset（兽人/福瑞倾向）与 background dataset（纯背景增强）可按需调用。
 2. NAI 核心语法与防炸图法则：
    - 权重语法：W::词或短语:: 设定数值权重（W 可为负，如 -2::hat:: 定向移除，-1::simple background:: 破除白底虚空，-2::backlighting:: 缓解逆光黑脸）；单独的 :: 闭合区间。{tag} 与 [tag] 为乘除 1.05 的旧语法。圆括号 () 无加权作用。

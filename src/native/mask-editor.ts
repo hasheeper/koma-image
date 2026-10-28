@@ -1,3 +1,5 @@
+import { maskBitmapPixels } from "./edit-input.ts";
+import type { MaskBitmap } from "./edit-input.ts";
 export interface MaskPoint { x: number; y: number }
 export interface MaskStroke {
   points: [MaskPoint, ...MaskPoint[]];
@@ -6,12 +8,39 @@ export interface MaskStroke {
   pointer: number;
   clear?: false;
 }
-export type MaskEntry = MaskStroke | { clear: true };
+export type MaskEntry = MaskStroke | { clear: true } | { bitmap: MaskBitmap; baseId?: number };
 export interface MaskState {
   width: number;
   height: number;
+  base?: MaskBitmap;
   strokes: MaskEntry[];
   position: number;
+  anchor?: number;
+}
+
+export const emptyMask = (width: number, height: number): MaskState => ({ width, height, strokes: [], position: 0 });
+/** Packed bitmaps are immutable; copying each one on every brush movement would duplicate large images. */
+export function copyMaskState(state: MaskState): MaskState {
+  return { ...state, strokes: state.strokes.map(item => "bitmap" in item ? { ...item } : structuredClone(item)) };
+}
+export function withMaskBitmap(state: MaskState, bitmap: MaskBitmap, baseId?: number): MaskState {
+  if (state.width !== bitmap.width || state.height !== bitmap.height) throw new Error("蒙版尺寸必须与底图一致");
+  const next = copyMaskState(state);
+  next.strokes = next.strokes.slice(0, next.position);
+  next.strokes.push({ bitmap, ...(baseId === undefined ? {} : {baseId}) });
+  // Each bitmap replaces all previous coverage. Retain the newest independent baselines
+  // within 16 MiB; dropping an old baseline also releases its preceding undo entries.
+  let bytes = (next.base?.bits.byteLength ?? 0) + next.strokes.reduce((sum, e) => sum + ("bitmap" in e ? e.bitmap.bits.byteLength : 0), 0);
+  while (bytes > 16 * 1024 * 1024) {
+    const start = next.strokes.findIndex(e => "bitmap" in e), entry = next.strokes[start];
+    if (!entry || !("bitmap" in entry)) break;
+    bytes -= next.base?.bits.byteLength ?? 0;
+    next.base = entry.bitmap;
+    next.anchor = entry.baseId ?? next.anchor;
+    next.strokes = next.strokes.slice(start + 1);
+  }
+  next.position = next.strokes.length;
+  return next;
 }
 
 /** Source-pixel coordinates keep touch/mouse masks aligned at every display size. */
@@ -24,12 +53,17 @@ export function createMaskEditor(canvas: HTMLCanvasElement, onChange: () => void
   // Paint in the accent token so the mask follows the theme rather than a copy of it.
   const tint =
     getComputedStyle(canvas).getPropertyValue("--a").trim() || "#b3a1ff";
-  let strokes: MaskEntry[] = [], stroke: MaskStroke | null = null;
+  let strokes: MaskEntry[] = [], stroke: MaskStroke | null = null, baseline: MaskBitmap | undefined;
   let position = 0, diameter = 64,
     erase = false,
     locked = false;
+  let anchor: number | undefined;
   let encoded: string | null | undefined;
   function paint(item: MaskEntry, from = 0) {
+    if ("bitmap" in item) {
+      ctx.putImageData(maskBitmapPixels(item.bitmap), 0, 0);
+      return;
+    }
     if (item.clear) {
       ctx.clearRect(0, 0, mask.width, mask.height);
       return;
@@ -65,7 +99,14 @@ export function createMaskEditor(canvas: HTMLCanvasElement, onChange: () => void
   }
   function replay() {
     ctx.clearRect(0, 0, mask.width, mask.height);
-    for (const item of strokes.slice(0, position)) paint(item);
+    let start = position - 1;
+    while (start >= 0) {
+      const entry = strokes[start];
+      if ("bitmap" in entry || entry.clear) break;
+      start--;
+    }
+    if (start < 0 && baseline) paint({ bitmap: baseline });
+    for (const item of strokes.slice(Math.max(0, start), position)) paint(item);
     display();
     onChange();
   }
@@ -140,28 +181,34 @@ export function createMaskEditor(canvas: HTMLCanvasElement, onChange: () => void
   return {
     pause,
     resume,
-    dispose: pause,
+    dispose() { pause(); strokes = []; baseline = undefined; canvas.width = canvas.height = mask.width = mask.height = 1; encoded = undefined; },
     snapshot(): MaskState {
-      return {
+      return copyMaskState({
         width: mask.width,
         height: mask.height,
-        strokes: structuredClone(strokes),
+        base: baseline,
+        strokes,
         position,
-      };
+        ...(anchor === undefined ? {} : {anchor}),
+      });
     },
     restore(state: MaskState) {
       stroke = null;
       canvas.width = mask.width = state.width;
       canvas.height = mask.height = state.height;
-      strokes = structuredClone(state.strokes);
+      strokes = copyMaskState(state).strokes;
+      baseline = state.base;
       position = state.position;
+      anchor = state.anchor;
       replay();
     },
     resize(width: number, height: number) {
       canvas.width = mask.width = width;
       canvas.height = mask.height = height;
       strokes = [];
+      baseline = undefined;
       position = 0;
+      anchor = undefined;
       stroke = null;
       display();
       onChange();
@@ -206,16 +253,22 @@ export function createMaskEditor(canvas: HTMLCanvasElement, onChange: () => void
     canUndo: () => position > 0,
     canRedo: () => position < strokes.length,
     isDrawing: () => stroke !== null,
-    getMask(): string | null {
+    hasCoverage() {
+      if (!mask.width || !mask.height) return false;
+      const pixels = ctx.getImageData(0, 0, mask.width, mask.height).data;
+      for (let i = 3; i < pixels.length; i += 4) if (pixels[i]! > 32) return true;
+      return false;
+    },
+    getMask(alpha = false): string | null {
       if (stroke) throw new Error("请完成当前蒙版笔画");
-      if (encoded !== undefined) return encoded;
+      if (!alpha && encoded !== undefined) return encoded;
       const data = ctx.getImageData(0, 0, mask.width, mask.height);
       let painted = false;
       for (let i = 0; i < data.data.length; i += 4) {
         const white = data.data[i + 3] > 32;
         painted ||= white;
         data.data[i] = data.data[i + 1] = data.data[i + 2] = white ? 255 : 0;
-        data.data[i + 3] = 255;
+        data.data[i + 3] = alpha && !white ? 0 : 255;
       }
       if (!painted) return (encoded = null);
       const output = document.createElement("canvas");
@@ -224,7 +277,9 @@ export function createMaskEditor(canvas: HTMLCanvasElement, onChange: () => void
       const outputContext = output.getContext("2d");
       if (!outputContext) throw new Error("当前浏览器不支持 Canvas 蒙版");
       outputContext.putImageData(data, 0, 0);
-      return (encoded = output.toDataURL("image/png"));
+      const result = output.toDataURL("image/png");
+      if (!alpha) encoded = result;
+      return result;
     },
   };
 }

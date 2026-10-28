@@ -2,7 +2,7 @@
 
 范围：用户在 B1 之后明确要求开始 B2。实现位于 `codex/ask-chat-handoff`，基于 `82c55c9c738b86110b896ce778b148c530012e1e` 上已有的 B1 工作树改动；本记录不代表远端或 Pages 已更新。本轮没有提交、推送、部署或真实收费生成，B3 尚未实施。
 
-现行行为见[外部协同](../ask/bridge.md)，默认本地 Todo／Slate 的后续范围见[规划](../ask/bridge-plan.md)。
+现行行为见[外部协同](../ask/bridge.md)，默认本地 Todo／Slate 的后续范围见[规划](2026-10-26-bridge-plan.md)。
 
 ## 实施范围
 

@@ -44,6 +44,7 @@ async function resultAction(id: string) {
       await editor.open("image", item.blob, imageFileName(item), {
         mode: id === "upscaleBtn" ? "upscale" : "img2img",
         settings: item.params,
+        sourceId: `history:${item.id}`,
       });
   } catch (e) {
     ui.toast(message(e), "err");
@@ -273,7 +274,7 @@ function openAsk() {
             v-if="current"
             id="image"
             :src="drawing.url(current)"
-            alt="生成结果"
+            :alt="current.params.tool === 'manual-edit' ? '手动编辑结果' : '生成结果'"
             decoding="async"
             @click="shell.zoom = true"
           />
@@ -304,6 +305,7 @@ function openAsk() {
         >
           <button v-if="askId" class="result-param result-ask-id" type="button" title="复制图片 ID" @click="copy(askId, '图片 ID')">{{ askId }}</button>
           <button
+            v-if="params.tool !== 'manual-edit' && params.tool !== 'director'"
             class="result-param result-seed"
             id="resultSeed"
             type="button"

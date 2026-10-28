@@ -1,10 +1,10 @@
 # 网关、数据与调度
 
-更新：2026-10-25。本文描述当前共享服务；阶段设计和验收见[归档](archive/2026-10-25/README.md)。协议能力见[图像协议](native-image-protocols.md)与[ASK 运行契约](ask/ask-contracts-and-decisions.md)。
+更新：2026-10-28。本文描述当前共享服务；阶段设计和验收见[归档](archive/README.md)。协议能力见[图像协议](native-image-protocols.md)与[ASK 运行契约](ask/ask-contracts-and-decisions.md)。
 
 ## 服务与依赖
 
-`src/services/application.ts` 在 App 中创建应用服务，供保活工作区、编辑覆盖层、设置和 ASK 使用。依赖方向为工作区 → domain／services → Profile → transport；协议识别不进入 UI 的品牌或域名判断。
+`src/services/application.ts` 在 App 中创建应用服务，供保活工作区、设置和 ASK 使用。依赖方向为工作区 → domain／services → Profile → transport；协议识别不进入 UI 的品牌或域名判断。
 
 `profile.ts` 登记六种协议。Profile 声明目录、鉴权、报价、执行路线、额度和图像／推理能力；未知 Profile 不能保存或恢复。transport 接受显式连接上下文，保持请求取消、错误与结果规范化，不从其他连接借 Key 或自动尝试另一协议。
 
@@ -28,13 +28,15 @@ ASK 推理、命名与压缩不占生图槽，不调用报价、扣费或生成�
 
 | 数据库 | Store／用途 |
 | --- | --- |
-| `koma-image-favorites` | `favorites`：收藏原图、缩略图与参数 |
+| `koma-image-favorites` | `favorites`：收藏原图、缩略图与参数；`referenceAssets`：NAI 参考原图；`vibeEncodings`：编码缓存 |
 | `koma-chat` | `conversations`、`assets`：CHAT 与图片素材 |
 | `koma-handoff` | `items`：只认领一次的临时交接 |
 | `koma-ask` | `conversations`：用户显式收藏的 ASK 快照与附件 |
 | `koma-bridge` | `state`：目录句柄、投递去重／回执及 Koma 预览文件归属；不进入普通备份 |
+| `koma-slate` | `state`、`assets`：本地任务、配方、提交记录和冻结成果；不进入普通备份 |
+| `koma-home` | `previews`：每 IMAGE 画板最新展示副本；不进入普通备份，不是可交付原图 |
 
-收藏库 schema version=2，其他数据库 version=1，与备份 envelope version=2 独立。名称集中于 `src/storage/names.ts`；偏好和凭据使用 `koma.*`，同步频道为 `koma-sync`。普通绘图历史和编辑会话属于页面内存。
+收藏库 schema version=2，其他数据库 version=1，与备份 envelope version=2 独立。名称集中于 `src/storage/names.ts`；偏好和凭据使用 `koma.*`，同步频道为 `koma-sync`。普通绘图历史、EDIT 画板／蒙版／版本及 Photopea 文档属于页面内存。HOME 封面、布局与返回位置存于独立偏好 `koma.home.v1`，不进入普通 ZIP。
 
 应用持共享数据租约，所有数据库写入经 `data.write`；延迟保存服务提供 flush，缓存提供 reload。备份／恢复先排空写入和本页共享租约，再取得独占数据锁与任务门；其他活跃标签页或任务会阻止独占。完成或失败后恢复租约并刷新缓存，不能直接绕过租约写库。
 

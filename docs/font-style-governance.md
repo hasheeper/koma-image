@@ -1,6 +1,6 @@
 # 字体维护
 
-更新：2026-10-25。本文维护字体配置与重建流程；G0–G4 的基线、资源哈希和验收见[归档](archive/2026-10-25/README.md)。样式加载和检查见[样式归属](style-ownership.md)与[样式检查](style-checks.md)。
+更新：2026-10-25。本文维护字体配置与重建流程；G0–G4 的基线、资源哈希和验收见[归档](archive/2026-10-25/README.md)。样式加载和检查见[样式归属](style-ownership.md)与[样式检查](style-ownership.md#样式检查)。
 
 ## 唯一配置来源
 

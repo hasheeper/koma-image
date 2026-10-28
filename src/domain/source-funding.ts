@@ -1,4 +1,5 @@
-import { referenceModel, referenceSurcharge } from "./nai-references.ts";
+import { readInpaintFocus, supportsFocusedInpaint } from "./inpaint-focus.ts";
+import { referenceModel, referenceOperation, referenceSurcharge } from "./nai-references.ts";
 import type { CatalogModel } from "./catalog.ts";
 import type { QuotaStatus } from "./quota.ts";
 import { novelaiUsage } from "./quota.ts";
@@ -8,14 +9,21 @@ import { usesNative } from "../gateway/routes.ts";
 import type { ImagePayload } from "../gateway/routes.ts";
 import { imageDimensions } from "../native/image-dimensions.ts";
 import { validateEditorSource } from "./media.ts";
+import { supportsNaiEnhance, naiEnhanceSize } from "./nai-enhance.ts";
+import { directorRequest } from "./director-tools.ts";
 
 /** Only positive evidence of insufficient funds may advance the priority list. */
 export function insufficientFunds(model: CatalogModel, quota: QuotaStatus | null, quote: Quote | null, payload?: ImagePayload): string | null {
   if (!quota) return null;
   const credits = finite(object(quota.media.credits).remaining);
   if (quota.profile.protocol === "novelai") {
+    if (payload?.tool === "director") {
+      if (credits !== null && quote && credits < quote.cost) return "Anlas 不足以支付本次预计费用";
+      return null;
+    }
     const minimum = Math.max(referenceSurcharge(payload?.referencePlan), Number(payload?.referenceMinimum) || 0);
     if (credits !== null && minimum > credits) return "Anlas 不足以支付本次参考费用";
+    if (quote?.estimated && credits !== null && quote.cost > credits) return "Anlas 不足以支付本次预计费用";
     if (credits !== 0) return null;
     const subscription = object(quota.media.subscription), usage = novelaiUsage(subscription);
     if (model.id.startsWith("nai-diffusion-5") && (usage?.purchasedPercent ?? 0) > 0) return null;
@@ -37,7 +45,25 @@ export function insufficientFunds(model: CatalogModel, quota: QuotaStatus | null
 /** Fallback keeps the exact payload; it never trims images, changes options or shrinks the canvas. */
 export function supportsSourcePayload(model: CatalogModel, payload?: ImagePayload): boolean {
   if (!payload) return true;
+  if (payload.tool === "director") {
+    if (model.profileId !== "nai-official-v1" || !model.tools.includes("director")) return false;
+    // Operation-only capability checks have no encoded source yet.
+    if (payload.init_image === undefined) return true;
+    try { directorRequest(payload); return true; } catch { return false; }
+  }
+  if (payload.inpaintFocus !== undefined) {
+    const focus = readInpaintFocus(payload.inpaintFocus);
+    if (!focus || payload.tool !== "inpaint" || payload.enhance || !supportsFocusedInpaint(model) || typeof payload.init_image !== "string") return false;
+    const size = imageDimensions(payload.init_image);
+    if (size.width !== focus.targetWidth || size.height !== focus.targetHeight) return false;
+  }
+  if (payload.enhance) {
+    if (!supportsNaiEnhance(model) || payload.tool !== "img2img" || typeof payload.init_image !== "string") return false;
+    try { naiEnhanceSize(imageDimensions(payload.init_image), payload.enhanceScale, model.id); } catch { return false; }
+  }
   if ((payload.referencePlan || payload.preparedReferences) && (model.profileId !== "nai-official-v1" || !referenceModel(model.id) || model.upstreamId && model.upstreamId.replace(/@local$/, "") !== model.id.replace(/@local$/, ""))) return false;
+  const references = payload.referencePlan ?? payload.preparedReferences;
+  if (references && !referenceOperation(model.id, references.kind, payload.tool)) return false;
   if (model.operations.length && !model.operations.includes(payload.tool ? "edit" : "generate")) return false;
   if (payload.tool && payload.tool !== "image-edit" && !model.tools.includes(payload.tool)) return false;
   const width = finite(payload.width), height = finite(payload.height);

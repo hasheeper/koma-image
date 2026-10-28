@@ -103,7 +103,7 @@ export function createApplicationServices(deps: {
       connections.reload(false);
     preferences.changed(key ?? undefined);
   }
-  const priority = createSourcePriority(connections, client);
+  const priority = createSourcePriority(connections, client, (plan, model) => references.pendingCost(plan, model));
   deps.events?.addEventListener("storage", onStorage);
   return {
     scheduler,

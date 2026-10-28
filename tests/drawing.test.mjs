@@ -49,8 +49,8 @@ test("drawing: original defaults, blank prompt, explicit zero, uint32 wrap and s
       "height",
       "steps",
       "sampler",
+      "noiseSchedule",
       "scale",
-      "cfg",
       "cfg_rescale",
       "seed",
       "optimize",
@@ -172,6 +172,20 @@ test("native image package: stored ZIP validates CRC, malformed archive and non-
   await assert.rejects(decodeNativeImages(new Uint8Array([1, 2, 3]).buffer));
 });
 
+test("native image package: large upscale bytes need an explicit bounded allowance; normal limits and CRC remain enforced", async () => {
+  // Header-only fixture exercises ZIP limits, not image decoding or provider output quality.
+  const png = new Uint8Array(33 * 1024 * 1024);
+  png.set([137,80,78,71,13,10,26,10]);
+  const archive = await (await createArchive([["image.png",new Blob([png])]])).arrayBuffer();
+  await assert.rejects(decodeNativeImages(archive), /原生图片包损坏/);
+  const limits = { maxImageBytes: 34 * 1024 * 1024, maxTotalBytes: 34 * 1024 * 1024 };
+  assert.equal((await decodeNativeImages(archive,limits))[0].size,png.length);
+  await assert.rejects(decodeNativeImages(archive,{...limits,maxImageBytes:png.length-1}), /原生图片包损坏/);
+  await assert.rejects(decodeNativeImages(archive,{...limits,maxTotalBytes:png.length-1}), /原生图片包损坏/);
+  const bytes = new Uint8Array(archive); bytes[48] ^= 255;
+  await assert.rejects(decodeNativeImages(archive,limits), /原生图片包损坏/);
+});
+
 test("metadata preserves NAI/WebUI meanings: compressed text, sampler map, seed zero, Guidance Rescale maps independently", async () => {
   const signature = Uint8Array.from([137, 80, 78, 71, 13, 10, 26, 10]);
   function chunk(type, bytes) {
@@ -199,6 +213,8 @@ test("metadata preserves NAI/WebUI meanings: compressed text, sampler map, seed 
             sampler: "k_euler_ancestral",
             scale: 5,
             cfg_rescale: 0.7,
+            skip_cfg_above_sigma: 58,
+            noise_schedule: 'exponential',
             seed: 0,
           }),
         ),
@@ -210,6 +226,8 @@ test("metadata preserves NAI/WebUI meanings: compressed text, sampler map, seed 
   assert.equal(nai.fields.model, "nai-diffusion-5-full");
   assert.equal(nai.fields.cfg, undefined);
   assert.equal(nai.fields.cfgRescale, 0.7);
+  assert.equal(nai.fields.varietyPlus, true);
+  assert.equal(nai.fields.noiseSchedule, 'exponential');
   assert.equal(nai.fields.prompt, "猫, blue_hair");
   const webui =
     "blue hair\nNegative prompt: blurry\nSteps: 20, Sampler: Euler a, CFG scale: 7, Seed: 0, Size: 512x768, Model: unknown";
@@ -258,7 +276,7 @@ test("metadata: compressed international text, optional character data and malfo
     ] } },
     v4_negative_prompt: { caption: { char_captions: [{ char_caption: "bad" }] } },
   }));
-  assert.deepEqual(result.fields, { prompt: "猫", width: 832, height: 1216, steps: 25, scale: 0, seed: 0, placement: "manual", characters: [{id:"c1",on:true,prompt:"  blue hair  ",negative:"bad",centers:[{x:.5,y:.8}]},{id:"c2",on:true,prompt:"",negative:"",centers:[]}] });
+  assert.deepEqual(result.fields, { prompt: "猫", width: 832, height: 1216, steps: 25, scale: 0, varietyPlus: false, seed: 0, placement: "manual", characters: [{id:"c1",on:true,prompt:"  blue hair  ",negative:"bad",centers:[{x:.5,y:.8}]},{id:"c2",on:true,prompt:"",negative:"",centers:[]}] });
   assert.deepEqual(result.extras, [{ label: "角色 1 · C5", value: "blue hair" }, { label: "角色 1 排除", value: "bad" }]);
   const standard={model:'nai-diffusion-5-full',prompt:'2people',use_coords:true,characters:[{prompt:'girl, red hair',uc:'',center:{x:.24,y:.76}},{prompt:'boy, blue hair',uc:'red hair',center:{x:.8,y:.3}}]};
   const normalized=(await readImageParams(image(standard))).fields;
@@ -274,7 +292,7 @@ test("metadata: compressed international text, optional character data and malfo
   await assert.rejects(readImageParams(image({ prompt: "ok", v4_prompt: { caption: { char_captions: {} } } })),
     { name: "TypeError", message: "characters.forEach is not a function" });
   const jpeg = new Blob([new Uint8Array([255, 216, 255]), new TextEncoder().encode('{"prompt":"中文","seed":0}\0')]);
-  assert.deepEqual((await readImageParams(jpeg)).fields, { prompt: "中文", seed: 0 });
+  assert.deepEqual((await readImageParams(jpeg)).fields, { prompt: "中文", varietyPlus: false, seed: 0 });
 });
 
 test("native image package: deflated bytes, CRC and declared decompression bounds are preserved", async () => {

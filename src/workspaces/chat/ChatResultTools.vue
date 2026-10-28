@@ -2,12 +2,13 @@
 import { onBeforeUnmount, onDeactivated, shallowRef, useId } from "vue";
 import AppIcon from "../../shared/AppIcon.vue";
 import { placeMenu } from "../../shared/popover";
-defineProps<{ url: string; filename: string; base: boolean }>();
+defineProps<{ url: string; filename: string; base: boolean; favorite?: boolean; favoriteBusy?: boolean }>();
 const emit = defineEmits<{
   upscale: [];
   continue: [];
   retain: [];
   retry: [];
+  favorite: [];
 }>();
 const id = useId(),
   trigger = shallowRef<HTMLButtonElement | null>(null),
@@ -76,6 +77,18 @@ onBeforeUnmount(close);
       @click="emit('upscale')"
     >
       <AppIcon name="i-upscale" />
+    </button>
+    <button
+      class="ibtn"
+      :class="{ 'ibtn-accent': favorite }"
+      type="button"
+      :aria-label="favorite ? '取消收藏' : '收藏图片'"
+      :title="favorite ? '取消收藏' : '收藏图片'"
+      :aria-pressed="!!favorite"
+      :disabled="favoriteBusy"
+      @click="emit('favorite')"
+    >
+      <AppIcon name="i-star" :class="{ solid: favorite }" />
     </button>
     <button
       class="ibtn continue-edit"

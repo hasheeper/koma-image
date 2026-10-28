@@ -1,6 +1,13 @@
+import { readNoiseSchedule, NAI_OFFICIAL_MAX_PIXELS } from "./nai-parameters.ts";
 /** Official prompt presets and model constraints. No network or account assumptions. */
 export const NAI_FULL = "nai-diffusion-5-full";
 export const NAI_MEDIUM = "nai-diffusion-5-full-medium";
+export const NAI_OFFICIAL_EDIT_MAX_PIXELS = NAI_OFFICIAL_MAX_PIXELS;
+export const NAI_OFFICIAL_UPSCALE = { model: "nai-diffusion-5-full", factor: 4, maxPixels: NAI_OFFICIAL_EDIT_MAX_PIXELS } as const;
+/** V5 Curated has no dedicated infill endpoint; never silently substitute V4.5. */
+export const naiOfficialInpaintModel = (model: string) => [
+  "nai-diffusion-4-5-full", "nai-diffusion-4-5-curated", "nai-diffusion-5-full", NAI_MEDIUM,
+].includes(model) ? `${model}-inpainting` : undefined;
 export const complexities = ["none", "low", "medium", "high", "ultra"] as const;
 export const qualityPresets = ["none", "light", "standard"] as const;
 export const negativePresets = ["none", "light", "heavy", "human", "furry"] as const;
@@ -42,6 +49,8 @@ export const qualityTags = (model: string, preset: QualityPreset): string => {
   return model.replace(/@local$/, "").endsWith("curated") ? "location, masterpiece, no text, -0.8::feet::, rating:general" : "location, very aesthetic, masterpiece, no text";
 };
 const heavy = "lowres, artistic error, film grain, scan artifacts, worst quality, bad quality, jpeg artifacts, very displeasing, chromatic aberration, dithering, halftone, screentone, multiple views, logo, too many watermarks, negative space, blank page";
+/** Medium uses the fixed Heavy preset; only user and character UC are disabled. */
+export const naiMediumNegative = (prompt: string) => `${prompt.toLowerCase().includes("nsfw") ? "" : "nsfw, "}${heavy}`;
 const curatedHeavy = "blurry, lowres, upscaled, artistic error, film grain, scan artifacts, worst quality, bad quality, jpeg artifacts, very displeasing, chromatic aberration, halftone, multiple views, logo, too many watermarks, negative space, blank page";
 export function negativeTags(model: string, preset: NegativePreset): string {
   const cap = naiCapabilities(model);
@@ -75,12 +84,38 @@ export function prependNaiTag(prompt: string, tag: string) {
   if (!dataset) return [tag, prompt].filter(Boolean).join(", ");
   return `${dataset.replace(/,\s*$/, "")}, ${tag}${prompt.slice(dataset.length) ? `, ${prompt.slice(dataset.length)}` : ""}`;
 }
-export function readNaiSettings(value: { naiMode?: unknown; complexity?: unknown; qualityPreset?: unknown; negativePreset?: unknown; cfgRescale?: unknown }) {
+export function readNaiSettings(value: { naiMode?: unknown; complexity?: unknown; qualityPreset?: unknown; negativePreset?: unknown; cfgRescale?: unknown; noiseSchedule?: unknown; noise_schedule?: unknown; varietyPlus?: unknown; skip_cfg_above_sigma?: unknown }) {
   return {
+    varietyPlus: typeof value.varietyPlus === "boolean" ? value.varietyPlus : typeof value.skip_cfg_above_sigma === "number" && Number.isFinite(value.skip_cfg_above_sigma) && value.skip_cfg_above_sigma > 0,
+    noiseSchedule: readNoiseSchedule(value.noiseSchedule ?? value.noise_schedule),
     naiMode: value.naiMode === "furry" ? "furry" as const : "anime" as const,
     complexity: complexities.includes(value.complexity as Complexity) ? value.complexity as Complexity : "none" as const,
     qualityPreset: qualityPresets.includes(value.qualityPreset as QualityPreset) ? value.qualityPreset as QualityPreset : "none" as const,
     negativePreset: negativePresets.includes(value.negativePreset as NegativePreset) ? value.negativePreset as NegativePreset : "none" as const,
     cfgRescale: typeof value.cfgRescale === "number" && Number.isFinite(value.cfgRescale) ? Math.min(1, Math.max(0, value.cfgRescale)) : 0,
+  };
+}
+
+export type NaiSettings = ReturnType<typeof readNaiSettings>;
+/** Compile automatic tags once per request; stored base text remains editable. */
+export function compileNaiPrompt(
+  form: Partial<NaiSettings> & { prompt: string; negative: string; transparentBg?: boolean },
+  model: { id: string; transparentBackground: boolean },
+) {
+  const cap = naiCapabilities(model.id), settings = readNaiSettings(form);
+  const basePrompt = form.prompt, baseNegative = form.negative;
+  const transparentBg = form.transparentBg && model.transparentBackground;
+  const qualityPreset = cap.quality.includes(settings.qualityPreset) ? settings.qualityPreset : "none";
+  const negativePreset = cap.negative.includes(settings.negativePreset) ? settings.negativePreset : "none";
+  const complexity = cap.v5 ? settings.complexity : "none";
+  const naiMode = cap.supported ? effectiveNaiMode(settings.naiMode, basePrompt) : "anime";
+  const modePrompt = cap.supported ? naiModePrompt(basePrompt, naiMode) : basePrompt;
+  let prompt = transparentBg && !/transparent background/i.test(basePrompt)
+    ? prependNaiTag(modePrompt, "transparent background") : modePrompt;
+  prompt = appendNaiTags(prompt, complexity === "none" ? "" : `${complexity} complexity`);
+  prompt = appendNaiTags(prompt, qualityTags(model.id, qualityPreset));
+  return { prompt, basePrompt, baseNegative, qualityPreset, negativePreset, complexity, naiMode,
+    transparentBg: !!transparentBg,
+    negative_prompt: cap.medium ? naiMediumNegative(prompt) : appendNaiTags(baseNegative, negativeTags(model.id, negativePreset)),
   };
 }

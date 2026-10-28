@@ -29,7 +29,7 @@ export interface DigestForm {
   readonly height: number;
   readonly steps: number;
   readonly scale: number;
-  readonly cfg: number;
+  readonly cfg: number | null;
   readonly cfgRescale?: number;
   readonly naiMode?: string;
   readonly complexity?: string;
@@ -50,7 +50,7 @@ export interface DigestChat {
 }
 export interface DigestInput {
   readonly askTurnId?: string;
-  readonly workspace: "image" | "chat" | "tags";
+  readonly workspace: "home" | "image" | "chat" | "edit" | "tags";
   readonly anchor: string | null;
   readonly form: DigestForm;
   readonly boardId?: string;

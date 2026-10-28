@@ -3,6 +3,7 @@ export type ReferenceKind = "vibe" | "precise";
 export type PreciseType = "character" | "style" | "character&style";
 export type NaiReference = { id: string; assetId: string; on: boolean; strength: number; information: number; fidelity: number; type: PreciseType }
 export type NaiReferences = { active: ReferenceKind | null; normalize: boolean; vibe: NaiReference[]; precise: NaiReference[] }
+export interface PngVibes { model: string; normalize: boolean; items: { encoding: string; information: number; strength: number }[] }
 export interface ReferenceAsset { id: string; blob: Blob | null; thumbnail: Blob | null; width: number; height: number }
 export interface VibeEncoding { id: string; assetId: string; model: string; information: number; data: string }
 export const emptyReferences = (): NaiReferences => ({ active: null, normalize: false, vibe: [], precise: [] });
@@ -21,6 +22,9 @@ export function readReferences(value: unknown): NaiReferences {
   return { active: raw.active === "vibe" || raw.active === "precise" ? raw.active : null, normalize: raw.normalize === true, vibe: rows("vibe"), precise: rows("precise") };
 }
 export const referenceModel = (model: string) => /^nai-diffusion-4-5-(full|curated)(?:@local)?$/.test(model);
+/** The official client skips encoded Vibes for infill; Precise supports it. */
+export const referenceOperation = (model: string, kind: ReferenceKind, tool?: string) =>
+  referenceModel(model) && (!tool || tool === "img2img" || tool === "inpaint" && kind === "precise");
 export const activeReferences = (value: NaiReferences) => value.active ? value[value.active].filter(r => r.on) : [];
 export const encodingKey = (model: string, assetId: string, information: number) => `${model.replace(/@local$/, "")}:${assetId}:${information}`;
 export const referenceName = (kind: ReferenceKind) => kind === "vibe" ? "Vibe Transfer" : "Precise Reference";

@@ -49,7 +49,8 @@ after(async () => {
   await new Promise((done) => server?.close(done));
 });
 
-async function open(path = "/") {
+async function open(path = "/#/image") {
+  if (!path.includes("#") && !path.includes("transfer.html")) path += "#/image";
   const context = await browser.newContext({
     viewport: { width: 1440, height: 900 },
   });
@@ -83,7 +84,7 @@ async function open(path = "/") {
   return { page, context, errors, external };
 }
 async function switchTo(page, id) {
-  await page.locator(".switcher").click();
+  await page.locator(".switcher:visible").click();
   await page.locator(`.switch-menu:popover-open a[href='#/${id}']`).click();
   await page.waitForSelector(`[data-workspace-root='${id}']`);
 }
@@ -133,7 +134,7 @@ test("single document, cached drafts and nodes, back/forward, and global overlay
   );
   await page.goForward();
   await page.waitForSelector("#tagSearch");
-  await page.locator(".switcher").click();
+  await page.locator(".switcher:visible").click();
   await page
     .locator(".switch-menu:popover-open")
     .getByRole("button", { name: /^设置/ })
@@ -142,7 +143,7 @@ test("single document, cached drafts and nodes, back/forward, and global overlay
   await page.getByRole("button", { name: "安全与备份", exact: true }).click();
   assert.match(page.url(), /#\/tags\/settings\/security$/);
   assert.equal(await page.locator("#settingsPanel").count(), 1);
-  assert.equal(await page.locator("#imageEditor").count(), 1);
+  assert.equal(await page.locator("#imageEditor").count(), 0);
   await page.keyboard.press("Escape");
   await page.waitForSelector("#settingsPanel[open]", { state: "hidden" });
   assert.equal(
@@ -169,14 +170,14 @@ test("single document, cached drafts and nodes, back/forward, and global overlay
   );
   assert.deepEqual(
     await page.evaluate(async () => ({
-      local: Object.keys(localStorage),
+      local: Object.keys(localStorage).sort(),
       session: Object.keys(sessionStorage),
       dbs: (await indexedDB.databases()).map((db) => db.name).sort(),
     })),
     {
-      local: ["koma.tag.categories.v1", "koma.prefs.v1", "koma.chat.rail.v1"],
+      local: ["koma.chat.rail.v1", "koma.home.v1", "koma.prefs.v1", "koma.tag.categories.v1"],
       session: [],
-      dbs: ["koma-ask", "koma-bridge", "koma-chat", "koma-handoff", "koma-image-favorites", "koma-slate"],
+      dbs: ["koma-ask", "koma-bridge", "koma-chat", "koma-handoff", "koma-home", "koma-image-favorites", "koma-slate"],
     },
   );
   await clean(result);
@@ -376,9 +377,10 @@ test("repeat activation and dialog cycles retain one listener set and release in
       await page.waitForSelector(
         overlay.startsWith("settings")
           ? "#settingsPanel[open]"
-          : "#imageEditor[open]",
+          : "#imageEditor[data-active=true]",
       );
-      await page.keyboard.press("Escape");
+      if (overlay === "editor") await page.evaluate(() => { location.hash = "#/image"; });
+      else await page.keyboard.press("Escape");
       await page.waitForFunction(() => !document.querySelector("dialog[open]"));
     }
   }
@@ -390,8 +392,8 @@ test("repeat activation and dialog cycles retain one listener set and release in
     initialPrompt,
   );
   assert.equal(await page.locator("#gallery").count(), 1);
-  assert.equal(await page.locator("[data-workspace-root]").count(), 1);
-  assert.equal(await page.locator("dialog").count(), 8);
+  assert.equal(await page.locator("[data-workspace-root]:visible").count(), 1);
+  assert.equal(await page.locator("dialog").count(), 7);
   await cdp.detach();
   await clean(result);
 });

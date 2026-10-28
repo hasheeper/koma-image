@@ -40,6 +40,10 @@ npm start
 
 静态版不读取服务端环境变量，不主动探测代理。用户必须在设置中配置连接和 Key，网关需要支持跨域访问。`chat.html`、`tags.html`、`transfer.html` 仅作导航重定向。
 
+HOME、独立 EDIT、六项 Director Tools 与本地任务均随静态站发布。Director Tools 仍需用户配置 NovelAI 官方连接；线上部署不构成真实生成或计费验证。NAI token 计数所需的 `tokenizers/` 词表与许可必须随 `dist/` 一并上传，不向外部分词服务发送提示词。
+
+EDIT 的「高级编辑」按需加载官方 Photopea，静态站同样可用，不依赖本地代理或目录挂载。需联网访问 `https://www.photopea.com`；若站点配置 CSP，`frame-src` 须显式允许该来源。保留应用的 iframe sandbox 与 origin 校验，不用放宽成任意来源。免费版自带品牌与广告；无法加载时可返回 Koma 原生编辑器，原图不变。Koma 不保存 PSD 或跨刷新恢复 Photopea 文档，离开前须应用回传或自行保存。
+
 ### 维护者发布
 
 源码仓库为 `hasheeper/koma-image`，生产分支 `main`；Pages 项目名为 `koma-image`，上传目录由 `wrangler.jsonc` 固定为 `dist/`。Git 推送和站点发布是两步独立操作，不存在 Git 自动部署。
@@ -48,7 +52,7 @@ npm start
 
 ## 数据、更新和回退
 
-通过「设置 → 安全与备份」导出新版 Koma ZIP。备份包含图片收藏、CHAT 对话、画板及偏好，排除 Key、普通历史、编辑会话和交接数据；本地模式的模型来源可备份，但服务端 URL、Key 和会话令牌不导出。ASK 收藏会话及其附件单独保存在本机 `koma-ask`，刷新后可续聊，不包含在此 ZIP 中；撤销执行栈只保留本页。
+通过「设置 → 安全与备份」导出新版 Koma ZIP。备份包含图片收藏、NAI 参考资产／编码缓存、CHAT 对话、IMAGE 画板及偏好；排除 Key、普通历史、EDIT 现场／PSD、HOME 副本／偏好、Slate 任务／成果、Bridge 状态和交接数据；本地模式的模型来源可备份，但服务端 URL、Key 和会话令牌不导出。ASK 收藏会话及其附件单独保存在本机 `koma-ask`，刷新后可续聊，不包含在此 ZIP 中；撤销执行栈只保留本页。
 
 更新前导出备份并保留旧发布包和独立的 `.env`。停止本地服务，解压新包，将 `.env` 放回后在相同端口启动。回退时使用先前兼容 Koma schema 的包，保持同源地址；不要清空或降级浏览器数据库。新版备份不提供旧应用格式转换，也不自动访问或清理旧数据。
 

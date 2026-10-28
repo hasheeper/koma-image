@@ -12,6 +12,7 @@ const props = defineProps<{
   quota?: QuotaStatus | null;
   loading?: boolean;
   model?: CatalogModel;
+  operation?: "director";
 }>();
 const { connections } = useServices();
 const configurationVersion = ref(0);
@@ -34,7 +35,7 @@ const profile = computed(() => profileFor(props.model?.profileId || STANDARD_PRO
 const standard = computed(() => !profile.value.protocol || profile.value.protocol === "standard");
 const balanceLabel = computed(() => profile.value.protocol === "novelai" ? "Anlas" : "费用未知");
 const nai = computed(() => profile.value.protocol === "novelai");
-const v5 = computed(() => nai.value && props.model?.id.startsWith("nai-diffusion-5"));
+const v5 = computed(() => nai.value && props.operation !== "director" && props.model?.id.startsWith("nai-diffusion-5"));
 const tier = computed(() => novelaiTier(props.quota?.media.subscription));
 const usage = computed(() => novelaiUsage(props.quota?.media.subscription));
 const usageValue = computed(() => {
@@ -87,7 +88,7 @@ const usageTip = computed(() => `${source.value} · V5 额度：${usageValue.val
       v-else-if="nai"
       class="w-seg w-tier"
       :data-level="tier ? 'ok' : 'unknown'"
-      :data-tip="`${source} · NovelAI 订阅：${tier ?? '未知'}。此型号不使用 V5 额度，费用以服务端计费为准`"
+      :data-tip="`${source} · NovelAI 订阅：${tier ?? '未知'}。${operation === 'director' ? '此工具' : '此型号'}不使用 V5 额度，费用以服务端计费为准`"
     >
       <ModelIcon class="w-ico" family="novelai" /><span class="w-v"><b>{{ tier ?? "—" }}</b></span><span class="w-k sr-only">NovelAI 订阅</span>
     </div>

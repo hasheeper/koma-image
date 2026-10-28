@@ -1,11 +1,12 @@
 import type { MaskEditor } from "./mask-editor.ts";
 /** Vue owns these nodes. This driver owns their delegated geometry, cursor and scroll only. */
 export function createEditorCanvas(
-  root: HTMLDialogElement,
+  root: HTMLElement,
   mask: MaskEditor,
   deps: {
     size: () => { width: number; height: number } | undefined;
     maskActive: () => boolean;
+    focus?: { selecting: () => boolean; cancel: () => void };
     brush: () => number;
     compare: (value: boolean) => void;
     panel: (width: number | null) => void;
@@ -86,7 +87,7 @@ export function createEditorCanvas(
   };
   function moveCursor(e: PointerEvent) {
     if (
-      !deps.maskActive() ||
+      !deps.maskActive() || deps.focus?.selecting() ||
       hand ||
       space ||
       e.pointerType === "touch" ||
@@ -113,6 +114,7 @@ export function createEditorCanvas(
     paintHand();
     delete root.dataset.panning;
     delete root.dataset.drag;
+    deps.focus?.cancel();
     mask.pause();
   }
   function resume() {
@@ -158,6 +160,7 @@ export function createEditorCanvas(
         touches.set(e.pointerId, { x: e.clientX, y: e.clientY });
         if (touches.size === 2) {
           mask.cancel();
+          deps.focus?.cancel();
           pinch = { ...pinchState(), scale };
         }
         if (touches.size >= 2) e.stopPropagation();
@@ -268,7 +271,7 @@ export function createEditorCanvas(
       if (zoom === null) layout();
       root.style.setProperty(
         "--editor-foot",
-        `${Math.ceil(foot.getBoundingClientRect().height)}px`,
+        `${Math.ceil(foot.getBoundingClientRect().height - (foot.querySelector(".drawer-shell")?.getBoundingClientRect().height ?? 0))}px`,
       );
     });
     observer.observe(box);
@@ -280,11 +283,17 @@ export function createEditorCanvas(
         setSpace(false);
         deps.compare(false);
         mask.cancel();
+        deps.focus?.cancel();
       },
       { signal },
     );
   }
   return {
+    snapshot: () => ({ zoom, hand, left: box.scrollLeft, top: box.scrollTop }),
+    restore(value?: { zoom: number | null; hand: boolean; left: number; top: number }) {
+      zoom = value?.zoom ?? null; setHand(value?.hand ?? false); layout();
+      box.scrollLeft = value?.left ?? 0; box.scrollTop = value?.top ?? 0;
+    },
     layout,
     zoomTo,
     step: (d: number) => zoomTo(d > 0 ? scale * 1.25 : scale / 1.25),

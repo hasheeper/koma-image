@@ -1,6 +1,6 @@
 # Koma Image 工程约定
 
-这是独立复刻工程，并包含已批准的新子产品 Koma ASK。开始工作先读[架构](docs/architecture.md)、[业务契约](docs/business-contracts.md)及[当前状态与待办](docs/implementation-plan.md)，再按[文档索引](docs/README.md)阅读相关专题。历史阶段和原型位于 `docs/archive/`，退出必读入口；不从历史授权推导新的推送或发布授权。
+这是独立复刻工程，并包含已批准的新子产品 Koma ASK。开始工作先读[架构](docs/architecture.md)、[业务契约](docs/business-contracts.md)及[当前状态与待办](docs/implementation-plan.md)，再按[文档索引](docs/README.md)阅读相关专题。历史阶段和原型集中在[历史索引](docs/archive/README.md)，退出必读入口；不从历史授权推导新的推送或发布授权。
 
 ## 范围与交付
 
@@ -12,7 +12,7 @@
 
 ## 外壳、类型与资源
 
-- 唯一 App Shell；绘图／对话／词典使用 KeepAlive，编辑为覆盖层，设置为弹窗，备份为设置子页。
+- 唯一 App Shell；HOME／绘图／对话／词典使用 KeepAlive，EDIT 为同级独立页面并原位隐藏保活，设置为弹窗，备份为设置子页。
 - Vue 管低频状态和 DOM；原生驱动管 Canvas、指针和逐帧更新。大图片、DOM、数据库、AbortController 和密钥不进入深层 reactive。
 - Vue 节点不由外部脚本包裹或搬移。高亮宿主写入模板，位置切换用 Teleport。监听器、Observer、rAF 和 Object URL 有对应暂停、恢复与清理责任。
 - `src/` 自有实现使用 TS／Vue TS，类型直接来自实现，不新增 JS 与手写配对声明，不放宽 strict 或忽略诊断。测试、服务器、工具和静态兼容脚本保留原运行方式。

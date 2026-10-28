@@ -2,6 +2,7 @@ import { object } from "../domain/value";
 import type { ImagePayload } from "../gateway/routes";
 import { decodeImage } from "./image-response";
 import { decodeNativeImages } from "../native/native-images.ts";
+import type { NativeImageLimits } from "../native/native-images.ts";
 export type MediaBlock =
   | { type: "text"; text: string }
   | { type: "image"; blob: Blob; size: { width: number; height: number } };
@@ -11,6 +12,7 @@ export async function consumeMedia(
   native: boolean,
   signal: AbortSignal,
   payload: ImagePayload,
+  nativeLimits?: NativeImageLimits,
 ): Promise<MediaBlock[]> {
   const blocks: (
     | { type: "text"; text: string }
@@ -18,7 +20,7 @@ export async function consumeMedia(
   )[] = [];
   const type = response.headers.get("content-type") || "";
   if (native && !type.includes("json"))
-    for (const blob of await decodeNativeImages(await response.arrayBuffer()))
+    for (const blob of await decodeNativeImages(await response.arrayBuffer(), nativeLimits))
       blocks.push({ type: "image", blob });
   else if (type.startsWith("image/"))
     blocks.push({ type: "image", blob: await response.blob() });
@@ -56,7 +58,7 @@ export async function consumeMedia(
         blocks.push({
           type: "image",
           blob: native
-            ? (await decodeNativeImages(bytes.buffer))[0]
+            ? (await decodeNativeImages(bytes.buffer, nativeLimits))[0]
             : new Blob([bytes], { type: mime }),
         });
       }

@@ -1,6 +1,8 @@
+import { validateNaiText } from "../domain/nai-input.ts";
 import { readReferences, referenceModel, referencePlan, referenceSurcharge, activeReferences } from "../domain/nai-references.ts";
 import { insufficientFunds } from "../domain/source-funding.ts";
 import type { PreparedReferences } from "../domain/nai-references.ts";
+import type { ImagePayload } from "../gateway/routes.ts";
 import type { ApplicationServices } from "./application.ts";
 import {
   DEFAULTS,
@@ -35,6 +37,7 @@ import { characterCapability, nextCharacterId, sameValue } from "../domain/chara
 import type { Character } from "../domain/characters.ts";
 import { imageConnections } from "../config/connections.ts";
 import { naiCapabilities } from "../domain/nai.ts";
+import { modelSamplers, naiNoiseSchedule, supportsNaiVariety } from "../domain/nai-parameters.ts";
 
 export function createDrawing(
   services: ApplicationServices,
@@ -43,6 +46,7 @@ export function createDrawing(
 ) {
   const listeners = new Set<() => void>(),
     urls = new Map<string, { blob: Blob; url: string }>();
+  const imageListeners = new Set<(record: ImageRecord) => void>();
   let boards = readBoards(services.preferences.get(names.preferences, {}));
   const activeBoard = () => boards.items.find(b => b.id === boards.activeId)!;
   let form: DrawingForm = {
@@ -67,6 +71,7 @@ export function createDrawing(
     subtitle = "",
     label = "生成";
   let pending: {
+    boardId?: string;
     width: number;
     height: number;
     index: number;
@@ -189,7 +194,6 @@ export function createDrawing(
       preview?.update(null);
       return;
     }
-    if (activeReferences(readReferences(form.naiReferences)).length) { preview?.pause(); quote={status:"unsupported",quote:null}; return; }
     const cap = characterCapability(form.model);
     if (cap.max && form.characters.filter(c => c.on).length > cap.max) { preview?.update(null); return; }
     try { preview?.update(drawingPayload(collect(form, model, batchCount()))); }
@@ -279,7 +283,7 @@ export function createDrawing(
     revision++;
     model = resolveModel(models, form.model) ?? (naiCapabilities(form.model).medium ? undefined : resolveModel(models, DEFAULTS.model) ?? models[0]);
     if (model) {
-      samplers = connectionSamplers.get(model.connection) ?? [DEFAULTS.sampler];
+      samplers = modelSamplers(model, connectionSamplers.get(model.connection) ?? [DEFAULTS.sampler]);
       form = {
         ...form,
         model: model.id,
@@ -567,7 +571,7 @@ export function createDrawing(
     blob: Blob,
     size: ImageRecord["size"],
     params: Fields,
-    ms: number,
+    ms: number | undefined,
     quoteValue: Fields | null = null,
   ) {
     const thumbBlob = await makeThumb(blob);
@@ -578,12 +582,13 @@ export function createDrawing(
       thumbBlob,
       size,
       params,
-      ms,
+      ...(ms === undefined ? {} : { ms }),
       quote: quoteValue,
     };
     history = [record, ...history];
     trim();
     emit();
+    for (const listener of imageListeners) listener(record);
     return record;
   }
   async function run() {
@@ -625,6 +630,7 @@ export function createDrawing(
     label = "检查额度…";
     error = "";
     pending = {
+      boardId: sourceBoardId,
       width: base.width,
       height: base.height,
       index: 1,
@@ -652,8 +658,10 @@ export function createDrawing(
       if (!source) throw new Error("来源画板已删除，本次生成已取消");
       if (source.form.model !== sourceModel.id) throw new Error("预检期间模型已再次变化，请重新生成");
       base = collect({ ...form, ...source.form }, selected, count(source.form.batchCount));
+      validateNaiText(drawingPayload(base));
       const provenance = { boardId: source.id, boardName: source.name, boardColor: source.color };
       pending = {
+        boardId: sourceBoardId,
         width: base.width,
         height: base.height,
         index: 1,
@@ -703,13 +711,13 @@ export function createDrawing(
             if (!browsing) live();
             else emit();
             const params = batchParams(base, index),
-              payload = { ...drawingPayload(params), ...(prepared ? { preparedReferences:prepared } : {}) };
+              payload: ImagePayload = { ...drawingPayload(params), ...(prepared ? { preparedReferences:prepared } : {}) };
             const consume = (response: Response, native: boolean, s: AbortSignal) => consumeImage(response, native, s, payload, params.optimize);
             const options = { notice, onNotice: (text: string) => notify(text), signal:task.signal };
             const result = await (prepared ? referenceGateway!.execute(payload, consume, {
-              ...options, beforeSubmit: async () => {
+              ...options, beforeSubmit: async (freshQuote) => {
                 const balance = await referenceGateway!.quota(selected.quotaGroup, task.signal).catch(() => { task.signal.throwIfAborted(); return null; });
-                const reason = insufficientFunds(selected, balance, null, payload);
+                const reason = insufficientFunds(selected, balance, freshQuote, payload);
                 if (reason) throw new Error(reason);
               },
             }) : task.execute(
@@ -730,7 +738,7 @@ export function createDrawing(
             const record = await addImage(
               result.value.blob,
               result.value.size,
-              { ...params, ...provenance, via: result.via },
+              { ...params, ...provenance, varietyPlus: supportsNaiVariety(selected) && params.varietyPlus, noise_schedule: selected.profileId === "nai-official-v1" ? naiNoiseSchedule(selected.id, params.sampler, payload.noiseSchedule ?? payload.noise_schedule) : "karras", via: result.via },
               result.ms,
               JSON.parse(JSON.stringify(result.quote)) as Fields,
             );
@@ -927,12 +935,16 @@ export function createDrawing(
       listeners.add(fn);
       return () => listeners.delete(fn);
     },
+    onImage(fn: (record: ImageRecord) => void) {
+      imageListeners.add(fn);
+      return () => imageListeners.delete(fn);
+    },
     async addExternal(
       blob: Blob,
       size: ImageRecord["size"],
       params: Fields,
       quote: Fields | null,
-      ms = 0,
+      ms?: number,
     ) {
       const record = await addImage(blob, size, params, ms, quote);
       if (disposed) throw new DOMException("工作区已关闭", "AbortError");
@@ -998,7 +1010,7 @@ export function createDrawing(
     },
     samplersFor(modelId: string) {
       const selected = resolveModel(models, modelId);
-      return [...(selected ? connectionSamplers.get(selected.connection) ?? [DEFAULTS.sampler] : samplers)];
+      return selected ? modelSamplers(selected, connectionSamplers.get(selected.connection) ?? [DEFAULTS.sampler]) : [...samplers];
     },
     /** User-confirmed ASK writes invalidate the quote without scheduling network work. */
     async writeDraft(values: Partial<DrawingForm>, expected: Record<string, unknown>, boardId = boards.activeId) {
@@ -1009,7 +1021,7 @@ export function createDrawing(
       if (Object.entries(expected).some(([key, value]) => !sameValue(form[key as keyof DrawingForm], value))) throw new Error("表单已变化，草稿未写入");
       const targetModel = resolveModel(models, values.model ?? form.model);
       if (values.model !== undefined && !targetModel) throw new Error("目标模型已不可用");
-      const allowedSamplers = targetModel ? connectionSamplers.get(targetModel.connection) ?? [DEFAULTS.sampler] : samplers;
+      const allowedSamplers = targetModel ? modelSamplers(targetModel, connectionSamplers.get(targetModel.connection) ?? [DEFAULTS.sampler]) : samplers;
       if ((values.model !== undefined || values.sampler !== undefined) && !allowedSamplers.includes(values.sampler ?? form.sampler)) throw new Error("目标模型不支持此采样器，草稿未写入");
       const before = form;
       draftQuotePaused = true;
@@ -1098,6 +1110,7 @@ export function createDrawing(
       for (const v of urls.values()) URL.revokeObjectURL(v.url);
       urls.clear();
       listeners.clear();
+      imageListeners.clear();
       reveal = undefined;
     },
   };

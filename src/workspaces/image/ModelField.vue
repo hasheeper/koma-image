@@ -1,11 +1,11 @@
 <script setup lang="ts">
 import { computed } from "vue";
-import { useDrawing } from "../../app/drawing";
+import { useNaiComposer } from "../../app/nai-composer";
 import { naiCapabilities, NAI_FULL, NAI_MEDIUM, naiDataset, effectiveNaiMode } from "../../domain/nai";
 import { findModel } from "../../domain/models";
 import NaiSelect from "./NaiSelect.vue";
 import AppIcon from "../../shared/AppIcon.vue";
-const { drawing, view } = useDrawing();
+const { drawing, view, id } = useNaiComposer();
 const f = computed(() => view.value.form);
 const cap = computed(() => naiCapabilities(f.value.model));
 const modelOptions = computed(() => {
@@ -46,14 +46,14 @@ const modelDisplay = computed(() => {
 <template>
   <div class="fld">
     <div class="model-row">
-      <NaiSelect id="model" label="模型" variant="model" :value="baseModel" :display="modelDisplay" :title="modelDisplay" :disabled="!view.models.length" :options="modelChoices" @change="selectModel"><AppIcon class="model-ico" name="i-model" /></NaiSelect>
+      <NaiSelect :id="id('model')" label="模型" variant="model" :value="baseModel" :display="modelDisplay" :title="modelDisplay" :disabled="view.locked || !view.models.length" :options="modelChoices" @change="selectModel"><AppIcon class="model-ico" name="i-model" /></NaiSelect>
     </div>
     <div v-if="cap.supported" class="model-switches">
-      <div id="naiMode" class="seg" role="radiogroup" aria-label="模式" :data-value="mode" :title="modeTitle">
-        <label v-for="o in modeOptions" :key="o.value" :title="o.title"><input type="radio" name="naiMode" :value="o.value" :checked="mode === o.value" :disabled="o.disabled" @change="drawing.patch({ naiMode: o.value })" /><span><AppIcon v-if="!cap.effort" class="solid" :name="o.icon" />{{ o.label }}</span></label>
+      <div :id="id('naiMode')" class="seg" role="radiogroup" aria-label="模式" :data-value="mode" :title="modeTitle">
+        <label v-for="o in modeOptions" :key="o.value" :title="o.title"><input type="radio" :name="id('naiMode')" :value="o.value" :checked="mode === o.value" :disabled="view.locked || o.disabled" @change="drawing.patch({ naiMode: o.value })" /><span><AppIcon v-if="!cap.effort" class="solid" :name="o.icon" />{{ o.label }}</span></label>
       </div>
-      <div v-if="cap.effort" id="effort" class="seg" role="radiogroup" aria-label="Effort" title="Effort：Medium 固定 14 步、Euler A；High 可完整调节参数" :data-value="effort">
-        <label v-for="o in effortOptions" :key="o.value"><input type="radio" name="effort" :value="o.value" :checked="effort === o.value" :disabled="o.disabled" @change="selectEffort(o.value)" /><span>{{ o.label }}</span></label>
+      <div v-if="cap.effort" :id="id('effort')" class="seg" role="radiogroup" aria-label="Effort" title="Effort：Medium 固定 14 步、Euler A；High 可完整调节参数" :data-value="effort">
+        <label v-for="o in effortOptions" :key="o.value"><input type="radio" :name="id('effort')" :value="o.value" :checked="effort === o.value" :disabled="view.locked || o.disabled" @change="selectEffort(o.value)" /><span>{{ o.label }}</span></label>
       </div>
     </div>
   </div>

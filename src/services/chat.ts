@@ -25,6 +25,9 @@ import { AssetStore } from "./assets";
 import { consumeMedia } from "./media-response";
 import { createHandoff, fitReference } from "./handoff";
 import { imageConnections } from "../config/connections.ts";
+import { chatImageId, chatImageOrigin } from "../domain/image-origin.ts";
+import { makeThumb } from "./image-response.ts";
+import type { ImageRecord } from "../domain/drawing.ts";
 
 export const chatOptions = (c: ConversationRecord) =>
   object(c.settings.options) as Record<string, string>;
@@ -67,6 +70,7 @@ export function createChat(services: ApplicationServices, ui: Ui) {
     warming: Promise<void> | undefined,
     // Quote and quota requests belong to CHAT itself; ASK only warms it.
     entered = false,
+    catalogRequested = false,
     // After an ASK write, quoting waits for the user's next CHAT action.
     held = false;
   /** Conversations opened by an ASK handoff on this page, for exact undo. */
@@ -194,6 +198,7 @@ export function createChat(services: ApplicationServices, ui: Ui) {
       };
   }
   async function refreshCatalog() {
+    catalogRequested = true;
     if (disposed || !loaded || services.data.phase !== "ready") return;
     const revision = ++catalogRevision;
     catalogAbort?.abort();
@@ -586,11 +591,11 @@ export function createChat(services: ApplicationServices, ui: Ui) {
       if (loaded) await restore();
     },
     ready() {
-      if (loaded && !disposed) void refreshCatalog();
+      if (loaded && catalogRequested && !disposed) void refreshCatalog();
     },
   });
   const unconnect = services.connections.subscribeImages(() => {
-    if (loaded && services.data.phase === "ready") void refreshCatalog();
+    if (loaded && catalogRequested && services.data.phase === "ready") void refreshCatalog();
   });
   const hide = () => {
     if (document.visibilityState === "hidden") void flush().catch(() => {});
@@ -611,6 +616,22 @@ export function createChat(services: ApplicationServices, ui: Ui) {
       return Date.now() - (finished.get(id) || 0) < 2000;
     },
     start,
+    /** Local data only; HOME must not warm catalogs, quotes or balances. */
+    readStored: restored,
+    async favoriteRecord(conversationId: string, turnId: string, versionId: string, assetId: string): Promise<ImageRecord> {
+      const c = conversations.find(c => c.id === conversationId), turn = c?.turns.find(t => t.id === turnId);
+      const version = turn?.versions.find(v => v.id === versionId), asset = assets.assets.get(assetId);
+      if (!c || !turn || !version || version.status !== "done" || !asset || !version.blocks.some(b => b.type === "image" && b.assetId === assetId))
+        throw new Error("这张对话图片已不可用");
+      const params: Fields = { ...chatImageOrigin(c, turn, version, assetId), tool: "chat", model: String(turn.settings.model ?? ""),
+        modelName: models.find(m => m.id === turn.settings.model)?.name ?? String(turn.settings.model ?? ""),
+        prompt: turn.prompt, chat_options: structuredClone(object(turn.settings.options)) as Fields, width: asset.width, height: asset.height };
+      const record = { id: chatImageId(c.id, turn.id, version.id, asset.id), createdAt: version.completedAt ?? Date.now(), blob: asset.blob,
+        size: { width: asset.width, height: asset.height }, params, quote: version.quote ? structuredClone(version.quote) : null };
+      const thumbBlob = await makeThumb(asset.blob);
+      if (disposed || !conversations.includes(c) || !c.turns.includes(turn) || !turn.versions.includes(version)) throw new Error("来源对话已变化");
+      return { ...record, thumbBlob };
+    },
     warm,
     flush,
     refreshCatalog,

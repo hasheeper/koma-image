@@ -1,13 +1,14 @@
 <script setup lang="ts">
 import { computed, nextTick, onBeforeUnmount, onDeactivated, ref, watch } from "vue";
-import { useDrawing } from "../../app/drawing";
+import { useNaiComposer } from "../../app/nai-composer";
 import { message, useUi } from "../../app/ui";
 import type { Character, Center, Placement } from "../../domain/characters.ts";
 import AppIcon from "../../shared/AppIcon.vue";
 import { naiCapabilities, naiTagDataset } from "../../domain/nai";
 import HighlightInput from "../../shared/HighlightInput.vue";
 import CharacterPosition from "./CharacterPosition.vue";
-const { drawing, view } = useDrawing(), ui = useUi();
+import NaiTokenCount from "../../shared/NaiTokenCount.vue";
+const { drawing, view, id: controlId, stageTarget, stageViewport } = useNaiComposer(), ui = useUi();
 const ownerBoardId = view.value.activeBoardId;
 const open = ref(""), tab = ref<"prompt" | "negative">("prompt"), stage = ref(false), stageStyle = ref({});
 const f = computed(() => view.value.form), cap = computed(() => view.value.characterCapability), boardId = computed(() => view.value.activeBoardId);
@@ -16,23 +17,25 @@ const stageChars = computed(() => f.value.characters.map((c, i, all) => ({ ...c,
 function over(i: number) { return cap.value.max > 0 && f.value.characters[i].on && f.value.characters.slice(0, i + 1).filter(c => c.on).length > cap.value.max; }
 async function save(chars: Character[], placement: Placement = f.value.placement, id = ownerBoardId) { try { await drawing.editCharacters(chars, placement, id); } catch (e) { ui.toast(message(e), "err"); } }
 function update(id: string, values: Partial<Character>, owner: string) { if (owner !== ownerBoardId || owner !== boardId.value) return; void save(f.value.characters.map(c => c.id === id ? { ...c, ...values } : c)); }
-async function add() { const id = await drawing.addCharacter(); if (id) { open.value = id; tab.value = "prompt"; await nextTick(); document.getElementById(`char-${id}-prompt`)?.focus(); } }
+async function add() { const id = await drawing.addCharacter(); if (id) { open.value = id; tab.value = "prompt"; await nextTick(); document.getElementById(controlId(`char-${id}-prompt`))?.focus(); } }
 function move(i: number, by: number) { const chars = [...f.value.characters]; [chars[i], chars[i + by]] = [chars[i + by], chars[i]]; void save(chars); }
 function place(id: string, p: Center) { update(id, { centers: [p] }, boardId.value); }
 function placement(mode: Placement) { void save(f.value.characters.map((c, i, all) => ({ ...c, centers: mode === "manual" && !c.centers.length ? [{ x: (i + .5) / all.length, y: .5 }] : c.centers })), mode); }
 function positionStage() {
-  const area = document.querySelector(".shell .viewport")?.getBoundingClientRect();
+  const area = document.querySelector(stageViewport)?.getBoundingClientRect();
   if (!area) { stage.value = false; return; }
   const w = Math.min(area.width - 40, (area.height - 40) * ratio.value), h = w / ratio.value;
   stageStyle.value = { left: `${area.left + (area.width - w) / 2}px`, top: `${area.top + (area.height - h) / 2}px`, width: `${w}px`, height: `${h}px` };
 }
 // Narrow layouts scroll the page past the picture; bring it back under the bar before overlaying it.
 function revealStage() {
-  const area = document.querySelector(".shell .viewport")?.getBoundingClientRect(), bar = document.querySelector("body > .topbar")?.getBoundingClientRect().bottom ?? 0;
+  if (stageTarget !== "body") { document.querySelector(stageViewport)?.scrollIntoView({ block: "center", behavior: "instant" }); return; }
+  const area = document.querySelector(stageViewport)?.getBoundingClientRect(), bar = document.querySelector("body > .topbar")?.getBoundingClientRect().bottom ?? 0;
   if (area && area.top < bar) window.scrollBy({ top: area.top - bar, behavior: "instant" });
 }
 function keys(event: KeyboardEvent) { if (event.key === "Escape") { event.preventDefault(); event.stopPropagation(); stage.value = false; } }
 watch(stage, value => { if (value) { revealStage(); positionStage(); window.addEventListener("resize", positionStage); window.addEventListener("keydown", keys, true); } else { window.removeEventListener("resize", positionStage); window.removeEventListener("keydown", keys, true); } });
+watch(() => view.value.locked, value => { if (value) stage.value = false; });
 watch(boardId, () => { stage.value = false; open.value = f.value.characters[0]?.id ?? ""; tab.value = "prompt"; }, { immediate: true });
 watch([ratio, () => f.value.placement, () => cap.value.max], () => { if (!cap.value.max || f.value.placement !== "manual") stage.value = false; else if (stage.value) positionStage(); });
 function cleanup() { stage.value = false; window.removeEventListener("resize", positionStage); window.removeEventListener("keydown", keys, true); }
@@ -48,13 +51,13 @@ onDeactivated(cleanup); onBeforeUnmount(cleanup);
       <li v-for="(c, i) in f.characters" :key="`${boardId}:${c.id}`" class="mc-item" :data-character-id="c.id" :data-open="open === c.id || undefined" :data-off="!c.on || undefined" :data-over="over(i) || undefined">
         <div class="mc-row"><button class="mc-toggle" type="button" :aria-expanded="open === c.id" @click="open = open === c.id ? '' : c.id"><span class="mc-num">{{ i + 1 }}</span><span class="mc-text">{{ open === c.id ? `角色 ${i + 1}` : c.prompt.trim() || '空白角色' }}</span><span v-if="over(i) || !c.on" class="mc-flag">{{ over(i) ? '超出' : '停用' }}</span></button>
           <span v-if="open === c.id" class="mc-tools" role="group" :aria-label="`角色 ${i + 1}`"><button class="ibtn ibtn-xs" type="button" aria-label="上移" title="上移" :disabled="!i" @click="move(i, -1)"><AppIcon name="i-up" /></button><button class="ibtn ibtn-xs" type="button" aria-label="下移" title="下移" :disabled="i === f.characters.length - 1" @click="move(i, 1)"><AppIcon name="i-down" /></button><label class="mc-switch"><input type="checkbox" role="switch" :checked="c.on" :aria-label="`发送角色 ${i + 1}`" @change="update(c.id, { on: ($event.target as HTMLInputElement).checked }, ownerBoardId)" /><span class="switch"></span></label><button class="ibtn ibtn-xs" type="button" :aria-label="`删除角色 ${i + 1}`" title="删除" @click="save(f.characters.filter(x => x.id !== c.id))"><AppIcon name="i-trash" /></button></span><button class="mc-caret" type="button" tabindex="-1" aria-hidden="true" @click="open = open === c.id ? '' : c.id"><i class="caret"></i></button></div>
-        <div v-if="open === c.id" class="mc-body"><div class="mc-tabs tabs" role="tablist"><button v-for="t in (['prompt', 'negative'] as const)" :key="t" class="tab" type="button" role="tab" :data-character-field="t" :aria-selected="tab === t" @click="tab = t"><span>{{ t === 'prompt' ? 'Prompt' : 'Negative' }}</span><span class="tab-count" :data-filled="c[t].length ? '1' : undefined">{{ c[t].length }}</span></button></div><div class="pane"><HighlightInput :id="`char-${c.id}-${tab}`" :key="`${boardId}:${c.id}:${tab}`" :model-value="c[tab]" :label="`角色 ${i + 1} ${tab}`" :placeholder="tab === 'prompt' ? 'girl, … / boy, … / other, …' : '该角色不要出现的内容'" :readonly="tab === 'negative' && naiCapabilities(f.model).medium" :dataset="naiTagDataset(f)" :suggest="f.tagSuggest && !(tab === 'negative' && naiCapabilities(f.model).medium)" :title="tab === 'negative' && naiCapabilities(f.model).medium ? 'Medium 不使用角色负向提示词；原文已保留' : undefined" @update:model-value="update(c.id, { [tab]: $event }, ownerBoardId)" /></div></div>
+        <div v-if="open === c.id" class="mc-body"><div class="mc-tabs tabs" role="tablist"><button v-for="t in (['prompt', 'negative'] as const)" :key="t" class="tab" type="button" role="tab" :data-character-field="t" :aria-selected="tab === t" @click="tab = t"><span>{{ t === 'prompt' ? 'Prompt' : 'Negative' }}</span><NaiTokenCount :field="t" :text="c[t]" :character="c.id" /></button></div><div class="pane"><HighlightInput :id="controlId(`char-${c.id}-${tab}`)" :key="`${boardId}:${c.id}:${tab}`" :model-value="c[tab]" :label="`角色 ${i + 1} ${tab}`" :placeholder="tab === 'prompt' ? 'girl, … / boy, … / other, …' : '该角色不要出现的内容'" :readonly="tab === 'negative' && naiCapabilities(f.model).medium" :dataset="naiTagDataset(f)" :suggest="f.tagSuggest && !(tab === 'negative' && naiCapabilities(f.model).medium)" :title="tab === 'negative' && naiCapabilities(f.model).medium ? 'Medium 不使用角色负向提示词；原文已保留' : undefined" @update:model-value="update(c.id, { [tab]: $event }, ownerBoardId)" /></div></div>
       </li>
     </ol>
     <div v-if="cap.max && f.characters.length && f.placement === 'manual'" class="mc-pad-row"><CharacterPosition :characters="stageChars" :ratio="ratio" :grid="cap.positioning === 'grid5'" :selected="open" @change="place" @select="open = $event"><button class="ibtn ibtn-xs mc-pad-wide" type="button" title="在画面上调整" aria-label="在画面上调整" @click="stage = true"><AppIcon name="i-expand" /></button></CharacterPosition></div>
     <p v-if="view.characterProblem" class="hint warn">当前模型最多 {{ cap.max }} 个启用角色</p>
   </section>
-  <Teleport to="body"><section v-if="stage" class="mc-stage" :style="stageStyle" aria-label="调整角色位置"><CharacterPosition :characters="stageChars" :ratio="ratio" :grid="cap.positioning === 'grid5'" :selected="open" large @change="place" @select="open = $event" /><div class="mc-stage-bar"><div class="mc-stage-chips"><button v-for="c in f.characters.filter(c => c.on)" :key="c.id" class="mc-stage-chip" type="button" :aria-pressed="open === c.id" @click="open = c.id"><span class="mc-num">{{ f.characters.findIndex(x => x.id === c.id) + 1 }}</span>{{ c.prompt.split(',')[1]?.trim() || c.id }}</button></div><button class="btn btn-primary btn-sm" type="button" @click="stage = false">完成</button></div></section></Teleport>
+  <Teleport defer :to="stageTarget"><section v-if="stage" class="mc-stage" :style="stageStyle" aria-label="调整角色位置"><CharacterPosition :characters="stageChars" :ratio="ratio" :grid="cap.positioning === 'grid5'" :selected="open" large @change="place" @select="open = $event" /><div class="mc-stage-bar"><div class="mc-stage-chips"><button v-for="c in f.characters.filter(c => c.on)" :key="c.id" class="mc-stage-chip" type="button" :aria-pressed="open === c.id" @click="open = c.id"><span class="mc-num">{{ f.characters.findIndex(x => x.id === c.id) + 1 }}</span>{{ c.prompt.split(',')[1]?.trim() || c.id }}</button></div><button class="btn btn-primary btn-sm" type="button" @click="stage = false">完成</button></div></section></Teleport>
 </template>
 <style scoped>
 .mc-person { fill: currentColor; stroke: none; }

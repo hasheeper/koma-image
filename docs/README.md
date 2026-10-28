@@ -1,55 +1,52 @@
 # 文档索引
 
-更新：2026-10-26。本目录以当前仓库行为为主；后续规划明确标记为未实施。代码功能的本地模拟验收、真实供应商验证和线上部署状态分别记录，不能互相代替。历史文件不参与现行规则的优先级。
+更新：2026-10-28。现行文档直接说明当前行为；阶段方案、设计迭代、验收数字与过去授权统一放入[历史归档](archive/README.md)。代码实现、本地模拟、真实供应商验证和线上发布分别核验。
 
 ## 开始阅读
 
-- [项目介绍与运行](../README.md)：功能、连接、开发和验证入口。
-- [工程约定](../AGENTS.md)：稳定边界、授权、资源与数据纪律。
-- [架构](architecture.md)与[业务契约](business-contracts.md)：应用结构和必须保持的行为。
-- [当前状态与待办](implementation-plan.md)：已完成范围、真实待验项和已取消事项。
-- [设计语言](design-language.md)：产品理念、字体、颜色、布局、动效和文案。
+1. [产品总览](product-overview.md)：产品定位、理念、功能与创作闭环。
+2. [当前状态与待办](implementation-plan.md)：已实现范围、真实待验项与未开放能力。
+3. [架构](architecture.md)与[业务契约](business-contracts.md)：核心技术、模块所有权与必须保持的行为。
+4. [设计语言](design-language.md)：视觉、交互、动效和文案的共同标准。
 
-## 按任务阅读
+开发和运行见[项目说明](../README.md)，协作边界见[工程约定](../AGENTS.md)。
 
-| 任务 | 现行文档 |
+## 工作区与共享能力
+
+| 主题 | 现行文档 |
 | --- | --- |
-| 网关、数据租约、任务调度 | [网关／数据／调度](gateway-data-scheduler.md) |
-| 连接、Key、备份、词典 | [设置、备份与词典](shared-settings-tags.md) |
-| 绘图、结果、收藏和参数导入 | [绘图工作区](drawing-workspace.md) |
-| CHAT、上下文、编辑和图片交接 | [对话与编辑](chat-editor-workspaces.md) |
-| 画板和角色 | [多角色与画板](multi-character-boards-plan.md) |
-| 图像协议 | [能力与请求边界](native-image-protocols.md)、[NAI 当前覆盖、V4.5／V5 对照与后续工作](novelai-official.md) |
-| ASK | 先读[现行契约与维护入口](ask/ask-implementation-plan.md)，再按下表选择专题 |
-| 字体与样式 | [字体维护](font-style-governance.md)、[样式归属](style-ownership.md)、[检查规则](style-checks.md) |
-| 运行、发布、备份和回退 | [发布说明](release-guide.md) |
-| 字体和图标许可 | [第三方资源](third-party-assets.md) |
+| HOME：继续、创作线、定稿、ASK 停靠 | [HOME 工作区](koma-home.md) |
+| IMAGE：绘图、历史、收藏、参数导入 | [绘图工作区](drawing-workspace.md) |
+| IMAGE 独立画板、多角色与坐标 | [多角色与画板](multi-character-boards.md) |
+| CHAT：会话、上下文、多版本与图片交接 | [对话工作区](chat-workspace.md) |
+| EDIT：独立画板、图生图／重绘、增强／放大、Director Tools 与来源回流 | [编辑工作区](edit-workspace.md) |
+| Photopea：宿主、分层、蒙版及自动回传 | [Photopea 接入与工作栈](photopea-workstack-spec.md) |
+| 图像协议与供应商能力 | [协议能力](native-image-protocols.md)、[NAI 覆盖与缺口](novelai-official.md) |
+| 连接、模型优先级、Key、备份与 TAGS | [设置、备份与词典](shared-settings-tags.md) |
+| 网关、数据租约、存储与任务调度 | [网关、数据与调度](gateway-data-scheduler.md) |
+| 字体、CSS 归属与检查 | [字体维护](font-style-governance.md)、[样式归属与检查](style-ownership.md) |
+| 运行、打包、发布与回退 | [发布说明](release-guide.md) |
+| 字体、图标与嵌入服务许可 | [第三方资源](third-party-assets.md) |
 
-## ASK 专题职责
+## ASK 与外部协同
 
-| 文档 | 负责内容 |
+先读[ASK 现行契约与维护入口](ask/ask-implementation-plan.md)。ASK 专题冲突以该文为准，工程约定和用户已确认要求继续优先。
+
+| 文档 | 唯一维护职责 |
 | --- | --- |
-| [现行契约与维护入口](ask/ask-implementation-plan.md) | 已确认决策、数据生命周期和专题优先级；原文件名保留以稳定引用 |
-| [产品与架构](ask/ask-architecture.md) | 产品定位、模块所有权、状态与工具总览 |
-| [协议与运行契约](ask/ask-contracts-and-decisions.md) | 消息、缓存、工具预算、草稿校验、失败与并发 |
-| [UI 规范](ask/ask-ui-spec.md) | 当前 B v5 浮窗、消息、草稿、附件、压缩与键盘交互 |
-| [检索与状态](ask/ask-retrieval-state.md) | 工作台快照、历史检索、词典查询与消歧 |
-| [提示词维护](ask/ask-prompts.md) | 提示词文件、版本、自由创作和独立命名 |
-| [上下文压缩](compaction-plan.md) | 账本、记忆、归档、触发、召回与事务 |
-| [调用上下文调试](ask/ask-debug.md) | 实际请求、用量、缓存、命名与压缩调试 |
-| [外部协同与任务板 B1–B3](ask/bridge.md) | 目录挂载、JSON 传输、IMAGE 外部草稿与直接设参、状态／预览／索引和回执，以及共享资料按需读取、默认本地待办／轻量总览、复合草稿／文件保存／持久绑图和目录交付 |
-| [外部协同桥与 Slate 规划](ask/bridge-plan.md) | B1–B3 已实现；保留默认本地 Todo／Slate 与目录协作的阶段验收契约 |
+| [产品与架构](ask/ask-architecture.md) | 模块、所有权与工具总览 |
+| [协议与运行契约](ask/ask-contracts-and-decisions.md) | 消息、缓存、预算、草稿校验、失败及并发 |
+| [UI 规范](ask/ask-ui-spec.md) | B v5 浮窗、消息、草稿、附件与键盘交互 |
+| [检索与状态](ask/ask-retrieval-state.md) | 工作台快照、图片编号、历史和标签查询 |
+| [提示词维护](ask/ask-prompts.md) | 提示词文件、版本、自由创作与独立命名 |
+| [上下文压缩](ask/compaction.md) | 账本、记忆、归档、触发与恢复事务 |
+| [调用调试](ask/ask-debug.md) | 实际请求、用量与缓存记录 |
+| [外部协同与本地任务](ask/bridge.md) | IMAGE 外部草稿、目录／JSON、refs 按需读取、默认本地 Todo、复合草稿与成果交付 |
 
-ASK 专题发生冲突时以「现行契约与维护入口」为准，工程红线和用户已确认的要求继续优先。不再使用文档 1–4 的编号链和阶段补丁判断当前行为。
+外部 Agent 的操作说明为[公开 SKILL.md](../public/skills/koma-bridge/SKILL.md)；精确字段以应用在协同目录生成的 `PROTOCOL.md` 为准。
 
-## 历史与维护方式
+## 维护方式
 
-[2026-10-25 整理前快照](archive/2026-10-25/README.md)保留原 37 份 Markdown 及 ASK 动画 v2 原型，源码基线 `219463c`。M1–M7、A0–A4、R／W／CP、角色画板、TS 和 CSS 治理的计划、过程、测试数量及当时授权均在快照中。旧阶段、窗口专题与原型已退出现行目录；已完成阶段不再作为实施待办。整理后完成的 [CHAT 交接（H0–H4）](archive/ask-chat-handoff-plan.md)保留勘探与验收过程，现行规则见上表各专题。
+每条规则只在负责专题中维护，入口文档提供摘要和链接。已完成阶段不继续占用实施待办，不追加“覆盖前文”的补丁。历史文件保留当时的事实和验证边界，不参与现行规则优先级，也不构成新的推送或发布授权。
 
-外部协同的本地验证与真实目录兼容边界见 [B1 验收记录](archive/2026-10-26-bridge-b1-verification.md)、[B2 验收记录](archive/2026-10-26-bridge-b2-verification.md)、[B3 验收记录](archive/2026-10-26-bridge-b3-verification.md)、[Edge 外部 Agent 实战验收](archive/2026-10-26-bridge-field-verification.md)及[协同 UI 与文件草稿收口](archive/2026-10-26-bridge-ui-verification.md)。
-
-本轮公开技能入口及提交前回归范围见[外部协同发布前核验](archive/2026-10-26-bridge-release-verification.md)。
-
-维护现行契约时直接更新本节对应的负责文档，避免复制第二份规则或追加「覆盖前文」说明。历史测试证据注明日期、版本、范围和模拟／真实边界。历史授权不构成新的推送或部署授权。
-
-连接相关后续验证：[NAI 账户兼容](archive/2026-10-25-novelai-connection-check.md)、[V5 额度与张数展示](archive/2026-10-25-novelai-v5-usage.md)、[连接图标与官方 Logo](archive/2026-10-25-connection-icons.md)、[供应商分区与图像优先级](archive/2026-10-25-source-priority.md)、[连接与模型局部更新](archive/2026-10-25-settings-local-updates.md)、[V4.5／V5 能力核对](archive/2026-10-25-novelai-model-capabilities.md)、[NAI 参数兼容](archive/2026-10-25-nai-controls.md)、[NAI 模式与菜单](archive/2026-10-25-nai-modes.md)、[Vibe 与精确参考勘探](archive/2026-10-25-nai-references-research.md)、[参考链路与抽屉实施](archive/2026-10-25-nai-references-integration.md)、[NAI 适配发布与线上页面核验](archive/2026-10-25-nai-release-verification.md)。
+[历史索引](archive/README.md)集中列出 NAI、Bridge、Photopea、HOME 和 EDIT 的设计与验收记录，以及早期完整快照。

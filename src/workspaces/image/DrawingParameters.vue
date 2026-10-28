@@ -4,10 +4,13 @@ import { useDrawing } from "../../app/drawing";
 import { DEFAULTS, samplerName, randomSeed } from "../../domain/drawing";
 import type { DrawingForm } from "../../domain/drawing";
 import { naiCapabilities } from "../../domain/nai";
+import { naiNoiseSchedule, noiseSchedules, supportsNaiVariety } from "../../domain/nai-parameters";
 import AppIcon from "../../shared/AppIcon.vue";
+import GuidanceControl from "../../shared/GuidanceControl.vue";
 const { drawing, view } = useDrawing();
 const f = computed(() => view.value.form);
 const cap = computed(() => naiCapabilities(f.value.model));
+const official = computed(() => view.value.model?.profileId === "nai-official-v1");
 const parameterValue = (key: "steps" | "scale" | "cfgRescale") => cap.value.medium ? key === "steps" ? 14 : key === "cfgRescale" ? 0 : f.value[key] : f.value[key];
 function change(key: keyof DrawingForm, event: Event) {
   const input = event.target as HTMLInputElement;
@@ -20,8 +23,10 @@ function reset() {
       : view.value.samplers[0],
     steps: 25,
     scale: 5,
-    cfg: 10,
+    cfg: null,
     cfgRescale: 0,
+    varietyPlus: false,
+    noiseSchedule: "auto",
     seed: "",
     batchCount: 1,
     optimize: false,
@@ -48,8 +53,14 @@ function reset() {
           </option>
         </select>
       </div>
+      <div v-if="official && cap.supported && !cap.v5" class="fld">
+        <div class="fld-top"><label for="noiseSchedule">噪声调度</label></div>
+        <select id="noiseSchedule" :value="f.noiseSchedule" @change="change('noiseSchedule', $event)">
+          <option v-for="schedule in noiseSchedules" :key="schedule" :value="schedule">{{ schedule === 'auto' ? `默认 · ${naiNoiseSchedule(f.model, f.sampler, 'auto') === 'exponential' ? 'Exponential' : 'Karras'}` : schedule === 'polyexponential' ? 'Polyexponential' : schedule === 'exponential' ? 'Exponential' : 'Karras' }}</option>
+        </select>
+      </div>
       <div class="scrubs">
-        <label
+        <template
           v-for="control in [
             { key: 'steps' as const, label: '步数', min: 1, max: 50, step: 1 },
             {
@@ -62,6 +73,9 @@ function reset() {
             { key: 'cfgRescale' as const, label: 'Guidance Rescale', min: 0, max: 1, step: 0.01 },
           ]"
           :key="control.key"
+        >
+        <GuidanceControl v-if="control.key === 'scale'" id="scale" :model-value="f.scale" :official="official" :variety-plus="supportsNaiVariety(view.model) ? f.varietyPlus : undefined" @update:model-value="drawing.patch({scale: $event})" @update:variety-plus="drawing.patch({varietyPlus: $event})" />
+        <label v-else
           class="scrub scrub-sm"
           :style="{
             '--p':
@@ -79,11 +93,12 @@ function reset() {
             :max="control.max"
             :step="control.step"
             :value="parameterValue(control.key)"
-            :disabled="cap.medium && control.key !== 'scale'"
+            :disabled="cap.medium"
             :aria-label="control.label"
-            :title="control.key === 'scale' ? '提示词引导强度（CFG Scale）' : control.key === 'cfgRescale' ? '缓解高 Guidance 带来的过饱和与高对比；Medium 不适用' : cap.medium ? 'Medium 固定 14 步' : undefined"
+            :title="control.key === 'cfgRescale' ? '缓解高 Guidance 带来的过饱和与高对比；Medium 不适用' : cap.medium ? 'Medium 固定 14 步' : undefined"
             @input="change(control.key, $event)"
         /></label>
+        </template>
       </div>
       <div class="fld">
         <div class="fld-top"><label for="seed">Seed</label></div>

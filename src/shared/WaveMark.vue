@@ -6,7 +6,8 @@ type Tile = [x: number, y: number, size: number, radius: number, opacity: number
 const big = (x: number, y: number, d: number): Tile => [x, y, 6, 1.7, 1, d],
   mid = (x: number, y: number, d: number): Tile => [x, y, 4.4, 1.1, 0.5, d],
   dot = (x: number, y: number, d: number): Tile => [x, y, 3, 1.1, 0.24, d];
-const tiles: Record<"image" | "chat", Tile[]> = {
+const tiles: Record<"home" | "image" | "chat", Tile[]> = {
+  home: [dot(3, 3, 0), big(9, 1.5, 1), dot(18, 3, 2), big(1.5, 9, 1), big(9, 9, 2), big(16.5, 9, 3), big(1.5, 16.5, 2), dot(10.5, 18, 3), big(16.5, 16.5, 4)],
   image: [
     dot(3, 3, 0),
     mid(9.8, 2.3, 1),
@@ -27,7 +28,7 @@ const tiles: Record<"image" | "chat", Tile[]> = {
     mid(17.3, 9.8, 3),
   ],
 };
-defineProps<{ surface: "image" | "chat" }>();
+defineProps<{ surface: "home" | "image" | "chat" }>();
 </script>
 <template>
   <svg class="wave-mark" viewBox="0 0 24 24" aria-hidden="true">

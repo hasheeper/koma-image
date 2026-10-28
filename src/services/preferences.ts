@@ -1,11 +1,12 @@
 import { names } from "../storage/names.ts";
-import type { DataLease } from "./data-lease.ts";
+import type { DataLease, Writer } from "./data-lease.ts";
 export function createPreferences(
   storage: Pick<Storage, "getItem" | "setItem" | "removeItem">,
   data: DataLease,
 ) {
   const allowed = new Set<string>([
     names.preferences,
+    names.home,
     names.chatSettings,
     names.chatCurrent,
     names.chatRail,
@@ -34,10 +35,10 @@ export function createPreferences(
         return fallback;
       }
     },
-    async set(key: string, value: unknown) {
+    async set(key: string, value: unknown, write: Writer = data.write) {
       if (!allowed.has(key)) throw new Error("偏好字段无效");
       const text = JSON.stringify(value);
-      await data.write(() => storage.setItem(key, text));
+      await write(() => storage.setItem(key, text));
       changed(key);
     },
     async take<T>(key: string): Promise<T | null> {

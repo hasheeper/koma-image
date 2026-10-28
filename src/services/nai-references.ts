@@ -1,4 +1,4 @@
-import type { ReferenceAsset, VibeEncoding, NaiReference, ReferenceKind, ReferencePlan, PreparedReferences } from "../domain/nai-references.ts";
+import type { PngVibes, ReferenceAsset, VibeEncoding, NaiReference, ReferenceKind, ReferencePlan, PreparedReferences } from "../domain/nai-references.ts";
 import { encodingKey, encodingGroup, referenceModel, referenceStrengths } from "../domain/nai-references.ts";
 import { blobBase64, base64Blob, sha256, referenceBitmap, preciseImage, imageBase64 } from "../native/reference-images.ts";
 import { object } from "../domain/value.ts";
@@ -11,6 +11,7 @@ import type { DataLease } from "./data-lease.ts";
 type Databases = ReturnType<typeof openDatabases> extends Promise<infer T> ? T : never;
 export function createNaiReferences(databases: () => Databases, data: DataLease) {
   const assets = new Map<string, ReferenceAsset>(), encodings = new Map<string, VibeEncoding>(), urls = new Map<string, string>(), listeners = new Set<() => void>();
+  const thumbnailOwners = new Map<string, Set<object>>();
   let loaded = false, loading: Promise<void> | undefined, disposed = false;
   const channel = typeof BroadcastChannel === "function" ? new BroadcastChannel(names.sync) : undefined;
   const emit = () => { if (!disposed) listeners.forEach(fn => fn()); };
@@ -45,11 +46,17 @@ export function createNaiReferences(databases: () => Databases, data: DataLease)
   return {
     ready,
     subscribe(fn: () => void) { listeners.add(fn); return () => listeners.delete(fn); },
-    thumbnail(id: string) {
+    thumbnail(id: string, owner?: object) {
+      if (owner) { const owners = thumbnailOwners.get(id) ?? new Set<object>(); owners.add(owner); thumbnailOwners.set(id, owners); }
       const item = assets.get(id); if (!item?.thumbnail) return "";
       let url = urls.get(id); if (!url) { url = URL.createObjectURL(item.thumbnail); urls.set(id,url); } return url;
     },
-    releaseThumbnails(ids: Iterable<string>) { for (const id of ids) { const url=urls.get(id); if (url) { URL.revokeObjectURL(url); urls.delete(id); } } },
+    releaseThumbnails(ids: Iterable<string>, owner?: object) { for (const id of ids) {
+      const owners = thumbnailOwners.get(id); if (owner) owners?.delete(owner);
+      if (owners?.size) continue;
+      thumbnailOwners.delete(id);
+      const url = urls.get(id); if (url) { URL.revokeObjectURL(url); urls.delete(id); }
+    } },
     original: (id: string) => !!assets.get(id)?.blob,
     pending: (r: NaiReference, model: string) => !encodings.has(encodingKey(model,r.assetId,r.information)),
     async pendingCost(plan: ReferencePlan, model: string) {
@@ -116,6 +123,24 @@ export function createNaiReferences(databases: () => Databases, data: DataLease)
       }
       return new Blob([JSON.stringify(kind === "vibe" ? { identifier:"novelai-vibe-transfer-bundle", version:1, vibes } : { identifier:"koma-precise-references", version:1, images:vibes })], {type:"application/json"});
     },
+    /** PNG metadata contains model-bound encodings, never the original reference pixels. */
+    async importPng(vibes: PngVibes) {
+      await ready();
+      if (!referenceModel(vibes.model) || !vibes.items.length || vibes.items.length > 16) throw new Error("PNG 参考编码格式无效");
+      const imported: ReferenceAsset[] = [], encoded: VibeEncoding[] = [], rows: NaiReference[] = [];
+      let bytes = 0;
+      for (const entry of vibes.items) {
+        bytes += base64Blob(entry.encoding).size;
+        if (bytes > 24 * 1024 * 1024) throw new Error("PNG 参考编码总量过大");
+        if (![entry.information, entry.strength].every(n => Number.isFinite(n) && n >= 0 && n <= 1)) throw new Error("PNG 参考参数无效");
+        const id = await sha256(entry.encoding), r = row(id, "vibe", vibes.model);
+        r.information = entry.information; r.strength = entry.strength;
+        imported.push(assets.get(id) ?? { id, blob: null, thumbnail: null, width: 1, height: 1 });
+        encoded.push({ id: encodingKey(vibes.model, id, r.information), assetId: id, model: vibes.model, information: r.information, data: entry.encoding });
+        rows.push(r);
+      }
+      await persist(imported, encoded); return rows;
+    },
     async import(file: File, kind: ReferenceKind, model: string) {
       await ready(); if (file.size > 64*1024*1024) throw new Error("参考文件最多 64MB");
       const source = object(JSON.parse(await file.text()));
@@ -169,6 +194,6 @@ export function createNaiReferences(databases: () => Databases, data: DataLease)
       }
       await persist(imported,encoded); return rows;
     },
-    dispose() { disposed = true; unregister(); channel?.close(); clearUrls(); listeners.clear(); assets.clear(); encodings.clear(); },
+    dispose() { disposed = true; thumbnailOwners.clear(); unregister(); channel?.close(); clearUrls(); listeners.clear(); assets.clear(); encodings.clear(); },
   };
 }

@@ -1,3 +1,4 @@
+import { supportsFocusedInpaint } from "../domain/inpaint-focus.ts";
 import { imageConnections } from "../config/connections.ts";
 import type { CatalogModel } from "../domain/catalog.ts";
 import type { QuotaStatus } from "../domain/quota.ts";
@@ -7,6 +8,9 @@ import type { ImagePayload } from "../gateway/routes.ts";
 import type { createGateway } from "../gateway/client.ts";
 import type { createConnections } from "./connections.ts";
 import { profileFor } from "../gateway/profile.ts";
+import { supportsNaiEnhance } from "../domain/nai-enhance.ts";
+import { naiCost } from "../domain/nai-cost.ts";
+import { referenceSurcharge } from "../domain/nai-references.ts";
 
 type Gateway = ReturnType<typeof createGateway>;
 type GatewayOptions = NonNullable<Parameters<Gateway["execute"]>[2]>;
@@ -17,7 +21,8 @@ export type SourceOptions = Omit<GatewayOptions, "beforeSubmit"> & {
 };
 class InsufficientSource extends Error {}
 
-export function createSourcePriority(connections: ReturnType<typeof createConnections>, gateway: (id: string) => Gateway) {
+export function createSourcePriority(connections: ReturnType<typeof createConnections>, gateway: (id: string) => Gateway,
+  pendingCost?: (plan: NonNullable<ImagePayload["referencePlan"]>, model: string) => Promise<number>) {
   async function* candidates(wanted: CatalogModel, payload: ImagePayload | undefined, signal?: AbortSignal, get = gateway, operation?: string) {
     const routing = connections.configuration;
     const configured = imageConnections(routing).filter(c => connections.hasCredential(c.credentialRef));
@@ -29,7 +34,7 @@ export function createSourcePriority(connections: ReturnType<typeof createConnec
       const client = get(connection.id), catalog = await client.catalog(false, signal);
       const model = catalog.models.find(m => m.id === wanted.id);
       if (!model || !supportsSourcePayload(model, payload)) continue;
-      if (operation === "chat" ? !model.chat : operation && !supportsSourcePayload(model, { model: model.id, tool: operation })) continue;
+      if (operation === "focused-inpaint" ? !supportsFocusedInpaint(model) : operation === "enhance" ? !supportsNaiEnhance(model) : operation === "chat" ? !model.chat : operation && !supportsSourcePayload(model, { model: model.id, tool: operation })) continue;
       if (payload?.sampler && !catalog.samplers.includes(String(payload.sampler))) continue;
       assertCurrent();
       yield { model, client };
@@ -51,11 +56,18 @@ export function createSourcePriority(connections: ReturnType<typeof createConnec
       const skipped: string[] = [];
       let first: SourceSelection | undefined;
       for await (const { model, client } of candidates(wanted, payload, signal, gateway, operation)) {
-        const quote = payload && (client.profile.quote.supported || client.profile.costCeiling)
+        let quote = payload && (client.profile.quote.supported || client.profile.costCeiling)
           ? await client.estimate(payload, signal) : null;
         const quota = await readQuota(client, model, signal);
+        let assessed = payload;
+        if (payload && client.profile.protocol === "novelai") {
+          const minimum = payload.referencePlan && !payload.preparedReferences && pendingCost
+            ? referenceSurcharge(payload.referencePlan) + await pendingCost(payload.referencePlan, model.id) : payload.referenceMinimum;
+          assessed = { ...payload, referenceMinimum: minimum };
+          quote = naiCost({ ...assessed, model: model.upstreamId ?? payload.model }, quota?.media.subscription);
+        }
         signal?.throwIfAborted();
-        const insufficient = insufficientFunds(model, quota, quote, payload);
+        const insufficient = insufficientFunds(model, quota, quote, assessed);
         const selection = { model, quota, quote, insufficient, skipped: [...skipped] };
         if (!insufficient) return selection;
         first ??= selection;

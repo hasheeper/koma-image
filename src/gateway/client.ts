@@ -1,3 +1,5 @@
+import { countNaiTokens } from "../native/nai-tokenizer.ts";
+import { validateNaiText } from "../domain/nai-input.ts";
 import { readEncoding } from "../native/reference-images.ts";
 import { referenceModel } from "../domain/nai-references.ts";
 import { normalizeCatalog, validateCatalog } from "../domain/catalog.ts";
@@ -13,6 +15,7 @@ import { createTransport, readJson, errorMessage } from "./transport.ts";
 import { executionRoute, toNativePayload, toStandardPayload } from "./routes.ts";
 import type { ImagePayload } from "./routes.ts";
 import { nativeCatalog, nativeMappedCatalog, nativeRequest } from "./native-protocols.ts";
+import { naiCost } from "../domain/nai-cost.ts";
 
 export class QuoteUnsupported extends Error {
   constructor() {
@@ -71,7 +74,12 @@ export function createGateway(
   async function estimateWire(
     payload: ImagePayload,
     signal?: AbortSignal,
-  ): Promise<Quote> {
+  ): Promise<Quote | null> {
+    if (profile.quote.local && profile.protocol === "novelai") {
+      if (payload.tool === "upscale") return naiCost(payload, undefined);
+      const balance = await quota(undefined, signal).catch(() => { signal?.throwIfAborted(); context.assertCurrent(); return null; });
+      return naiCost(payload, balance?.media.subscription);
+    }
     if (!profile.quote.supported) throw new QuoteUnsupported();
     const quote = validateQuote(
       await readJson(
@@ -83,6 +91,15 @@ export function createGateway(
     );
     context.assertCurrent();
     return quote;
+  }
+  async function quota(quotaGroup?: string, signal?: AbortSignal) {
+    if (profile.protocol !== "novelai") throw new Error("此账户读取仅适用于 NovelAI");
+    const subscription = await readJson(await transport.request(profilePath(profile, "quota"), { signal: timedSignal(10_000, signal) }));
+    context.assertCurrent();
+    const steps = subscription.trainingStepsLeft as Record<string, unknown> | undefined;
+    const fixed = steps?.fixedTrainingStepsLeft, purchased = steps?.purchasedTrainingSteps;
+    const remaining = typeof fixed === "number" && typeof purchased === "number" && Number.isFinite(fixed) && Number.isFinite(purchased) ? fixed + purchased : null;
+    return normalizeQuota(profile, { credits: { remaining }, subscription }, null, quotaGroup);
   }
   return {
     profile,
@@ -96,12 +113,7 @@ export function createGateway(
         context.assertCurrent();
         signal?.throwIfAborted();
         if (profile.protocol !== "novelai") return normalizeQuota(profile, {}, null, quotaGroup);
-        const subscription = await readJson(await transport.request(profilePath(profile, "quota"), { signal: timedSignal(10_000, signal) }));
-        context.assertCurrent();
-        const steps = subscription.trainingStepsLeft as Record<string, unknown> | undefined;
-        const fixed = steps?.fixedTrainingStepsLeft, purchased = steps?.purchasedTrainingSteps;
-        const remaining = typeof fixed === "number" && typeof purchased === "number" && Number.isFinite(fixed) && Number.isFinite(purchased) ? fixed + purchased : null;
-        return normalizeQuota(profile, { credits: { remaining }, subscription }, null, quotaGroup);
+        return quota(quotaGroup, signal);
       }
       const results = await Promise.allSettled([
         transport
@@ -177,9 +189,16 @@ export function createGateway(
         acknowledged = false;
       try {
         const payload = wire(input);
+        validateNaiText(payload);
+        const adapted = profile.protocol && profile.protocol !== "standard" ? nativeRequest(profile, payload) : null;
+        if (profile.protocol === "novelai" && payload.tool !== "upscale" && payload.tool !== "director") {
+          const counts = await countNaiTokens(payload).catch(() => null);
+          if (counts && [counts.prompt, counts.negative].some(parts => parts.reduce((a, b) => a + b, 0) > counts.tokens))
+            options.onNotice?.(`提示词超过当前型号的 ${counts.tokens} token 预算，超出部分可能被上游截断`);
+        }
         // A declared ceiling needs a fresh quote; estimateWire rejects when quotes are unsupported.
         const quote =
-          profile.quote.supported || profile.costCeiling
+          profile.quote.supported || profile.quote.local || profile.costCeiling
             ? await estimateWire(payload, signal)
             : null;
         if (options.beforeSubmit) await options.beforeSubmit(quote);
@@ -192,7 +211,6 @@ export function createGateway(
         }
         signal.throwIfAborted();
         context.assertCurrent();
-        const adapted = profile.protocol && profile.protocol !== "standard" ? nativeRequest(profile, payload) : null;
         const route = adapted ? { path: adapted.path } : executionRoute(payload, quote, profile),
           native = adapted ? adapted.native : "kind" in route && route.kind === "native";
         if (native) {

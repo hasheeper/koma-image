@@ -11,7 +11,7 @@ import type { CatalogModel } from "../../domain/catalog.ts";
 
 export type TextTarget = "image.prompt" | "image.negative" | "chat.composer" | `image.char.c${number}.${"prompt" | "negative"}`;
 export type TextMode = "replace" | "before" | "after" | "append" | "rewrite";
-export const restoreKeys = ["prompt", "negative_prompt", "model", "width", "height", "steps", "scale", "cfg", "cfgRescale", "naiMode", "complexity", "qualityPreset", "negativePreset", "transparentBg", "sampler", "seed", "batchCount", "characters"] as const;
+export const restoreKeys = ["prompt", "negative_prompt", "model", "width", "height", "steps", "scale", "cfg", "cfgRescale", "noiseSchedule", "varietyPlus", "naiMode", "complexity", "qualityPreset", "negativePreset", "transparentBg", "sampler", "seed", "batchCount", "characters"] as const;
 export type RestoreKey = typeof restoreKeys[number];
 export interface TextStep {
   readonly kind: "prompt_patch";

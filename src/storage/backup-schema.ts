@@ -103,8 +103,12 @@ export function readBackupPreferences(value: unknown): BackupPreferences {
           if (!id(b.id) || seen.has(b.id) || typeof b.name !== "string" || !plain(b.form) || !Number.isSafeInteger(b.nextCharacterId) || Number(b.nextCharacterId) < 1 || !["auto", "manual"].includes(String(f.placement)) || !Array.isArray(chars)) throw bad();
           for (const key of boardKeys) {
             if (key === "characters" || key === "placement" || key === "naiReferences") continue;
+            if (key === "cfg") {
+              if (f.cfg != null && (typeof f.cfg !== "number" || !Number.isFinite(f.cfg))) throw bad();
+              continue;
+            }
             // Older Koma v2 backups predate the NAI controls; readBoards supplies defaults.
-            if (["cfgRescale", "naiMode", "complexity", "qualityPreset", "negativePreset"].includes(key) && f[key] === undefined) continue;
+            if (["cfgRescale", "noiseSchedule", "varietyPlus", "naiMode", "complexity", "qualityPreset", "negativePreset"].includes(key) && f[key] === undefined) continue;
             if (typeof f[key] !== typeof DEFAULTS[key] || typeof f[key] === "number" && !Number.isFinite(f[key])) throw bad();
           }
           if (f.naiReferences !== undefined) checkedReferences(f.naiReferences);
@@ -296,7 +300,10 @@ export function validateBackupManifest(value: unknown): BackupManifest {
   if(referenceAssets.some(a=>!a.image && !vibeEncodings.some(e=>e.assetId===a.id))) throw bad();
   const preferences = readBackupPreferences(m.preferences);
   const forms = preferences.drawing ? object(JSON.parse(preferences.drawing)) : {};
-  const configs = [forms.naiReferences, ...((object(forms.boards).items ?? []) as unknown[]).map(b=>object(object(b).form).naiReferences), ...favorites.map(f=>object(f.params).naiReferences)];
+  const configs = [forms.naiReferences, ...((object(forms.boards).items ?? []) as unknown[]).map(b=>object(object(b).form).naiReferences), ...favorites.flatMap(f=>{
+    const params = object(f.params);
+    return [params.naiReferences, ...(["manual-edit", "director"].includes(String(params.tool)) ? [object(params.sourceRecipe).naiReferences] : [])];
+  })];
   for (const value of configs) {
     const r=value===undefined ? readReferences(undefined) : checkedReferences(value);
     for (const item of [...r.vibe,...r.precise]) if (!referenceIds.has(item.assetId)) throw new Error("备份缺少参考图片");

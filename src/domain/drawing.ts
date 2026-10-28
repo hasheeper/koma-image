@@ -1,4 +1,5 @@
 import { emptyReferences, readReferences, referencePlan } from "./nai-references.ts";
+import { canReuseDrawingParams } from "./image-origin.ts";
 import { resolveModel } from "./catalog.ts";
 import type { CatalogModel } from "./catalog.ts";
 import type { FavoriteRecord } from "../storage/records.ts";
@@ -6,7 +7,8 @@ import type { ImagePayload } from "../gateway/routes.ts";
 import { naiPrompt } from "../gateway/routes.ts";
 import { activeCharacters, readCharacters, nextCharacterId, sameValue } from "./characters.ts";
 import type { Character, Placement } from "./characters.ts";
-import { naiCapabilities, qualityTags, negativeTags, appendNaiTags, prependNaiTag, readNaiSettings, naiModes, naiModePrompt, effectiveNaiMode, complexities, qualityPresets, negativePresets } from "./nai.ts";
+import { naiCapabilities, compileNaiPrompt, readNaiSettings, naiModes, complexities, qualityPresets, negativePresets } from "./nai.ts";
+import { noiseSchedules, naiNoiseSchedule } from "./nai-parameters.ts";
 export const DEFAULTS = {
   prompt: "",
   negative: "",
@@ -16,7 +18,7 @@ export const DEFAULTS = {
   height: 1216,
   steps: 25,
   scale: 5,
-  cfg: 10, // Legacy standard-gateway field; never interpreted as Guidance Rescale.
+  cfg: null as number | null, // Historical metadata only; never sent or interpreted as Guidance Rescale.
   ...readNaiSettings({}),
   seed: "",
   batchCount: 1,
@@ -30,7 +32,7 @@ export const DEFAULTS = {
   placement: "auto" as Placement,
 };
 export type DrawingForm = typeof DEFAULTS;
-export const boardKeys = ["prompt", "negative", "model", "sampler", "width", "height", "steps", "scale", "cfg", "cfgRescale", "naiMode", "complexity", "qualityPreset", "negativePreset", "seed", "batchCount", "optimize", "transparentBg", "characters", "placement", "naiReferences"] as const;
+export const boardKeys = ["prompt", "negative", "model", "sampler", "noiseSchedule", "varietyPlus", "width", "height", "steps", "scale", "cfg", "cfgRescale", "naiMode", "complexity", "qualityPreset", "negativePreset", "seed", "batchCount", "optimize", "transparentBg", "characters", "placement", "naiReferences"] as const;
 export type BoardForm = Pick<DrawingForm, typeof boardKeys[number]>;
 export interface DrawingBoard { id: string; name: string; color: string; nextCharacterId: number; form: BoardForm }
 export interface Boards { activeId: string; items: DrawingBoard[] }
@@ -72,6 +74,8 @@ export type DrawingParams = Pick<
   | "scale"
   | "cfg"
   | "cfgRescale"
+  | "noiseSchedule"
+  | "varietyPlus"
   | "naiMode"
   | "complexity"
   | "qualityPreset"
@@ -92,6 +96,7 @@ export type DrawingParams = Pick<
   localCharacters: Character[];
   placement: Placement;
   naiReferences: ReturnType<typeof emptyReferences>;
+  noise_schedule?: string;
 };
 export interface ImageRecord extends Omit<FavoriteRecord, "favoritedAt"> {
   favoritedAt?: number;
@@ -185,17 +190,7 @@ export function collect(
   batchCount: number,
 ): DrawingParams {
   const cap = naiCapabilities(model.id), settings = readNaiSettings(form);
-  const basePrompt = form.prompt.trim(), baseNegative = form.negative.trim();
-  const transparentBg = form.transparentBg && model.transparentBackground;
-  const qualityPreset = cap.quality.includes(settings.qualityPreset) ? settings.qualityPreset : "none";
-  const negativePreset = cap.negative.includes(settings.negativePreset) ? settings.negativePreset : "none";
-  const complexity = cap.v5 ? settings.complexity : "none";
-  const naiMode = cap.supported ? effectiveNaiMode(settings.naiMode, basePrompt) : "anime";
-  const modePrompt = cap.supported ? naiModePrompt(basePrompt, naiMode) : basePrompt;
-  let prompt = transparentBg && !/transparent background/i.test(basePrompt)
-    ? prependNaiTag(modePrompt, "transparent background") : modePrompt;
-  prompt = appendNaiTags(prompt, complexity === "none" ? "" : `${complexity} complexity`);
-  prompt = appendNaiTags(prompt, qualityTags(model.id, qualityPreset));
+  const compiled = compileNaiPrompt({ ...form, prompt: form.prompt.trim(), negative: form.negative.trim() }, model);
   const characters = activeCharacters(form.characters, model.id).map(c => cap.medium ? { ...c, negative: "" } : c);
   return {
     width: form.width,
@@ -205,14 +200,13 @@ export function collect(
     scale: form.scale,
     cfg: form.cfg,
     cfgRescale: cap.medium ? 0 : settings.cfgRescale,
-    qualityPreset, negativePreset, complexity, naiMode,
+    noiseSchedule: settings.noiseSchedule,
+    varietyPlus: settings.varietyPlus,
+    ...(model.profileId === "nai-official-v1" ? { noise_schedule: naiNoiseSchedule(model.id, form.sampler, settings.noiseSchedule) } : {}),
+    ...compiled,
     optimize: form.optimize,
     cache: false,
     transform_prompt: false,
-    prompt,
-    basePrompt,
-    baseNegative,
-    negative_prompt: cap.medium ? "" : appendNaiTags(baseNegative, negativeTags(model.id, negativePreset)),
     model: model.id,
     modelName: model.name,
     batchCount,
@@ -221,7 +215,6 @@ export function collect(
       form.seed.trim() === ""
         ? randomSeed()
         : Math.min(4294967295, Math.max(0, Math.floor(Number(form.seed)) || 0)),
-    transparentBg,
     characters,
     localCharacters: structuredClone(form.characters),
     naiReferences: readReferences(form.naiReferences),
@@ -245,7 +238,6 @@ export function drawingPayload(p: DrawingParams): ImagePayload {
     steps,
     sampler,
     scale,
-    cfg,
     seed,
   } = p;
   const references = referencePlan(p.naiReferences);
@@ -258,8 +250,10 @@ export function drawingPayload(p: DrawingParams): ImagePayload {
     steps,
     sampler,
     scale,
-    cfg,
-    cfg_rescale: p.cfgRescale,
+    noiseSchedule: p.noiseSchedule,
+    ...(p.varietyPlus ? { varietyPlus: true } : {}),
+    ...(p.noise_schedule ? { noise_schedule: p.noise_schedule } : {}),
+    ...(!naiCapabilities(model).medium ? { cfg_rescale: p.cfgRescale } : {}),
     seed,
     // Metadata stripping happens locally; the gateway never re-encodes or caches.
     optimize: false,
@@ -271,12 +265,15 @@ export function drawingPayload(p: DrawingParams): ImagePayload {
   };
 }
 export function reuseFields(item: Pick<ImageRecord, "params">) {
+  if (!canReuseDrawingParams(item.params)) return {};
   const p = item.params;
   return {
     ...(p.naiReferences ? { naiReferences: readReferences(p.naiReferences) } : {}),
     prompt: p.basePrompt ?? p.prompt ?? "",
     negative_prompt: p.baseNegative ?? p.negative_prompt ?? "",
-    cfgRescale: p.cfgRescale,
+    cfgRescale: p.cfgRescale ?? p.cfg_rescale ?? 0,
+    noiseSchedule: p.noiseSchedule ?? p.noise_schedule ?? "auto",
+    varietyPlus: readNaiSettings(p).varietyPlus,
     naiMode: p.naiMode ?? "anime",
     complexity: p.basePrompt !== undefined ? p.complexity ?? "none" : "none",
     qualityPreset: p.basePrompt !== undefined ? p.qualityPreset ?? "none" : "none",
@@ -314,6 +311,7 @@ export const samplerName = (id: unknown) => {
         k_euler_ancestral: "Euler Ancestral",
         k_euler: "Euler",
         k_dpmpp_2m: "DPM++ 2M",
+        k_dpmpp_2m_sde: "DPM++ 2M SDE",
         k_dpmpp_sde: "DPM++ SDE",
         k_dpmpp_2s_ancestral: "DPM++ 2S Ancestral",
         ddim_v3: "DDIM v3",
@@ -326,6 +324,7 @@ export const samplerName = (id: unknown) => {
 export function prepareDrawingFields(fields: Record<string, unknown>, models: CatalogModel[], samplers: string[]) {
   const changes: Partial<DrawingForm> = {};
   const applied: string[] = [];
+  if (!canReuseDrawingParams(fields)) return { changes, applied };
   // Imported effective text already includes its presets; only explicit local metadata restores them.
   if (fields.prompt !== undefined) {
     changes.naiMode = "anime"; changes.qualityPreset = "none"; changes.complexity = "none"; changes.transparentBg = false;
@@ -333,6 +332,7 @@ export function prepareDrawingFields(fields: Record<string, unknown>, models: Ca
   if (fields.negative_prompt !== undefined) changes.negativePreset = "none";
   for (const [key, value] of Object.entries(fields)) {
     if (value === undefined) continue;
+    if (key === "cfg" && value === null) { changes.cfg = null; applied.push(key); continue; }
     if (key === "naiReferences") { changes.naiReferences = readReferences(value); applied.push(key); continue; }
     if (key === "characters" && Array.isArray(value)) { changes.characters = readCharacters(value); applied.push(key); continue; }
     if (key === "placement" && (value === "auto" || value === "manual")) { changes.placement = value; applied.push(key); continue; }
@@ -345,8 +345,8 @@ export function prepareDrawingFields(fields: Record<string, unknown>, models: Ca
       }
       continue;
     }
-    if (key === "transparentBg" && typeof value === "boolean") { changes.transparentBg = value; applied.push(key); continue; }
-    const choices = { naiMode: naiModes, complexity: complexities, qualityPreset: qualityPresets, negativePreset: negativePresets };
+    if ((key === "transparentBg" || key === "varietyPlus") && typeof value === "boolean") { changes[key] = value; applied.push(key); continue; }
+    const choices = { noiseSchedule: noiseSchedules, naiMode: naiModes, complexity: complexities, qualityPreset: qualityPresets, negativePreset: negativePresets };
     if (key in choices) {
       if ((choices[key as keyof typeof choices] as readonly unknown[]).includes(value)) { Object.assign(changes, { [key]: value }); applied.push(key); }
       continue;
@@ -365,12 +365,11 @@ export function prepareDrawingFields(fields: Record<string, unknown>, models: Ca
       const range = (
         {
           steps: [1, 50, 1],
-          scale: [0, 20, 0.5],
           cfg: [0, 30, 0.5],
           cfgRescale: [0, 1, 0.01],
         } as Record<string, number[]>
       )[target];
-      const numeric = range
+      const numeric = target === "scale" ? Math.max(0, Number(value)) : range
         ? Math.max(
             range[0],
             Math.min(
@@ -379,7 +378,7 @@ export function prepareDrawingFields(fields: Record<string, unknown>, models: Ca
             ),
           )
         : Number(value);
-      Object.assign(changes, { [target]: numeric });
+      Object.assign(changes, { [target]: target === "cfgRescale" ? Number(numeric.toFixed(2)) : numeric });
       applied.push(key);
     }
   }

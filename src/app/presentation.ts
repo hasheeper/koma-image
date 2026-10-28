@@ -60,7 +60,7 @@ export function usePresentation(shell: AppShell, ui: Ui) {
         if (value === undefined) delete body.dataset[key];
         else body.dataset[key] = value;
       }
-      document.title = `${overlay === "settings" ? "设置" : overlay === "editor" ? "编辑" : workspaceInfo[workspace].name} · Koma Image`;
+      document.title = `${overlay === "settings" ? "设置" : workspaceInfo[workspace].name} · Koma Image`;
       icon.href = `${import.meta.env.BASE_URL}assets/favicon-${workspace}.svg`;
     },
     { flush: "sync" },

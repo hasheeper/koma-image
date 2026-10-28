@@ -2,7 +2,7 @@ import { freeze } from "../domain/value.ts";
 
 export const STANDARD_PROFILE_ID = "koma-standard-v1";
 export type Protocol = "standard" | "openai-images" | "gemini-native" | "novelai" | "openai-chat" | "anthropic-messages";
-export type ProfilePath = "catalog" | "quota" | "stats" | "estimate" | "toolEstimate" | "generate" | "toolRun" | "native" | "reasoning" | "encodeVibe";
+export type ProfilePath = "catalog" | "quota" | "stats" | "estimate" | "toolEstimate" | "generate" | "toolRun" | "native" | "reasoning" | "encodeVibe" | "upscale" | "augment";
 export interface GatewayProfile {
   readonly id: string;
   readonly protocol?: Protocol;
@@ -12,7 +12,7 @@ export interface GatewayProfile {
   /** Streaming tool calls with image input, used only by ASK. Never generates or charges media. */
   readonly reasoning?: { readonly cache: "implicit" | "breakpoints" };
   /** Without quotes the cost is unknown, never free. */
-  readonly quote: { readonly supported: boolean; readonly debounce: { readonly image: number; readonly chat: number; readonly editor: number } };
+  readonly quote: { readonly supported: boolean; readonly local?: boolean; readonly debounce: { readonly image: number; readonly chat: number; readonly editor: number } };
   /** A declared ceiling means every execution is quoted first and carries the quoted cost. */
   readonly costCeiling?: { readonly field: string };
   readonly executionRoutes: { readonly nativeFree: boolean; readonly studio: boolean; readonly tools: boolean };
@@ -76,8 +76,9 @@ export const geminiProfile: GatewayProfile = freeze({
 export const NOVELAI_IMAGE_URL = "https://image.novelai.net";
 export const novelaiProfile: GatewayProfile = freeze({
   ...unquoted, id: "nai-official-v1", protocol: "novelai", label: "NovelAI 官方 · 基础接入",
+  quote: { ...unquoted.quote, local: true },
   auth: { kind: "bearer" },
-  transport: { apiPrefix: "", paths: { catalog: "/user/subscription", quota: "/user/subscription", generate: "/ai/generate-image", toolRun: "/ai/generate-image", encodeVibe: "/ai/encode-vibe" }, nativeHeaders: {} },
+  transport: { apiPrefix: "", paths: { catalog: "/user/subscription", quota: "/user/subscription", generate: "/ai/generate-image", toolRun: "/ai/generate-image", encodeVibe: "/ai/encode-vibe", upscale: "/ai/upscale", augment: "/ai/augment-image" }, nativeHeaders: {} },
 });
 const reasoningOnly = {
   ...unquoted,

@@ -8,10 +8,17 @@ import { openaiImagesProfile as oai, geminiProfile as gemini, novelaiProfile as 
 import { validateRouting } from "../src/config/connections.ts";
 import { novelaiUsage } from "../src/domain/quota.ts";
 import { quoteLabel } from "../src/domain/quote.ts";
-import { buildChatPayload } from "../src/domain/media.ts";
+import { buildChatPayload, validateEditorSource } from "../src/domain/media.ts";
+import { nativeRequest } from "../src/gateway/native-protocols.ts";
 
 const json = data => Response.json(data);
 const png = "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+aGRkAAAAASUVORK5CYII=";
+// These unit tests inspect headers only; browser tests use fully decoded synthetic PNGs.
+function sizedPng(width = 64, height = 64) {
+  const bytes = Buffer.from(png.split(',')[1], 'base64');
+  bytes.writeUInt32BE(width,16); bytes.writeUInt32BE(height,20);
+  return 'data:image/png;base64,' + bytes.toString('base64');
+}
 async function setup(profile, fetcher, baseUrl = "https://gateway.example.test/prefix") {
   const store = new Map(), connections = createConnections({ getItem: k => store.get(k) ?? null, setItem: (k,v) => store.set(k,v) }, work => work());
   const routing = { version: 1, connections: { test: { id: "test", name: "测试连接", baseUrl: profile === nai ? NOVELAI_IMAGE_URL : baseUrl, profileId: profile.id, credentialRef: "key-test", revision: "r1" } }, links: {} };
@@ -140,7 +147,7 @@ test("native model mappings: keep arbitrary IDs, use the selected model's capabi
   }
 });
 
-test("NovelAI basic: static catalog after subscription auth, unknown charge, generation/one-image edit and explicit unsupported tools", async () => {
+test("NovelAI basic: static catalog after subscription auth, local estimate, generation and one-image edit", async () => {
   const calls = [];
   const { gateway } = await setup(nai, async (url, init) => {
     calls.push({ url, init });
@@ -148,7 +155,8 @@ test("NovelAI basic: static catalog after subscription auth, unknown charge, gen
   });
   const { models } = await gateway.catalog();
   assert.ok(models.length);
-  assert.deepEqual(models[0].tools, ["img2img"]);
+  assert.deepEqual(models[0].tools, ["img2img", "inpaint", "upscale", "director"]);
+  assert.deepEqual(models.find(m => m.id === "nai-diffusion-5-curated").tools, ["img2img", "upscale", "director"]);
   assert.equal((await gateway.quota()).media.credits.remaining, 1025);
   const output = await gateway.execute({ model: models[0].id, prompt: "exact", seed: 0, width: 832, height: 1216, max_cost: 999 }, r => r.text());
   assert.equal(output.quote, null);
@@ -158,14 +166,82 @@ test("NovelAI basic: static catalog after subscription auth, unknown charge, gen
   assert.equal(request.init.headers["X-Media-Provider"], undefined);
   assert.equal(body.parameters.seed, 0);
   assert.equal(body.max_cost, undefined);
-  await gateway.execute({ model: models[0].id, prompt: "edit", tool: "img2img", init_image: png, strength: 0.5, noise: 0.1, seed: 0 }, r => r.text());
+  await gateway.execute({ model: models[0].id, prompt: "edit", tool: "img2img", init_image: sizedPng(), strength: 0.5, noise: 0.1, seed: 0 }, r => r.text());
   body = JSON.parse(calls.at(-1).init.body);
   assert.equal(body.action, "img2img");
-  assert.equal(body.parameters.image, png.split(",")[1]);
-  assert.equal(body.parameters.width, 1);
+  assert.equal(body.parameters.image, sizedPng().split(",")[1]);
+  assert.equal(body.parameters.width, 64);
   const before = calls.length;
-  await assert.rejects(gateway.execute({ model: models[0].id, tool: "upscale", init_image: png }, r => r.text()), /尚未支持/);
+  await assert.rejects(gateway.execute({ model: models[0].id, tool: "enhance", init_image: png }, r => r.text()), /尚未支持/);
+  await assert.rejects(gateway.execute({ model: "nai-diffusion-5-curated", tool: "inpaint", init_image: sizedPng(), mask_image: sizedPng() }, r => r.text()), /没有独立的官方重绘/);
   assert.equal(calls.length, before);
+});
+
+test('NovelAI EDIT: five Img2Img and four Inpaint variants, precise-only references and strict source/mask contract', () => {
+  for (const model of ['nai-diffusion-4-5-full','nai-diffusion-4-5-curated','nai-diffusion-5-full','nai-diffusion-5-curated','nai-diffusion-5-full-medium']) {
+    const input = {model, prompt:'exact', negative_prompt:'negative', tool:'img2img',init_image:sizedPng(),strength:.4,noise:.2,seed:0,scale:5,cfg_rescale:.65,steps:25,sampler:'k_euler',cfg:7,max_cost:999};
+    let {body} = nativeRequest(nai,input);
+    assert.equal(body.action,'img2img'); assert.equal(body.model,model);
+    assert.equal(body.parameters.extra_noise_seed,4294967295);assert.equal(body.parameters.noise,.2);
+    assert.throws(()=>nativeRequest(nai,{...input,mask_image:sizedPng()}),/不接受蒙版/);
+    if (model === 'nai-diffusion-5-curated') {
+      assert.throws(()=>nativeRequest(nai,{...input,tool:'inpaint',mask_image:sizedPng()}),/没有独立的官方重绘/);
+      continue;
+    }
+    ({body} = nativeRequest(nai,{...input,tool:'inpaint',mask_image:sizedPng()}));
+    assert.equal(body.action,'infill');assert.equal(body.model,model+'-inpainting');
+    assert.equal(body.parameters.image,sizedPng().split(',')[1]);assert.equal(body.parameters.mask,body.parameters.image);
+    assert.deepEqual(body.parameters.img2img,{strength:.4,color_correct:true});
+    assert.equal(body.parameters.add_original_image,false);assert.equal(body.parameters.noise,undefined);
+    assert.equal(body.max_cost,undefined);assert.equal(body.parameters.cfg,undefined);
+    assert.equal(body.parameters.cfg_rescale,model.endsWith('medium') ? undefined : .65);
+    assert.equal(body.parameters.steps,model.endsWith('medium') ? 14 : 25);
+    if(model.endsWith('medium')) {assert.match(body.parameters.negative_prompt,/^nsfw, lowres, artistic error/);assert.equal(body.parameters.sampler,'k_euler_ancestral');}
+    assert.equal(nativeRequest(nai,{...input,tool:'inpaint',mask_image:sizedPng(),strength:1}).body.parameters.img2img,undefined);
+    assert.throws(()=>nativeRequest(nai,{...input,tool:'inpaint',mask_image:sizedPng(128,64)}),/尺寸一致/);
+    assert.throws(()=>nativeRequest(nai,{...input,tool:'inpaint'}),/缺少蒙版/);
+  }
+  const base={model:'nai-diffusion-4-5-full',tool:'inpaint',init_image:sizedPng(),mask_image:sizedPng()};
+  const prepared={kind:'precise',images:['AA=='],strengths:[1],information:[1],fidelities:[.7],types:['character']};
+  assert.deepEqual(nativeRequest(nai,{...base,preparedReferences:prepared}).body.parameters.director_reference_images,['AA==']);
+  assert.throws(()=>nativeRequest(nai,{...base,preparedReferences:{...prepared,kind:'vibe'}}),/不支持已启用的参考/);
+  assert.throws(()=>nativeRequest(nai,{...base,model:'nai-diffusion-5-full',preparedReferences:prepared}),/不支持已启用的参考/);
+  for(const bad of [-.1,2,NaN])assert.throws(()=>nativeRequest(nai,{...base,strength:bad}),/强度/);
+});
+
+test('NovelAI EDIT: source alignment and 3 MP limit are checked before submission without shrinking or changing gateway limits', () => {
+  const model={id:'nai-diffusion-5-full',provider:'novelai',profileId:'nai-official-v1',maxPixels:4_194_304,sourceMaxPixels:4_194_304};
+  for (const tool of ['img2img','inpaint']) {
+    for (const [width,height] of [[65,64],[2048,2048],[32,64]]) {
+      const source=sizedPng(width,height);
+      assert.ok(validateEditorSource(tool,model,{width,height}));
+      assert.throws(()=>nativeRequest(nai,{model:model.id,tool,init_image:source,...(tool==='inpaint'?{mask_image:source}:{})}),/64|3,145,728/);
+    }
+    assert.equal(validateEditorSource(tool,model,{width:1536,height:2048}),null);
+    const source=sizedPng(1536,2048);
+    assert.equal(nativeRequest(nai,{model:model.id,tool,init_image:source,...(tool==='inpaint'?{mask_image:source}:{})}).body.parameters.width,1536);
+    assert.equal(validateEditorSource(tool,{...model,profileId:'koma-standard-v1'},{width:2048,height:2048}),null);
+    assert.equal(validateEditorSource(tool,model,{width:3072,height:1024}),null);
+    assert.ok(validateEditorSource(tool,{...model,profileId:'koma-standard-v1'},{width:3072,height:1024}));
+    const wide=sizedPng(3072,1024);
+    assert.equal(nativeRequest(nai,{model:model.id,tool,init_image:wide,...(tool==='inpaint'?{mask_image:wide}:{})}).body.parameters.width,3072);
+  }
+});
+
+test('NovelAI Upscale: dedicated multipart endpoint, original bytes, fixed 4x model and no generation fields', async () => {
+  const calls=[];
+  const {gateway}=await setup(nai,async(url,init)=>{calls.push({url,init});return new Response('synthetic');});
+  const output=await gateway.execute({model:'nai-diffusion-4-5-curated',tool:'upscale',init_image:png,prompt:'must not leak',seed:4,scale:20,cfg_rescale:.5,max_cost:10},r=>r.text());
+  assert.equal(output.native,true);assert.equal(output.quote.cost,1);
+  const {url,init}=calls[0];assert.equal(url.href,'https://image.novelai.net/ai/upscale');
+  assert.ok(init.body instanceof FormData);assert.equal(init.headers['Content-Type'],undefined);
+  assert.deepEqual(JSON.parse(await init.body.get('request').text()),{image:'image',model:'nai-diffusion-5-full',declared_blur_sigma:0});
+  assert.deepEqual(Buffer.from(await init.body.get('image').arrayBuffer()),Buffer.from(png.split(',')[1],'base64'));
+  assert.deepEqual([...init.body.keys()],['image','request']);
+  assert.throws(()=>nativeRequest(nai,{model:'nai-diffusion-5-full',tool:'upscale',init_image:sizedPng(2048,2048)}),/3,145,728/);
+  const model={provider:'novelai',profileId:'nai-official-v1',sourceMaxPixels:32000000};
+  assert.equal(validateEditorSource('upscale',model,{width:1536,height:2048}),null);
+  assert.match(validateEditorSource('upscale',{...model,profileId:'koma-standard-v1'},{width:1536,height:2048}),/1,048,576/);
 });
 
 test("NovelAI recognition: subscription status and balance never invalidate an authenticated Key", async () => {

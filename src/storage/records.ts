@@ -16,6 +16,7 @@ export type MessageBlock =
   | { type: "text"; text: string };
 export interface ConversationVersion {
   via?: { connection: string; upstreamId: string };
+  completedAt?: number;
   id: string;
   status: "pending" | "done" | "error" | "cancelled";
   blocks: MessageBlock[];

@@ -173,7 +173,7 @@ async function open(options = {}) {
       body: url.pathname.endsWith("generate-image") ? zip : png,
     });
   });
-  await page.goto(origin);
+  await page.goto(origin + "/#/image");
   await page.waitForFunction(
     () => document.querySelector(`[id="${document.querySelector("#model")?.getAttribute("aria-controls")}"]`)?.querySelectorAll("[role=menuitemradio]").length === 2,
   );
@@ -644,7 +644,7 @@ test("M4 commit-first favorites, cross-tab refresh, backup reload and lossless d
     for await (const chunk of stream) chunks.push(chunk);
     assert.deepEqual(Buffer.concat(chunks), t.png);
     const second = await t.context.newPage();
-    await second.goto(origin);
+    await second.goto(origin + "/#/image");
     await second.waitForSelector(".home-fav");
     await second.locator(".home-fav").click();
     await second.locator("#favoriteBtn").click();
@@ -746,7 +746,7 @@ test("M4 reveal hands over in place: the landed tile takes the placeholder slot"
 test("comparison: bitmap and image fallbacks release resources on success, decode failure and cancellation", async () => {
   const context = await browser.newContext(), page = await context.newPage();
   try {
-    await page.goto(origin);
+    await page.goto(origin + "/#/image");
     const result = await page.evaluate(async () => {
       const { makeComparison } = await import("/src/native/comparison.ts");
       const source = document.createElement("canvas");

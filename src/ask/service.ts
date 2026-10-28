@@ -1,3 +1,5 @@
+import { homeContext } from "../home/ask-context.ts";
+import type { Home } from "../home/service.ts";
 import { canonical } from "./canonical.ts";
 import { parseFile } from "./draft/files.ts";
 import type { FilePort } from "./draft/files.ts";
@@ -146,6 +148,7 @@ export function createAsk(deps: {
   drawing: Drawing;
   chat: Chat;
   slates?: Slates;
+  home?: Home;
   fetch?: typeof fetch;
   ui: Pick<Ui, "toast">;
 }) {
@@ -287,7 +290,7 @@ export function createAsk(deps: {
     if (attachmentPreview.value?.id === id) attachmentPreview.value = null;
     setTray(tray.value.filter(value => value !== id)); attachments.release([id]);
   }
-  const editorOpen = computed(() => router.route.value.overlay === "editor"),
+  const editorOpen = computed(() => router.route.value.workspace === "edit"),
     visible = computed(() => open.value && !editorOpen.value),
     running = computed(() => live.value !== null || compacting.value || dispatching.value),
     connection = computed(
@@ -422,12 +425,13 @@ export function createAsk(deps: {
   }
   const draftApplyLabel = computed(() => {
     const plan = draftPlan.value, workspace = plan?.workspace;
+    const to = router.route.value.workspace === "home" ? "切到" : "切回";
     if (plan?.files?.length) return "应用";
     if (plan?.slate && !plan.changes.length && !plan.newBoardName) return "应用到任务板";
     if (plan?.steps.some((s) => s.kind === "handoff")) return router.route.value.workspace === "chat" ? "新开对话并应用" : "切到对话并新开";
-    if (workspace === "image" && plan?.newBoardName) return router.route.value.workspace === "image" ? "新建并应用" : "切回绘图并新建";
-    if (workspace === "image" && plan?.boardId && drawing.snapshot().activeBoardId !== plan.boardId) return `切回${drawing.board(plan.boardId)?.name ?? "源画板"}并应用`;
-    return workspace && router.route.value.workspace !== workspace ? `切回${workspace === "image" ? "绘图" : "对话"}并应用` : "应用";
+    if (workspace === "image" && plan?.newBoardName) return router.route.value.workspace === "image" ? "新建并应用" : `${to}绘图并新建`;
+    if (workspace === "image" && router.route.value.workspace !== "home" && plan?.boardId && drawing.snapshot().activeBoardId !== plan.boardId) return `切回${drawing.board(plan.boardId)?.name ?? "源画板"}并应用`;
+    return workspace && router.route.value.workspace !== workspace ? `${to}${workspace === "image" ? "绘图" : "对话"}并应用` : "应用";
   });
   async function focusWritten(plan: DraftPlan) {
     await nextTick();
@@ -535,7 +539,7 @@ export function createAsk(deps: {
       },
       composer: conversation.prompt,
       chat:
-        workspace === "chat"
+        (workspace === "chat" || workspace === "home")
           ? {
               title: conversation.title,
               turns: ancestry(conversation).length,
@@ -554,6 +558,7 @@ export function createAsk(deps: {
       ids,
     }, { formText });
     return { ...digest, json: JSON.stringify({ ...JSON.parse(digest.json),
+      ...(workspace === "home" && deps.home ? { home: homeContext(deps.home, ids, chat) } : {}),
       image_input: { enabled: !metadataOnly, mode: metadataOnly ? "metadata_only" : "on_demand",
         ...(metadataOnly ? { note: "本轮不发送任何图片，view_image、view_sheet 与 refs 图片读取不可用；请基于元数据回答，不要重复尝试看图。" } : {}) },
       active_slate: slateSummary(deps.slates?.get(conversations.current.slateId ?? "") ?? null),
@@ -1546,6 +1551,7 @@ export function createAsk(deps: {
       anchor.value = null;
     },
     labelFor(id: string) { return ids.label(id); },
+    favoriteLabelFor(id: string) { return ids.favorite(id); },
     pictureInfo(label: string) {
       if (label.startsWith("#a")) {
         const a = attachments.get(label);

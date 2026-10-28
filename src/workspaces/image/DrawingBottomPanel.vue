@@ -1,6 +1,6 @@
 <script setup lang="ts">
-import { computed, nextTick, onActivated, onBeforeUnmount, onDeactivated, shallowRef, ref, watch } from "vue";
-import { useDrawing } from "../../app/drawing";
+import { computed, nextTick, onMounted, onActivated, onBeforeUnmount, onDeactivated, shallowRef, ref, watch } from "vue";
+import { useNaiComposer } from "../../app/nai-composer";
 import { samplerName } from "../../domain/drawing";
 import { naiCapabilities } from "../../domain/nai";
 import { referenceName } from "../../domain/nai-references";
@@ -8,10 +8,11 @@ import type { ReferenceKind } from "../../domain/nai-references";
 import AppIcon from "../../shared/AppIcon.vue";
 import DrawingParameters from "./DrawingParameters.vue";
 import NaiReferenceEditor from "./NaiReferenceEditor.vue";
-const { drawing, view } = useDrawing();
+const { drawing, view, id } = useNaiComposer();
 const section = ref<"parameters" | ReferenceKind>("parameters"), open = ref(false), mounted = ref(false);
 const shell = shallowRef<HTMLElement>(), content = shallowRef<HTMLElement>();
 const supported = computed(() => view.value.referenceSupported);
+const referenceKinds = computed(() => view.value.referenceKinds ?? ["vibe", "precise"] as const);
 const parameterPreview = computed(() => {
   const form = view.value.form, medium = naiCapabilities(form.model).medium;
   const sampler = samplerName(medium ? "k_euler_ancestral" : form.sampler);
@@ -52,9 +53,11 @@ function enable(kind: ReferenceKind) {
   void drawing.editReferences(next);
 }
 watch(supported, value => { if (!value && section.value !== "parameters") { section.value = "parameters"; open.value = false; } });
+watch(referenceKinds, kinds => { if (section.value !== "parameters" && !kinds.includes(section.value)) { section.value = "parameters"; open.value = false; } });
 watch([open,section], async () => { await nextTick(); measure(); });
 function pause() { active = false; observer?.disconnect(); observer = undefined; animation?.cancel(); animation=undefined; window.removeEventListener("resize",measure); window.visualViewport?.removeEventListener("resize",measure); }
-onActivated(async()=>{ active=true; await nextTick(); observer=new ResizeObserver(measure); if(content.value)observer.observe(content.value); window.addEventListener("resize",measure); window.visualViewport?.addEventListener("resize",measure); measure(); });
+async function resume() { if (active) return; active=true; await nextTick(); if (!active) return; observer=new ResizeObserver(measure); if(content.value)observer.observe(content.value); window.addEventListener("resize",measure); window.visualViewport?.addEventListener("resize",measure); measure(); }
+onMounted(resume); onActivated(resume);
 watch(mounted, async()=>{ await nextTick(); if(active && content.value)observer?.observe(content.value); });
 onDeactivated(pause); onBeforeUnmount(pause);
 defineExpose({close, drawerHeight:()=>shell.value?.getBoundingClientRect().height ?? 0});
@@ -62,8 +65,8 @@ defineExpose({close, drawerHeight:()=>shell.value?.getBoundingClientRect().heigh
 <template>
   <div class="drawing-bottom-panel">
     <div v-if="view.referenceProblem" class="reference-problem" role="status"><span>{{ view.referenceProblem }}</span><button type="button" @click="drawing.editReferences({...view.form.naiReferences,active:null})">停用参考</button></div>
-    <nav class="bottom-controls" :class="{'is-single':!supported}" aria-label="底部面板导航">
-      <button id="parametersToggle" type="button" class="bottom-tab" :class="{selected:open && section==='parameters'}" :aria-expanded="open && section==='parameters'" aria-controls="drawing-bottom-content" :title="supported ? '生成参数' : `生成参数 · ${parameterPreview.sampler} · ${parameterPreview.steps} 步`" @click="toggle('parameters',$event)">
+    <nav class="bottom-controls" :class="{'is-single':!supported,'is-pair':supported && referenceKinds.length===1}" aria-label="底部面板导航">
+      <button :id="id('parametersToggle')" type="button" class="bottom-tab" :class="{selected:open && section==='parameters'}" :aria-expanded="open && section==='parameters'" :aria-controls="id('drawing-bottom-content')" :title="supported ? '生成参数' : `生成参数 · ${parameterPreview.sampler} · ${parameterPreview.steps} 步`" @click="toggle('parameters',$event)">
         <AppIcon name="i-parameters" /><span>参数</span>
         <template v-if="!supported">
           <span class="parameter-preview"><span class="parameter-sampler">{{ parameterPreview.shortSampler }}</span><span class="parameter-steps"><b>{{ parameterPreview.steps }}</b> 步</span></span>
@@ -71,15 +74,15 @@ defineExpose({close, drawerHeight:()=>shell.value?.getBoundingClientRect().heigh
         </template>
       </button>
       <template v-if="supported">
-        <div v-for="kind in (['vibe','precise'] as const)" :key="kind" class="bottom-reference-segment" :class="{selected:open && section===kind}">
-          <button type="button" class="bottom-tab" :aria-label="referenceName(kind)" :aria-expanded="open && section===kind" aria-controls="drawing-bottom-content" :title="`${referenceName(kind)} · ${view.form.naiReferences.active===kind?'已启用':'未启用'} · ${view.form.naiReferences[kind].length} 张图片`" @click="toggle(kind,$event)"><AppIcon :name="kind==='vibe'?'i-layers':'i-image'" /><span>{{ kind==='vibe'?'Vibe':'Precise' }}</span><i v-if="!open || section!==kind" class="reference-active" :class="{'is-enabled':view.form.naiReferences.active===kind}" aria-hidden="true"></i></button>
+        <div v-for="kind in referenceKinds" :key="kind" class="bottom-reference-segment" :class="{selected:open && section===kind}">
+          <button type="button" class="bottom-tab" :aria-label="referenceName(kind)" :aria-expanded="open && section===kind" :aria-controls="id('drawing-bottom-content')" :title="`${referenceName(kind)} · ${view.form.naiReferences.active===kind?'已启用':'未启用'} · ${view.form.naiReferences[kind].length} 张图片`" @click="toggle(kind,$event)"><AppIcon :name="kind==='vibe'?'i-layers':'i-image'" /><span>{{ kind==='vibe'?'Vibe':'Precise' }}</span><i v-if="!open || section!==kind" class="reference-active" :class="{'is-enabled':view.form.naiReferences.active===kind}" aria-hidden="true"></i></button>
           <button v-if="open && section===kind" class="bottom-group-enable" type="button" role="switch" :aria-checked="view.form.naiReferences.active===kind" :aria-label="`启用 ${referenceName(kind)}`" :title="`${view.form.naiReferences.active===kind?'停用':'启用'} ${referenceName(kind)}`" @click="enable(kind)"><span aria-hidden="true"></span></button>
         </div>
       </template>
     </nav>
     <div ref="shell" class="drawer-shell" hidden :inert="!open" :aria-hidden="!open">
-      <div v-if="mounted" id="drawing-bottom-content" ref="content" class="bottom-panel-content" role="region" :aria-label="section==='parameters'?'生成参数':referenceName(section)">
-        <DrawingParameters v-if="section==='parameters'" />
+      <div v-if="mounted" :id="id('drawing-bottom-content')" ref="content" class="bottom-panel-content" role="region" :aria-label="section==='parameters'?'生成参数':referenceName(section)">
+        <slot v-if="section==='parameters'" name="parameters"><DrawingParameters /></slot>
         <NaiReferenceEditor v-else :key="section" :kind="section" />
       </div>
     </div>
@@ -87,6 +90,7 @@ defineExpose({close, drawerHeight:()=>shell.value?.getBoundingClientRect().heigh
 </template>
 <style scoped>
 .bottom-controls { display: grid; grid-template-columns: repeat(3,minmax(0,1fr)); align-items: stretch; gap: 2px; height: 40px; padding: 3px; margin: 0 0 8px; background: var(--sunken); border: 1px solid var(--line); border-radius: var(--r3); }
+.bottom-controls.is-pair { grid-template-columns: repeat(2,minmax(0,1fr)); }
 .bottom-reference-segment { display: flex; align-items: center; min-width: 0; height: 32px; border-radius: var(--r2); }
 .bottom-reference-segment > .bottom-tab { flex: 1; gap: 5px; }
 .bottom-reference-segment.selected { background: var(--raised); box-shadow: var(--sh-lip), 0 1px 2px #0004; }

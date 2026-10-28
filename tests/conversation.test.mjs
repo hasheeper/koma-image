@@ -207,11 +207,14 @@ test("editor: source/mask dimensions, seed zero, per-mode payload allowlist, ded
     seed: 0,
     strength: 0.35,
     noise: 0.1,
+    cfgRescale: 0.65,
   });
   assert.equal(p.prompt, "  exact  ");
   assert.equal(p.seed, 0);
   assert.equal(p.strength, 0.35);
   assert.equal(p.noise, 0.1);
+  assert.equal(p.cfg_rescale, 0.65);
+  assert.equal(Object.hasOwn(p, "cfg"), false);
   assert.equal(p.init_image, source.png);
   assert.equal(p.cache, false);
   assert.equal(p.mask_image, undefined);
@@ -227,6 +230,8 @@ test("editor: source/mask dimensions, seed zero, per-mode payload allowlist, ded
     buildEditorPayload("inpaint", nai, source, {}, source.png).strength,
     1,
   );
+  assert.equal(buildEditorPayload("inpaint", nai, source, { cfgRescale: 0.45 }, source.png).cfg_rescale, 0.45);
+  assert.equal(buildEditorPayload("img2img", { ...nai, id: "nai-diffusion-5-full-medium" }, source, { cfgRescale: 0.65 }).cfg_rescale, undefined);
   const upscale = {
     ...model,
     id: "fal-upscale",
@@ -237,10 +242,12 @@ test("editor: source/mask dimensions, seed zero, per-mode payload allowlist, ded
   const up = buildEditorPayload("upscale", upscale, source, {
     prompt: "never send edit prompt",
     detail: "detail only",
+    cfgRescale: 0.65,
   });
   assert.equal(up.prompt, "detail only");
   assert.equal(up.init_image, source.original);
   assert.equal(up.strength, undefined);
+  assert.equal(up.cfg_rescale, undefined);
   assert.equal(up.tool, "image-edit");
   assert.match(
     validateEditorSource("upscale", nai, { width: 2048, height: 2048 }),
@@ -261,18 +268,20 @@ test("media: numeric validation order, defaults and mode-specific output fields 
   for (const key of ["seed", "scale", "strength", "noise"]) assert.equal(p[key], 0);
   assert.deepEqual(Object.keys(p), [
     "model", "tool", "init_image", "prompt", "negative_prompt", "cache", "transform_prompt", "transform_mode",
-    "noise_schedule", "cfg_rescale", "steps", "scale", "seed", "strength", "noise", "sampler",
+    "noise_schedule", "steps", "scale", "seed", "strength", "noise", "sampler", "cfg_rescale",
   ]);
   assert.equal(p.cache, false);
   assert.equal(p.transform_prompt, false);
   const defaults = buildNAIEditPayload(nai, "img2img", image, { seed: null, strength: undefined });
   assert.equal(defaults.seed, -1);
   assert.equal(defaults.strength, 0.5);
+  assert.equal(defaults.cfg_rescale, 0);
   const masked = buildNAIEditPayload(nai, "inpaint", image, {}, image);
   assert.equal(masked.strength, 1);
   assert.equal(masked.mask_image, image);
   assert.throws(() => buildNAIEditPayload(nai, "img2img", image, { steps: 0, seed: -2 }), /参数 steps 超出范围/);
-  for (const [key, value] of [["steps", 1.5], ["scale", 21], ["seed", 4294967296], ["strength", -0.1], ["noise", Infinity]]) {
+  assert.equal(buildNAIEditPayload(nai, "img2img", image, { scale: 21.3 }).scale, 21.3);
+  for (const [key, value] of [["steps", 1.5], ["scale", Infinity], ["scale", -1], ["seed", 4294967296], ["strength", -0.1], ["noise", Infinity], ["cfgRescale", -0.01], ["cfgRescale", 1.01], ["cfgRescale", NaN]]) {
     assert.throws(() => buildNAIEditPayload(nai, "img2img", image, { [key]: value }), new RegExp(`参数 ${key} 超出范围`));
   }
   assert.throws(() => buildNAIEditPayload(nai, "img2img", image, {}, image), /图生图不接受蒙版/);
@@ -289,4 +298,21 @@ test("media: numeric validation order, defaults and mode-specific output fields 
   assert.deepEqual(up.image_options, { image_size: "1K" });
   assert.equal(up.prompt, "Upscale the image while preserving the original composition, colors and details.");
   assert.throws(() => buildUpscalePayload(dedicated, image, { image_size: "4K" }), /参数 image_size 不受模型支持/);
+});
+
+test("editor: presets compile like drawing for img2img/inpaint; Medium suppresses only effective parameters", async () => {
+  const { DEFAULTS, collect, drawingPayload } = await import('../src/domain/drawing.ts');
+  const form = { ...DEFAULTS, prompt: 'wolf, Text: "Hello"', negative: 'custom negative', seed: '0', naiMode: 'furry',
+    qualityPreset: 'light', negativePreset: 'human', complexity: 'ultra', transparentBg: true, steps: 31, sampler: 'k_euler', cfgRescale: .65 };
+  const image = png(256,256);
+  for (const id of ['nai-diffusion-5-full', 'nai-diffusion-5-full-medium', 'nai-diffusion-4-5-full']) {
+    const nai = { ...model, id, provider:'novelai', tools:['img2img','inpaint'], transparentBackground: id.startsWith('nai-diffusion-5') };
+    const drawing = drawingPayload(collect(form,nai,1));
+    for (const mode of ['img2img','inpaint']) {
+      const edit = buildEditorPayload(mode,nai,{png:image},{...form,negative_prompt:form.negative,seed:0},mode==='inpaint'?image:null);
+      for (const key of ['prompt','negative_prompt','steps','sampler','scale','cfg_rescale','seed']) assert.equal(edit[key],drawing[key],`${mode}/${id}/${key}`);
+      for (const key of ['basePrompt','qualityPreset','negativePreset','complexity','transparentBg','cfg']) assert.equal(key in edit,false);
+    }
+  }
+  assert.equal(form.negative,'custom negative'); assert.equal(form.steps,31); assert.equal(form.cfgRescale,.65);
 });

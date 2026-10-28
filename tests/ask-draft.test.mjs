@@ -125,7 +125,7 @@ test('draft restore: only snapshot metadata, shared clamps, zero seed and absent
   const d = draft(base, [restore(['scale','steps','cfg','seed','prompt','negative_prompt','batchCount'])], source);
   source[0].params.scale = 20;
   const p = plan(d);
-  assert.deepEqual(Object.fromEntries(p.changes.map(c => [c.field,c.after])), { steps: 50, scale: 7.5, cfg: 0, seed: '0' });
+  assert.deepEqual(Object.fromEntries(p.changes.map(c => [c.field,c.after])), { steps: 50, scale: 7.3, cfg: 0, seed: '0' });
   assert.equal(p.steps.filter(s => s.issue === '来源没有此参数').length, 3);
   assert.equal(plan(d, state({ scale: 8 }), ['0:seed']).changes.some(c => ['scale','seed'].includes(c.field)), false);
   assert.match(plan(d, state({ scale: 8 })).steps[0].issue, /外部修改/);

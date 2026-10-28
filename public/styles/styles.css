@@ -558,34 +558,6 @@ body[data-import="open"] #importSheet > .import-card { transform: none; }
 .import-tally { min-width: 0; margin-right: auto; font-size: var(--fz-xs); color: var(--fg-4); }
 .import-foot .btn { min-width: 104px; }
 
-/* ── Dropzone ────────────────────────────────────────────────── */
-.dropzone {
-  position: fixed; inset: 0; z-index: var(--z-scrim);
-  display: grid; place-items: center;
-  padding: var(--sp-5);
-  background: rgba(8, 8, 10, 0.82);
-  backdrop-filter: blur(6px);
-  opacity: 0;
-  pointer-events: none;
-  transition: opacity var(--t2) var(--e);
-}
-body[data-drop="on"] .dropzone { opacity: 1; }
-.dropzone-card {
-  display: grid; justify-items: center; gap: 9px;
-  padding: var(--sp-6) var(--sp-7);
-  color: var(--fg-2);
-  text-align: center;
-  background: color-mix(in srgb, var(--raised) 92%, transparent);
-  border: 1.5px dashed var(--a-line);
-  border-radius: var(--r4);
-  transform: scale(0.98);
-  transition: transform var(--t2) var(--e-out);
-}
-body[data-drop="on"] .dropzone-card { transform: none; }
-.dropzone-card .ico { color: var(--a); }
-.dropzone-card strong { font-size: var(--fz-md); font-weight: var(--fw-semibold); color: var(--fg); }
-.dropzone-card span { font-size: var(--fz-xs); color: var(--fg-4); }
-
 /* ── Responsive ──────────────────────────────────────────────── */
 /* ── Tablet / narrow desktop ──────────────────────────────────── */
 @media (max-width: 1080px) {
@@ -814,7 +786,6 @@ body[data-drop="on"] .dropzone-card { transform: none; }
   .import-foot { padding: var(--sp-2) var(--sp-3) calc(var(--sp-2) + env(safe-area-inset-bottom)); }
   .import-tally { display: none; }
   .import-foot .btn { flex: 1; min-height: 44px; }
-  .dropzone-card { padding: var(--sp-5) var(--sp-5); }
 
   /* Tall sheet: the list is the point, and the on-screen keyboard will take
      the lower half once the field is focused. */

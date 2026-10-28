@@ -25,6 +25,7 @@
     "test:shared": "node --test tests/shared.browser.mjs",
     "test:drawing": "node --test tests/drawing.browser.mjs",
     "test:workspaces": "node --test tests/workspaces.browser.mjs",
+    "test:home": "node --test --test-concurrency=1 tests/home.browser.mjs tests/home-ui.browser.mjs tests/home-ask.browser.mjs",
     "test:native": "node --test tests/native-protocols.browser.mjs",
     "test:ask": "node --test tests/ask.browser.mjs",
     "test:bridge": "node --test tests/bridge.browser.mjs",
@@ -34,6 +35,7 @@
     "deploy:pages": "npm run build && npx --yes wrangler@4.151.1 pages deploy --branch main"
   },
   "dependencies": {
+    "@huggingface/tokenizers": "0.2.0",
     "entities": "7.0.1",
     "marked": "18.1.1",
     "vue": "3.5.44"

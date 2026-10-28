@@ -278,7 +278,7 @@ async function editorSource(t, origin = "image", mode = "img2img") {
     },
     { png: t.png.toString("base64"), origin, mode },
   );
-  await t.page.waitForSelector("#imageEditor[open]");
+  await t.page.waitForSelector("#imageEditor[data-active=true]");
   await t.page.waitForFunction(
     () =>
       editor.snapshot().edit.quote !== null ||
@@ -286,8 +286,8 @@ async function editorSource(t, origin = "image", mode = "img2img") {
   );
 }
 async function closeEditor(p) {
-  await p.locator("#imageEditor .editor-back").click();
-  await p.waitForFunction(() => !document.querySelector("#imageEditor").open);
+  await p.evaluate(() => app_shell.router.switchWorkspace(editor.session.origin === "chat" ? "chat" : "image"));
+  await p.waitForSelector("#imageEditor", { state: "hidden" });
 }
 
 test("M5 chat UI: ordered response, exact context, consumption, version/branch selection, model caps and draft persistence", async () => {
@@ -446,7 +446,7 @@ test("H1 chat rail: compact history, exact version states, responsive tools and 
       assert.ok(Math.abs(layout.old / layout.latest - .75) < .01, `${width}px history stays proportional to the full-size result`);
       const compact = await showResultTools(first);
       const tools = first.locator(compact ? ".result-actions-menu:popover-open" : ".result-actions-overlay");
-      assert.equal(await tools.locator(".ibtn").count(), 5);
+      assert.equal(await tools.locator(".ibtn").count(), 6);
       const bounds = await tools.boundingBox();
       assert.ok(bounds.x >= 0 && bounds.x + bounds.width <= width, `${width}px tools fit`);
       if (compact) {
@@ -786,7 +786,7 @@ test("M6 editor modes, quote protection, source-pixel mask, undo/redo, persisten
     p = t.page;
   try {
     await editorSource(t);
-    await p.locator("#editorForm .drawer summary").click();
+    await p.locator("#editor-parametersToggle").click();
     await p.locator("#editorSeed").fill("0");
     await p.locator("#editorPrompt").fill("edit exact");
     await p.locator("#editorStrength").fill("0.35");
@@ -805,6 +805,10 @@ test("M6 editor modes, quote protection, source-pixel mask, undo/redo, persisten
     assert.equal(payload.strength, 0.35);
     assert.equal(await p.evaluate(() => drawing.snapshot().history.length), 1);
     assert.equal(await p.evaluate(() => editor.snapshot().base.id), 1);
+    const firstOrigin = await p.evaluate(() => ({ params: drawing.snapshot().history[0].params, boardId: drawing.snapshot().activeBoardId, parent: editor.session.versions[0].sourceId }));
+    assert.equal(firstOrigin.params.boardId, firstOrigin.boardId);
+    assert.equal(firstOrigin.params.editParent, firstOrigin.parent);
+    assert.ok(firstOrigin.params.editId);
     await p.getByRole("button", { name: "重绘", exact: true }).click();
     await p.waitForSelector("#editorMask:not([hidden])");
     assert.equal(await p.locator("#editorStrength").inputValue(), "1");
@@ -831,6 +835,7 @@ test("M6 editor modes, quote protection, source-pixel mask, undo/redo, persisten
     assert.equal(payload.tool, "inpaint");
     assert.ok(payload.mask_image.startsWith("data:image/png;base64,"));
     assert.equal(payload.strength, 1);
+    assert.equal(await p.evaluate(() => drawing.snapshot().history[0].params.editParent), `edit:${firstOrigin.params.editId}`);
     const mask = await p.evaluate(async (data) => {
       const b = await (await fetch(data)).blob(),
         image = await createImageBitmap(b),
@@ -852,23 +857,22 @@ test("M6 editor modes, quote protection, source-pixel mask, undo/redo, persisten
     assert.deepEqual(mask.white, [255, 255, 255, 255]);
     await closeEditor(p);
     await p.evaluate(() => editor.open("image"));
-    await p.waitForSelector("#imageEditor[open]");
+    await p.waitForSelector("#imageEditor[data-active=true]");
     assert.equal(await p.locator(".editor-rail .tile").count(), 3);
     assert.equal(await p.locator("#editorPrompt").inputValue(), "edit exact");
   } finally {
     await t.close();
   }
 });
-test("M6 upscale uses viewed original and independent detail, chat return ownership and run-close guard", async () => {
+test("M6 upscale uses viewed original and independent detail, chat return ownership and workspace navigation", async () => {
   const t = await open(),
     p = t.page;
   try {
     await editorSource(t, "chat", "upscale");
     await p.waitForSelector("#editorUpscalePop:popover-open");
-    await p
-      .locator("#editorUpscalePop label")
-      .filter({ hasText: "Dedicated Upscale" })
-      .click();
+    await p.locator('#editorUpscaleToggle').click();
+    await p.getByRole('menuitemradio', { name: '外部放大', exact: true }).click();
+    assert.match(await p.locator('#editorUpscalePop .editor-mini-value').textContent(), /Dedicated Upscale/);
     await p
       .getByRole("textbox", { name: "细节描述", exact: true })
       .fill("preserve linework");
@@ -877,7 +881,7 @@ test("M6 upscale uses viewed original and independent detail, chat return owners
     await p.locator("#editorUpscaleRun").click();
     await p.waitForFunction(() => editor.snapshot().busy);
     await p.keyboard.press("Escape");
-    assert.equal(await p.locator("#imageEditor").getAttribute("open"), "");
+    assert.equal(await p.locator("#imageEditor").getAttribute("data-active"), "true");
     t.state.release?.();
     t.state.hold = false;
     await p.waitForFunction(
@@ -891,11 +895,16 @@ test("M6 upscale uses viewed original and independent detail, chat return owners
     assert.equal(payload.model, "fal-upscale");
     assert.equal(payload.mask_image, undefined);
     assert.equal(await p.evaluate(() => drawing.snapshot().history.length), 0);
+    const origin = await p.evaluate(() => ({ result: editor.session.versions[1].params, parent: editor.session.versions[0].sourceId, conversationId: chat.snapshot().current.id }));
+    assert.equal(origin.result.editParent, origin.parent);
+    assert.equal(origin.result.chatConversationId, origin.conversationId);
+    assert.equal(origin.result.boardId, undefined);
+    assert.ok(origin.result.editId);
     await p
       .locator("#imageEditor")
       .getByRole("button", { name: "添加为参考图", exact: true })
       .click();
-    await p.waitForFunction(() => !document.querySelector("#imageEditor").open);
+    await p.waitForSelector("#imageEditor", { state: "hidden" });
     assert.equal(
       await p.evaluate(() => chat.snapshot().context.imageIds.length),
       1,
@@ -904,12 +913,81 @@ test("M6 upscale uses viewed original and independent detail, chat return owners
     assert.equal(await p.locator(".editor-rail .tile").count(), 1);
     assert.equal(await p.locator("#editorPrompt").inputValue(), "");
     await closeEditor(p);
-    await p.evaluate(() => editor.open("chat"));
-    await p.waitForSelector("#imageEditor[open]");
+    await p.evaluate(() => { const board = editor.boards().find(s => s.origin === "chat"); editor.switchBoard(board.id); app_shell.router.switchWorkspace("edit"); });
+    await p.waitForSelector("#imageEditor[data-active=true]");
     assert.equal(await p.locator(".editor-rail .tile").count(), 2);
   } finally {
     await t.close();
   }
+});
+test("M6 shared toolbar aligns whole tools and separates native/external upscale without generating on selection", async () => {
+  const t = await open(), p = t.page;
+  try {
+    await editorSource(t);
+    for (const width of [320, 390, 768, 1440]) {
+      await p.setViewportSize({ width, height: 900 });
+      await p.waitForTimeout(100);
+      await p.locator('#editorInpaintToggle').scrollIntoViewIfNeeded();
+      const geometry = await p.evaluate(() => [...document.querySelectorAll('.editor-tool-mode')].map(group => {
+        const main = group.querySelector('.editor-tool-main'), arrow = group.querySelector('.editor-tool-arrow');
+        const m = main.getBoundingClientRect(), a = arrow.getBoundingClientRect(), s = group.nextElementSibling.getBoundingClientRect();
+        const icon = main.querySelector('.ico').getBoundingClientRect();
+        const caret = arrow.querySelector('.ico').getBoundingClientRect();
+        return { mainHeight: m.height, arrowHeight: a.height, width: a.width, iconY: icon.y,
+          centered: Math.abs(m.y + m.height / 2 - caret.y - caret.height / 2) < .6,
+          grouped: a.left >= m.right - 1 && a.right < s.left, innerLine: getComputedStyle(arrow, '::before').content };
+      }));
+      assert.equal(geometry.length, 2);assert.deepEqual(geometry[0], geometry[1]);
+      assert.ok(geometry.every(item => item.centered && item.grouped && item.innerLine === 'none'));
+      await p.screenshot({ path: `.local/m56/editor-tools-${width}.png`, animations: 'disabled' });
+      await p.locator('#editorUpscaleToggle').click();
+      const menu = p.locator('#editorUpscaleMenu');
+      await menu.waitFor({ state: 'visible' });
+      await p.waitForFunction(()=>{
+        const menu=document.querySelector('#editorUpscaleMenu').getBoundingClientRect();
+        return menu.left>=0&&menu.right<=innerWidth;
+      });
+      assert.deepEqual(await menu.locator('.menu-label').allTextContents(), ['原生放大', '外部放大']);
+      assert.equal(await menu.locator('button:disabled').count(), 0);
+      const bounds = await menu.boundingBox();assert.ok(bounds.x >= 0 && bounds.x + bounds.width <= width, JSON.stringify({width,bounds}));
+      await p.screenshot({ path: `.local/m56/editor-upscale-types-${width}.png`, animations: 'disabled' });
+      assert.equal(await menu.evaluate(el=>el.matches(':popover-open')), true);
+      await p.keyboard.press('Escape');
+    }
+    assert.equal(posts(t).length, 0);
+    await p.locator('#editorUpscaleToggle').click();
+    await p.getByRole('menuitemradio', { name: '外部放大', exact: true }).click();
+    await p.waitForSelector('#editorUpscalePop:popover-open');
+    assert.equal(await p.locator('#editorUpscalePop').getAttribute('aria-label'), '外部放大');
+    assert.equal(await p.locator('#editorUpscalePop .editor-pop-item').count(), 0);
+    assert.equal(await p.locator('#editorUpscalePop .editor-mini-value').count(), 1);
+    assert.match(await p.locator('#editorUpscalePop').textContent(), /Dedicated Upscale/);
+    assert.equal(await p.evaluate(() => editor.snapshot().upscaleModel.id), 'fal-upscale');
+    await p.getByRole('textbox', { name: '细节描述', exact: true }).fill('keep linework');
+    await p.locator('#editorUpscaleToggle').click();
+    await p.getByRole('menuitemradio', { name: '原生放大', exact: true }).click();
+    await p.waitForSelector('#editorUpscalePop:popover-open');
+    assert.equal(await p.locator('#editorUpscalePop').getAttribute('aria-label'), '原生放大');
+    assert.equal(await p.evaluate(() => editor.snapshot().upscaleModel.provider), 'novelai');
+    assert.equal(await p.getByRole('textbox', { name: '细节描述', exact: true }).count(), 0);
+    assert.equal(posts(t).length, 0);
+    await p.keyboard.press('Escape');
+    assert.equal(await p.evaluate(() => document.activeElement.id), 'editorUpscale');
+    // Main action reopens the selected type; no hidden cross-type model appears in its settings.
+    await p.locator('#editorUpscale').click();await p.waitForSelector('#editorUpscalePop:popover-open');
+    assert.equal(await p.locator('#editorUpscalePop').getAttribute('aria-label'), '原生放大');
+    await p.locator('#editorUpscale').click();await p.locator('#editorUpscalePop').waitFor({state:'hidden'});
+    await p.locator('#editorUpscale').click();await p.waitForSelector('#editorUpscalePop:popover-open');
+    await p.locator('#editorUpscaleToggle').click();
+    await p.getByRole('menuitemradio', { name: '外部放大', exact: true }).click();
+    assert.equal(await p.getByRole('textbox', { name: '细节描述', exact: true }).inputValue(), 'keep linework');
+    await p.waitForFunction(() => editor.snapshot().upscale.canRun);
+    await p.locator('#editorUpscaleRun').click();
+    await p.waitForFunction(() => !editor.snapshot().busy && editor.session.versions.length === 2);
+    assert.equal(posts(t).length, 1);assert.equal(posts(t)[0].payload.model, 'fal-upscale');
+    assert.equal(posts(t)[0].payload.tool, 'image-edit');
+    assert.equal(posts(t)[0].payload.prompt, 'keep linework');
+  } finally { await t.close(); }
 });
 test("M5/M6 four viewports and high-frequency native ownership; repeated overlay cycles release resources", async () => {
   const t = await open(),
@@ -994,7 +1072,7 @@ test("M5/M6 four viewports and high-frequency native ownership; repeated overlay
       urls = await p.evaluate(() => liveImageUrls.size);
     for (let i = 0; i < 6; i++) {
       await p.evaluate(() => editor.open("chat"));
-      await p.waitForSelector("#imageEditor[open]");
+      await p.waitForSelector("#imageEditor[data-active=true]");
       await closeEditor(p);
       await p.evaluate(() => (location.hash = "#/image"));
       await p.waitForSelector("#prompt");
@@ -1160,7 +1238,7 @@ test("M6 EXIF orientation aligns source and mask; session switching and 30-versi
     await closeEditor(p);
     await editorSource(t, "chat");
     await closeEditor(p);
-    await p.evaluate(() => editor.open("image"));
+    await p.evaluate(() => { const board = editor.boards().find(s => s.origin === "image"); editor.switchBoard(board.id); app_shell.router.switchWorkspace("edit"); });
     await p.waitForFunction(() => editor.snapshot().edit.quote !== null);
     await p.locator("#editorRun").click();
     await p.waitForFunction(
@@ -1202,10 +1280,11 @@ test("M6 EXIF orientation aligns source and mask; session switching and 30-versi
       editor.setMode("img2img");
       editor.setBase(base.id);
       for (let i = 0; i < 32; i++) {
-        await editor.addSource(
-          new Blob([base.blob], { type: base.blob.type }),
-          `synthetic-${i}.jpg`,
-        );
+        // Synthetic derivatives exercise per-board eviction; imports create boards.
+        const token = editor.beginExternalEdit();
+        const c = new OffscreenCanvas(base.width, base.height), x = c.getContext("2d");
+        x.fillStyle = "rgb(" + i + ",80,160)"; x.fillRect(0,0,c.width,c.height);
+        await editor.applyExternalEdit(token.id, {mode:"image", image:await c.convertToBlob({type:"image/png"})});
         editor.setBase(base.id);
       }
       const s = editor.snapshot();
@@ -1445,5 +1524,77 @@ test("T4 wave completion, reset/destroy, skipped reveals and Canvas failures rel
     assert.deepEqual(errors, []);
   } finally {
     await context.close();
+  }
+});
+
+test("EDIT board navigation preserves a running task's source, mask and result owner", async () => {
+  const t = await open("#/image"), p = t.page;
+  try {
+    await editorSource(t);
+    const a = await p.evaluate(() => editor.session.id);
+    t.state.hold = true;
+    await p.locator("#editorRun").click();
+    await p.waitForFunction(() => editor.snapshot().busy);
+    await p.evaluate(() => app_shell.router.switchWorkspace("home"));
+    await p.waitForURL("**/#/home");
+    await p.evaluate(async png => {
+      const blob = new Blob([Uint8Array.from(atob(png), c=>c.charCodeAt(0))],{type:"image/png"});
+      await editor.open("edit",blob,"B.png");
+      editor.patch({prompt:"B keeps its own fields"});
+    }, t.ref.toString("base64"));
+    assert.notEqual(await p.evaluate(() => editor.session.id), a);
+    const b = await p.evaluate(() => editor.session.id);
+    await p.waitForFunction(() => editor.session.versions.length === 1);
+    for (let i=0; !t.state.release && i<100; i++) await new Promise(r=>setTimeout(r,20));
+    assert.equal(typeof t.state.release,"function");
+    t.state.release(); t.state.hold = false;
+    await p.waitForFunction(() => !editor.snapshot().runningBoardId);
+    assert.equal(await p.evaluate(() => editor.session.versions.length), 1);
+    assert.equal(await p.evaluate(() => editor.session.fields.prompt), "B keeps its own fields");
+    assert.equal(await p.evaluate(id=>editor.board(id).versions.length,a),2);
+    assert.equal(await p.evaluate(id=>editor.board(id).versions.at(-1).params.editBoardId,a),a);
+    assert.equal(t.state.generations,1);
+    await p.evaluate(id=>editor.switchBoard(id),a);
+    assert.equal(await p.evaluate(()=>editor.snapshot().viewed.kind),"result");
+    await p.evaluate(id=>editor.switchBoard(id),b);
+  } finally { await t.close(); }
+});
+
+test("EDIT asynchronous CHAT delivery keeps its source conversation and cannot redirect or report errors on another board", async () => {
+  const t = await open(), p = t.page;
+  try {
+    await editorSource(t, "chat");
+    await p.evaluate(() => {
+      window.deliveryOwner = editor.session;
+      window.deliveryConversation = editor.session.conversationId;
+      const send = chat.useEditorResult;
+      chat.useEditorResult = async (...args) => {
+        await new Promise(resolve => { window.releaseDelivery = resolve; });
+        return send(...args);
+      };
+      window.deliveryWork = editor.useResult();
+    });
+    await editorSource(t, "image");
+    const other = await p.evaluate(() => editor.session.id);
+    await p.evaluate(async () => { releaseDelivery(); await deliveryWork; });
+    assert.equal(await p.evaluate(() => editor.session.id), other);
+    assert.match(p.url(), /#\/edit$/);
+    assert.equal(await p.evaluate(() => chat.snapshot().context.imageIds.length), 1);
+    assert.equal(await p.evaluate(() => chat.snapshot().current.id === deliveryConversation), true);
+    await p.evaluate(() => {
+      editor.switchBoard(deliveryOwner.id);
+      chat.useEditorResult = async () => {
+        await new Promise(resolve => { window.releaseDelivery = resolve; });
+        throw new Error("synthetic delivery failure");
+      };
+      window.deliveryWork = editor.useResult();
+    });
+    await p.evaluate(id => editor.switchBoard(id), other);
+    await p.evaluate(async () => { releaseDelivery(); await deliveryWork; });
+    assert.deepEqual(await p.evaluate(() => [editor.snapshot().runError, deliveryOwner.error]), ["", "synthetic delivery failure"]);
+    assert.deepEqual(t.errors, []);
+    assert.equal(t.state.generations, 0);
+  } finally {
+    await t.close();
   }
 });

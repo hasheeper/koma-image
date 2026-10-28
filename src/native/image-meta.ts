@@ -1,4 +1,9 @@
-import type { NaiReferences } from "../domain/nai-references.ts";
+import { inflateMetadata, readStealthText } from "./png-stealth.ts";
+import { base64Blob } from "./reference-images.ts";
+import { referenceModel } from "../domain/nai-references.ts";
+import type { PngVibes, NaiReferences } from "../domain/nai-references.ts";
+import { noiseSchedules } from "../domain/nai-parameters.ts";
+import type { NoiseSchedule } from "../domain/nai-parameters.ts";
 import { charactersFromNai, charactersFromStandard } from "../domain/characters.ts";
 import type { Character, Placement } from "../domain/characters.ts";
 /**
@@ -15,7 +20,7 @@ import type { Character, Placement } from "../domain/characters.ts";
  * `fields` holds only what this app can actually drive. Values that look
  * plausible but mean something different upstream are deliberately dropped
  * rather than guessed at — see the note on `cfg` below. Everything else worth
- * knowing about the image (noise schedule, references…)
+ * knowing about the image (references…)
  * comes back in `extras` as read-only label/value pairs, so the import view
  * can show it without pretending it will carry over.
  */
@@ -36,6 +41,8 @@ export type ImageFields = {
   /** Used by in-memory history import; file parsers never map CFG Rescale here. */
   cfg?: number;
   cfgRescale?: number;
+  varietyPlus?: boolean;
+  noiseSchedule?: NoiseSchedule;
 };
 type Extra = { label: string; value: string };
 type ParsedMetadata = {
@@ -43,6 +50,8 @@ type ParsedMetadata = {
   source?: string;
   fields: ImageFields;
   extras: Extra[];
+  vibes?: PngVibes;
+  vibeError?: string;
 };
 export interface ImageMetadata extends ParsedMetadata { name: string }
 
@@ -70,8 +79,7 @@ function startsWith(bytes: Uint8Array, signature: readonly number[]): boolean {
 }
 
 async function inflate(bytes: Uint8Array<ArrayBuffer>): Promise<Uint8Array<ArrayBuffer>> {
-  const stream = new Blob([bytes]).stream().pipeThrough(new DecompressionStream("deflate"));
-  return new Uint8Array(await new Response(stream).arrayBuffer());
+  return inflateMetadata(bytes, "deflate");
 }
 
 function splitNul(bytes: Uint8Array<ArrayBuffer>, from = 0): [Uint8Array<ArrayBuffer>, number] {
@@ -107,7 +115,7 @@ async function readPngText(bytes: Uint8Array<ArrayBuffer>): Promise<Map<string, 
     const type = latin1.decode(bytes.subarray(at + 4, at + 8));
     const body = bytes.subarray(at + 8, at + 8 + length);
     if (type === "IEND") break;
-    if (length > bytes.length) break;
+    if (at + 12 + length > bytes.length) break;
 
     try {
       if (type === "tEXt") {
@@ -228,10 +236,34 @@ function naiExtras(data: Record<string, unknown>): Extra[] {
   if (vibes) add("Vibe Transfer", `${vibes} 张`);
   const directors = Array.isArray(data.director_reference_descriptions) ? data.director_reference_descriptions.length : 0;
   if (directors) add("角色参考", `${directors} 张`);
-  add("噪声调度", cleanText(data.noise_schedule));
+  if (!noiseSchedules.includes(data.noise_schedule as NoiseSchedule)) add("噪声调度", cleanText(data.noise_schedule));
   if (data.sm === true) add("SMEA", data.sm_dyn === true ? "开 · DYN" : "开");
   if (data.dynamic_thresholding === true) add("动态阈值", "开");
   return extras;
+}
+
+function pngVibes(data: Record<string, unknown>, model: string | undefined): Pick<ParsedMetadata, "vibes" | "vibeError"> {
+  const images = data.reference_image_multiple;
+  if (images === undefined || Array.isArray(images) && !images.length) return {};
+  try {
+    if (!model || !referenceModel(model)) throw new Error("参考编码缺少受支持的 V4.5 型号");
+    if (!Array.isArray(images) || images.length > 16) throw new Error("参考编码最多 16 个");
+    const strengths = data.reference_strength_multiple, information = data.reference_information_extracted_multiple;
+    if (strengths !== undefined && (!Array.isArray(strengths) || strengths.length !== images.length) || information !== undefined && (!Array.isArray(information) || information.length !== images.length)) throw new Error("参考编码与参数数量不一致");
+    const unit = (value: unknown, fallback: number) => {
+      if (value === undefined) return fallback;
+      if (typeof value !== "number" || !Number.isFinite(value) || value < 0 || value > 1) throw new Error("参考强度或提取量无效");
+      return value;
+    };
+    let bytes = 0;
+    const items = images.map((encoding: unknown, i: number) => {
+      bytes += base64Blob(encoding).size;
+      if (bytes > 24 * 1024 * 1024) throw new Error("参考编码总量过大");
+      return { encoding: encoding as string, strength: unit(Array.isArray(strengths) ? strengths[i] : undefined, .6), information: unit(Array.isArray(information) ? information[i] : undefined, model.endsWith("full") ? .7 : 1) };
+    });
+    const sum = items.reduce((n, r) => n + Math.abs(r.strength), 0);
+    return { vibes: { model, items, normalize: typeof data.normalize_reference_strength_multiple === "boolean" ? data.normalize_reference_strength_multiple : items.length > 1 && sum >= .99 && sum <= 1.01 } };
+  } catch (error) { return { vibeError: error instanceof Error ? error.message : "参考编码无效" }; }
 }
 
 /** NovelAI: JSON in the Comment chunk. */
@@ -250,6 +282,7 @@ function fromNovelAI(comment: string, chunks: Map<string, string>): ParsedMetada
     dialect: "NovelAI",
     source,
     extras: naiExtras(data),
+    ...pngVibes(data, cleanText(data.model) ?? naiModel(source)),
     fields: {
       ...(charactersFromNai(data) ?? charactersFromStandard(data) ?? {}),
       prompt: cleanText(data.prompt) ?? cleanText(field(field(data.v4_prompt, "caption"), "base_caption")) ?? cleanText(chunks.get("Description")),
@@ -260,6 +293,8 @@ function fromNovelAI(comment: string, chunks: Map<string, string>): ParsedMetada
       sampler: normalizeSampler(data.sampler),
       scale: finiteNumber(data.scale),
       cfgRescale: finiteNumber(data.cfg_rescale),
+      varietyPlus: typeof data.skip_cfg_above_sigma === "number" && Number.isFinite(data.skip_cfg_above_sigma) && data.skip_cfg_above_sigma > 0,
+      noiseSchedule: noiseSchedules.includes(data.noise_schedule as NoiseSchedule) ? data.noise_schedule as NoiseSchedule : undefined,
       seed: finiteNumber(data.seed),
       model: cleanText(data.model) ?? naiModel(source)
     }
@@ -341,7 +376,24 @@ export async function readImageParams(file: Blob & { name?: string }): Promise<I
 
   const bytes = new Uint8Array(await file.arrayBuffer());
   let chunks;
-  if (startsWith(bytes, PNG_SIGNATURE)) chunks = await readPngText(bytes);
+  if (startsWith(bytes, PNG_SIGNATURE)) {
+    chunks = await readPngText(bytes);
+    // Visible fields win; hidden metadata can supply omitted reference encodings.
+    try {
+      const hidden = await readStealthText(file, bytes);
+      if (hidden) {
+        const values: unknown = JSON.parse(hidden);
+        if (values && typeof values === "object" && !Array.isArray(values)) {
+          for (const [key, value] of Object.entries(values)) {
+            const text = typeof value === "string" ? value : JSON.stringify(value);
+            if (key === "Comment" && chunks.has(key)) {
+              try { chunks.set(key, JSON.stringify({ ...JSON.parse(text), ...JSON.parse(chunks.get(key)!) })); } catch { /* Keep valid visible metadata. */ }
+            } else if (!chunks.has(key)) chunks.set(key, text);
+          }
+        }
+      }
+    } catch { /* Missing or damaged hidden metadata must not discard text chunks. */ }
+  }
   else if (startsWith(bytes, JPEG_SIGNATURE)) chunks = readJpegText(bytes);
   else throw new Error("只支持 PNG 与 JPEG");
 
@@ -354,7 +406,7 @@ export async function readImageParams(file: Blob & { name?: string }): Promise<I
   if (!parsed || !Object.keys(fields).length) {
     throw new Error(chunks.size ? "图片里没有可识别的生成参数" : "图片没有附带参数信息");
   }
-  return { dialect: parsed.dialect, source: parsed.source, fields, extras: parsed.extras || [], name };
+  return { ...parsed, fields, extras: parsed.extras || [], name };
 }
 
 export const DIALECTS = { NAI: "NovelAI", WEBUI: "WebUI" };

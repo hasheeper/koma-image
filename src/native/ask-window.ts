@@ -20,6 +20,9 @@ export function installAskWindow(root: HTMLElement, signal: AbortSignal) {
     root.style.setProperty('--ask-available-height', `${window.visualViewport?.height ?? innerHeight}px`);
     if (!root.getClientRects().length) return;
     if (root.dataset.mode === 'ready' && ready) root.style.setProperty('--ask-ready-height', `${ready.offsetHeight}px`);
+    if (root.dataset.workspace === 'home') {
+      root.style.removeProperty('--ask-right'); root.style.removeProperty('--ask-top'); return;
+    }
     if (root.classList.contains('ask-inline')) return;
     const saved = positions.get(workspace());
     if (saved) position(saved.right, saved.top);
@@ -34,10 +37,10 @@ export function installAskWindow(root: HTMLElement, signal: AbortSignal) {
     cancelAnimationFrame(frame);
     frame = requestAnimationFrame(layout);
   }
-  root.querySelectorAll<HTMLElement>('[data-ask-grip]').forEach(grip => {
+  root.querySelectorAll<HTMLElement>('[data-ask-grip], .ask-handle, .ask-fill').forEach(grip => {
     let start: { id: number; x: number; y: number; right: number; top: number } | null = null;
     let moved = false, suppressClick = false;
-    const enabled = () => !root.classList.contains('ask-inline');
+    const enabled = () => root.dataset.workspace !== 'home' && !root.classList.contains('ask-inline');
     grip.addEventListener('pointerdown', event => {
       if (event.button !== 0 || !event.isPrimary || !enabled()) return;
       // The idle press scales visually; layout coordinates keep the drag stable.
