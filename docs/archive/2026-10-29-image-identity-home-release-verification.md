@@ -21,11 +21,18 @@
 | Shell 与发布包 | 7 项检查通过，包含允许清单、校验和、解包服务及 root／subpath |
 | ASK 与 Bridge | 136 项完整回归通过，无失败或跳过 |
 
-本机日志位于 `.local/release-2026-10-29/`。当前发布核验记录将在 Git 推送、Pages 部署和生产页面检查完成后补齐实际提交与资源信息，不提前宣称线上完成。
+本机日志、脱敏报告与截图位于 `.local/release-2026-10-29/`，不进入仓库或 Pages。117 份项目文档的本地文件链接检查通过，`git diff --check` 通过；源码与构建扫描无发现。
 
 ## Git 与 Pages
 
-待发布。仅通过既有 Pages 项目的 Direct Upload 上传 `dist/`；Git 推送不自动部署。
+- 应用及文档提交：[bdf1a07](https://github.com/hasheeper/koma-image/commit/bdf1a0775900dfb1f970acfb3a28658038517755)，正常快进推送至 `main` 与 `codex/ask-chat-handoff`，没有强推。
+- 执行 `npm run deploy:pages`，Wrangler 4.151.1 重新构建后仅上传 `dist/` 至既有 `koma-image` 项目，生产分支 `main`。部署地址：[3a52ddc9.koma-image.pages.dev](https://3a52ddc9.koma-image.pages.dev/)，生产域名：[koma-image.pages.dev](https://koma-image.pages.dev/)。Git 推送与 Direct Upload 分别完成。
+- 生产首页引用 `index-DMpua3Gq.js` 与 `index-Cq1tMrah.css`，实际下载的字节 SHA-256 与本地构建一致；分词器 Worker、T5／Qwen 词表及三份许可／来源说明同样一致。
+- [公开 Skill](https://koma-image.pages.dev/skills/koma-bridge/SKILL.md) 返回 200、`text/plain; charset=utf-8` 与 `Content-Disposition: inline`，字节与本地发布文件一致。
+- 使用全新隔离 Chromium，不配置连接或 Key：核对 HOME／IMAGE／CHAT／EDIT／TAGS 和现有设置页、ASK 开合且无重复实例；HOME 空状态在 320／390／768／1440px 无横向溢出，五格图形为 80px，品牌居中，卡片底色为 `rgb(24, 24, 28)`。390px 与 1440px 截图已目视检查。
+- 通过 HOME 原生文件入口载入合成 PNG，进入 EDIT 后初始版标识为 `#e1`，返回 HOME 后显示继续入口并收起空状态。生产检查无页面异常、无站外请求、无模型或生成调用。
+
+本记录与现状文档随后以纯文档提交补回仓库，不改变已部署的应用产物。
 
 ## 验证边界
 
