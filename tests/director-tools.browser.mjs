@@ -112,12 +112,14 @@ test('six API operations preserve source recipe; BG variants are grouped, alpha-
   await page.locator('.editor-rail .tile').filter({has:page.locator('.director-badge use[href$="i-dt-background"]')}).click();
   const variants=page.getByRole('radiogroup',{name:'去背景结果',exact:true});
   for(const label of ['抠图','重建','混合']){await variants.locator('label').filter({hasText:label}).click();assert.equal(posts.length,6);}
+  assert.deepEqual(await page.evaluate(()=>editor.session.versions.slice(1,4).map(v=>editor.label(v))),['#e2a','#e2b','#e2c']);
+  assert.deepEqual(await page.evaluate(()=>editor.session.versions.slice(4).map(v=>editor.label(v))),['#e3','#e4','#e5','#e6','#e7']);
   const values=await page.evaluate(async()=>{
     const v=editor.snapshot().viewed,b=await createImageBitmap(v.blob),c=new OffscreenCanvas(b.width,b.height),x=c.getContext('2d');x.drawImage(b,0,0);b.close();
     const {sourceRecipe}=await import('/src/domain/image-parameters.ts');
     return {variant:v.director.variant,alpha:x.getImageData(0,0,1,1).data[3],seed:v.params.seed,recipe:sourceRecipe(v.params),history:drawing.snapshot().history.length};
   });
-  assert.equal(values.variant,'blend');assert.equal(values.alpha,0);assert.equal(values.seed,undefined);assert.equal(values.recipe.basePrompt,'original artist, landscape');assert.equal(values.recipe.seed,7);assert.equal(values.history,8);
+  assert.equal(values.variant,'blend');assert.equal(values.alpha,0);assert.equal(values.seed,undefined);assert.equal(values.recipe.basePrompt,'original artist, landscape');assert.equal(values.recipe.seed,7);assert.equal(values.history,0);
   const urls=await page.evaluate(()=>{
     const group=editor.snapshot().viewed.director.group,urls=editor.session.versions.filter(v=>v.director?.group===group).map(v=>v.url);
     window.revoked=[];const revoke=URL.revokeObjectURL;URL.revokeObjectURL=u=>{revoked.push(u);revoke(u);};editor.remove(editor.session.viewId);return urls;

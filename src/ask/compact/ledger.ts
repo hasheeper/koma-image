@@ -1,3 +1,4 @@
+import type { PictureRefs } from "../edit-context.ts";
 import type { AskMessage } from "../messages.ts";
 import type { Draft, DraftPlan } from "../draft/types.ts";
 import { draftView } from "../draft/view.ts";
@@ -18,6 +19,7 @@ export interface TurnDraft {
   };
 }
 export interface CommittedTurn {
+  readonly pictureRefs?: PictureRefs;
   readonly turnId: TurnId;
   readonly messages: readonly AskMessage[];
   readonly viewed: readonly string[];
@@ -30,6 +32,7 @@ export interface CommittedTurn {
   readonly inputTokens?: number | null;
 }
 export interface LedgerEntry {
+  readonly pictureRefs?: PictureRefs;
   readonly turnId: TurnId;
   readonly targets: readonly string[];
   readonly boards: readonly string[];
@@ -72,7 +75,7 @@ export function changeDraft(draft: TurnDraft, status: DraftStatus, plan?: DraftP
 /** Exactly one deterministic entry per committed turn, without a classifier. */
 export function ledgerEntry(turn: CommittedTurn): LedgerEntry {
   const draft = turn.draft, effective = draft?.applied ?? draft;
-  return { turnId: turn.turnId, targets: [...new Set(turn.targets)], boards: [...new Set([...turn.boards, ...(draft?.applied?.boardId ? [draft.applied.boardId] : [])])],
+  return { turnId: turn.turnId, ...(turn.pictureRefs ? {pictureRefs:turn.pictureRefs} : {}), targets: [...new Set(turn.targets)], boards: [...new Set([...turn.boards, ...(draft?.applied?.boardId ? [draft.applied.boardId] : [])])],
     ask: excerpt(turn.question), reply: draft ? "" : firstSentence(replyText(turn)), attachments: [...new Set(turn.attachments)],
     ...(draft && effective ? { draft: { title: draft.proposal.title, scope: effective.scope, delta: effective.delta,
       status: draft.status, ...(draft.applied?.boardId ? { applied_to: draft.applied.boardId } : {}) } } : {}) };

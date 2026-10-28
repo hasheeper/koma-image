@@ -1,17 +1,17 @@
 # 当前状态与待办
 
-更新：2026-10-28。本文保留稳定路径，集中说明仓库现状与剩余工作。产品介绍见[产品总览](product-overview.md)，行为细节由各专题维护；阶段过程与验收数字见[历史索引](archive/README.md)。当前 Pages 已完成[提交与线上静态核验](archive/2026-10-28-home-edit-nai-release-verification.md)；本地完成和静态发布均不代表真实供应商联调。
+更新：2026-10-29。本文保留稳定路径，集中说明仓库现状与剩余工作。产品介绍见[产品总览](product-overview.md)，行为细节由各专题维护；阶段过程与验收数字见[历史索引](archive/README.md)。此前 Pages 版本的[提交与线上静态核验](archive/2026-10-28-home-edit-nai-release-verification.md)单独留档；本文新增的图片身份重构尚未推送或发布。本地完成和静态发布均不代表真实供应商联调。
 
 ## 已实现范围
 
 | 范围 | 当前能力与维护入口 |
 | --- | --- |
 | 外壳与导航 | HOME／IMAGE／CHAT／EDIT／TAGS 同级切换；HOME 为默认路由，设置为弹窗；HOME／IMAGE／CHAT／TAGS 使用 KeepAlive，EDIT 原位隐藏保活。见[架构](architecture.md) |
-| HOME | 真实创作线、继续入口、收藏定稿、行／列／拼图三种排列、每 IMAGE 画板一张 1080px 展示副本、封面与来源链；同一 ASK 停靠、状态行、原图拖入和共享元素过渡。见[HOME](koma-home.md) |
+| HOME | 真实创作线、继续入口、收藏定稿、行／列／拼图三种排列、每 IMAGE 画板一张 1080px 展示副本、封面与来源链；同一 ASK 停靠、状态行、原图拖入和共享元素过渡。本地数据就绪后显示五格空状态与整页中央柔光，空状态背景粘贴图片进入 EDIT。见[HOME](koma-home.md) |
 | IMAGE 与角色 | 独立表单画板、串行批量、历史与收藏、参数往返、多角色与定位；冻结提交来源。见[绘图](drawing-workspace.md)、[角色与画板](multi-character-boards.md) |
 | CHAT | 上下文选择、分支、多版本、持久会话、逐图收藏与显式图片交接。见[对话](chat-workspace.md) |
-| EDIT | 独立 `#/edit`、每来源图一画板、每板最多 30 版本；参数／角色／参考继承、实际 Seed、同尺寸蒙版沿用、后台任务归属及 HOME 继续。编辑现场仅本页，ASK 在 EDIT 中隐藏。见[编辑](edit-workspace.md) |
-| Photopea | 单 iframe 多画板分层文档保活；三层及隐藏选区辅助层、干净图像／蒙版自动分离、同尺寸换底保图层、纯修图直入历史／收藏／Slate。Dark Blue、紧凑固定顶栏和完整视口。见[接入与工作栈](photopea-workstack-spec.md) |
+| EDIT | 独立 `#/edit`、每来源图一画板、每板最多 30 张物理图片；参数／角色／参考继承、实际 Seed、同尺寸蒙版沿用、后台任务归属及 HOME 继续。编辑现场仅本页，ASK 在 EDIT 中隐藏。见[编辑](edit-workspace.md) |
+| Photopea | 单 iframe 多画板分层文档保活；三层及隐藏选区辅助层、干净图像／蒙版自动分离、同尺寸换底保图层、纯修图保留编辑版本并直接收藏／交付 Slate。Dark Blue、紧凑固定顶栏和完整视口。见[接入与工作栈](photopea-workstack-spec.md) |
 | 图像协议 | 标准网关、OpenAI Images、Gemini 原生与 NovelAI 官方基础接线及模拟验证；NAI 账户已有授权只读验证。见[协议](native-image-protocols.md) |
 | NAI | V4.5 Full／Curated、V5 Full High／Medium／Curated 五型号文生图、Img2Img 与普通 Enhance，V5 三型号另有 Max Enhance；除 V5 Curated 外四型号普通／聚焦 Inpaint、官方 4× Upscale、六项 Director Tools；模式、Effort、Complexity、预设、透明底、Guidance／Rescale、多角色与适用的 V4.5 Vibe／Precise；本地费用估算、型号输入预算和外部 PNG Vibe 编码恢复。见[NAI](novelai-official.md) |
 | 连接与选源 | 图像／文本分区、仅图像排序；按模型／操作／额度选择，未知余额按优先级，明确不足才顺位；提交失败不换源重试，连接和模型操作局部更新。见[设置](shared-settings-tags.md) |
@@ -28,7 +28,7 @@
 - **ASK 质量**：真实图片黄金样例、诊断／提纯／命名、用户提示词效果、交接备忘录质量、CHAT 尺寸项效果与真实缓存命中。
 - **目录兼容**：Chromium OPFS 已验证文件写入、句柄保存和跨页锁；macOS Edge 已实测本地选择器、授权、刷新恢复与外部文件闭环。浏览器重启、撤权恢复、其他浏览器与跨进程竞争仍待验。
 - **编辑兼容**：实际 Safari、移动真机、Photopea 复杂分层长时使用及 Pages 发布后体验仍待独立核验。Playwright WebKit 不等于实际 Safari。
-- **持续发布验证**：本轮已核对静态产物与线上页面，后续发布仍须按具体提交检查；CI 与真实供应商生成不由本次线上静态检查代替。
+- **持续发布验证**：此前发布已核对静态产物与线上页面，图片身份重构仍待发布；每次发布须按具体提交检查，线上静态检查不能代替 CI 与真实供应商生成验证。
 
 真实收费生成、推送和部署按工程约定取得对应授权。
 
@@ -43,6 +43,12 @@
 | 界面 | V4.5 质量入口迁入参数抽屉尚未实施 |
 
 能力依据与核验顺序由[NAI 专题](novelai-official.md#后续工作与核验顺序)维护。V5 的两种参考保持不开放，须先有适用能力证据。
+
+## 图片身份
+
+[全局图片身份](image-identity.md)贯通原图实体、持久收藏号、EDIT／CHAT 短码、逐轮冻结引用、视觉共享、备份和 Bridge／Slate／HOME。编辑结果归 EDIT，不自动注册为 IMAGE 历史；ASK 具备 EDIT 只读索引与看图能力，仍不在 EDIT 内显示或写入编辑参数。
+
+实时收藏编号只读持久 `favSeq`，不再在 ASK 会话中分配或恢复实时编号；旧 CHAT 数字尾段、已保存引用及 Koma 备份可选身份字段仍有明确的兼容读取边界。
 
 ## 当前范围之外与已取消事项
 

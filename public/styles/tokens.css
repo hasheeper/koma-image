@@ -43,6 +43,7 @@
   --chrome: #18181c;   /* topbar, composer, stage head, gallery */
   --raised: #1e1e24;   /* cards, drawers, sheets, tooltips */
   --hover:  #24242c;   /* pointer feedback on raised things */
+  --image-checker: repeating-conic-gradient(#303036 0% 25%, #25252b 0% 50%) 0 0 / 16px 16px;
 
   /* Focus deepens the well by one notch. This was a hardcoded #0c0c0f that
      survived two retunes of the ramp and had drifted to L*=3.4 — darker than

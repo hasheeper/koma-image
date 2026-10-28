@@ -145,9 +145,9 @@ Diff、逐项勾选、参数冲突、应用到来源板／新板、Tab 确认与
 
 ## ASK 推进与复合草稿
 
-内置 ASK 可从零拆解任务清单、追加 Bonus、修改描述与 `mutation`、推进状态、绑定本轮 `#h`／`#f`、更新并锁定 `golden_recipe`。`get_state({include_slate:true})` 按需返回完整冻结任务板；默认初始状态只含摘要，`scope: latest` 仅用于检查当前变化。没有新增直接写入工具。
+内置 ASK 可从零拆解任务清单、追加 Bonus、修改描述与 `mutation`、推进状态、绑定本轮 `#h`／`#f`／`#e`、更新并锁定 `golden_recipe`。`get_state({include_slate:true})` 按需返回完整冻结任务板；默认初始状态只含摘要，`scope: latest` 仅用于检查当前变化。没有新增直接写入工具。
 
-共享 `slate_edit` 支持 `op: create/update/delete`；已有目标必须带 `slate_id`、`expected_version`，创建标题使用 `slate_title`／`todo_title`（持久数据仍用 `title`），避免兼容中转剥离 Schema 标题元数据；新 Slate／Todo ID 由应用分配。每份草稿最多一个 `slate_edit`，其中 `todos` 最多 100 项操作，单板正文最多 900KiB。新增 Todo 使用 `{op:"add",todo_title:"任务标题"}`，省略 `id`；若 Agent 误填字符串 ID，解析时忽略该值并生成新稳定 ID，不因此拒绝整稿，也不据此覆盖或引用已有任务。`update/remove` 仍须引用状态中的真实稳定 `id`，不接受 CG 序号或自行编造的 ID。绑定使用 `bind: {source, caption_source, caption_mode, target_path?, character_id?}`，解绑使用 `unbind: true`。图像只接受本轮历史／收藏，不能伪造本机资产或交付回执。
+共享 `slate_edit` 支持 `op: create/update/delete`；已有目标必须带 `slate_id`、`expected_version`，创建标题使用 `slate_title`／`todo_title`（持久数据仍用 `title`），避免兼容中转剥离 Schema 标题元数据；新 Slate／Todo ID 由应用分配。每份草稿最多一个 `slate_edit`，其中 `todos` 最多 100 项操作，单板正文最多 900KiB。新增 Todo 使用 `{op:"add",todo_title:"任务标题"}`，省略 `id`；若 Agent 误填字符串 ID，解析时忽略该值并生成新稳定 ID，不因此拒绝整稿，也不据此覆盖或引用已有任务。`update/remove` 仍须引用状态中的真实稳定 `id`，不接受 CG 序号或自行编造的 ID。绑定使用 `bind: {source, caption_source, caption_mode, target_path?, character_id?}`，解绑使用 `unbind: true`。图像只接受本轮历史／收藏／EDIT，不能伪造本机资产或交付回执。
 
 配方可用 `golden_recipe.capture_current: true` 保存同稿修改后的完整画板，也可提议经结构校验的 `form`；`locked` 控制锁定，锁定配方修改必须显式 `unlock: true`。配方是创作数据，不改变生成锁，不自动应用到画板或补造图片回执。
 
@@ -189,3 +189,9 @@ Diff、逐项勾选、参数冲突、应用到来源板／新板、Tab 确认与
 - `strip_syntax`：移除配对的 `{}`／`[]`、数字权重 `1.2::正文::` 与无属性的配对 XML 块标签，保留内容、顺序及转义；畸形或不确定包装保持原文。不猜测画师名，不做词义过滤，括号式其他语法原样保留。
 
 任务交接资料通过 DraftCard 的「附加任务交接资料」保存完整任务、配方、进度与更改记录，固定为 JSON。配方、备忘录与任务资料是各自冻结的文件行，不提供第二套导出弹窗。资料文件不附原图；成果图标打开必要的选图／查看界面，标注来源由用户明确选择，已绑成果可用图标下载原图、真实生成回执和标注文本；浏览器仅报告已发起下载。
+
+## 图片引用格式 v2
+
+`state.live.json` 保持 live.v1，新增 `picture_ref_version:2`、`favorites_scope_id` 与 EDIT 只读目录。新版草稿引用 `#h/#e` 验证 `picture_scope_id`，引用固定 `#f` 验证收藏库作用域；混合时分别带回。EDIT 推荐完整 `#e板号.版本[a-c]`；若用本板简写，另带 `edit_board_id` 匹配活动编辑板。旧无标记投递维持保守校验，不能猜测旧 `#f` 含义。
+
+Slate 可直接绑定 EDIT 原图／衍生图，保存独立原图及来源实体、记录与引用；无需注册 IMAGE 历史。已交付资产不依赖页内版本继续存在。外部仍仅向 IMAGE 提草稿，EDIT 索引不增加预览或原图自动导出。精确规则见[图片身份](../image-identity.md)与生成的 `PROTOCOL.md`。

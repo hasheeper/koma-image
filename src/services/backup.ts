@@ -1,3 +1,8 @@
+import { imageEntity } from "../domain/image-identity.ts";
+import { chatImageId } from "../domain/image-origin.ts";
+import { canonical } from "../ask/canonical.ts";
+import type { FavoriteIdentityBackup } from "../domain/image-identity.ts";
+import { initializeFavoriteIdentity, mergeFavoriteIdentity, identityStores } from "./image-identities.ts";
 import type { ReferenceAsset, VibeEncoding } from "../domain/nai-references.ts";
 import { base64Blob, blobBase64, sha256, referenceBitmap } from "../native/reference-images.ts";
 import { createArchive, readArchive } from "../storage/backup-archive.ts";
@@ -25,6 +30,7 @@ import { names } from "../storage/names.ts";
 import type { DataLease } from "./data-lease.ts";
 type Progress = (done: number, total: number) => void;
 export interface CheckedBackup {
+  imageIdentity?: FavoriteIdentityBackup;
   id: string;
   favorites: FavoriteRecord[];
   conversations: ConversationRecord[];
@@ -73,9 +79,11 @@ export async function readBackup(
   const favorites: FavoriteRecord[] = [],
     assets: AssetRecord[] = [];
   for (const { image: ref, thumbnail, ...row } of manifest.favorites) {
+    const blob = await image(ref), entity_key = await imageEntity(blob);
+    if (row.entity_key && row.entity_key !== entity_key) throw new Error("收藏图片身份校验失败");
     favorites.push({
-      ...row,
-      blob: await image(ref),
+      ...row, entity_key,
+      blob,
       thumbBlob: thumbnail ? await image(thumbnail) : null,
     });
     progress(++done, manifest.favorites.length + manifest.assets.length);
@@ -105,6 +113,7 @@ export async function readBackup(
   }
   const backup = {
     id: manifest.id,
+    imageIdentity: manifest.imageIdentity,
     favorites,
     conversations: manifest.conversations,
     assets,
@@ -157,13 +166,13 @@ export function createBackupService({
   async function load() {
     const favoritesTx = databases().transaction(
       names.databases.favorites,
-      ["favorites", "referenceAssets", "vibeEncodings"],
+      [...identityStores, "referenceAssets", "vibeEncodings"],
     );
     const chatTx = databases().transaction(names.databases.chat, [
       "conversations",
       "assets",
     ]);
-    const [favorites, conversations, assets, referenceAssets, vibeEncodings] = await Promise.all([
+    const [favorites, conversations, assets, referenceAssets, vibeEncodings, identityState, registrations] = await Promise.all([
       idbRequest(favoritesTx.objectStore("favorites").getAll()) as Promise<
         FavoriteRecord[]
       >,
@@ -175,8 +184,10 @@ export function createBackupService({
       >,
       idbRequest(favoritesTx.objectStore("referenceAssets").getAll()) as Promise<ReferenceAsset[]>,
       idbRequest(favoritesTx.objectStore("vibeEncodings").getAll()) as Promise<VibeEncoding[]>,
+      idbRequest(favoritesTx.objectStore("identity").get("library")) as Promise<import("../domain/image-identity.ts").FavoriteIdentityState>,
+      idbRequest(favoritesTx.objectStore("favoriteTags").getAll()) as Promise<import("../domain/image-identity.ts").FavoriteRegistration[]>,
     ]);
-    return { favorites, conversations, assets, referenceAssets, vibeEncodings };
+    return { favorites, conversations, assets, referenceAssets, vibeEncodings, imageIdentity:{version:1 as const,state:identityState,registrations} };
   }
   return {
     read: readBackup,
@@ -189,6 +200,7 @@ export function createBackupService({
     },
     export(progress?: Progress) {
       return data.export(async () => {
+        await data.write(()=>initializeFavoriteIdentity(databases()));
         const preferences = collectBackupPreferences(storage);
         const stored = await load(),
           entries: [string, Blob][] = [];
@@ -205,8 +217,10 @@ export function createBackupService({
           version: 2,
           id: crypto.randomUUID(),
           createdAt: new Date().toISOString(),
+          imageIdentity: stored.imageIdentity,
           favorites: stored.favorites.map((r, i) => ({
             id: r.id,
+            entity_key: r.entity_key, favSeq: r.favSeq, lineage: r.lineage,
             createdAt: r.createdAt,
             favoritedAt: r.favoritedAt,
             params: r.params,
@@ -254,7 +268,7 @@ export function createBackupService({
         const saved = await load(),
           existing = new Map(saved.conversations.map((c) => [c.id, c]));
         const records: ConversationRecord[] = [],
-          current = new Map<string, string>();
+          current = new Map<string, string>(), turnIds = new Map<string, string>(), versionIds = new Map<string, string>(), recordIds = new Map<string, string>();
         for (const source of backup.conversations) {
           const row = revive(source),
             match = existing.get(row.id);
@@ -263,6 +277,15 @@ export function createBackupService({
               ? importedCopy(row, `import-${backup.id}-${row.id}`)
               : row;
           current.set(row.id, target.id);
+          for (const [i, turn] of row.turns.entries()) {
+            const importedTurn = target.turns[i];
+            turnIds.set(`${row.id}:${turn.id}`, importedTurn.id);
+            for (const [j, version] of turn.versions.entries()) {
+              const importedVersion = importedTurn.versions[j];
+              versionIds.set(`${row.id}:${version.id}`, importedVersion.id);
+              for (const block of version.blocks) if (block.type === "image") recordIds.set(chatImageId(row.id, turn.id, version.id, block.assetId), chatImageId(target.id, importedTurn.id, importedVersion.id, block.assetId));
+            }
+          }
           if (!existing.has(target.id)) records.push(target);
         }
         // Conversation records and their assets commit or abort together.
@@ -298,7 +321,18 @@ export function createBackupService({
         }
         const savedIds = new Map(saved.favorites.map((f) => [f.id, f])),
           additions: FavoriteRecord[] = [];
-        for (const row of backup.favorites) {
+        const remapParams = (params: FavoriteRecord["params"]): FavoriteRecord["params"] => {
+          const p = { ...params }, c = String(p.chatConversationId ?? "");
+          if (current.has(c)) {
+            p.chatConversationId = current.get(c)!;
+            if (typeof p.chatTurnId === "string") p.chatTurnId = turnIds.get(`${c}:${p.chatTurnId}`) ?? p.chatTurnId;
+            if (typeof p.chatVersionId === "string") p.chatVersionId = versionIds.get(`${c}:${p.chatVersionId}`) ?? p.chatVersionId;
+          }
+          if (p.sourceRecipe && typeof p.sourceRecipe === "object" && !Array.isArray(p.sourceRecipe)) p.sourceRecipe = remapParams(p.sourceRecipe as FavoriteRecord["params"]);
+          return p;
+        };
+        for (const source of backup.favorites) {
+          const row = { ...source, id: recordIds.get(source.id) ?? source.id, params: remapParams(source.params) };
           const present = savedIds.get(row.id);
           if (!present) {
             additions.push(row);
@@ -307,23 +341,43 @@ export function createBackupService({
           if (
             present.blob.size === row.blob.size &&
             present.blob.type === row.blob.type &&
-            (await hashImage(present.blob)) === (await hashImage(row.blob))
+            (await hashImage(present.blob)) === (await hashImage(row.blob)) &&
+            canonical([present.params, present.size, present.createdAt, present.quote ?? null, present.ms ?? null]) === canonical([row.params, row.size, row.createdAt, row.quote ?? null, row.ms ?? null])
           )
             continue;
           const id = `import-${backup.id}-${row.id}`;
+          recordIds.set(source.id, id);
           if (!savedIds.has(id)) additions.push({ ...row, id });
+        }
+        // Keep provenance attached to the imported conversation/record, including conflict copies.
+        for (const row of additions) if (row.lineage) {
+          const l = { ...row.lineage }, ref = l.parent_ref;
+          if (l.parent_record_id) l.parent_record_id = recordIds.get(l.parent_record_id) ?? l.parent_record_id;
+          if (ref) {
+            const scope = { ...ref.scope }, c = scope.id;
+            if (scope.kind === "chat" && current.has(c)) {
+              scope.id = current.get(c)!;
+              if (scope.turn_id) scope.turn_id = turnIds.get(`${c}:${scope.turn_id}`) ?? scope.turn_id;
+              if (scope.version_id) scope.version_id = versionIds.get(`${c}:${scope.version_id}`) ?? scope.version_id;
+            }
+            l.parent_ref = { ...ref, record_id: recordIds.get(ref.record_id) ?? ref.record_id, scope };
+          }
+          row.lineage = l;
         }
         const favoritesTx = databases().transaction(
             names.databases.favorites,
-            ["favorites", "referenceAssets", "vibeEncodings"],
+            [...identityStores, "referenceAssets", "vibeEncodings"],
             "readwrite",
           ),
           finished = transactionDone(favoritesTx);
-        for (const row of additions)
-          favoritesTx.objectStore("favorites").add(row);
-        for (const row of backup.referenceAssets) favoritesTx.objectStore("referenceAssets").put(row);
-        for (const row of backup.vibeEncodings) favoritesTx.objectStore("vibeEncodings").put(row);
-        await finished;
+        void finished.catch(() => {});
+        try {
+          const imageIdentity = backup.imageIdentity ? { ...backup.imageIdentity, registrations: backup.imageIdentity.registrations.map(r => ({ ...r, recordId: recordIds.get(r.recordId) ?? r.recordId })) } : undefined;
+          await mergeFavoriteIdentity(favoritesTx, additions, imageIdentity);
+          for (const row of backup.referenceAssets) favoritesTx.objectStore("referenceAssets").put(row);
+          for (const row of backup.vibeEncodings) favoritesTx.objectStore("vibeEncodings").put(row);
+          await finished;
+        } catch (error) { try { favoritesTx.abort(); } catch {} await finished.catch(() => {}); throw error; }
         for (const field of Object.keys(
           backupPreferences,
         ) as (keyof BackupPreferences)[]) {

@@ -54,19 +54,19 @@ test('ASK CHAT ids: every version and image is addressable, #cN.M aliases the fi
  const state={...s,ready:true,model:{name:'GPT Image',maxImages:2,fields:{}},models:[{id:'gpt',name:'GPT Image',connection:'private-connection',fields:{}}]};
  const chat={assets:{assets:new Map(['image1','image2','image2b','image2c','image3'].map(id=>[id,{width:64,height:48,blob:new Blob()}]))}};
  const library=chatPictures(state,chat);
- assert.deepEqual(library.map(p=>p.label),['#c1.1','#c2.1','#c2.2.1','#c2.2.2','#c3.1']);
+ assert.deepEqual(library.map(p=>p.label),['#c1.1','#c2.1','#c2.2a','#c2.2b','#c3.1']);
  assert.deepEqual(library.map(p=>p.origins[0].order),[1,2,3,4,5]);
  assert.equal(new Set(library.map(p=>p.id)).size,5);
  assert.ok(library[2].aliases.includes('#c2.2'));assert.ok(library[1].aliases.includes('#c2.1.1'));
  const tools=createTools(),meta=JSON.parse(tools.get('get_meta').run({id:'#c2.2'},{library}).content[0].text.match(/\{[\s\S]*\}/)[0]);
- assert.equal(meta.id,'#c2.2.1');assert.equal(meta.version,2);assert.equal(meta.image_index,1);assert.equal(meta.selected,true);
+ assert.equal(meta.id,'#c2.2');assert.equal(meta.version,2);assert.equal(meta.image_index,1);assert.equal(meta.selected,true);
  assert.equal(meta.modelName,'GPT Image');assert.deepEqual(meta.chat_options,{quality:'high',size:'1536x1024'});
  assert.doesNotMatch(JSON.stringify(library.map(p=>p.params)),/not outbound|private-connection/);
  assert.throws(()=>tools.get('get_meta').run({id:'#c2.3'},{library}),/不在本轮图片快照/);
  assert.deepEqual('#c2.2.2 与 #c2.1。'.match(idPattern),['#c2.2.2','#c2.1']);
- assert.deepEqual(searchHistory({scope:'chat',limit:15},library,0).matches.map(m=>m.id),['#c3.1','#c2.2.2','#c2.2.1','#c2.1','#c1.1']);
+ assert.deepEqual(searchHistory({scope:'chat',limit:15},library,0).matches.map(m=>m.id),['#c3.1','#c2.2b','#c2.2a','#c2.1','#c1.1']);
  const ctx=chatContext(state);
- assert.deepEqual(ctx.turns[1].versions,[{id:'#c2.1',status:'done',selected:false,images:['#c2.1']},{id:'#c2.2',status:'done',selected:true,images:['#c2.2.1','#c2.2.2']},{id:'#c2.3',status:'error',selected:false,images:[]}]);
+ assert.deepEqual(ctx.turns[1].versions,[{id:'#c2.1',status:'done',selected:false,images:['#c2.1']},{id:'#c2.2',status:'done',selected:true,images:['#c2.2a','#c2.2b']},{id:'#c2.3',status:'error',selected:false,images:[]}]);
  assert.equal(ctx.turns[1].id,'#c2.2');
  const base={form:{...DEFAULTS},composer:c.prompt,conversationId:c.id,models:[],samplers:[],chat:chatSnapshot(state)};
  const branch=source=>parseDraft({title:'分支',base_hash:stateHash(base),steps:[{kind:'chat_distill_branch',source,exclude:['#c3.1.1'],text:'x'}]},base,[]);
@@ -85,10 +85,12 @@ test('ASK CHAT handoff: one step, whitelisted size values, deduplicated images w
  s.current.settings={model:'gpt',options:{size:'auto',quality:'high'}};
  const state={...s,ready:true,model:openai,models:[openai]};
  const library=[{id:'record-1',aliases:['#h1','#f1'],origins:[{source:'history',label:'#h1',order:1},{source:'favorites',label:'#f1',order:1}],params:{},size:{width:64,height:64}},
-  {id:'attachment-1',aliases:['#a1'],origins:[{source:'attachment',label:'#a1',order:1}],params:{},size:{width:64,height:64}}];
+  {id:'attachment-1',aliases:['#a1'],origins:[{source:'attachment',label:'#a1',order:1}],params:{},size:{width:64,height:64}},
+  {id:'edit-record',aliases:['#e2','#e1.2'],origins:[{source:'edit',label:'#e2',order:2},{source:'edit',label:'#e1.2',order:2}],params:{},size:{width:64,height:64}}];
  const base={form:{...DEFAULTS},composer:s.current.prompt,conversationId:s.current.id,models:[],samplers:[],chat:chatSnapshot(state),workspace:'image',chatModel:chatDraftModel(state)};
  assert.deepEqual(base.chatModel,{id:'gpt',name:'GPT Image',maxImages:2,writable:{size:{value:'auto',options:['auto','1024x1024','1536x1024','1024x1536']}}});
  const draft=(step,b=base)=>parseDraft({title:'交接',base_hash:stateHash(b),steps:[{kind:'chat_handoff',images:[],options:{},text:'close-up',...step}]},b,library);
+ assert.deepEqual(draft({images:['#e2','#e1.2']}).steps[0].images,[{label:'#e2',source:'edit',ref:'edit-record'}]);
  const d=draft({images:['#h1','#f1','#c2.1'],options:{size:'1536x1024'}});
  assert.deepEqual(d.steps[0].images,[{label:'#h1',source:'history',ref:'record-1'},{label:'#c2.1',source:'chat',ref:'image2'}]);
  const p=validateDraft(d,base,{off:new Set()});

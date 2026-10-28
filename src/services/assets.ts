@@ -38,7 +38,7 @@ export class AssetStore {
       n.toString(16).padStart(2, "0"),
     ).join("");
     if (!this.assets.has(id))
-      this.adopt({ id, blob, name, origin, ...dimensions });
+      this.adopt({ id, entity_key: `sha256:${id}`, blob, name, origin, ...dimensions });
     return this.get(id);
   }
   async encode(ids: string[]) {

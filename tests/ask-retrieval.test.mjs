@@ -41,7 +41,7 @@ test('history retrieval: real source membership, aliases, pre-filter predecessor
   const ids=createIds(), a=image('a','white hair',1000), b=image('b','blue hair',2000,{scale:7});
   b.size={width:1024,height:1216};
   snapshotPictures([b,a],[],ids);
-  const library=snapshotPictures([b],[{...a,favoritedAt:3000},{...b,favoritedAt:4000}],ids);
+  const library=snapshotPictures([b],[{...a,favoritedAt:3000,favSeq:1},{...b,favoritedAt:4000,favSeq:2}],ids);
   assert.equal(searchHistory({scope:'history'},library,5000).total_matched,1,'expired #h alias is not current membership');
   const favorites=searchHistory({scope:'favorites',query:'blue',changed_field:'scale'},library,5000);
   assert.equal(favorites.matches[0].source,'favorites');

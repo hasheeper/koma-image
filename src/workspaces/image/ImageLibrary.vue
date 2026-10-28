@@ -33,7 +33,7 @@ const showing = computed(() =>
 const landing = computed(() =>
   pending.value && !waiting.value && !view.value.browsing ? showing.value : null,
 );
-function askLabel(id: string) { void ask.libraryRevision.value; return ask.labelFor(id); }
+function askLabel(id: string) { void ask.libraryRevision.value; return image.library === "favorites" ? ask.favoriteLabelFor(id) : ask.labelFor(id); }
 function choose(id: string) {
   if (selected.value.includes(id)) selected.value = selected.value.filter((value) => value !== id);
   else if (selected.value.length < 2) selected.value = [...selected.value, id];
@@ -233,6 +233,7 @@ async function preview(item: ImageRecord, e: Event) {
         :aria-label="`${has(item.id) ? '已收藏，' : ''}查看 ${imageFileName(item)}`"
         :style="{
           '--thumb': `url('${drawing.url(item, true)}')`,
+          '--image-ratio': item.size.width / item.size.height,
           ...bars[index],
         }"
         :draggable="item.params.tool !== 'upscale'"
@@ -249,7 +250,7 @@ async function preview(item: ImageRecord, e: Event) {
           v-if="image.library === 'history' && has(item.id)"
           class="tile-favorite"
           aria-hidden="true"
-          ><AppIcon name="i-star" /></span
+          ><AppIcon name="i-star" /><small>{{ ask.favoriteLabelFor(item.id) }}</small></span
         ><span
           v-if="image.library === 'history'"
           class="tile-x"

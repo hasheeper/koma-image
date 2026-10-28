@@ -21,6 +21,7 @@ export interface TextStep {
   readonly text: string;
 }
 export interface RestoreStep {
+  readonly source_ref?: import("../../domain/image-identity.ts").ImageTagBinding;
   readonly kind: "restore_partial";
   readonly source: string;
   readonly fields: readonly RestoreKey[];
@@ -36,7 +37,7 @@ export interface BranchStep {
 /** A serializable reference; the Blob is read from IMAGE or CHAT only when writing. */
 export interface HandoffImage {
   readonly label: string;
-  readonly source: "history" | "favorites" | "chat";
+  readonly source: "history" | "favorites" | "chat" | "edit";
   /** Drawing record ID for `#h`/`#f`, CHAT asset ID for `#c`. */
   readonly ref: string;
 }

@@ -14,6 +14,18 @@ test("image source priorities remain separate from available links in exported/r
   assert.deepEqual(restored.links, {});
 });
 
+test('image identity metadata validates both registration directions and retains scoped lineage', () => {
+  const entity_key=`sha256:${'a'.repeat(64)}`, parent_ref={tag:'#e1.2',record_id:'parent',entity_key,scope:{kind:'page',id:'old-page',board_id:'old-board'}};
+  const favorite={id:'one',favSeq:3,entity_key,lineage:{via:'edit:photopea',parent_record_id:'parent',parent_entity_key:entity_key,parent_ref},image:{path:'favorites/0.png',type:'image/png'},thumbnail:null};
+  const imageIdentity={version:1,state:{libraryId:'library',nextFavSeq:4},registrations:[{seq:1,recordId:'removed',entity_key,active:false},{seq:3,recordId:'one',entity_key,active:true}]};
+  const read=()=>validateBackupManifest({...manifest(),favorites:[favorite],imageIdentity});
+  assert.deepEqual(read().favorites[0].lineage.parent_ref,parent_ref);
+  imageIdentity.version=2;assert.throws(read);imageIdentity.version=1;
+  imageIdentity.registrations[0].active=true;assert.throws(read);imageIdentity.registrations[0].active=false;
+  favorite.lineage.parent_ref={...parent_ref,scope:{kind:'page',id:''}};assert.throws(read);
+  favorite.lineage.parent_ref={...parent_ref,entity_key:'unverified'};assert.throws(read);
+});
+
 test("only the new Koma envelope is accepted, with logical allowlisted preference fields", () => {
   assert.equal(validateBackupManifest(manifest()).version, 2);
   for (const change of [{ version: 1 }, { app: "other-app" }, { kind: "routing" }, { id: "bad" }, { createdAt: "bad" }]) {

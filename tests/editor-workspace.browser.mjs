@@ -84,3 +84,61 @@ test('independent route, settings return and viewport survive workspace navigati
   assert.equal(await page.evaluate(()=>editor.session.id===boardA),true);
   assert.deepEqual(errors,[]);
 });
+
+test('EDIT identities survive board switches, trimming, removed versions and direct Slate delivery without #h', {timeout:60000}, async t => {
+  const {page, errors} = await setup(t);
+  const result = await page.evaluate(async () => {
+    const { freezePictureRefs } = await import('/src/ask/edit-context.ts');
+    const { parseSlateEdit } = await import('/src/slate/edit.ts');
+    const p = document.body.__vue_app__._instance.provides;
+    const slates = p[Object.getOwnPropertySymbols(p).find(k => k.description === 'slate')];
+    while (!slates.ready.value) await new Promise(r => setTimeout(r, 10));
+    const firstScope = ask.externalSnapshot().pictureScope;
+    for (let i = 0; i < 3; i++) {
+      const token = editor.beginExternalEdit();
+      await editor.applyExternalEdit(token.id, {mode:'image', image:await makeImage(`rgb(${100+i},50,70)`)});
+    }
+    const original = editor.session.versions[0], second = editor.session.versions[1];
+    const firstLibrary = ask.externalSnapshot().library, refs = freezePictureRefs(firstLibrary,{page:firstScope,favorites:drawing.favoritesScopeId,ask:'test',chat:'test'});
+    await editor.saveFavorite();
+    const before = editor.snapshot().viewed;
+    await editor.open('edit', await makeImage('#447799'), 'B.png');
+    const secondScope = ask.externalSnapshot().pictureScope;
+    const oldInfo = ask.pictureInfo('#e2', refs), currentInfo = ask.pictureInfo('#e1');
+    const localMissing = ask.pictureInfo('#e2') === null;
+    const qualified = ask.pictureInfo('#e1.2');
+    const oldCorrect = !!oldInfo && oldInfo.url === qualified.url && oldInfo.url !== currentInfo.url;
+    editor.switchBoard(boardA);
+    editor.remove(1); const protectedSource = editor.session.versions.includes(original);
+    editor.remove(second.id); const removedMissing = ask.pictureInfo('#e2', refs) === null;
+    for (let i = 4; i < 37; i++) {
+      const token = editor.beginExternalEdit();
+      await editor.applyExternalEdit(token.id, {mode:'image', image:await makeImage(`rgb(${100+i},50,70)`)});
+    }
+    const snapshot = ask.externalSnapshot(), current = editor.snapshot().viewed;
+    const picture = snapshot.library.find(p => p.id === current.recordId);
+    const change = parseSlateEdit({kind:'slate_edit',op:'create',slate_title:'EDIT direct',todos:[{op:'add',todo_title:'deliver',status:'done',bind:{source:picture.label,caption_source:'base',caption_mode:'full'}}]}, null, drawing.snapshot().form, snapshot.library).change;
+    await slates.commit(change);
+    const asset = await slates.asset(slates.snapshot().todos[0].binding.assetId);
+    const labels = editor.session.versions.map(v => editor.label(v));
+    return {firstScope,secondScope,localMissing,oldCorrect,protectedSource,removedMissing,
+      history:drawing.snapshot().history.length,current:drawing.snapshot().current,
+      size:editor.session.versions.length,first:labels[0],last:labels.at(-1),unique:new Set(labels).size,
+      delivered:asset.sourceId===current.recordId && await asset.blob.text()===await current.blob.text(),
+      editBoardId:asset.params.editBoardId,originId:asset.params.editOriginId,
+      favoriteId:before.recordId,favorites:drawing.snapshot().favorites.map(f=>f.id),
+      eInHistory:snapshot.library.some(p=>p.origins.some(o=>o.source==='history'))};
+  });
+  assert.equal(result.firstScope,result.secondScope);
+  for (const key of ['localMissing','oldCorrect','protectedSource','removedMissing','delivered']) assert.equal(result[key],true,key);
+  assert.equal(result.history,0); assert.equal(result.current,null); assert.equal(result.eInHistory,false);
+  assert.equal(result.size,30); assert.equal(result.unique,30); assert.equal(result.first,'#e1'); assert.equal(result.last,'#e37');
+  assert.ok(result.favorites.includes(result.favoriteId)); assert.equal(result.editBoardId,await page.evaluate(()=>boardA)); assert.equal(result.originId,'record:a');
+  for (const width of [320,390,768,1440]) {
+    await page.setViewportSize({width,height:900});
+    await page.screenshot({path:`.local/edit-workspace/identity-${width}.png`});
+    assert.equal(await page.locator('#imageEditor').evaluate(e=>e.scrollWidth<=innerWidth),true);
+    assert.ok((await page.locator('.editor-rail .tile-id').allTextContents()).includes('#e1'));
+  }
+  assert.deepEqual(errors,[]);
+});

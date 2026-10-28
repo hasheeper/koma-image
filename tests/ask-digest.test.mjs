@@ -107,29 +107,41 @@ test("digest: active form is always present, explicit workspace anchors keep dia
   assert.deepEqual(JSON.parse(buildDigest(input({ history: [], current: null })).json).image.history, { mode: "B", count: 0, latest_id: null });
 });
 
-test('ids: favorite restoration reserves old history labels before new images arrive', () => {
+test('ids: saved labels are historical data, never a live numbering source', () => {
   const original = createIds();
-  original.sync([{ id: 'old', createdAt: 1 }], [{ id: 'favorite', createdAt: 1, favoritedAt: 2 }]);
-  const restored = createIds(); restored.restore(original.snapshot());
-  restored.sync([{ id: 'new', createdAt: 3 }], [{ id: 'favorite', createdAt: 1, favoritedAt: 2 }]);
-  assert.equal(restored.history('new'), '#h2');
-  assert.equal(restored.resolve('#h1'), 'old');
-  assert.equal(restored.favorite('favorite'), '#f1');
-  restored.restore(original.snapshot());
-  assert.equal(restored.history('new'), '#h2', 'an older sibling snapshot never replaces newer labels');
+  original.sync([{ id: 'old' }], [{ id: 'favorite', favSeq: 7 }]);
+  const saved = original.snapshot(), fresh = createIds();
+  fresh.sync([{ id: 'new' }], [{ id: 'favorite', favSeq: 12 }]);
+  assert.deepEqual(saved.favoriteSeqs, [{id:'favorite',seq:7}]);
+  assert.equal(fresh.history('new'), '#h1', 'a fresh page does not reserve old history labels');
+  assert.equal(fresh.favorite('favorite'), '#f12', 'the persistent store owns the live number');
+  assert.equal(fresh.resolve('#f7'), null);
 });
-test("ids: history in arrival order, favorites by time, never reused within the page", () => {
+test('ids: missing, invalid and conflicting persistent favorite numbers never allocate fallback labels', () => {
+  const ids = createIds();
+  ids.sync([], [{id:'valid',favSeq:7}]);
+  for (const favSeq of [undefined, 0, -1, 1.5, NaN, Infinity, Number.MAX_SAFE_INTEGER + 1]) {
+    assert.throws(() => ids.sync([], [{id:'bad',favSeq}]), /编号尚未就绪/);
+    assert.equal(ids.resolve('#f7'), 'valid', 'rejected input does not replace favorite mappings');
+  }
+  assert.throws(() => ids.sync([], [{id:'a',favSeq:2},{id:'b',favSeq:2}]), /编号冲突/);
+  assert.equal(ids.resolve('#f7'), 'valid');
+  ids.sync([], []);
+  assert.equal(ids.resolve('#f7'), null);
+  assert.deepEqual(ids.snapshot().favoriteSeqs, [], 'retired registrations belong to the store');
+});
+test("ids: history in arrival order, favorites by persisted sequence, never reused within the page", () => {
   const ids = createIds();
   let history = [image("b", 2, ""), image("a", 1, "")];
-  const favorites = [{ ...image("x", 1, ""), favoritedAt: 50 }, { ...image("y", 2, ""), favoritedAt: 10 }];
+  const favorites = [{ ...image("x", 1, ""), favoritedAt: 50, favSeq: 2 }, { ...image("y", 2, ""), favoritedAt: 10, favSeq: 1 }];
   ids.sync(history, favorites);
   assert.deepEqual([ids.history("a"), ids.history("b"), ids.favorite("y"), ids.favorite("x")], ["#h1", "#h2", "#f1", "#f2"]);
   history = [image("d", 4, ""), image("c", 3, ""), history[1]];
   ids.sync(history, favorites);
-  assert.deepEqual([ids.history("c"), ids.history("d"), ids.history("b")], ["#h3", "#h4", "#h2"]);
-  assert.equal(ids.resolve("#h2"), "b");
+  assert.deepEqual([ids.history("c"), ids.history("d"), ids.history("b")], ["#h3", "#h4", null]);
+  assert.equal(ids.resolve("#h2"), null);
   assert.equal(ids.cursor(), 4);
-  ids.sync(history, [{ ...image("z", 9, ""), favoritedAt: 99 }, ...favorites]);
+  ids.sync(history, [{ ...image("z", 9, ""), favoritedAt: 99, favSeq: 3 }, ...favorites]);
   assert.equal(ids.favorite("z"), "#f3");
   assert.equal(ids.label("q"), null);
   const conversation = {

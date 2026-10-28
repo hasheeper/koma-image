@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import { computed, shallowRef, watch } from 'vue';
 import HomeHead from './HomeHead.vue';
+import HomeEmpty from './HomeEmpty.vue';
 import HomeImage from './HomeImage.vue';
 import AppIcon from '../shared/AppIcon.vue';
 import { draftView } from '../ask/draft/view.ts';
@@ -22,11 +23,35 @@ import { pictureUrl, activityTime } from './pictures.ts';
 import type { HomeLine, HomePicture } from './derive.ts';
 const { home, view } = useHome(), { drawing } = useDrawing(), { chat } = useChat(), slates = useSlates(), ask = useAsk(), ui = useUi(), navigation = useHomeNavigation();
 const presentation = useAskPresentation(), { dock, reserve } = presentation, { editor } = useEditor();
+const empty = computed(() => view.value.loaded && view.value.firstUse);
+const welcome = computed(() => empty.value && dock.value === 'off');
+const dropping = shallowRef(false);
+let dragDepth = 0;
+function clearDrop() { dragDepth = 0; dropping.value = false; }
+function drag(event: DragEvent) {
+  if (!event.dataTransfer?.types.includes('Files')) return;
+  if (event.type === 'dragleave') { if (--dragDepth <= 0) clearDrop(); return; }
+  event.preventDefault();
+  if (event.type === 'dragenter') dragDepth++;
+  dropping.value = true;
+  event.dataTransfer.dropEffect = 'copy';
+}
+async function openPicture(file: File) {
+  try { await editor.open('edit', file, file.name); } catch (e) { ui.toast(message(e), 'err'); }
+}
 async function drop(event: DragEvent) {
+  clearDrop();
   const data = event.dataTransfer; if (!data?.files.length) return;
   const file = [...data.files].find(f => /^image\/(png|jpeg|webp)$/.test(f.type));
   if (!file) return; event.preventDefault();
-  try { await editor.open('edit', file, file.name); } catch (e) { ui.toast(message(e), 'err'); }
+  await openPicture(file);
+}
+function paste(event: ClipboardEvent) {
+  if (!welcome.value || event.defaultPrevented || document.querySelector('dialog[open], :popover-open')) return;
+  const target = event.target instanceof Element ? event.target : null;
+  if (target?.closest('input, textarea, select, [contenteditable]:not([contenteditable="false"]), .home-ask')) return;
+  const file = [...(event.clipboardData?.files ?? [])].find(f => /^image\/(png|jpeg|webp)$/.test(f.type));
+  if (file) { event.preventDefault(); void openPicture(file); }
 }
 const root = shallowRef<HTMLElement | null>(null), strip = shallowRef<HTMLElement | null>(null);
 const width = shallowRef(0), viewport = shallowRef({ width: innerWidth, height: innerHeight }), selected = shallowRef<string | null>(null);
@@ -38,8 +63,10 @@ lifecycle.whileActive(signal => {
   };
   const stopMeasure = presentation.measureWith(measure);
   const observer = new ResizeObserver(measure); if (root.value) observer.observe(root.value);
+  window.addEventListener('dragend', clearDrop, { signal });
+  window.addEventListener('paste', paste, { signal });
   window.addEventListener('resize', measure, { signal }); measure();
-  signal.addEventListener('abort', () => { observer.disconnect(); stopMeasure(); selected.value = null; }, { once: true });
+  signal.addEventListener('abort', () => { observer.disconnect(); stopMeasure(); selected.value = null; clearDrop(); }, { once: true });
 });
 const mode = computed(() => resolvedLayout(view.value.preferences.layout, viewport.value.width));
 const arrangement = computed(() => layoutPrints(view.value.finals.map(f => f.size), width.value, mode.value, viewport.value.width <= 860));
@@ -75,11 +102,13 @@ const meta = (line: HomeLine) => [line.count !== null ? `${line.count} ${line.wo
 async function enter(line: HomeLine, p?: HomePicture, event?: MouseEvent) { try { await enterWithPicture(event?.currentTarget instanceof HTMLElement && (p ?? line.face)?.kind !== 'preview' ? event.currentTarget.querySelector('img') : null, () => navigation.enter(line, p)); } catch (e) { ui.toast(message(e), 'err'); } }
 async function resume(event?: MouseEvent) { try { await enterWithPicture(event?.currentTarget instanceof HTMLElement && lead.value?.face?.kind !== 'preview' ? event.currentTarget.querySelector('img') : null, () => navigation.resume()); } catch (e) { ui.toast(message(e), 'err'); } }
 watch(() => view.value.finals, finals => { if (selected.value && !finals.some(f => f.recordId === selected.value)) selected.value = null; });
+watch(dock, clearDrop);
 </script>
 <template>
-  <div class="home-shell" :data-ask="dock" :inert="dock === 'full'" :style="{ paddingRight: `${reserve}px` }" @dragover.prevent @drop="drop">
-  <main ref="root" class="home-page" data-workspace-root="home" tabindex="-1">
-    <HomeHead />
+  <div class="home-shell" :class="{ 'is-empty': welcome }" :data-ask="dock" :inert="dock === 'full'" :style="{ paddingRight: `${reserve}px` }" @dragenter="drag" @dragover="drag" @dragleave="drag" @drop="drop">
+  <main ref="root" class="home-page" :class="{ 'is-empty': welcome }" data-workspace-root="home" tabindex="-1">
+    <HomeHead :empty="welcome" />
+    <HomeEmpty v-if="welcome" :dropping="dropping" />
     <section v-if="lead" class="home-section" :class="{ 'is-single': alone }" aria-label="进行中">
       <div class="home-section-head"><h2>进行中 <span class="home-count">{{ view.lines.length }}</span></h2>
         <button v-if="activeSlate" type="button" class="home-slate" @click="slates.visible.value = true"><span>{{ activeSlate.title }}</span><i class="home-bars" aria-hidden="true"><i v-for="todo in activeSlate.todos.slice(0, 12)" :key="todo.id" :data-done="todo.status === 'done' || undefined" :data-now="todo.status === 'in_progress' || undefined"></i></i><small>{{ completed }}/{{ activeSlate.todos.length }}</small></button>
@@ -92,7 +121,7 @@ watch(() => view.value.finals, finals => { if (selected.value && !finals.some(f 
           </button>
           <div class="home-lead-body" :class="{ 'is-short': !recent.length }">
             <div class="home-lead-title">
-              <p v-if="lead.delivery" class="home-todo"><span>{{ lead.delivery.todoId }}</span>{{ lead.delivery.title }}</p>
+              <p v-if="lead.delivery" class="home-todo" :title="lead.delivery.title"><AppIcon name="i-tasks" /><span>{{ lead.delivery.title }}</span></p>
               <h3>{{ lead.title }}</h3>
               <div class="home-facts"><span v-if="meta(lead)">{{ meta(lead) }}</span><span v-if="lead.status && !leadDraft && !/^第 \d+ 轮$/.test(lead.status)" class="home-status"><i></i>{{ lead.status }}</span></div>
             </div>
@@ -122,7 +151,13 @@ watch(() => view.value.finals, finals => { if (selected.value && !finals.some(f 
   </div>
 </template>
 <style scoped>
-.home-shell { min-height: 100dvh; }
+.home-shell { position: relative; isolation: isolate; min-height: 100dvh; }
+.home-shell::before, .home-shell::after { position: fixed; inset: 0; z-index: -1; content: ''; opacity: 0; pointer-events: none; transition: opacity var(--t3) var(--e); }
+.home-shell::before { background: radial-gradient(ellipse 880px 560px at 50% 40%, rgb(179 161 255 / .04), rgb(179 161 255 / .016) 45%, transparent 75%); }
+.home-shell::after { background: url('./grain.svg') repeat; background-size: 160px 160px; }
+.home-shell.is-empty::before { opacity: 1; }
+.home-shell.is-empty::after { opacity: .03; }
+.home-page.is-empty { position: relative; display: grid; grid-template-rows: minmax(48px, 2fr) auto 32px auto minmax(48px, 3fr); padding: 32px 0 36px; }
 .home-shell[data-ask="full"] { visibility: hidden; transition: visibility 0s .52s; }
 :global(body:has(.home-shell[data-ask="full"])) { overflow: hidden; }
 .home-page { width: min(84%, 1080px); min-height: 100dvh; margin: 0 auto; padding: var(--sp-6) 0 72px; outline: none; }
@@ -146,7 +181,7 @@ watch(() => view.value.finals, finals => { if (selected.value && !finals.some(f 
 @media (min-width: 561px) { .home-section.is-single { width: fit-content; max-width: 100%; margin-inline: auto; } }
 .home-lead { display: flex; flex: none; height: var(--lead-h); border: 1px solid transparent; scroll-snap-align: start; }
 .home-face { display: block; flex: none; }
-.home-face img, .home-line > img, .home-recent img { display: block; width: 100%; height: 100%; object-fit: contain; border-radius: var(--r3); box-shadow: var(--print-shadow); }
+.home-face img, .home-line > img, .home-recent img { display: block; width: 100%; height: 100%; object-fit: contain; background: var(--image-checker); border-radius: var(--r3); box-shadow: var(--print-shadow); }
 /* A line without pictures shows its workspace mark as a faint watermark; the title stays in the text column. */
 .text-face { display: grid; place-items: center; color: var(--line-2); background: var(--chrome); border: 1px solid var(--line); border-radius: var(--r3); }
 .text-face > svg { width: 80px; height: 80px; fill: currentColor; }
@@ -154,8 +189,10 @@ watch(() => view.value.finals, finals => { if (selected.value && !finals.some(f 
 .home-lead-body { display: flex; flex-direction: column; justify-content: space-between; gap: 16px; width: max-content; min-width: 200px; max-width: var(--body-max, 400px); padding: 6px 0 0 28px; }
 /* Without recent pictures the text and button sit together at the bottom, so nothing is left hanging in the middle. */
 .home-lead-body.is-short { justify-content: flex-end; gap: var(--sp-5); }
-.home-todo { display: flex; gap: 8px; margin-bottom: 6px; color: var(--fg-3); font-size: 12px; }
-.home-todo > span { font-family: var(--mono); font-size: 11px; }
+.home-lead-title { min-width: 0; }
+.home-todo { display: flex; align-items: center; gap: 6px; min-width: 0; margin: 0 0 8px; color: var(--fg-3); font-size: var(--fz-xs); line-height: 18px; }
+.home-todo > .ico { flex: none; --ico: var(--ico-sm); }
+.home-todo > span { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .home-lead h3 { display: -webkit-box; margin: 0; overflow: hidden; font-size: 22px; font-weight: var(--fw-semibold); line-height: 1.35; letter-spacing: .01em; overflow-wrap: anywhere; -webkit-line-clamp: 2; -webkit-box-orient: vertical; }
 .home-facts { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 12px; }
 .home-facts > span { display: inline-flex; align-items: center; gap: 6px; height: 26px; padding: 0 10px; color: var(--fg-2); font-size: var(--fz-xs); background: var(--raised); border-radius: 14px; }
@@ -193,7 +230,7 @@ watch(() => view.value.finals, finals => { if (selected.value && !finals.some(f 
 .home-layout [aria-pressed="true"] { color: var(--fg); background: var(--raised); box-shadow: var(--sh-1); }
 .home-finals { position: relative; }
 .home-print { position: absolute; border-radius: var(--r2); box-shadow: var(--print-shadow); }
-.home-print > img { display: block; width: 100%; height: 100%; object-fit: contain; border-radius: inherit; }
+.home-print > img { display: block; width: 100%; height: 100%; object-fit: contain; background: var(--image-checker); border-radius: inherit; }
 .home-print-caption { position: absolute; right: 0; bottom: 0; left: 0; display: flex; flex-direction: column; padding: 9px; opacity: 0; color: var(--fg); background: color-mix(in srgb, var(--canvas) 90%, transparent); border-radius: 0 0 var(--r2) var(--r2); text-align: left; transition: opacity var(--t1) var(--e); }
 .home-print-caption > * { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .home-print-caption b { display: flex; align-items: center; gap: 6px; font: 11px/1.5 var(--mono); }
@@ -202,14 +239,17 @@ watch(() => view.value.finals, finals => { if (selected.value && !finals.some(f 
 .home-print:is(:hover, :focus-visible) .home-print-caption { opacity: 1; }
 @media (hover: none) { .home-print-caption { opacity: 1; } }
 @media (max-width: 860px) {
+  .home-page.is-empty { grid-template-rows: minmax(56px, 1fr) auto 28px auto minmax(48px, 2fr); padding-top: 24px; }
   .home-page { width: calc(100% - 32px); padding-top: var(--sp-5); }
   .home-section + .home-section { margin-top: var(--sp-5); }
   .home-section-head h2 { line-height: 30px; }
   .home-count { height: 20px; min-width: 20px; font-size: var(--fz-2xs); }
   .home-slate { height: 28px; padding: 0 10px; }
 }
+@media (max-width: 560px) { .home-shell::before { background: radial-gradient(ellipse 480px 440px at 50% 36%, rgb(179 161 255 / .04), rgb(179 161 255 / .016) 45%, transparent 75%); } }
+@media (max-height: 640px) { .home-page.is-empty { grid-template-rows: minmax(48px, 1fr) auto 24px auto minmax(24px, 2fr); padding-bottom: 24px; } }
 @media (max-width: 400px) { .home-slate > i { display: none; } .home-section-head { gap: 6px; } }
-@media (prefers-reduced-motion: reduce) { .home-shell[data-ask="full"] { transition: none; } .home-line, .home-print-caption { transition: none; } }
+@media (prefers-reduced-motion: reduce) { .home-shell[data-ask="full"], .home-shell::before, .home-shell::after { transition: none; } .home-line, .home-print-caption { transition: none; } }
 </style>
 
 <!-- View Transition pseudo-elements belong to the document, never a component scope. -->

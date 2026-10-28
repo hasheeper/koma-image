@@ -29,12 +29,12 @@ export const draftSchema = {
             cell: { type: "string", description: "V4.5 位置 A1–E5" }, x: { type: "number", minimum: 0, maximum: 1 }, y: { type: "number", minimum: 0, maximum: 1 }, placement: { type: "string", enum: ["auto", "manual"] },
           } },
           { type: "object", additionalProperties: false, required: ["kind", "source", "exclude", "text"], properties: {
-            kind: { type: "string", enum: ["chat_distill_branch"] }, source: { type: "string", description: "仅在 CHAT 提问时可用。当前分支、该轮选中版本内的已完成图片 ID，如 #c2.1 或 #c2.1.2" },
+            kind: { type: "string", enum: ["chat_distill_branch"] }, source: { type: "string", description: "仅在 CHAT 提问时可用。当前分支、该轮选中版本内的已完成图片 ID，如 #c2.1 或 #c2.1b（兼容旧 #c2.1.2）" },
             exclude: { type: "array", items: { type: "string" }, description: "从 get_chat_context 读取的当前分支轮次 ID；仅排除其文字" }, text: { type: "string", maxLength: 24000 },
           } },
           { type: "object", additionalProperties: false, required: ["kind", "images", "options", "text"], properties: {
             kind: { type: "string", enum: ["chat_handoff"] },
-            images: { type: "array", items: { type: "string" }, description: "作为新会话参考图的 #h、#f 或 #cN.M[.K]，按顺序，数量不超过 chat_model.max_images；可为空" },
+            images: { type: "array", items: { type: "string" }, description: "作为新会话参考图的 #h、#f、#e 或 #cN.M[a-z]（兼容旧 .K），按顺序，数量不超过 chat_model.max_images；可为空" },
             options: { type: "object", additionalProperties: false, description: "仅填 chat_model.writable 中出现的键，值取其 options；quality 等只读项不能写入", properties: Object.fromEntries(chatSizeKeys.map((key) => [key, { type: "string" }])) },
             text: { type: "string", minLength: 1, maxLength: 24000, description: "新会话输入框文字，不会发送" },
           } },

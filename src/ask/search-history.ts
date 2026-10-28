@@ -53,7 +53,7 @@ export function searchHistory(input: Readonly<Record<string, unknown>>, library:
   const field = textArg(input, "changed_field");
   if (field && !changedFields.some((key) => key === field)) throw new Error("不支持的变化字段");
   const scope = input.scope ?? "all", limit = input.limit ?? 8;
-  if (typeof scope !== "string" || !["history", "favorites", "chat", "all"].includes(scope)) throw new Error("无效检索范围");
+  if (typeof scope !== "string" || !["history", "favorites", "chat", "edit", "all"].includes(scope)) throw new Error("无效检索范围");
   if (typeof limit !== "number" || !Number.isInteger(limit) || limit < 1 || limit > 15) throw new Error("limit 需为 1–15");
   const similarId = textArg(input, "similar_to"), base = similarId ? library.find((p) => p.aliases.includes(similarId)) : null;
   if (similarId && !base) throw new Error(`${similarId} 不在本轮图片快照中`);
@@ -62,7 +62,7 @@ export function searchHistory(input: Readonly<Record<string, unknown>>, library:
   const timelines = new Map<string, Candidate[]>();
   const unique = [...new Map(library.map((p) => [p.id, p])).values()];
   for (const picture of unique) for (const origin of picture.origins) {
-    const timeline = `${origin.source}:${picture.params.boardId ?? ""}`;
+    const timeline = `${origin.source}:${origin.source === "edit" ? picture.params.editBoardId ?? "" : picture.params.boardId ?? ""}`;
     const list = timelines.get(timeline) ?? [];
     list.push({ picture, origin }); timelines.set(timeline, list);
   }
@@ -74,7 +74,7 @@ export function searchHistory(input: Readonly<Record<string, unknown>>, library:
 
   const hits = unique.flatMap((picture) => {
     const origin = scope === "all"
-      ? ["history", "favorites", "chat"].flatMap((source) => picture.origins.filter((o) => o.source === source))[0]
+      ? ["history", "favorites", "chat", "edit"].flatMap((source) => picture.origins.filter((o) => o.source === source))[0]
       : picture.origins.find((o) => o.source === scope);
     if (!origin || picture.id === base?.id) return [];
     const prior = previous.get(origin), changed = prior ? changes(prior.picture, picture) : null;

@@ -64,7 +64,9 @@ Koma 是浏览器中的图像工作台，负责表单、草稿审阅和生成。
 - 全文改写用 `rewrite`，末尾追加用 `append`，两者不需 `anchor`。局部修改用 `replace`、`before`、`after`，锚点必须在目标文本中唯一存在。
 - 角色目标用稳定 ID，如 `image.char.c1.prompt`；不要把数组位置当角色 ID。需要另开画板时，在顶层填写 `new_board_name`。
 - 直接设参使用 `params_patch.params`，不是 `patch`；Seed 是字符串，空串随机、`"0"` 合法，Rescale 表单字段是 `cfgRescale`。其余字段和型号约束查协议，不提交连接、Key 或路由设置。
-- `restore_partial` 或 Todo 绑图使用 `#h`／`#f` 时，必须在顶层带回对应状态的 `picture_scope_id`。编号按当前页面作用域解释，刷新后重新读取；不能因收藏持久化就沿用旧 `#f` 编号。
+- 新版引用带 `picture_ref_version: 2`。`restore_partial` 或 Todo 绑图引用 `#h/#e` 时带回 `picture_scope_id`，引用固定 `#f` 时带回 `favorites_scope_id`；混合引用分别校验。页面刷新使旧 `#h/#e` 失效，切板不改变页面空间；同一收藏库的 `#f` 跨普通刷新保持固定。旧无格式标记草稿仍按原有保守检查接收，不猜旧 `#f` 含义。
+- EDIT 目录提供完整 `#e板号.版本`（如 `#e2.3`），去背景 `a/b/c` 为抠图/重建/混合。外部优先使用完整码；本板 `#e3` 简写须另带 `edit_board_id` 匹配当前板。省略字母指接收快照中的当前变体。EDIT 索引仅只读，不代表草稿可以修改 EDIT 或原图已经导出。
+- `entity_key` 关联同一原图字节，`record_id` 关联具体参数；不能把同实体另一份记录的配方替换过来。
 - 外部可混用 IMAGE 的 `prompt_patch`、`params_patch`、`character_edit`、`restore_partial`、`slate_edit` 和 `save_ref`。当前不支持外部 CHAT 写入，每稿最多 12 步、文件不超过 1MiB。
 
 ## 回执与等待

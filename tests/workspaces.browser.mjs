@@ -645,7 +645,7 @@ test("M5 drawing handoff is one-use, retained chat receives it, oversized image 
         [Uint8Array.from(atob(png), (c) => c.charCodeAt(0))],
         { type: "image/png" },
       );
-      await drawing.addExternal(
+      await (await import('/tests/helpers/drawing-history.mjs')).seedHistory({drawing, home:window.home},
         blob,
         { width: 512, height: 512 },
         { model: "nai-diffusion-5-full" },
@@ -745,7 +745,7 @@ test("M6 transferred long prompts keep text and highlight together on tab reveal
           [Uint8Array.from(atob(png), (c) => c.charCodeAt(0))],
           { type: "image/png" },
         );
-        await drawing.addExternal(
+        await (await import('/tests/helpers/drawing-history.mjs')).seedHistory({drawing, home:window.home},
           blob,
           { width: 512, height: 512 },
           { model: "nai-diffusion-5-full", prompt, negative_prompt: negative },
@@ -781,7 +781,7 @@ test("M6 transferred long prompts keep text and highlight together on tab reveal
     await t.close();
   }
 });
-test("M6 editor modes, quote protection, source-pixel mask, undo/redo, persistent sessions, and result history", async () => {
+test("M6 editor modes, quote protection, source-pixel mask, undo/redo, persistent sessions, and EDIT-owned results", async () => {
   const t = await open("#/image"),
     p = t.page;
   try {
@@ -803,9 +803,9 @@ test("M6 editor modes, quote protection, source-pixel mask, undo/redo, persisten
     assert.equal(payload.max_cost, 2);
     assert.equal(payload.seed, 0);
     assert.equal(payload.strength, 0.35);
-    assert.equal(await p.evaluate(() => drawing.snapshot().history.length), 1);
+    assert.equal(await p.evaluate(() => drawing.snapshot().history.length), 0);
     assert.equal(await p.evaluate(() => editor.snapshot().base.id), 1);
-    const firstOrigin = await p.evaluate(() => ({ params: drawing.snapshot().history[0].params, boardId: drawing.snapshot().activeBoardId, parent: editor.session.versions[0].sourceId }));
+    const firstOrigin = await p.evaluate(() => ({ params: editor.snapshot().viewed.params, boardId: drawing.snapshot().activeBoardId, parent: editor.session.versions[0].sourceId }));
     assert.equal(firstOrigin.params.boardId, firstOrigin.boardId);
     assert.equal(firstOrigin.params.editParent, firstOrigin.parent);
     assert.ok(firstOrigin.params.editId);
@@ -835,7 +835,7 @@ test("M6 editor modes, quote protection, source-pixel mask, undo/redo, persisten
     assert.equal(payload.tool, "inpaint");
     assert.ok(payload.mask_image.startsWith("data:image/png;base64,"));
     assert.equal(payload.strength, 1);
-    assert.equal(await p.evaluate(() => drawing.snapshot().history[0].params.editParent), `edit:${firstOrigin.params.editId}`);
+    assert.equal(await p.evaluate(() => editor.snapshot().viewed.params.editParent), `edit:${firstOrigin.params.editId}`);
     const mask = await p.evaluate(async (data) => {
       const b = await (await fetch(data)).blob(),
         image = await createImageBitmap(b),

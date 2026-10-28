@@ -254,6 +254,10 @@ test("M4 complete draw, original controls, strict native wire, favorite persiste
       prompt: "  blue hair  ",
     });
     await patch(t, { prompt: "before preflight" });
+    await p.evaluate(() => {
+      window.publishedImages = [];
+      window.stopImageCheck = drawing.onImage(record => publishedImages.push(record.id));
+    });
     t.state.holdQuota = true;
     await p.locator("#goBtn").click();
     while (!t.state.quotaRelease) await p.waitForTimeout(20);
@@ -267,6 +271,15 @@ test("M4 complete draw, original controls, strict native wire, favorite persiste
     assert.equal(req.payload.parameters.seed, 0);
     assert.equal(req.payload.max_cost, 0);
     assert.equal(req.payload.basePrompt, undefined);
+    const publication = await p.evaluate(async () => {
+      stopImageCheck();
+      const p = document.body.__vue_app__._instance.provides, home = p[Object.getOwnPropertySymbols(p).find(k => k.description === 'home')];
+      await home.ready; await home.store.flush();
+      return {events:publishedImages, current:drawing.snapshot().current.id,
+        preview:home.store.snapshot().previews.find(p => p.boardId === drawing.snapshot().activeBoardId)?.sourceId};
+    });
+    assert.deepEqual(publication.events, [publication.current]);
+    assert.equal(publication.preview, publication.current, 'real drawing completion still publishes the HOME preview');
     await p.locator("#favoriteBtn").click();
     await p.waitForFunction(
       () =>
@@ -500,6 +513,48 @@ test("M4 history import review, copy/reuse, high-frequency splitter has no Vue r
   }
 });
 
+test("transparent previews preserve alpha and bypass existing flattened JPEG thumbnails", async () => {
+  const t = await open(), p = t.page;
+  try {
+    const result = await p.evaluate(async () => {
+      const { makeThumb } = await import('/src/services/image-response.ts');
+      const pixel = async blob => {
+        const bitmap = await createImageBitmap(blob), canvas = new OffscreenCanvas(bitmap.width, bitmap.height), ctx = canvas.getContext('2d');
+        ctx.drawImage(bitmap, 0, 0); bitmap.close();
+        return { size: [canvas.width, canvas.height], corner: [...ctx.getImageData(0, 0, 1, 1).data], center: [...ctx.getImageData(canvas.width / 2, canvas.height / 2, 1, 1).data] };
+      };
+      const canvas = new OffscreenCanvas(832, 1216), ctx = canvas.getContext('2d');
+      ctx.fillStyle = '#b3a1ff80'; ctx.fillRect(200, 300, 432, 616);
+      const blob = await canvas.convertToBlob({ type: 'image/png' });
+      const item = await (await import('/tests/helpers/drawing-history.mjs')).seedHistory({drawing, home:window.home}, blob, { width: 832, height: 1216 }, { boardId: drawing.snapshot().activeBoardId, prompt: 'synthetic transparent image' }, null);
+      const legacy = { ...item, id: 'existing-jpeg-preview', thumbBlob: await canvas.convertToBlob({ type: 'image/jpeg' }) };
+      await drawing.toggleFavorite(legacy);
+      const stored = drawing.snapshot().favorites.find(r => r.id === legacy.id);
+      const preview = await (await fetch(drawing.url(stored, true))).blob();
+      const alpha = await pixel(item.thumbBlob), existing = await pixel(preview);
+      ctx.fillStyle = '#345678'; ctx.fillRect(0, 0, 832, 1216);
+      const opaque = await pixel(await makeThumb(await canvas.convertToBlob({ type: 'image/png' })));
+      return { type: item.thumbBlob.type, alpha, existing, opaque, storedType: stored.thumbBlob.type, originalUnchanged: await stored.blob.text() === await blob.text() };
+    });
+    assert.equal(result.type, 'image/webp');
+    assert.deepEqual(result.alpha.size, [525, 768]);
+    assert.equal(result.alpha.corner[3], 0); assert.equal(result.alpha.center[3], 128);
+    assert.equal(result.existing.corner[3], 0); assert.equal(result.existing.center[3], 128);
+    assert.equal(result.storedType, 'image/jpeg'); assert.equal(result.originalUnchanged, true);
+    assert.equal(result.opaque.corner[3], 255); assert.equal(result.opaque.center[3], 255);
+    if (await p.locator('#histToggle').getAttribute('aria-expanded') !== 'true') await p.locator('#histToggle').click();
+    await p.waitForSelector('#tray .tile img', { state: 'visible' });
+    const image = await p.locator('#tray .tile img').first().evaluate(el => {
+      const box = el.getBoundingClientRect(), tile = el.parentElement.getBoundingClientRect();
+      return { background: getComputedStyle(el).backgroundImage, ratio: box.width / box.height, left: box.left - tile.left, right: tile.right - box.right };
+    });
+    assert.match(image.background, /repeating-conic-gradient/);
+    assert.ok(Math.abs(image.ratio - 832 / 1216) < .01);
+    assert.ok(Math.abs(image.left - image.right) < 1);
+    assert.equal(t.state.generations, 0);
+  } finally { await t.close(); }
+});
+
 test("M4 large home previews use saved originals, including favorites with small thumbnails", async () => {
   const t = await open(),
     p = t.page;
@@ -548,7 +603,7 @@ test("M4 large home previews use saved originals, including favorites with small
       () => document.querySelector(".home-fav").offsetHeight === 240,
     );
     const previewBytes = await p.locator(".home-fav").first().evaluate(async (el) => {
-      const url = getComputedStyle(el).backgroundImage.slice(5, -2);
+      const url = getComputedStyle(el).getPropertyValue('--thumb').trim().slice(5, -2);
       return [...new Uint8Array(await (await fetch(url)).arrayBuffer())];
     });
     assert.deepEqual(Buffer.from(previewBytes), t.png);
@@ -567,13 +622,11 @@ test("M4 large home previews use saved originals, including favorites with small
       const { transactionDone } = await import("/src/storage/databases.ts");
       const { names } = await import("/src/storage/names.ts");
       const favorite = drawing.snapshot().favorites[0];
+      const { assignFavorite, identityStores } = await import('/src/services/image-identities.ts');
       await services.data.write(async () => {
-        const tx = services.databases.transaction(
-          names.databases.favorites, "favorites", "readwrite",
-        );
-        for (let i = 2; i < 16; i++)
-          tx.objectStore("favorites").put({ ...favorite, id: `preview-${i}` });
-        await transactionDone(tx);
+        const tx = services.databases.transaction(names.databases.favorites, identityStores, "readwrite"), done = transactionDone(tx);
+        for (let i = 2; i < 16; i++) await assignFavorite(tx, {...favorite, id:`preview-${i}`});
+        await done;
       });
       await drawing.reloadFavorites();
     });

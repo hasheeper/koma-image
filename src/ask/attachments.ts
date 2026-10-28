@@ -1,3 +1,4 @@
+import { imageEntity } from "../domain/image-identity.ts";
 import { readImageParams } from "../native/image-meta.ts";
 import type { ImageMetadata } from "../native/image-meta.ts";
 import { dataBlock, dataText } from "./prompts/index.ts";
@@ -16,6 +17,7 @@ export const charLabel = (n: number) => n >= 1000 ? `${(n / 1000).toFixed(1)}k �
 type Size = { readonly width: number; readonly height: number };
 interface Base { readonly id: string; readonly name: string; readonly bytes: number; readonly mime: string; readonly origin?: RefOrigin; readonly toolRead?: boolean }
 export interface ImageAttachment extends Base {
+  readonly entity_key?: string;
   readonly kind: "image";
   readonly blob: Blob;
   readonly size: Size;
@@ -94,7 +96,7 @@ export async function prepareAttachment(file: File, pasted = false, limits: Read
     }
     if (encoded.size > ATTACHMENT_LIMITS.sentBytes) throw new Error(`${name} 压缩后仍超过 1 MB`);
     const params = await readImageParams(file).catch(() => null);
-    return { kind: "image", name, mime: mime || file.type, bytes: file.size, blob: file, size, sentSize, sentBytes: encoded.size, params,
+    return { kind: "image", entity_key: await imageEntity(file), name, mime: mime || file.type, bytes: file.size, blob: file, size, sentSize, sentBytes: encoded.size, params,
       sent: { type: "image", mime: original ? mime as AskImage["mime"] : encoded.type === "image/webp" ? "image/webp" : "image/png", data: await base64(encoded), size: sentSize } };
   } finally { bitmap.close(); }
 }
@@ -104,6 +106,8 @@ export function createAttachments(onRelease: (id: string) => void = () => {}) {
   const items = new Map<string, { value: Attachment; refs: number }>();
   let imageSequence = 0, textSequence = 0, bytes = 0;
   return {
+    get counters() { return { images:imageSequence, texts:textSequence }; },
+    restoreCounters(counters?: { images:number; texts:number }) { if (counters) { imageSequence=Math.max(imageSequence,counters.images); textSequence=Math.max(textSequence,counters.texts); } },
     get bytes() { return bytes; },
     get size() { return items.size; },
     get(id: string) { return items.get(id)?.value ?? null; },
@@ -159,7 +163,7 @@ export function attachmentBlocks(items: readonly Attachment[], metadataOnly: boo
   });
 }
 export function attachmentPictures(items: readonly Attachment[]): Picture[] {
-  return items.flatMap(a => a.kind === "image" ? [{ id: a.id, label: a.id, aliases: [a.id], createdAt: 0, blob: a.blob, size: a.size,
+  return items.flatMap(a => a.kind === "image" ? [{ id: a.id, entity_key: a.entity_key, label: a.id, aliases: [a.id], createdAt: 0, blob: a.blob, size: a.size,
     origins: [{ source: "attachment" as const, label: a.id, order: Number(a.id.slice(2)) }], params: { ...a.params?.fields },
     attachment: { name: a.name, type: a.mime, original_size: a.size, sent_size: a.sentSize, original_bytes: a.bytes, sent_bytes: a.sentBytes, params: a.params },
   }] : []);

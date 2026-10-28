@@ -1,3 +1,4 @@
+import type { ImageTagBinding } from "../domain/image-identity.ts";
 import { readInpaintFocus } from "../domain/inpaint-focus.ts";
 import { referenceSummary } from "../domain/nai-references.ts";
 import { readCharacters } from "../domain/characters.ts";
@@ -8,14 +9,18 @@ import type { DigestImage } from "./digest/index.ts";
 import type { Ids } from "./ids.ts";
 
 /** A turn owns these references; later history deletion cannot change its input. */
-export type PictureSource = "history" | "favorites" | "chat" | "attachment";
+export type PictureSource = "history" | "favorites" | "chat" | "attachment" | "edit";
 export interface PictureOrigin {
   readonly source: PictureSource;
   readonly label: string;
+  readonly boardId?: string;
+  readonly origin?: string | null;
   /** Oldest to newest within this source, independent of retained aliases. */
   readonly order: number;
 }
 export interface Picture extends DigestImage {
+  readonly scope?: ImageTagBinding["scope"];
+  readonly bindings?: Readonly<Record<string,ImageTagBinding>>;
   readonly label: string;
   readonly aliases: readonly string[];
   readonly origins: readonly PictureOrigin[];
@@ -27,6 +32,8 @@ export const comparisonPrompt = (image: DigestImage) => [promptOf(image), ...rea
 export function metadata(image: DigestImage): Record<string, unknown> {
   const out: Record<string, unknown> = {
     ...imageOrigin(image.params),
+    ...(image.params.origin ? { origin: image.params.origin } : {}),
+    ...(image.params.editParentVersion ? { editParentVersion: image.params.editParentVersion } : {}),
     prompt: promptOf(image),
     negative: String(image.params.baseNegative ?? image.params.negative_prompt ?? image.params.negative ?? ""),
     width: image.size.width,
@@ -73,7 +80,7 @@ export function snapshotPictures(
     if (historyOrder.has(r.id)) origins.push({ source: "history", label: ids.history(r.id)!, order: historyOrder.get(r.id)! });
     if (favoriteOrder.has(r.id)) origins.push({ source: "favorites", label: ids.favorite(r.id)!, order: favoriteOrder.get(r.id)! });
     return Object.freeze({
-    id: r.id, createdAt: r.createdAt, favoritedAt: r.favoritedAt,
+    id: r.id, lineage:r.lineage, entity_key: r.entity_key, favSeq: r.favSeq, createdAt: r.createdAt, favoritedAt: r.favoritedAt,
     label: origins[0].label,
     aliases: [ids.history(r.id), ids.favorite(r.id)].filter((v): v is string => !!v),
     origins: Object.freeze(origins.map((origin) => Object.freeze(origin))),

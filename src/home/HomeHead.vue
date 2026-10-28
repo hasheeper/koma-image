@@ -21,6 +21,7 @@ const { home } = useHome();
 const ask = useAsk(), { router } = useShell(), { drawing } = useDrawing(), { chat } = useChat(), { editor } = useEditor(), ui = useUi();
 const { shown, mode, note, summary, outcome, latest, compactDraft, dismiss } = useAskPresentation();
 const dropping = shallowRef(false);
+defineProps<{ empty: boolean }>();
 let dragDepth = 0;
 const clearDrop = () => { dragDepth = 0; dropping.value = false; };
 const pauseDrop = () => { window.removeEventListener('dragend', clearDrop); clearDrop(); };
@@ -69,7 +70,7 @@ function key(event: KeyboardEvent) {
 }
 </script>
 <template>
-  <header class="home-head" :class="{ 'is-row': shown }">
+  <header class="home-head" :class="{ 'is-row': shown, 'is-empty': empty && !shown }">
     <div class="home-bar">
       <h1 class="home-brand" aria-label="Koma HOME"><WaveMark surface="home" /><span class="home-word"><span class="brand-title">Koma</span><span class="brand-subtitle">HOME</span></span></h1>
       <div id="homeEntryDock" v-show="shown"></div>
@@ -176,4 +177,20 @@ function key(event: KeyboardEvent) {
 .home-drop { position: absolute; inset: 0; display: grid; place-items: center; color: var(--a); background: var(--raised); border: 1px dashed var(--a); border-radius: inherit; pointer-events: none; }
 @media (max-width: 860px) { .home-note { padding-left: 49px; } }
 @media (max-width: 560px) { .home-note-open { flex: 1; gap: 8px; } .home-note-go { font-size: 11px; } }
+.home-head.is-empty { grid-row: 2; margin-bottom: 0; }
+.home-head.is-empty .home-bar { display: flex; justify-content: center; margin-bottom: 28px; }
+.home-head.is-empty .home-brand { margin: 0; }
+.home-head.is-empty .home-brand .wave-mark { width: 44px; height: 44px; }
+.home-head.is-empty .home-word .brand-title { font-size: 40px; }
+.home-head.is-empty .home-settings { position: absolute; top: 32px; right: 0; margin: 0; }
+.home-head.is-empty :is(.home-ask, .home-note) { width: min(100%, 720px); margin-inline: auto; }
+.home-head.is-empty .home-entries { justify-content: center; }
+@media (max-width: 860px) {
+  .home-head.is-empty .home-bar { margin-bottom: 24px; }
+  .home-head.is-empty .home-settings { top: 24px; }
+}
+@media (max-width: 560px) {
+  .home-head.is-empty .home-brand .wave-mark { width: 38px; height: 38px; }
+  .home-head.is-empty .home-word .brand-title { font-size: 34px; }
+}
 </style>

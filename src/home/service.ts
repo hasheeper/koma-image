@@ -16,7 +16,7 @@ export function createHome(deps: { services: ApplicationServices; drawing: Drawi
   const store = createHomeStore(services, deps.onError);
   const listeners = new Set<() => void>();
   let extraActivity: readonly HomeActivity[] = [];
-  let disposed = false, deliveries: HomeDelivery[] = [], deliveryRevision = 0;
+  let disposed = false, restored = false, deliveries: HomeDelivery[] = [], deliveryRevision = 0;
   const emit = () => { if (!disposed) for (const fn of listeners) fn(); };
   function validCover(line: LineId, id: string) {
     const d = drawing.snapshot(), c = chat.snapshot();
@@ -44,7 +44,7 @@ export function createHome(deps: { services: ApplicationServices; drawing: Drawi
       if (previous.workspace !== "home" && previous.workspace !== next.workspace)
         void store.remember(previous.workspace).catch(deps.onError ?? (() => {}));
     })];
-  const ready = Promise.all([store.ready, chat.readStored(), slates.restored]).then(async () => { prune(); await syncDeliveries(); });
+  const ready = Promise.all([store.ready, chat.readStored(), slates.restored]).then(async () => { prune(); await syncDeliveries(); restored = true; emit(); });
   void ready.catch(deps.onError ?? (() => {}));
   return {
     store, ready,
@@ -67,6 +67,7 @@ export function createHome(deps: { services: ApplicationServices; drawing: Drawi
       return { ...deriveHome({ edits, activeEditId: editor?.session.id, boards: d.boards, activeBoardId: d.activeBoardId, history: d.history, favorites: d.favorites,
         conversations: c.conversations, currentConversationId: c.current.id, assets: chat.assets.assets,
         previews: saved.previews, preferences: saved.preferences, deliveries, activity: [...running, ...extraActivity, ...activity] }),
+        loaded: restored && services.data.phase === "ready" && c.loaded && !d.favoritesLoading && !d.favoritesError && !saved.error,
         preferences: saved.preferences, error: saved.error };
     },
     async setCover(line: LineId, favoriteId: string | null) {

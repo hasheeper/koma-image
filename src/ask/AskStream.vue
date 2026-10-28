@@ -182,7 +182,7 @@ onBeforeUnmount(() => { resized.disconnect(); cancelAnimationFrame(frame); clear
         </template>
         <div v-else class="ask-u" @click="reveal(entry.id)">
           <AskAttachments :items="entry.turn.attachments" sent :dim="entry.turn.metadataOnly" />
-          <p v-if="entry.turn.question" class="ask-q"><AskMarkdown :text="entry.turn.question" inline-only /></p>
+          <p v-if="entry.turn.question" class="ask-q"><AskMarkdown :text="entry.turn.question" :picture-refs="entry.turn.pictureRefs" inline-only /></p>
           <span v-if="entry.turn.metadataOnly" class="ask-image-mode" title="本轮不发送图片，视觉工具不可用">仅元数据</span>
         </div>
         <div v-if="entry.turn !== ask.live.value && editing !== entry.id" class="ask-acts ask-q-acts">
@@ -195,11 +195,11 @@ onBeforeUnmount(() => { resized.disconnect(); cancelAnimationFrame(frame); clear
         <template v-for="(item, i) in entry.turn.items" :key="i">
           <AskToolGroup v-if="item.kind === 'tools'" :key="`${ask.conversationId.value}-${entry.id}-${i}`" :rows="item.rows" />
           <div v-else-if="item.kind === 'pick'" class="ask-pick" role="group" aria-label="选择要分析的图片">
-            <button v-for="id in item.ids" :key="id" type="button" :disabled="!ask.pictureInfo(id)" :aria-label="`选择 ${id} 继续提问`" @click="ask.pick(id)">
-              <img v-if="ask.pictureInfo(id)" :src="ask.pictureInfo(id)!.url" alt="" /><span>{{ id }}</span>
+            <button v-for="id in item.ids" :key="id" type="button" :disabled="!ask.pictureInfo(id, entry.turn.pictureRefs) || ask.pictureInfo(id, entry.turn.pictureRefs)?.parametersUnavailable" :aria-label="`选择 ${id} 继续提问`" @click="ask.pick(id, entry.turn.pictureRefs)">
+              <img v-if="ask.pictureInfo(id, entry.turn.pictureRefs)" :src="ask.pictureInfo(id, entry.turn.pictureRefs)!.url" alt="" /><span>{{ id }}</span>
             </button>
           </div>
-          <AskMarkdown v-else :text="item.text" :lead="i === leadOf(entry.turn)" />
+          <AskMarkdown v-else :text="item.text" :picture-refs="entry.turn.pictureRefs" :lead="i === leadOf(entry.turn)" />
         </template>
         <p v-if="entry.turn.truncated" class="ask-meta">回复已达输出上限</p>
         <div v-if="entry.turn.status === 'failed' || entry.turn.status === 'stopped'" class="ask-fail">

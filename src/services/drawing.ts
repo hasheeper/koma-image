@@ -1,3 +1,5 @@
+import { imageEntity } from "../domain/image-identity.ts";
+import { assignFavorite, retireFavorite, identityStores, readFavoriteIdentity } from "./image-identities.ts";
 import { validateNaiText } from "../domain/nai-input.ts";
 import { readReferences, referenceModel, referencePlan, referenceSurcharge, activeReferences } from "../domain/nai-references.ts";
 import { insufficientFunds } from "../domain/source-funding.ts";
@@ -127,7 +129,10 @@ export function createDrawing(
   };
   const batchCount = () => count(form.batchCount);
   const url = (item: ImageRecord, thumb = false) => {
-    const blob = thumb ? item.thumbBlob || item.blob : item.blob,
+    // Existing JPEG previews may have flattened alpha to black. Read the
+    // original for those records; keep stored images and thumbnails untouched.
+    const preview = item.thumbBlob?.type === "image/jpeg" && item.blob.type !== "image/jpeg" ? item.blob : item.thumbBlob;
+    const blob = thumb ? preview || item.blob : item.blob,
       key = item.id + (thumb ? ":thumb" : ":full"),
       old = urls.get(key);
     if (old?.blob === blob) return old.url;
@@ -434,6 +439,7 @@ export function createDrawing(
       if (!disposed) void refreshCatalog();
     });
   }
+  let favoritesScopeId = "";
   async function reloadFavorites() {
     favoritesLoading = true;
     emit();
@@ -447,6 +453,7 @@ export function createDrawing(
         tx.objectStore("favorites").getAll(),
       )) as FavoriteRecord[];
       await done;
+      favoritesScopeId = (await readFavoriteIdentity(services.databases)).state.libraryId;
       favorites = records.sort(
         (a, b) => b.favoritedAt - a.favoritedAt || b.createdAt - a.createdAt,
       );
@@ -459,8 +466,11 @@ export function createDrawing(
       emit();
     }
   }
-  async function saveFavorite(item: ImageRecord) {
-    const record: FavoriteRecord = {
+  async function saveFavorite(item: ImageRecord, restore = false) {
+    let record: FavoriteRecord = {
+      entity_key: await imageEntity(item.blob),
+      ...(restore && item.favSeq ? { favSeq: item.favSeq } : {}),
+      ...(item.lineage ? { lineage: item.lineage } : {}),
       id: item.id,
       createdAt: item.createdAt,
       favoritedAt: item.favoritedAt ?? Date.now(),
@@ -474,11 +484,12 @@ export function createDrawing(
     await services.data.write(async () => {
       const tx = services.databases.transaction(
         names.databases.favorites,
-        "favorites",
+        identityStores,
         "readwrite",
       );
-      tx.objectStore("favorites").put(record);
-      await transactionDone(tx);
+      const done = transactionDone(tx);
+      record = await assignFavorite(tx, record, restore);
+      await done;
     });
     favorites = [record, ...favorites.filter((r) => r.id !== record.id)].sort(
       (a, b) => b.favoritedAt - a.favoritedAt || b.createdAt - a.createdAt,
@@ -496,11 +507,12 @@ export function createDrawing(
         await services.data.write(async () => {
           const tx = services.databases.transaction(
             names.databases.favorites,
-            "favorites",
+            identityStores,
             "readwrite",
           );
-          tx.objectStore("favorites").delete(item.id);
-          await transactionDone(tx);
+          const done = transactionDone(tx);
+          await retireFavorite(tx, item.id);
+          await done;
         });
         favorites = favorites.filter((r) => r.id !== item.id);
         channel?.postMessage({ type: "favorites-changed" });
@@ -516,7 +528,7 @@ export function createDrawing(
               favoritePending.add(old.id);
               emit();
               try {
-                await saveFavorite(old);
+                await saveFavorite(old, true);
               } catch (e) {
                 notify(message(e), "err");
                 return false;
@@ -574,9 +586,10 @@ export function createDrawing(
     ms: number | undefined,
     quoteValue: Fields | null = null,
   ) {
-    const thumbBlob = await makeThumb(blob);
+    const [thumbBlob, entity_key] = await Promise.all([makeThumb(blob), imageEntity(blob)]);
     const record: ImageRecord = {
       id: crypto.randomUUID(),
+      entity_key, lineage: { via: "image" },
       createdAt: Date.now(),
       blob,
       thumbBlob,
@@ -899,6 +912,7 @@ export function createDrawing(
     emit(); await save();
   }
   return {
+    get favoritesScopeId() { return favoritesScopeId; },
     snapshot: () => ({
       form,
       boards: boards.items,
@@ -938,18 +952,6 @@ export function createDrawing(
     onImage(fn: (record: ImageRecord) => void) {
       imageListeners.add(fn);
       return () => imageListeners.delete(fn);
-    },
-    async addExternal(
-      blob: Blob,
-      size: ImageRecord["size"],
-      params: Fields,
-      quote: Fields | null,
-      ms?: number,
-    ) {
-      const record = await addImage(blob, size, params, ms, quote);
-      if (disposed) throw new DOMException("工作区已关闭", "AbortError");
-      show(record);
-      return record;
     },
     patch,
     async editReferences(value: DrawingForm["naiReferences"], boardId = boards.activeId) {

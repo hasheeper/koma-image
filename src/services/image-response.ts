@@ -96,7 +96,7 @@ export async function makeThumb(blob: Blob): Promise<Blob | null> {
       const context = canvas.getContext("2d")!;
       context.imageSmoothingQuality = "high";
       context.drawImage(bitmap, 0, 0, canvas.width, canvas.height);
-      return await canvas.convertToBlob({ type: "image/jpeg", quality: 0.9 });
+      return await canvas.convertToBlob({ type: "image/webp", quality: 0.9 });
     } finally {
       bitmap.close();
     }

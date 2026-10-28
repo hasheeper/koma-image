@@ -490,7 +490,7 @@ test("NAI guidance: official and gateway routes keep rescale through EDIT, histo
       const edit = JSON.parse(generated().at(-1).body), params = gateway ? edit : edit.parameters;
       assert.equal(params.scale, 5.5); assert.equal(params.cfg_rescale, 0.35); assert.equal(Object.hasOwn(params, "cfg"), false);
       if (gateway) assert.equal(edit.max_cost, 3);
-      const saved = await page.evaluate(() => drawing.snapshot().current.params);
+      const saved = await page.evaluate(() => editor.session.versions.at(-1).params);
       assert.equal(saved.cfgRescale, 0.35); assert.equal(saved.cfg_rescale, 0.35);
       await page.evaluate(async () => {
         const item = drawing.snapshot().current;
@@ -1156,7 +1156,7 @@ test('EDIT alignment: raw presets, actual random/zero seed, role editing and pos
       assert.equal(gateway?raw.prompt:raw.input,'fur dataset, transparent background, wolf, ultra complexity, very aesthetic, amazing quality, no text, Text: "Hello"');
       assert.match(wire.negative_prompt,/^custom negative, lowres/);
       assert.ok(Number.isInteger(wire.seed)&&wire.seed>=0&&wire.seed<=4294967295);
-      const params=await page.evaluate(()=>drawing.snapshot().current.params);
+      const params=await page.evaluate(()=>editor.session.versions.at(-1).params);
       assert.equal(params.seed,wire.seed); assert.equal(params.randomSeed,true);
       assert.equal(params.basePrompt,'wolf, Text: "Hello"'); assert.equal(params.baseNegative,'custom negative');
       assert.equal(params.localCharacters.length,3); assert.equal(params.localCharacters[2].id,'c10');
@@ -1170,9 +1170,10 @@ test('EDIT alignment: raw presets, actual random/zero seed, role editing and pos
       await page.evaluate(()=>editor.run());
       raw=JSON.parse(edits().at(-1).body);wire=gateway?raw:raw.parameters;
       assert.equal(gateway?raw.prompt:raw.input,'wolf, Text: "Hello"'); assert.equal(wire.negative_prompt,'custom negative'); assert.equal(wire.seed,0);
-      assert.equal(await page.evaluate(()=>drawing.snapshot().current.params.seed),0);
-      const drawingFields=await page.evaluate(async()=> (await import('/src/domain/drawing.ts')).reuseFields(drawing.snapshot().current));
+      assert.equal(await page.evaluate(()=>editor.session.versions.at(-1).params.seed),0);
+      const drawingFields=await page.evaluate(async()=> (await import('/src/domain/drawing.ts')).reuseFields(editor.records().find(r=>r.id===editor.session.versions.at(-1).recordId)));
       assert.equal(drawingFields.prompt,'wolf, Text: "Hello"');assert.equal(drawingFields.cfgRescale,.65);assert.equal(drawingFields.characters[2].on,false);
+      assert.equal(await page.evaluate(()=>drawing.snapshot().history.length),0);
       await chooseNai(page,'editorModel','nai-diffusion-4-5-curated');
       assert.equal(await page.locator('#editor-complexity').count(),0);assert.equal(await page.locator('#editor-transparentBg').count(),0);
       await page.locator('#editor-qualityPreset').click();
@@ -1200,7 +1201,7 @@ test('EDIT references: inherited Vibe/Precise prepare only on submit, share cach
     assert.deepEqual(referencePosts(t).map(r=>r.path),['/ai/encode-vibe','/ai/generate-image']);
     let body=JSON.parse(referencePosts(t).at(-1).body);
     assert.equal(body.action,'img2img');assert.equal(body.parameters.reference_image_multiple[0],'AAH+/w==');assert.ok(body.parameters.image);
-    const saved=await page.evaluate(()=>drawing.snapshot().current.params);
+    const saved=await page.evaluate(()=>editor.session.versions.at(-1).params);
     for(const key of ['referencePlan','preparedReferences','init_image','mask_image'])assert.equal(key in saved,false);
     assert.equal(saved.naiReferences.active,'vibe');assert.equal(saved.naiReferences.vibe.length,1);
     await page.evaluate(()=>editor.run());
@@ -1409,6 +1410,7 @@ test('EDIT reference failures: known balance, encoding error, cancellation and k
     await page.evaluate(()=>editor.run());
     assert.equal(referencePosts(t).length,0);assert.match(await page.evaluate(()=>editor.snapshot().runError),/不足/);
     account.body.trainingStepsLeft.fixedTrainingStepsLeft=100;account.encodingStatus=500;
+    await page.evaluate(()=>editor.refreshQuota());
     await page.waitForFunction(()=>editor.snapshot().edit.canRun);
     await page.evaluate(()=>editor.run());
     assert.deepEqual(referencePosts(t).map(r=>r.path),['/ai/encode-vibe'],await page.evaluate(()=>editor.snapshot().runError));
@@ -1566,6 +1568,7 @@ test('Variety+: compact V4.5 toggle, actual requests, model switching, EDIT and 
     assert.equal(await button.getAttribute('aria-pressed'),'false');
     await button.focus();await page.keyboard.press('Space');
     assert.equal(await button.getAttribute('aria-pressed'),'true');
+    const beforeEdit=await page.evaluate(()=>({id:drawing.snapshot().current.id,count:drawing.snapshot().history.length,varietyPlus:drawing.snapshot().current.params.varietyPlus}));
     await openEditorFixture(t,{model:'nai-diffusion-4-5-full',prompt:'synthetic',varietyPlus:true});
     await page.locator('#editor-parametersToggle').click();
     const editButton=page.locator('#editorScaleVarietyPlus');
@@ -1579,7 +1582,7 @@ test('Variety+: compact V4.5 toggle, actual requests, model switching, EDIT and 
     wire=JSON.parse(posts().at(-1).body);
     assert.equal(wire.action,'img2img');assert.equal(wire.parameters.skip_cfg_above_sigma,58*Math.sqrt(4096/15808));
     assert.equal(await page.evaluate(()=>editor.snapshot().viewed.params.varietyPlus),true);
-    assert.equal(await page.evaluate(()=>drawing.snapshot().current.params.varietyPlus),true);
+    assert.deepEqual(await page.evaluate(()=>({id:drawing.snapshot().current.id,count:drawing.snapshot().history.length,varietyPlus:drawing.snapshot().current.params.varietyPlus})),beforeEdit);
     await editButton.click();
     await page.evaluate(()=>editor.run());
     assert.equal(JSON.parse(posts().at(-1).body).parameters.skip_cfg_above_sigma,undefined);
@@ -1629,10 +1632,10 @@ test('Enhance: compact official controls, exact output, fresh Seed, recipe/histo
     assert.equal(wire.parameters.noise_schedule,'exponential');assert.equal(wire.parameters.steps,31);
     assert.equal(wire.parameters.upscaled_enhance,undefined);assert.equal(wire.parameters.enhance,undefined);
     assert.match(wire.input,/-2::upscaled, blurry::,Text:hello$/);
-    const result=await page.evaluate(()=>({params:editor.snapshot().viewed.params,width:editor.snapshot().viewed.width,history:drawing.snapshot().current.params,seed:editor.session.fields.seed}));
+    const result=await page.evaluate(()=>({params:editor.snapshot().viewed.params,width:editor.snapshot().viewed.width,record:editor.record(editor.snapshot().viewed.recordId).params,seed:editor.session.fields.seed}));
     assert.equal(result.width,768);assert.equal(result.params.enhance,true);assert.equal(result.params.enhanceScale,1.5);assert.equal(result.params.enhanceMagnitude,5);
     assert.equal(result.params.basePrompt,'girl, Text:hello');assert.equal(result.params.seed,wire.parameters.seed);assert.equal(result.params.randomSeed,true);
-    assert.equal(result.history.enhance,true);assert.equal(result.seed,'0');
+    assert.equal(result.record.enhance,true);assert.equal(result.seed,'0');
     assert.match(await page.locator('.editor-info-meta b').textContent(),/Enhance/);
     assert.equal(t.requests.some(r=>r.path.endsWith('/tools/run')),false);
     const board=await page.evaluate(()=>editor.session.id);
@@ -1729,11 +1732,11 @@ test('Enhance Max: V5 capability, server flag, non-aligned output, model changes
     assert.equal(wire.parameters.image,t.png.toString('base64'));
     assert.equal(wire.parameters.strength,.6);assert.equal(wire.parameters.noise,0);
     assert.equal(wire.input,'girl, Text:hello');assert.equal(wire.parameters.v4_prompt.caption.base_caption,wire.input);
-    const result=await page.evaluate(()=>({params:editor.snapshot().viewed.params,width:editor.snapshot().viewed.width,height:editor.snapshot().viewed.height,history:drawing.snapshot().current.params}));
+    const result=await page.evaluate(()=>({params:editor.snapshot().viewed.params,width:editor.snapshot().viewed.width,height:editor.snapshot().viewed.height,record:editor.record(editor.snapshot().viewed.recordId).params}));
     assert.equal(result.width,1467);assert.equal(result.height,2144);
     assert.equal(result.params.width,1467);assert.equal(result.params.height,2144);
     assert.equal(result.params.enhanceScale,'max');assert.equal(result.params.enhanceMagnitude,4);
-    assert.equal(result.history.enhanceScale,'max');assert.equal(result.history.seed,wire.parameters.seed);
+    assert.equal(result.record.enhanceScale,'max');assert.equal(result.record.seed,wire.parameters.seed);
     assert.equal(result.params.basePrompt,'girl, Text:hello');
     assert.match(await page.locator('.editor-info-meta b').textContent(),/Enhance Max/);
     const board=await page.evaluate(()=>editor.session.id);
@@ -1896,12 +1899,12 @@ test('Focused Inpaint: manual mask and rectangle send only the enlarged crop, co
     assert.deepEqual(wire.parameters.v4_prompt.caption.char_captions[0].centers,[{x:.09999999999999998,y:.8999999999999999}]);
     const pixels=await page.evaluate(async()=>{
       const v=editor.snapshot().viewed,bitmap=await createImageBitmap(v.blob),c=new OffscreenCanvas(bitmap.width,bitmap.height),ctx=c.getContext('2d');ctx.drawImage(bitmap,0,0);bitmap.close();
-      return {width:c.width,height:c.height,outside:[...ctx.getImageData(0,0,1,1).data],inside:[...ctx.getImageData(256,256,1,1).data],context:[...ctx.getImageData(140,140,1,1).data],params:v.params,history:drawing.snapshot().current.params};
+      return {width:c.width,height:c.height,outside:[...ctx.getImageData(0,0,1,1).data],inside:[...ctx.getImageData(256,256,1,1).data],context:[...ctx.getImageData(140,140,1,1).data],params:v.params,record:editor.record(editor.snapshot().viewed.recordId).params};
     });
     assert.equal(pixels.width,512);assert.equal(pixels.height,512);assert.deepEqual(pixels.outside,[80,65,124,255]);
     assert.deepEqual(pixels.inside,[224,64,80,255]);assert.deepEqual(pixels.context,[196,182,255,255]);
     assert.equal(pixels.params.width,512);assert.equal(pixels.params.height,512);assert.equal(pixels.params.inpaintFocus.targetWidth,1024);
-    assert.deepEqual(pixels.params.localCharacters[0].centers,[{x:.3,y:.7}]);assert.deepEqual(pixels.history.inpaintFocus,pixels.params.inpaintFocus);
+    assert.deepEqual(pixels.params.localCharacters[0].centers,[{x:.3,y:.7}]);assert.deepEqual(pixels.record.inpaintFocus,pixels.params.inpaintFocus);
     for(const key of ['init_image','mask_image','focusOriginal'])assert.equal(key in pixels.params,false);
     const board=await page.evaluate(()=>editor.snapshot().session.id);
     await page.evaluate(()=>editor.setBase(editor.snapshot().viewed.id));

@@ -44,11 +44,45 @@ function resize() {
   el.style.height = "auto";
   el.style.height = `${el.scrollHeight}px`;
 }
+const referenceQuery = shallowRef<{ start:number; end:number; prefix:string } | null>(null), referenceIndex = shallowRef(0);
+const references = computed(() => { void ask.libraryRevision.value; void ask.conversationId.value; return referenceQuery.value ? ask.pictureCandidates(referenceQuery.value.prefix) : []; });
+function referenceAtCaret() {
+  const el=field.value;
+  if (!el || el.selectionStart!==el.selectionEnd) { referenceQuery.value=null; return; }
+  const end=el.selectionStart, match=/(?:^|[\s（(，,])(#(?:[hfeca]?[0-9]*(?:\.[0-9]*)?[a-z]?))$/.exec(el.value.slice(0,end));
+  referenceQuery.value=match ? {start:end-match[1].length,end,prefix:match[1]} : null;
+  referenceIndex.value=0;
+}
+function insertReference(label: string) {
+  const q=referenceQuery.value;
+  if (!q) return;
+  const text=ask.input.value;
+  ask.setInput(text.slice(0,q.start)+label+" "+text.slice(q.end));
+  referenceQuery.value=null;
+  void nextTick(()=>{const el=field.value;el?.focus();el?.setSelectionRange(q.start+label.length+1,q.start+label.length+1);});
+}
 function key(event: KeyboardEvent) {
-  if (event.key !== "Enter" || event.shiftKey || event.isComposing || event.keyCode === 229) return;
+  if (event.isComposing || event.keyCode===229) return;
+  if (event.key === "Enter" && event.shiftKey) return;
+  if (references.value.length && referenceQuery.value) {
+    if (["ArrowDown","ArrowUp","Enter","Tab","Escape"].includes(event.key)) {
+      event.preventDefault(); event.stopPropagation();
+      if (event.key==="Escape") referenceQuery.value=null;
+      else if (event.key==="ArrowDown" || event.key==="ArrowUp") referenceIndex.value=(referenceIndex.value+(event.key==="ArrowDown" ? 1 : references.value.length-1))%references.value.length;
+      else insertReference(references.value[referenceIndex.value]?.label ?? references.value[0].label);
+      return;
+    }
+  }
+  if (event.key !== "Enter" || event.shiftKey) return;
   event.preventDefault();
   void ask.send();
 }
+function input(event: Event) {
+  ask.setInput((event.target as HTMLTextAreaElement).value);
+  if (!(event instanceof InputEvent) || !event.isComposing) referenceAtCaret();
+}
+watch(ask.conversationId,()=>{referenceQuery.value=null;});
+watch(ask.visible,()=>{referenceQuery.value=null;});
 async function sendImages() {
   try { await ask.setImages(true); } catch (error) { ui.toast(message(error), "err"); }
 }
@@ -70,15 +104,30 @@ defineExpose({
     <form class="ask-composer" :aria-busy="ask.running.value" @submit.prevent="ask.send()">
       <label class="sr-only" for="askPrompt">向 ASK 提问</label>
       <AskAttachments :items="ask.tray.value" :dim="limited" />
+      <div v-if="references.length && referenceQuery" id="askPictureSuggestions" class="ask-references" role="listbox" aria-label="图片引用">
+        <button v-for="(item,index) in references" :id="`askRefOption${index}`" :key="item.label" type="button" role="option" :aria-selected="index===referenceIndex" @pointerdown.prevent="insertReference(item.label)">
+          <img :src="item.url" alt="" /><span>{{ item.label }}</span><small>{{ item.size }}</small>
+        </button>
+      </div>
       <textarea
         id="askPrompt"
         ref="field"
         :value="ask.input.value"
         rows="1"
         maxlength="4000"
-        placeholder="问这张图，或用 #h 引用历史…"
+        placeholder="问这张图，或用 # 引用图片…"
+        :aria-controls="references.length ? 'askPictureSuggestions' : undefined"
+        :aria-expanded="references.length>0"
+        :aria-activedescendant="references.length ? `askRefOption${referenceIndex}` : undefined"
+        aria-autocomplete="list"
         :disabled="ask.ready.value === 'local'"
-        @input="ask.setInput(($event.target as HTMLTextAreaElement).value)"
+        @input="input"
+        @click="referenceAtCaret"
+        @compositionstart="referenceQuery=null"
+        @compositionend="referenceAtCaret"
+        @blur="referenceQuery=null"
+        @keyup.left="referenceAtCaret"
+        @keyup.right="referenceAtCaret"
         @keydown="key"
       ></textarea>
       <p class="ask-notice" role="status">{{ ask.notice.value }}</p>
@@ -123,6 +172,12 @@ defineExpose({
   </div>
 </template>
 <style scoped>
+.ask-references { position:absolute; right:0; bottom:calc(100% + 6px); left:0; z-index:4; max-height:250px; padding:4px; overflow:auto; background:var(--raised); border:1px solid var(--line-2); border-radius:10px; box-shadow:var(--sh-2); }
+.ask-references button { display:flex; align-items:center; gap:8px; width:100%; min-height:34px; padding:4px 8px; text-align:left; border-radius:6px; }
+.ask-references button[aria-selected="true"] { background:var(--hover); }
+.ask-references img { width:28px; height:28px; object-fit:contain; background:var(--image-checker); border-radius:4px; }
+.ask-references span { color:var(--a); font:var(--fw-medium) 12px/1 var(--mono); }
+.ask-references small { margin-left:auto; color:var(--fg-3); font:var(--fw-regular) 11px/1 var(--mono); }
 .ask-inline-target { padding: 0 10px 6px; color: var(--fg-3); font-size: var(--fz-xs); }
 .ask-dock { position: relative; display: flex; flex-direction: column; gap: var(--sp-2); }
 .ask-composer { padding: 14px 6px 10px 12px; background: var(--ask-layer, var(--raised)); border: 1px solid var(--line-2); border-radius: 14px; }

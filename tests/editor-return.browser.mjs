@@ -82,7 +82,7 @@ test('PE1 masks distinguish opaque grayscale from alpha, preserve undo/erase/cle
   } finally { await t.context.close(); }
 });
 
-test('PE1 all return modes, source recipe, idempotent history/favorite and persistent Slate delivery without generation', async () => {
+test('PE1 all return modes, source recipe, idempotent favorite and persistent Slate delivery without generation', async () => {
   const t = await setup();
   try {
     const result = await t.page.evaluate(async () => {
@@ -101,10 +101,10 @@ test('PE1 all return modes, source recipe, idempotent history/favorite and persi
       token = editor.beginExternalEdit();
       await editor.applyExternalEdit(token.id, { mode: 'image', image: await makeImage('edited', 384, 256) });
       const image = editor.snapshot().base;
-      await Promise.all([editor.saveManual(), editor.saveManual(), editor.saveManual()]);
-      await editor.saveManual(true);
-      await editor.saveManual(true);
-      const current = drawing.snapshot().current;
+      await Promise.all([editor.saveFavorite(), editor.saveFavorite(), editor.saveFavorite()]);
+      await editor.saveFavorite();
+      await editor.saveFavorite();
+      const current = editor.record(image.recordId);
       const library = ask.externalSnapshot().library;
       const picture = library.find(p => p.id === current.id);
       await slate.commit(parseSlateEdit({kind:'slate_edit',op:'create',slate_title:'纯修图交付',todos:[{op:'add',todo_title:'修复',status:'done',bind:{source:picture.label,caption_source:'base',caption_mode:'full'}}]},null,drawing.snapshot().form,library).change);
@@ -121,7 +121,7 @@ test('PE1 all return modes, source recipe, idempotent history/favorite and persi
     assert.equal(result.image.parent, 2); assert.equal(result.image.mask, false);
     assert.equal(result.image.params.tool, 'manual-edit'); assert.equal(result.image.params.seed, undefined);
     assert.equal(result.image.params.sourceRecipe.seed, 7); assert.equal(result.image.params.width, 384);
-    assert.equal(result.history, 2); assert.equal(result.favorites, 1); assert.equal(result.quote, null);
+    assert.equal(result.history, 0); assert.equal(result.favorites, 1); assert.equal(result.quote, undefined);
     assert.equal(result.ms, undefined);
     assert.equal(result.restored, false); assert.equal(result.caption, 'source recipe'); assert.equal(result.bytesSame, true);
     assert.equal(result.meta.source_recipe.seed, 7); assert.equal(result.meta.edit_source, 'photopea');
@@ -182,7 +182,7 @@ test('PE1 mask import UI and compact manual actions at four widths, retain the s
     await t.page.getByRole('button',{name:'撤销',exact:true}).click();
     assert.equal(await t.page.evaluate(()=>editor.session.mask.position),1);
     await t.page.evaluate(async()=>{const token=editor.beginExternalEdit();await editor.applyExternalEdit(token.id,{mode:'image',image:await makeImage('edited')});});
-    await t.page.getByRole('button',{name:'收藏修图',exact:true}).click();
+    await t.page.getByRole('button',{name:'收藏图片',exact:true}).click();
     await t.page.waitForFunction(()=>editor.snapshot().favorite);
     for(const width of [320,390,768,1440]) {
       await t.page.setViewportSize({width,height:900});
@@ -202,7 +202,7 @@ test('PE1 mask import UI and compact manual actions at four widths, retain the s
   } finally {await t.context.close();}
 });
 
-test('PE1 in-flight cancellation/session switch discard late pixels; history failure remains retryable; CHAT delivery stays explicit', async () => {
+test('PE1 in-flight cancellation/session switch discard late pixels; favorite failure remains retryable; CHAT delivery stays explicit', async () => {
   const t=await setup();
   try {
     const result=await t.page.evaluate(async()=>{
@@ -225,20 +225,21 @@ test('PE1 in-flight cancellation/session switch discard late pixels; history fai
       const switched=editor.session.versions.length, chatHistory=drawing.snapshot().history.length;
       token=editor.beginExternalEdit(); await editor.applyExternalEdit(token.id,{mode:'image',image:edited});
       const noAutoHistory=drawing.snapshot().history.length===chatHistory;
-      await editor.saveManual(true);
+      await editor.saveFavorite();
       const explicitHistory=drawing.snapshot().history.length, explicitFavorite=drawing.snapshot().favorites.length;
       editor.switchBoard(imageBoard);
-      const add=drawing.addExternal; drawing.addExternal=async()=>{throw new Error('synthetic disk failure');};
+      const add=drawing.toggleFavorite; drawing.toggleFavorite=async()=>{throw new Error('synthetic disk failure');};
       token=editor.beginExternalEdit(); await editor.applyExternalEdit(token.id,{mode:'image',image:edited});
+      await editor.saveFavorite();
       const failed={kind:editor.snapshot().base.kind,error:editor.snapshot().runError,history:drawing.snapshot().history.length};
-      drawing.addExternal=add; await editor.saveManual(); await editor.saveManual();
+      drawing.toggleFavorite=add; await editor.saveFavorite(); await editor.saveFavorite();
       const retried={history:drawing.snapshot().history.length,error:editor.snapshot().runError};
       return {cancelled,switched,errors,noAutoHistory,explicitHistory,explicitFavorite,failed,retried};
     });
     assert.equal(result.cancelled,1); assert.equal(result.switched,1); assert.equal(result.errors.length,2);
-    assert.equal(result.noAutoHistory,true);assert.equal(result.explicitHistory,1);assert.equal(result.explicitFavorite,1);
+    assert.equal(result.noAutoHistory,true);assert.equal(result.explicitHistory,0);assert.equal(result.explicitFavorite,1);
     assert.equal(result.failed.kind,'manual');assert.match(result.failed.error,/synthetic disk failure/);
-    assert.equal(result.failed.history,1);assert.deepEqual(result.retried,{history:2,error:''});
+    assert.equal(result.failed.history,0);assert.deepEqual(result.retried,{history:0,error:''});
     assert.deepEqual(t.errors,[]);assert.deepEqual(t.upstream,[]);
   } finally {await t.context.close();}
 });

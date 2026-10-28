@@ -1,7 +1,7 @@
 import { Lexer, Tokenizer } from "marked";
 import type { MarkedToken, Token } from "marked";
 import { decodeHTMLStrict } from "entities";
-import { idPattern } from "./ids.ts";
+import { idPattern, isPictureId } from "./ids.ts";
 
 type Leaf = { readonly t: "text" | "id" | "code"; readonly v: string };
 export type Inline =
@@ -100,7 +100,7 @@ function inlineTokens(tokens: readonly Token[], refs = true): Inline[] {
       // a Vue node. Attributes, other HTML, escapes and code stay literal.
       case "html": out.push(/^<br\s*\/?>$/i.test(token.text) ? { t: "br" } : { t: "text", v: token.text }); break;
       case "codespan":
-        out.push({ t: refs && /^#(?:h\d+|f\d+|a\d+|c\d+\.\d+(?:\.\d+)?)$/.test(token.text) ? "id" : "code", v: token.text });
+        out.push({ t: refs && isPictureId(token.text) ? "id" : "code", v: token.text });
         break;
       case "strong": case "em": case "del": out.push({ t: token.type, parts: inlineTokens(token.tokens, refs) }); break;
       case "br": out.push({ t: "br" }); break;

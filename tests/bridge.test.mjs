@@ -17,6 +17,20 @@ const params = p => ({kind:'params_patch',params:p});
 const patch = (text=', moon') => ({kind:'prompt_patch',target:'image.prompt',mode:'append',text});
 const plan = (d, now=d.base, off=[]) => validateDraft(d, now, {off:new Set(off)});
 
+test('picture reference v2 validates page, favorite library and the current local editor board separately', () => {
+  const snap=snapshot(), blob=new Blob(['picture']);
+  snap.favoritesScope='library-a';snap.edit={active_board_id:'edit-a'};
+  snap.library=['#h1','#f4','#e1.2','#e2'].map((label,i)=>({id:`p${i}`,label,aliases:[label],blob,size:{width:832,height:1216},params:{seed:4},createdAt:1,origins:[]}));
+  const restore=source=>envelope([{kind:'restore_partial',source,fields:['seed']}],{picture_ref_version:2,picture_scope_id:'scope-a',favorites_scope_id:'library-a',edit_board_id:'edit-a'});
+  assert.doesNotThrow(()=>receiveDraft(restore('#f4'),{...snap,pictureScope:'new-page'}));
+  assert.throws(()=>receiveDraft({...restore('#f4'),favorites_scope_id:'other'},snap),/收藏库/);
+  assert.throws(()=>receiveDraft({...restore('#h1'),picture_scope_id:'old-page'},snap),/作用域/);
+  assert.doesNotThrow(()=>receiveDraft(restore('#e1.2'),snap,'edit-b'));
+  assert.throws(()=>receiveDraft(restore('#e2'),snap,'edit-b'),/画板已切换/);
+  assert.doesNotThrow(()=>receiveDraft(restore('#e2'),snap,'edit-a'));
+  assert.throws(()=>receiveDraft({...restore('#f4'),picture_ref_version:3},snap),/版本/);
+});
+
 test('B1 direct parameters share internal/external parsing, diff, seed zero and frozen baseline', () => {
   const snap=snapshot(), steps=[params({width:1216,height:832,scale:6,cfgRescale:.2,seed:'0',complexity:'high'}),patch()];
   const external=receiveDraft(envelope(steps),snap), internal=parseDraft({base_hash:stateHash(snap.base),draft_title:'参数建议',steps},snap.base,[]);
@@ -53,11 +67,11 @@ test('B1 omitted hash anchors live state; explicit stale hash and mismatched pic
 });
 test('B1 state exports exact snapshot names, lightweight aliases and only four deduplicated previews', () => {
   const records=Array.from({length:6},(_,i)=>({id:`i${i}`,createdAt:i,blob:new Blob(['synthetic']),size:{width:832,height:1216},params:{...structuredClone(DEFAULTS),seed:i,basePrompt:'a'.repeat(200),baseNegative:'raw negative',negative_prompt:'sent negative',localCharacters:[],apiKey:'must-not-export',url:'https://secret.example',image:'binary'}}));
-  const snap=snapshot();snap.library=snapshotPictures(records,[records[0]],createIds());
+  const snap=snapshot();snap.library=snapshotPictures(records,[{...records[0],favSeq:1}],createIds());
   const state=liveState(snap,{boards:[{id:'board-a',name:'A',color:'blue',nextCharacterId:1,form:snap.base.form}],workspace:'tags',selectedId:'i5',scope:'page',revision:1,receipt:null});
   assert.equal(state.active_workspace,'tags');assert.equal(state.history_index.length,6);assert.equal(state.favorites_index.length,1);
   assert.equal(state.history_index[0].seed,0);assert.equal(state.history_index[0].prompt_excerpt.length,160);
-  assert.deepEqual(Object.keys(state.history_index[0]).sort(),['label','width','height','seed','prompt_excerpt'].sort());
+  assert.deepEqual(Object.keys(state.history_index[0]).sort(),['label','width','height','seed','prompt_excerpt','record_id','entity_key'].sort());
   assert.equal(previewPictures(snap.library,'i5').pictures.length,4);
   assert.equal(previewPictures(snap.library,'i0').pictures.length,3);
   assert.equal(state.selected_image.preview,null);

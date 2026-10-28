@@ -1,6 +1,6 @@
 # 历史文档索引
 
-更新：2026-10-28。这里只保存当时的方案、设计确认与验收证据。现行行为从[文档索引](../README.md)进入；历史的测试数量、供应商结果、发布记录和授权只适用于其注明范围。
+更新：2026-10-29。这里只保存当时的方案、设计确认与验收证据。现行行为从[文档索引](../README.md)进入；历史的测试数量、供应商结果、发布记录和授权只适用于其注明范围。
 
 ## 早期基线与文档维护
 
@@ -24,6 +24,12 @@
 | 10-28 | [V5 Max Enhance](2026-10-28-nai-max-enhance-verification.md)：原尺寸请求、服务端标记、实际输出尺寸及同一倍率入口 |
 | 10-28 | [Focused Inpainting](2026-10-28-focused-inpaint-verification.md)：手动蒙版／框选、客户端裁切放大、单次 infill 与原尺寸合成 |
 | 10-28 | [Director Tools](2026-10-28-director-tools-verification.md)：六项独立工具、费用与尺寸、去背景三种结果、紧凑工具栏及放大面板 |
+
+## 图片身份与引用
+
+- [ID1–ID4 设计规划](2026-10-28-image-identity-plan.md)：实体／记录、固定收藏号、逐轮引用和作用域的已批准设计；现行规则见[图片身份](../image-identity.md)。
+- [ID1–ID4 本地验收](2026-10-28-image-identity-verification.md)：收藏／备份、冻结引用、视觉预算、EDIT／Slate／Bridge 与相关回归的证据和真实待验边界。
+- [图片身份与 HOME 空状态发布核验](2026-10-29-image-identity-home-release-verification.md)：本轮发布范围、回归、脱敏与 Git／Pages 核验记录。
 
 ## 外部协同与任务
 

@@ -1,3 +1,4 @@
+import { initializeFavoriteIdentity } from "./image-identities.ts";
 import { createNaiReferences } from "./nai-references.ts";
 import { createScheduler } from "./scheduler.ts";
 import type { TaskSpec, TaskContext } from "./scheduler.ts";
@@ -125,6 +126,7 @@ export function createApplicationServices(deps: {
           await data.start();
           if (disposed) throw new DOMException("应用已关闭", "AbortError");
           databases = await openDatabases(deps.indexedDB);
+          await data.write(() => initializeFavoriteIdentity(databases!));
           if (disposed) throw new DOMException("应用已关闭", "AbortError");
           connections.reload();
           if (!connections.local) await vault.resume();

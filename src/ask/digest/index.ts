@@ -12,6 +12,9 @@ import type { Fields } from "../../storage/records.ts";
 
 /** What the digest reads from a history or favorite record; never the blobs. */
 export interface DigestImage {
+  readonly entity_key?: string;
+  readonly lineage?: import("../../domain/image-identity.ts").ImageLineage;
+  readonly favSeq?: number;
   readonly id: string;
   readonly createdAt: number;
   readonly favoritedAt?: number;

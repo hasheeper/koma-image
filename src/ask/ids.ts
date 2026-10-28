@@ -3,37 +3,33 @@ import type { ConversationRecord } from "../storage/records.ts";
 
 interface Entry {
   readonly id: string;
-  readonly createdAt: number;
-  readonly favoritedAt?: number;
+  readonly favSeq?: number;
 }
-export interface IdSnapshot { readonly history: readonly string[]; readonly favorites: readonly string[] }
-/** `#h12`, `#f3`, `#c4.2`, `#c4.2.1`, `#a1` as they appear in questions and replies. */
-export const idPattern = /#(?:h\d+|f\d+|a\d+|c\d+\.\d+(?:\.\d+)?)(?!\w)/g;
+export interface IdSnapshot { readonly history: readonly string[]; readonly favorites: readonly string[]; readonly favoriteSeqs?: readonly {id:string; seq:number}[] }
+/** Shared grammar: a trailing sentence period is punctuation, another numeric segment is not. */
+export const pictureIdSource = String.raw`#(?:h[1-9]\d*|f[1-9]\d*|a[1-9]\d*|e[1-9]\d*(?:\.[1-9]\d*)?[a-c]?|c[1-9]\d*\.[1-9]\d*(?:[a-z]|\.[1-9]\d*)?)`;
+export const isPictureId = (id: string) => new RegExp(`^(?:${pictureIdSource})$`).test(id);
+export const idPattern = new RegExp(`(?<![\\w:#])(?:${pictureIdSource})(?![\\w]|\\.[\\w.])`, "g");
 
 /**
  * Display IDs for one page session. Numbers only grow: a removed image keeps
  * its number and nothing reuses it, so an ID in an old reply never points at a
- * different picture. History is numbered in the order images entered it,
- * favorites by the time they were favorited.
+ * different picture. History is numbered on arrival; favorites only read
+ * fixed numbers assigned by the persistent favorites store.
  */
 export function createIds() {
   const history = new Map<string, number>(),
     favorites = new Map<string, number>(),
     labels = new Map<string, string>();
+  let activeHistory = new Set<string>(), activeFavorites = new Set<string>();
   let seenHistory: readonly Entry[] | null = null,
     seenFavorites: readonly Entry[] | null = null;
   return {
-    snapshot(): IdSnapshot { return { history: [...history.keys()], favorites: [...favorites.keys()] }; },
-    /** Favorites from the same page share a growing registry; deleted images keep their slots. */
-    restore(saved: IdSnapshot) {
-      for (const [prefix, map, entries] of [["h", history, saved.history], ["f", favorites, saved.favorites]] as const)
-        entries.forEach((id, i) => { if (!map.has(id)) { map.set(id, i + 1); labels.set(`#${prefix}${i + 1}`, id); } });
-      seenHistory = null; seenFavorites = null;
-    },
+    snapshot(): IdSnapshot { return { history: [...history.keys()], favorites: [...favorites.keys()], favoriteSeqs:[...favorites].map(([id,seq])=>({id,seq})) }; },
     /** `historyList` is newest first, as the drawing service keeps it. */
     sync(historyList: readonly Entry[], favoriteList: readonly Entry[]) {
       if (historyList !== seenHistory) {
-        seenHistory = historyList;
+        seenHistory = historyList; activeHistory = new Set(historyList.map(r=>r.id));
         for (let i = historyList.length - 1; i >= 0; i--) {
           const { id } = historyList[i];
           if (history.has(id)) continue;
@@ -42,28 +38,33 @@ export function createIds() {
         }
       }
       if (favoriteList !== seenFavorites) {
-        seenFavorites = favoriteList;
-        const ordered = [...favoriteList].sort(
-          (a, b) =>
-            (a.favoritedAt ?? 0) - (b.favoritedAt ?? 0) ||
-            a.createdAt - b.createdAt,
-        );
-        for (const { id } of ordered) {
-          if (favorites.has(id)) continue;
-          favorites.set(id, favorites.size + 1);
-          labels.set(`#f${favorites.size}`, id);
+        const registered = new Map<number, string>();
+        for (const { id, favSeq } of favoriteList) {
+          if (typeof favSeq !== "number" || !Number.isSafeInteger(favSeq) || favSeq < 1) throw new Error("收藏编号尚未就绪");
+          if (registered.has(favSeq) && registered.get(favSeq) !== id) throw new Error("收藏编号冲突");
+          registered.set(favSeq, id);
+        }
+        seenFavorites = favoriteList; activeFavorites = new Set(favoriteList.map(r=>r.id));
+        favorites.clear();
+        for (const [label] of labels) if (label.startsWith("#f")) labels.delete(label);
+        for (const [seq, id] of registered) {
+          favorites.set(id, seq);
+          labels.set(`#f${seq}`, id);
         }
       }
     },
     history: (id: string) =>
-      history.has(id) ? `#h${history.get(id)}` : null,
+      activeHistory.has(id) && history.has(id) ? `#h${history.get(id)}` : null,
     favorite: (id: string) =>
-      favorites.has(id) ? `#f${favorites.get(id)}` : null,
+      activeFavorites.has(id) && favorites.has(id) ? `#f${favorites.get(id)}` : null,
     /** The history label wins when an image is in both lists. */
     label(id: string) {
       return this.history(id) ?? this.favorite(id);
     },
-    resolve: (label: string) => labels.get(label) ?? null,
+    resolve(label: string) {
+      const id = labels.get(label);
+      return id && (label.startsWith("#h") ? activeHistory : activeFavorites).has(id) ? id : null;
+    },
     /** The highest history number handed out so far. */
     cursor: () => history.size,
   };

@@ -34,7 +34,8 @@ recipe/slate 冻结提议时的画板/任务快照，不是同稿应用后的结
 外层字段为 schema、draft_id（1–120 位字母、数字、下划线、点或短横线）、可选 source_label。
 其余正文直接使用下方 propose_draft Schema。外部支持 IMAGE 的 prompt_patch、character_edit、restore_partial、params_patch 、slate_edit 与 save_ref；不能写 CHAT。
 缺失 base_hash 时按收件当刻活动 IMAGE 画板的实时状态冻结；显式 base_hash 须匹配本页已导出的基底，过期请重新导出。
-引用 #h/#f 必须另附 state.live.json 中的 picture_scope_id。它仅是投递元数据，不是步骤字段。
+新版外层带 picture_ref_version:2。引用 #h/#e 带 picture_scope_id；#f 带 favorites_scope_id；混合引用分别带回。
+EDIT 完整码 #e板号.版本[a-c]；本板简写 #e版本[a-c] 另带 edit_board_id 匹配 edit.active_board_id，外部推荐完整码。旧无标记投递继续保守校验 picture_scope_id。
 编号目录包含尺寸、Seed 与短摘录；restore_partial 的真实恢复值由 Koma 读取，不能提交 values。
 params_patch.params 仅允许 Schema 白名单参数，使用表单字段 cfgRescale，Seed 为字符串，空串随机、"0" 合法。
 角色目标使用 image.char.c1.prompt 等稳定 ID；插入方式用 after，不使用 ops 或 insert_after。
@@ -55,7 +56,9 @@ ASK 忙或已有草稿时排队，绝不覆盖原草稿。用户确认后才应�
 ## 状态与图片
 
 boards/form 保留画板与表单字段；selected_image/recent_history.params 是该图已有的真实参数，缺失字段不补造。
-历史与收藏索引分别在 history_index、favorites_index；它们不代表原图已持久化。
+历史与收藏索引分别在 history_index、favorites_index，带具体 record_id/entity_key；#f 固定，取消不重排。
+picture_scope_id 为本页 #h/#e 编号空间，切板与 ASK 会话不改变；favorites_scope_id 为持久收藏库，普通刷新不改变。
+edit 为只读板/版本目录：board_seq、完整 id、本板 local_id、实体、父图和工具。不增加 EDIT 自动预览或原图导出。参数属于具体记录，不能从同实体另一条记录替换。
 最多导出选中图和最近三张历史的去重预览，最长边 768。文本变更不重新编码。
 手动状态 JSON 中 preview 为 null 时没有附带可读预览文件。本机参考资产 ID 不代表外部已获得原图或 Vibe 编码。
 只应有一个 Koma 写入者；跨来源页面、应用或外部程序没有共享文件锁保证。
@@ -66,7 +69,7 @@ boards/form 保留画板与表单字段；selected_image/recent_history.params �
 挂载自动加入当刻的活动任务板；挂载期间手动新建或经草稿确认创建的活动任务板也自动加入。通过外部任务文件创建时沿用原文件映射，不重复生成任务文件。切换到其他已有且未映射的任务板，仍需点击「同步到当前目录」。同步失败或尚未完成时 active_slate 摘要不代表任务文件已经写出；请检查 slates/，可用摘要中的 ID/版本继续提交草稿。
 slate_edit 的 op 为 create/update/delete；现有目标带 slate_id 和 expected_version。创建使用 slate_title，Todo 标题用 todo_title，避免兼容中转剥离 Schema 的 title 元数据。每份草稿一个 slate_edit，todos 内 add/update/remove；每板最多 100 Todo、任务正文总计最多 900 KiB。新增 Todo 用 {op:"add",todo_title:"任务标题"}，省略 id；误填的 id 会被忽略，由应用生成新的稳定 ID。update/remove 必须使用状态中已有 Todo 的稳定 id，不能使用 CG 序号或自行编造编号。
 可以在同稿记录 mutation/绑图/完成并用 prompt_patch/params_patch 准备下一张，用户整体确认。需交图任务没有绑定不能完成；锁定配方修改须显式 unlock。
-绑定仅接受本轮 #h/#f，带 picture_scope_id；目标默认 assets/ 唯一路径。caption_source 明确选择 base/sent/character，caption_mode 仅 full/strip_syntax，角色须给 character_id；缺失来源不替换原文。
+绑定仅接受本轮 #h/#f/#e，按上述编号类别验证作用域；EDIT 结果无需先收藏或注册 #h，目标默认 assets/ 唯一路径。caption_source 明确选择 base/sent/character，caption_mode 仅 full/strip_syntax，角色须给 character_id；缺失来源不替换原文。
 strip_syntax 只剥离配对 {}、[]、数字::正文:: 和无属性的配对 XML 标签；转义、畸形或其他语法保留，不筛画师名。
 绑图即时保存本机原字节、SHA-256、真实尺寸和已有生成参数；目录失败保留本机任务与成果。directory_required=true 仅用于用户要求已完成目录交付的组合，文件/回执失败不报告整稿应用成功。
 外部文件不可声明新的本机绑定或伪造 deliveries。现有 binding 原样保留或明确解绑；新成果使用 slate_edit.bind。新目录任务、修改或 deleted:true tombstone 都转为草稿。

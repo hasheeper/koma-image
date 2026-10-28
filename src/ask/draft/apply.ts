@@ -1,3 +1,4 @@
+import type { Editor } from "../../services/editor.ts";
 import { fileIssue } from "./files.ts";
 import type { FilePort } from "./files.ts";
 import type { Slates, BoardWrite } from "../../slate/service.ts";
@@ -15,7 +16,7 @@ import type { DraftPlan, Field } from "./types.ts";
 const labels: Partial<Record<Field, string>> = { prompt: "Prompt", negative: "Negative", composer: "对话输入框", model: "模型", width: "尺寸", height: "尺寸", seed: "Seed", steps: "步数", scale: "Guidance", cfg: "中转 CFG（旧）", cfgRescale: "Guidance Rescale", varietyPlus: "Variety+", naiMode: "模式", complexity: "Complexity", qualityPreset: "质量预设", negativePreset: "负向预设", transparentBg: "透明底", sampler: "采样器", batchCount: "张数", characters: "角色组", placement: "角色定位" };
 
 /** The only ASK module with write ports. Called exclusively by user actions. */
-export function createDraftWriter(drawing: Drawing, chat: Chat, router: AppRouter, slates?: Slates, filePort?: () => FilePort | null) {
+export function createDraftWriter(drawing: Drawing, chat: Chat, router: AppRouter, slates?: Slates, filePort?: () => FilePort | null, editor?: Pick<Editor, "records">) {
   const chatKey = () => chatDraftKey(chat.snapshot().current);
   const readBoards = () => new Map((drawing.snapshot().boards ?? []).map(b => [b.id, structuredClone(b)]));
   const handoffTarget = (receipt: string | null) => receipt ? String(JSON.parse(receipt)[0]) : "";
@@ -45,9 +46,9 @@ export function createDraftWriter(drawing: Drawing, chat: Chat, router: AppRoute
     if (plan.slate && (!slates || contentKey(slates.get(plan.slate.id)) !== contentKey(plan.slate[side]))) return "任务板已变化";
     return boardConflict(plan, side, receipt);
   };
-  /** IMAGE records are read at write time; `#h` may have been cleared since the proposal. */
+  /** Recheck workspace records at write time; history or EDIT versions may have been removed. */
   function handoffImages(plan: DraftPlan) {
-    const d = drawing.snapshot(), records = [...d.history, ...d.favorites];
+    const d = drawing.snapshot(), records = [...d.history, ...d.favorites, ...editor?.records() ?? []];
     return plan.handoff!.images.map((image) => {
       if (image.source === "chat") return { asset: image.ref };
       const record = records.find((r) => r.id === image.ref);

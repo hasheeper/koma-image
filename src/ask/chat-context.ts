@@ -1,3 +1,4 @@
+import { chatImageId, chatImageOrigin } from "../domain/image-origin.ts";
 import { ancestry, chatDraftKey, chatSelection, contextSnapshot } from "../domain/conversation.ts";
 import type { ChatSelection } from "../domain/conversation.ts";
 import type { ConversationVersion, Fields } from "../storage/records.ts";
@@ -32,12 +33,12 @@ export function chatSnapshot(state: ReturnType<Chat["snapshot"]>): ChatDraftSnap
     assetId: finished(t.versions[t.selectedVersion])[0] ?? null, versions: t.versions.map(finished),
   })) };
 }
-const chatId = /^#c(\d+)\.(\d+)(?:\.(\d+))?$/;
-/** `#cN.M[.K]`: turn N of the current branch, version M, image K (the first when omitted). */
+const chatId = /^#c([1-9]\d*)\.([1-9]\d*)(?:([a-z])|\.([1-9]\d*))?$/;
+/** `#cN.M[a-z]`: branch turn N, version M, image letter; also reads legacy numeric `.K`. */
 export function chatImage(snapshot: Pick<ChatDraftSnapshot, "sources">, label: string) {
   const m = chatId.exec(label), source = m ? snapshot.sources[Number(m[1]) - 1] : undefined;
   if (!m || !source) return null;
-  const version = Number(m[2]) - 1, index = Number(m[3] ?? 1) - 1, selected = source.label === `#c${m[1]}.${m[2]}`,
+  const version = Number(m[2]) - 1, index = m[3] ? m[3].charCodeAt(0) - 97 : Number(m[4] ?? 1) - 1, selected = source.label === `#c${m[1]}.${m[2]}`,
     assetId = source.versions ? source.versions[version]?.[index] : selected && !index ? source.assetId : null;
   return assetId ? { source, version, index, assetId, selected } : null;
 }
@@ -50,7 +51,7 @@ export function chatImages(state: ReturnType<Chat["snapshot"]>) {
   return ancestry(c).flatMap((turn, i) => turn.versions.flatMap((version, j) => {
     const ids = finished(version), base = `#c${i + 1}.${j + 1}`;
     return ids.map((assetId, k) => ({ turn, version, assetId, index: k, number: j, selected: j === turn.selectedVersion,
-      label: ids.length > 1 ? `${base}.${k + 1}` : base, aliases: [...new Set([ids.length > 1 ? `${base}.${k + 1}` : base, `${base}.${k + 1}`, ...(k ? [] : [base])])] }));
+      label: ids.length > 1 ? k < 26 ? `${base}${String.fromCharCode(97+k)}` : `${base}.${k + 1}` : base, aliases: [...new Set([...(k < 26 ? [`${base}${String.fromCharCode(97+k)}`] : []), ids.length > 1 ? `${base}.${k + 1}` : base, `${base}.${k + 1}`, ...(k ? [] : [base])])] }));
   }));
 }
 export interface ChatOptionState { readonly value: string; readonly options: readonly string[] }
@@ -94,9 +95,10 @@ export function chatPictures(state: ReturnType<Chat["snapshot"]>, chat: Chat): P
   let order = 0;
   return chatImages(state).flatMap((p) => {
     const asset = chat.assets.assets.get(p.assetId);
-    return asset ? [{ id: `chat:${state.current.id}:${p.turn.id}:${p.version.id}:${p.index}`, label: p.label, aliases: p.aliases, createdAt: 0,
+    return asset ? [{ id: chatImageId(state.current.id, p.turn.id, p.version.id, p.assetId), entity_key: `sha256:${asset.id}`, lineage: { via: "chat" as const },
+      scope: { kind: "chat", id: state.current.id, turn_id: p.turn.id, version_id: p.version.id, asset_id: asset.id }, label: p.label, aliases: p.aliases, createdAt: 0,
       origins: [{ source: "chat" as const, label: p.label, order: ++order }],
-      params: { basePrompt: p.turn.prompt, ...turnParams(p.turn.settings, state.models), version: p.number + 1, image_index: p.index + 1, selected: p.selected },
+      params: { ...chatImageOrigin(state.current,p.turn,p.version,p.assetId), basePrompt: p.turn.prompt, ...turnParams(p.turn.settings, state.models), version: p.number + 1, image_index: p.index + 1, selected: p.selected },
       size: { width: asset.width, height: asset.height }, blob: asset.blob }] : [];
   });
 }

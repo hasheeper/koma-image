@@ -13,7 +13,7 @@ export function slateDocument(slate: Slate): ExportDocument {
   const json = JSON.stringify(slateFile(slate), null, 2);
   return { title: "保存任务交接资料", stem: `${slate.title.replace(/[\\/:*?"<>|\x00-\x1f]/g, "-").slice(0, 70)}-任务`, formats: { json, md: `# ${slate.title}\n\n${describe(slate)}\n\n以下是任务和配方数据；本机资产 ID 不包含原图。\n\n\`\`\`json\n${json}\n\`\`\`\n` } };
 }
-export const assetReceipt = (asset: SlateAsset) => ({ asset_id: asset.id, sha256: asset.sha256, width: asset.width, height: asset.height, mime: asset.mime, bytes: asset.blob.size, source_id: asset.sourceId, bound_at: asset.boundAt, params: asset.params });
+export const assetReceipt = (asset: SlateAsset) => ({ asset_id: asset.id, entity_key:asset.entity_key, source_ref:asset.source_ref, sha256: asset.sha256, width: asset.width, height: asset.height, mime: asset.mime, bytes: asset.blob.size, source_id: asset.sourceId, bound_at: asset.boundAt, params: asset.params });
 const object = (v: unknown) => { if (!v || typeof v !== "object" || Array.isArray(v)) throw new Error("任务文件结构无效"); return v as Record<string, unknown>; };
 /** Imported delivery claims never become local bindings. Only known local binding IDs survive. */
 export function externalEdit(input: unknown, local: Slate | null): SlateEdit {
@@ -31,7 +31,7 @@ export function externalEdit(input: unknown, local: Slate | null): SlateEdit {
     if (id && seen.has(id)) throw new Error("Todo ID 重复");
     if (id) seen.add(id);
     const before = local?.todos.find(t => t.id === id);
-    if (todo.binding && canonical(todo.binding) !== canonical(before?.binding)) throw new Error("外部文件不能声明已绑定本机资产；请用 slate_edit.bind 引用本轮 #h/#f");
+    if (todo.binding && canonical(todo.binding) !== canonical(before?.binding)) throw new Error("外部文件不能声明已绑定本机资产；请用 slate_edit.bind 引用本轮 #h/#f/#e");
     const allowed = Object.fromEntries(["description", "requirements", "mutation", "status", "bonus", "image_required"].filter(k => Object.hasOwn(todo, k)).map(k => [k, todo[k]]));
     edit.todos!.push({ op: before ? "update" : "add", ...(before ? { id } : {}), ...allowed, ...(todo.title !== undefined ? { todo_title: todo.title as string } : {}), ...(before?.binding && todo.binding === null ? { unbind: true } : {}) });
   }

@@ -47,12 +47,14 @@ async function encode(canvas: OffscreenCanvas): Promise<Rendered> {
   const mime = blob.type === "image/webp" ? "image/webp" : "image/png";
   return { image: { type: "image", mime, data: btoa(binary) }, bytes: blob.size, pixels: canvas.width * canvas.height };
 }
-/** Bounded page cache of derived pixels only. Object identity prevents stale results after restore. */
+/** Bounded cache of derived pixels by entity; Blob identity is the fallback for unhashed inputs. */
 export function createVision() {
   const cache = new Map<string, { value: Rendered; labels: readonly string[] }>();
+  const sent = new WeakMap<Budget["vision"], Set<string>>();
   const blobs = new WeakMap<Blob, number>();
   let sequence = 0, disposed = false;
   function identity(picture: Picture) {
+    if (picture.entity_key) return picture.entity_key;
     if (!blobs.has(picture.blob)) blobs.set(picture.blob, ++sequence);
     return `${picture.id}:${blobs.get(picture.blob)}`;
   }
@@ -60,10 +62,13 @@ export function createVision() {
     context.signal.throwIfAborted();
     if (disposed) throw new Error("ASK 视觉会话已关闭");
     if (context.metadataOnly) throw new Error("本轮仅发送元数据，未发送图片");
-    if (context.budget.calls >= LIMITS.vision.calls) throw new Error("本轮视觉调用已达 4 次上限");
+
   }
-  async function result(key: string, render: () => Promise<OffscreenCanvas>, context: VisionContext, labels: readonly string[], spec: string) {
+  async function result(key: string, render: () => Promise<OffscreenCanvas>, context: VisionContext, labels: readonly string[], spec: string, reinspect = false) {
     allowed(context);
+    let already = sent.get(context.budget);
+    if (!already) { already = new Set(); sent.set(context.budget,already); }
+    if (!reinspect && already.has(key)) return { bytes:0,pixels:0,duplicate:true as const,image:undefined };
     let value = cache.get(key)?.value;
     if (!value) {
       value = await encode(await render());
@@ -75,15 +80,16 @@ export function createVision() {
       }
     } else { cache.delete(key); cache.set(key, { value, labels }); }
     chargeVision(context.budget, value.pixels, value.bytes);
+    already.add(key);
     return {
       ...value,
       image: { ...value.image, viewed: { ids: [...labels], spec, bytes: value.bytes } },
     };
   }
   return {
-    async image(picture: Picture, spec: VisionSpec, region: Region | undefined, context: VisionContext) {
+    async image(picture: Picture, spec: VisionSpec, region: Region | undefined, context: VisionContext, reinspect = false) {
       allowed(context);
-      if (spec === "crop" && !context.viewed.has(picture.id)) throw new Error(`裁切 ${picture.label} 前请先用 glance 或 look 查看该图全图（拼图不计入单图查看）`);
+      if (spec === "crop" && !context.viewed.has(picture.entity_key ?? picture.id)) throw new Error(`裁切 ${picture.label} 前请先用 glance 或 look 查看该图全图（拼图不计入单图查看）`);
       if (spec === "crop" && !region) throw new Error("crop 需要百分比 region");
       if (spec !== "crop" && region) throw new Error("只有 crop 接受 region");
       const key = `${identity(picture)}:${spec}:${region?.join(",") ?? ""}`;
@@ -99,8 +105,8 @@ export function createVision() {
           g.drawImage(bitmap, box.x, box.y, box.width, box.height, 0, 0, size.width, size.height);
           return canvas;
         } finally { bitmap.close(); }
-      }, context, [picture.label], spec);
-      if (spec !== "crop") context.viewed.add(picture.id);
+      }, context, [picture.label], spec, reinspect);
+      if (spec !== "crop") context.viewed.add(picture.entity_key ?? picture.id);
       return value;
     },
     async sheet(pictures: readonly Picture[], spec: "glance" | "look", context: VisionContext) {

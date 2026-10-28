@@ -43,7 +43,7 @@ export interface Turn {
   readonly budget: Budget;
   record(usage: AskUsage | null): void;
   /** `viewed`: images this turn saw whole, for later crops. */
-  commit(meta?: { viewed?: Iterable<string>; question?: string; attachments?: readonly string[];
+  commit(meta?: { pictureRefs?: import("./edit-context.ts").PictureRefs; viewed?: Iterable<string>; question?: string; attachments?: readonly string[];
     targets?: readonly string[]; boards?: readonly string[]; draft?: TurnDraft }): TurnId;
   rollback(): void;
 }
@@ -233,7 +233,7 @@ export function createSession(total?: (usage: AskUsage) => void, from: readonly 
           const turnId: TurnId = `T${nextTurnId++}`;
           const turns = dehydrateTurns([...committed.map((t) => t.messages), pending]);
           const viewed = [...(meta.viewed ?? [])];
-          committed = [...committed, { turnId, messages: pending, viewed, inputTokens, question: meta.question ?? questionOf(pending),
+          committed = [...committed, { turnId, messages: pending, viewed, pictureRefs:meta.pictureRefs, inputTokens, question: meta.question ?? questionOf(pending),
             attachments: [...(meta.attachments ?? [])], targets: [...(meta.targets ?? viewed)], boards: [...(meta.boards ?? [])],
             ...(meta.draft ? { draft: meta.draft } : {}) }].map((t, i) => ({ ...t, messages: turns[i] }));
           lastInputTokens = inputTokens; turnsSinceCompaction++; archiveRebuild = false;

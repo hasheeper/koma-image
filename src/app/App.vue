@@ -50,14 +50,14 @@ onScopeDispose(() => editor.dispose());
 onScopeDispose(() => chat.dispose());
 provide(drawingKey, drawing);
 onScopeDispose(() => drawing.dispose());
-const slates = createSlates(services, drawing);
+const slates = createSlates(services, drawing, editor);
 provide(slateKey, slates);
 onScopeDispose(() => { void slates.dispose(); });
 const home = createHome({ services, drawing, chat, editor, slates, router, onError: error => console.warn("HOME 本机数据暂不可用", error) });
 provide(homeKey, home);
 provide(homeNavigationKey, createHomeNavigation({ router, home, drawing, chat, editor, ui }));
 onScopeDispose(() => { void home.dispose(); });
-const ask = createAsk({ services, router, drawing, chat, ui, slates, home });
+const ask = createAsk({ services, router, drawing, chat, ui, slates, home, editor });
 provide(askKey, ask);
 provide(askPresentationKey, createAskPresentation(ask, router));
 function syncHomeActivity() {

@@ -1,3 +1,6 @@
+import { isEntityKey } from "../domain/image-identity.ts";
+import type { FavoriteIdentityBackup, ImageLineage, ImageTagBinding } from "../domain/image-identity.ts";
+import { isPictureId } from "../ask/ids.ts";
 import { readReferences, encodingKey, referenceModel } from "../domain/nai-references.ts";
 import type { ReferenceAsset, VibeEncoding } from "../domain/nai-references.ts";
 import { DEFAULTS, boardKeys } from "../domain/drawing.ts";
@@ -59,6 +62,7 @@ export type AssetManifest = Omit<AssetRecord, "blob"> & {
 export type ReferenceAssetManifest = Omit<ReferenceAsset,"blob"|"thumbnail"> & { image: ImageReference | null; thumbnail: ImageReference | null };
 export type VibeEncodingManifest = Omit<VibeEncoding,"data"> & { path: string; hash: string };
 export interface BackupManifest {
+  imageIdentity?: FavoriteIdentityBackup;
   app: "koma-image";
   kind: "backup";
   version: 2;
@@ -213,6 +217,31 @@ export function validateConversation(value: unknown): ConversationRecord {
   }
   return structuredClone(c) as unknown as ConversationRecord;
 }
+function checkedIdentity(value: unknown): FavoriteIdentityBackup | undefined {
+  if (value === undefined) return undefined;
+  const raw = object(value), state = object(raw.state);
+  if (raw.version !== 1 || !id(state.libraryId) || !Number.isSafeInteger(state.nextFavSeq) || Number(state.nextFavSeq) < 1 || !Array.isArray(raw.registrations)) throw bad();
+  const seqs = new Set<number>();
+  for (const value of raw.registrations) {
+    const r = object(value);
+    if (!Number.isSafeInteger(r.seq) || Number(r.seq)<1 || Number(r.seq)>=Number(state.nextFavSeq) || seqs.has(Number(r.seq)) || !id(r.recordId) || !isEntityKey(r.entity_key) || typeof r.active!=="boolean") throw bad();
+    seqs.add(Number(r.seq));
+  }
+  return structuredClone(value) as FavoriteIdentityBackup;
+}
+function checkedLineage(value: unknown): ImageLineage | undefined {
+  if (value === undefined) return undefined;
+  const r = object(value);
+  if (!["image","chat","edit:img2img","edit:inpaint","edit:enhance","edit:upscale","edit:director","edit:photopea","upload"].includes(String(r.via)) || r.parent_record_id!==undefined && !id(r.parent_record_id) || r.parent_entity_key!==undefined && !isEntityKey(r.parent_entity_key) || r.tool_detail!==undefined && typeof r.tool_detail!=="string") throw bad();
+  let parent: ImageTagBinding | undefined;
+  if (r.parent_ref !== undefined) {
+    const ref = object(r.parent_ref), scope = object(ref.scope);
+    if (typeof ref.tag !== "string" || !isPictureId(ref.tag) || !isEntityKey(ref.entity_key) || !id(ref.record_id) || !["page", "favorites", "chat", "ask"].includes(String(scope.kind)) || !id(scope.id) || ["board_id", "turn_id", "version_id", "asset_id"].some(k => scope[k] !== undefined && !id(scope[k]))) throw bad();
+    parent = structuredClone(r.parent_ref) as ImageTagBinding;
+  }
+  // Diagnostic snapshots retain their original scope; import does not grant live access.
+  return { via: r.via as ImageLineage["via"], ...(r.parent_record_id ? {parent_record_id:String(r.parent_record_id)} : {}), ...(r.parent_entity_key ? {parent_entity_key:String(r.parent_entity_key)} : {}), ...(r.tool_detail ? {tool_detail:String(r.tool_detail)} : {}), ...(parent ? { parent_ref: parent } : {}) };
+}
 /** Metadata validation only. M3's archive reader verifies CRC, bytes and asset hashes before writes. */
 export function validateBackupManifest(value: unknown): BackupManifest {
   const m = object(value);
@@ -229,6 +258,7 @@ export function validateBackupManifest(value: unknown): BackupManifest {
     !Array.isArray(m.conversations)
   )
     throw bad();
+  const imageIdentity = checkedIdentity(m.imageIdentity);
   const favorites: FavoriteManifest[] = [],
     assets: AssetManifest[] = [],
     seenFavorites = new Set(),
@@ -237,7 +267,11 @@ export function validateBackupManifest(value: unknown): BackupManifest {
     const row = object(item);
     if (!id(row.id) || seenFavorites.has(row.id)) throw bad();
     seenFavorites.add(row.id);
+    if (row.entity_key !== undefined && !isEntityKey(row.entity_key) || row.favSeq !== undefined && (!Number.isSafeInteger(row.favSeq) || Number(row.favSeq)<1)) throw bad();
     favorites.push({
+      ...(row.entity_key ? { entity_key: row.entity_key } : {}),
+      ...(row.favSeq ? { favSeq: row.favSeq } : {}),
+      ...(row.lineage ? { lineage: checkedLineage(row.lineage) } : {}),
       id: row.id,
       createdAt: row.createdAt,
       favoritedAt: row.favoritedAt,
@@ -251,6 +285,11 @@ export function validateBackupManifest(value: unknown): BackupManifest {
         : null,
     } as FavoriteManifest);
   }
+  if (imageIdentity) for (const f of favorites) {
+    const entry = imageIdentity.registrations.find(r => r.seq===f.favSeq);
+    if (!entry?.active || entry.recordId!==f.id || entry.entity_key!==f.entity_key) throw bad();
+  }
+  if (imageIdentity?.registrations.some(r => r.active && !favorites.some(f => f.favSeq === r.seq && f.id === r.recordId && f.entity_key === r.entity_key))) throw bad();
   for (const item of m.assets) {
     const row = object(item);
     if (
@@ -317,6 +356,6 @@ export function validateBackupManifest(value: unknown): BackupManifest {
     favorites,
     conversations,
     assets,
-    preferences, referenceAssets, vibeEncodings,
+    preferences, referenceAssets, vibeEncodings, ...(imageIdentity ? { imageIdentity } : {}),
   };
 }

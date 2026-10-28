@@ -1,3 +1,4 @@
+import { isPictureId } from "./ids.ts";
 import type { AskImage, AskText, AskTool } from "./messages.ts";
 import type { Picture } from "./library.ts";
 import { differences, metadata, promptDiff, promptOf } from "./library.ts";
@@ -85,22 +86,22 @@ const string = (input: Readonly<Record<string, unknown>>, key: string, optional 
   return value.trim();
 };
 const picture = (id: string, context: ToolContext) => {
-  if (!/^#(?:(?:h|f|a)\d+|c\d+\.\d+(?:\.\d+)?)$/.test(id)) throw new Error("请使用本页图片 ID，如 #h1、#f1 或附件 #a1");
+  if (!isPictureId(id)) throw new Error("请使用有效图片 ID，如 #h1、#f3、#e2.3a、当前板 #e3 或附件 #a1");
   const found = context.library?.find((p) => p.aliases.includes(id));
   if (!found) throw new Error(`${id} 不在本轮图片快照中，可能已移除；新图请在下一轮查看`);
-  return found;
+  return { ...found, label:id };
 };
 const reply = (value: unknown, stat: string, picks?: readonly string[]): ToolOutcome => ({
   content: [{ type: "text", text: dataBlock(canonical(value)) }], stat, ...(picks ? { picks } : {}),
 });
 const schema = (properties: Record<string, unknown>, required: string[] = []) => ({ type: "object", properties, required, additionalProperties: false });
-const idField = { type: "string", description: "图片 ID，如 #h12、#f3、当前 CHAT 分支的 #c2.1（多图版本逐张为 #c2.1.2）、本对话附件 #a1" };
+const idField = { type: "string", description: "图片 ID，如 #h12、#f3、EDIT 完整码 #e2.3a（当前板可简写 #e3a）、当前 CHAT 分支的 #c2.1（多图 #c2.1b，兼容 #c2.1.2）、本对话附件 #a1" };
 const readMeta: ToolEntry = {
   tool: { name: "get_meta", description: "读取图片完整参数，不发送图片。", schema: schema({ id: idField }, ["id"]) },
   verb: "读取", object: (input) => String(input.id ?? "图片参数"),
   run(input, context) {
     const item = picture(string(input, "id"), context);
-    return reply({ id: item.label, ...(item.attachment ?? metadata(item)) }, "参数");
+    return reply({ id: item.label, record_id:item.id,entity_key:item.entity_key, lineage:item.lineage, ...(item.attachment ?? metadata(item)) }, "参数");
   },
 };
 const diffMeta: ToolEntry = {
@@ -113,10 +114,10 @@ const diffMeta: ToolEntry = {
   },
 };
 const searchHistory: ToolEntry = {
-  tool: { name: "search_history", description: "本地检索本轮历史、收藏或当前 CHAT 分支图片。query 用朴素关键词，多词任一命中；不解析布尔或正则。changed_field 对比同来源前序，size 表示宽高变化；similar_to 按提示词相似度排序。默认 all、8条，最多15条；详情用 get_meta。", schema: schema({
-    query: { type: "string", maxLength: 300 }, changed_field: { type: "string", enum: changedFields }, similar_to: { type: "string", description: "作为比较基准的工作区图片 ID（#h、#f、#c）；检索不含 #a 附件" },
+  tool: { name: "search_history", description: "本地检索本轮历史、收藏、EDIT 或当前 CHAT 分支图片。query 用朴素关键词，多词任一命中；不解析布尔或正则。changed_field 对比同来源前序，size 表示宽高变化；similar_to 按提示词相似度排序。默认 all、8条，最多15条；详情用 get_meta。", schema: schema({
+    query: { type: "string", maxLength: 300 }, changed_field: { type: "string", enum: changedFields }, similar_to: { type: "string", description: "作为比较基准的工作区图片 ID（#h、#f、#e、#c）；检索不含 #a 附件" },
     limit: { type: "integer", minimum: 1, maximum: 15 },
-    scope: { type: "string", enum: ["history", "favorites", "chat", "all"] },
+    scope: { type: "string", enum: ["history", "favorites", "chat", "edit", "all"] },
   }) },
   verb: "检索", object: () => "图片记录",
   run(input, context) {
@@ -131,8 +132,8 @@ function visualContext(context: ToolContext) {
 }
 const specLabel = { glance: "概览", look: "细看", crop: "局部" } as const;
 const viewImage: ToolEntry = {
-  tool: { name: "view_image", description: "按需看图：glance 长边384px、look 768px。crop 前须看过同一 ID 的全图：本工具的 glance/look 或随提问发送的 #a 附件图片均可，view_sheet 拼图不计。百分比裁切区域自动四边扩25%。与 view_sheet 共享本轮视觉预算：合计最多4次/1.5MP/400KB；随提问发送的图片不占此预算。", schema: schema({
-    id: idField, spec: { type: "string", enum: ["glance", "look", "crop"] },
+  tool: { name: "view_image", description: "按需看图：glance 长边384px、look 768px。crop 前须看过同一原图实体的全图，#h/#f/#e 别名共享资格：本工具的 glance/look 或随提问发送的 #a 附件图片均可，view_sheet 拼图不计。百分比裁切区域自动四边扩25%。与 view_sheet 共享本轮视觉预算：合计最多4次/1.5MP/400KB；随提问发送的图片不占此预算。", schema: schema({
+    id: idField, spec: { type: "string", enum: ["glance", "look", "crop"] }, reinspect: { type: "boolean", description: "用户明确要求本轮重新查看时设为 true" },
     region: { type: "array", description: "仅 crop 必填，glance/look 不传。顺序为 [x, y, width, height]，单位为相对原图的百分比（0–100）；原图左上角为 (0,0)，宽高须大于0，x+width、y+height 均不得超过100。", items: { type: "number", minimum: 0, maximum: 100 }, minItems: 4, maxItems: 4 },
   }, ["id", "spec"]) },
   verb: "查看", object: (input) => String(input.id ?? "图片"),
@@ -145,8 +146,8 @@ const viewImage: ToolEntry = {
       if (!Array.isArray(input.region) || input.region.length !== 4 || !input.region.every((n) => typeof n === "number" && Number.isFinite(n))) throw new Error("region 需为四个有限数字");
       region = input.region as unknown as Region;
     }
-    const result = await vision.image(item, spec, region, visual);
-    return { content: [{ type: "text", text: dataBlock(canonical({ id: item.label, spec, bytes: result.bytes, pixels: result.pixels })) }, result.image], stat: `${specLabel[spec]} · ${Math.ceil(result.bytes / 1024)} KB` };
+    const result = await vision.image(item, spec, region, visual, input.reinspect === true);
+    return { content: [{ type: "text", text: dataBlock(canonical({ id: item.label, spec, ...(result.duplicate ? {already_viewed_this_turn:true} : {}), bytes: result.bytes, pixels: result.pixels })) }, ...(result.image ? [result.image] : [])], stat: result.duplicate ? "本轮已查看" : `${specLabel[spec]} · ${Math.ceil(result.bytes / 1024)} KB` };
   },
 };
 const viewSheet: ToolEntry = {
@@ -159,7 +160,7 @@ const viewSheet: ToolEntry = {
     const items = input.ids.map((id) => picture(id, context)), spec = input.spec ?? "look";
     if (spec !== "glance" && spec !== "look") throw new Error("拼图 spec 需为 glance 或 look");
     const result = await vision.sheet(items, spec, visual);
-    return { content: [{ type: "text", text: dataBlock(canonical({ ids: items.map((i) => i.label), spec: "sheet", bytes: result.bytes, pixels: result.pixels })) }, result.image], stat: `${items.length} 张 · ${Math.ceil(result.bytes / 1024)} KB` };
+    return { content: [{ type: "text", text: dataBlock(canonical({ ids: items.map((i) => i.label), spec: "sheet", ...(result.duplicate ? { already_viewed_this_turn: true } : {}), bytes: result.bytes, pixels: result.pixels })) }, ...(result.image ? [result.image] : [])], stat: result.duplicate ? "本轮已查看" : `${items.length} 张 · ${Math.ceil(result.bytes / 1024)} KB` };
   },
 };
 const readChat: ToolEntry = {

@@ -26,6 +26,8 @@ CHAT 结果工具的「收藏」按具体会话／轮次／版本／图片保存
 
 ## ASK 与运行方式
 
-ASK 的 `get_chat_context` 只读取发送时冻结的当前分支；`#cN.M` 读取该分支已有图片，多图版本逐张为 `#cN.M.K`，不自动包含其他分支。分支提纯或 composer 修改先成为草稿，用户确认后写入，ASK 不发送 CHAT 或占生图锁。从 IMAGE／TAGS 交给 CHAT 时一律用交接草稿新开会话（复用空白会话），写入参考图、尺寸类选项和输入框；不改全局 CHAT 设置，写入后直到用户再次操作 CHAT 才报价。ASK 打开、发送或写入前会预热 CHAT 的会话与模型目录，未进入 CHAT 时不请求报价或额度。见[ASK 运行契约](ask/ask-contracts-and-decisions.md)。
+ASK 的 `get_chat_context` 只读取发送时冻结的当前分支；`#cN.M` 读取该分支已有图片，多图版本逐张为 `#cN.M[a-z]`（兼容旧 `#cN.M.K`），不自动包含其他分支。分支提纯或 composer 修改先成为草稿，用户确认后写入，ASK 不发送 CHAT 或占生图锁。从 IMAGE／TAGS 交给 CHAT 时一律用交接草稿新开会话（复用空白会话），写入参考图、尺寸类选项和输入框；不改全局 CHAT 设置，写入后直到用户再次操作 CHAT 才报价。ASK 打开、发送或写入前会预热 CHAT 的会话与模型目录，未进入 CHAT 时不请求报价或额度。见[ASK 运行契约](ask/ask-contracts-and-decisions.md)。
 
 标准网关和两种 ASK 推理协议可使用本地环境变量代理；OpenAI Images／Gemini 原生／NovelAI 官方目前为浏览器直连。原生协议不提供预报价时保留未知费用状态，生成按钮暂不显示费用标签，工具仍受模型和协议能力约束。见[发布说明](release-guide.md)及[图像协议](native-image-protocols.md)。
+
+ASK 对多图版本优先显示字母尾缀，如 `#c2.1a/#c2.1b`；旧数字尾缀仍可输入，无尾缀指第一张图。每轮冻结会话／轮次／版本／资产身份，切分支不重解旧回复；原图实体与收藏／EDIT 位置互通，参数仍归具体操作记录。见[图片身份](image-identity.md)。

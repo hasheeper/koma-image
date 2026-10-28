@@ -71,17 +71,17 @@ async function start(context, seed = false) {
   return page;
 }
 
-test('HOME real drawing publication, scaled display-only cache, refresh, cover cancellation, board deletion and ordinary backup exclusion', async () => {
+test('HOME drawing fixtures, scaled display-only cache, refresh, cover cancellation, board deletion and ordinary backup exclusion', async () => {
   const context = await browser.newContext();
   let page = await start(context);
   try {
     const before = await page.evaluate(async () => {
       const a = drawing.snapshot().activeBoardId, b = await drawing.createBoard();
-      const first = await drawing.addExternal(await makeImage(), { width: 1600, height: 1000 }, { boardId: a, prompt: 'first' }, null);
+      const first = await (await import('/tests/helpers/drawing-history.mjs')).seedHistory({drawing, home:window.home}, await makeImage(), { width: 1600, height: 1000 }, { boardId: a, prompt: 'first' }, null);
       await home.store.flush();
       const oldUrl = home.store.previewUrl(a);
-      const latest = await drawing.addExternal(await makeImage(1600, 1000, '#ddaa77'), { width: 1600, height: 1000 }, { boardId: a, prompt: 'latest' }, null);
-      await drawing.addExternal(await makeImage(400, 800), { width: 400, height: 800 }, { boardId: b }, null);
+      const latest = await (await import('/tests/helpers/drawing-history.mjs')).seedHistory({drawing, home:window.home}, await makeImage(1600, 1000, '#ddaa77'), { width: 1600, height: 1000 }, { boardId: a, prompt: 'latest' }, null);
+      await (await import('/tests/helpers/drawing-history.mjs')).seedHistory({drawing, home:window.home}, await makeImage(400, 800), { width: 400, height: 800 }, { boardId: b }, null);
       await drawing.toggleFavorite(first); await home.setCover(`image:${a}`, first.id);
       await home.store.setLayout('mosaic'); await home.store.remember('chat'); await home.store.flush();
       const rows = await readPreviews(), dims = [];
@@ -170,8 +170,8 @@ test('CHAT favorite owns original bytes, survives source deletion and backup, ma
       await editor.open('chat', candidate.blob, 'synthetic.png', { conversationId: c.id, settings: candidate.params });
       const token = editor.beginExternalEdit();
       await editor.applyExternalEdit(token.id, { mode: 'image', image: await makeImage(512, 512, '#ddbbaa') });
-      await editor.saveManual(true);
-      const manual = drawing.snapshot().current;
+      await editor.saveFavorite();
+      const manual = editor.record(editor.snapshot().viewed.recordId);
       const { parseSlateEdit } = await import('/src/slate/edit.ts');
       const { snapshotPictures } = await import('/src/ask/library.ts'), { createIds } = await import('/src/ask/ids.ts');
       const library = snapshotPictures(drawing.snapshot().history, drawing.snapshot().favorites, createIds());
@@ -195,7 +195,7 @@ test('CHAT favorite owns original bytes, survives source deletion and backup, ma
     assert.equal(result.manual.editParent, result.id); assert.equal(result.manual.sourceRecipe.tool, 'chat');
     assert.equal(result.manual.chatConversationId, result.conversation); assert.equal(result.manual.boardId, undefined);
     assert.equal(result.delivered.chatConversationId, result.conversation); assert.equal(result.delivered.editParent, result.id);
-    assert.equal(result.beforeDeletion, 2); assert.equal(result.favorites, 2); assert.equal(result.history, 1);
+    assert.equal(result.beforeDeletion, 2); assert.equal(result.favorites, 2); assert.equal(result.history, 0);
     assert.equal(result.previews, 0); assert.deepEqual(result.covers, {});
     assert.equal(result.restored.favorites, 0); assert.equal(result.counts.images, 0);
     assert.deepEqual(result.errors, []); assert.deepEqual(result.network, []);

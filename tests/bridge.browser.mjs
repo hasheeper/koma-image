@@ -167,7 +167,7 @@ test('B1 directory sync, preview cache, receipt ordering, half-write recovery, p
     await page.evaluate(async()=>{
       const canvas=new OffscreenCanvas(128,192),ctx=canvas.getContext('2d');ctx.fillStyle='#aabbcc';ctx.fillRect(0,0,128,192);
       const blob=await canvas.convertToBlob({type:'image/png'});
-      for(let n=0;n<4;n++)await drawing.addExternal(blob,{width:128,height:192},{prompt:`synthetic ${n}`,seed:n,model:'nai-diffusion-5-full'},null);
+      for(let n=0;n<4;n++)await (await import('/tests/helpers/drawing-history.mjs')).seedHistory({drawing, home:window.home}, blob,{width:128,height:192},{prompt:`synthetic ${n}`,seed:n,model:'nai-diffusion-5-full'},null);
       window.encodes=0;await bridge.mount();
     });
     await poll(page,async()=>{try{return JSON.parse(await directoryFile('state.live.json')).recent_history.length===3}catch{return false}});
@@ -311,21 +311,24 @@ test('B2 image readers share vision budgets, reject disabled pixels and release 
   const {page,context,errors}=await setup();
   try {
     const result=await page.evaluate(async()=>{
-      const {createReferenceReader}=await import('/src/ask/read-ref.ts'),{createAttachments}=await import('/src/ask/attachments.ts'),{createVision}=await import('/src/ask/vision.ts'),{scanRefs,referenceSnapshot}=await import('/src/bridge/refs.ts');
-      const canvas=new OffscreenCanvas(120,80);canvas.getContext('2d').fillRect(0,0,120,80);const blob=await canvas.convertToBlob({type:'image/png'});
-      for(let n=0;n<5;n++)await directoryFile(`refs/${n}.png`,blob);
+      const {createReferenceReader}=await import('/src/ask/read-ref.ts'),{createAttachments,attachmentPictures}=await import('/src/ask/attachments.ts'),{createVision}=await import('/src/ask/vision.ts'),{scanRefs,referenceSnapshot}=await import('/src/bridge/refs.ts');
+      const canvas=new OffscreenCanvas(120,80),g=canvas.getContext('2d');
+      for(let n=0;n<5;n++){g.fillStyle=`rgb(${n*40},30,60)`;g.fillRect(0,0,120,80);await directoryFile(`refs/${n}.png`,await canvas.convertToBlob({type:'image/png'}));}
       const root=await showDirectoryPicker(),abort=new AbortController(),source=referenceSnapshot(root,await scanRefs(root,abort.signal),abort.signal),vision=createVision(),pool=createAttachments(id=>vision.forget(id)),attached=[];
       const visual={signal:abort.signal,metadataOnly:false,budget:{calls:0,pixels:0,bytes:0},viewed:new Set()},deps={source,pool,attached,limits:{chars:50000,totalChars:100000},pageBytes:()=>pool.bytes,visual,vision,added(){}};
       const read=createReferenceReader(deps),fail=async(fn)=>{try{await fn();return ''}catch(e){return e.message}};
       const disabled=await fail(()=>createReferenceReader({...deps,visual:{...visual,metadataOnly:true}})({path:'0.png'}));
       const offset=await fail(()=>read({path:'0.png',offset:1}));
-      await read({path:'0.png'});await read({path:'0.png'});await read({path:'1.png'});await read({path:'2.png'});
+      await read({path:'0.png'});const repeat=await read({path:'0.png'});await read({path:'1.png'});await read({path:'2.png'});
+      const afterRepeat=visual.budget.calls;
+      await vision.image(attachmentPictures([attached[0]])[0],'glance',undefined,visual);
       const over=await fail(()=>read({path:'3.png'})),count=pool.size,calls=visual.budget.calls;
       const pixel=await fail(()=>createReferenceReader({...deps,attached:[],visual:{...visual,budget:{calls:0,pixels:1500000,bytes:0}}})({path:'4.png'}));
       const bytes=await fail(()=>createReferenceReader({...deps,attached:[],visual:{...visual,budget:{calls:0,pixels:0,bytes:400*1024}}})({path:'4.png'}));
-      const final=pool.size;pool.dispose();vision.dispose();return{disabled,offset,over,count,calls,pixel,bytes,final};
+      const final=pool.size;pool.dispose();vision.dispose();return{disabled,offset,over,count,calls,pixel,bytes,final,afterRepeat,repeat};
     });
     assert.match(result.disabled,/未启用/);assert.match(result.offset,/offset/);assert.match(result.over,/4 次/);assert.equal(result.count,3);assert.equal(result.calls,4);assert.equal(result.final,3);assert.match(result.pixel,/预算/);assert.match(result.bytes,/预算/);assert.deepEqual(errors,[]);
+    assert.equal(result.afterRepeat,3);assert.equal(result.repeat.stat,'本轮已查看');assert.match(result.repeat.content[0].text,/already_viewed_this_turn/);assert.equal(result.repeat.content.some(c=>c.type==='image'),false);
   } finally {await context.close();}
 });
 
@@ -358,7 +361,7 @@ async function createSlate(page,title='雨夜系列') { await receive(page,draft
 const editSlate = (s,todos,extra={}) => ({kind:'slate_edit',op:'update',slate_id:s.id,expected_version:s.version,todos,...extra});
 async function addSlateImage(page) {return page.evaluate(async()=>{
   const canvas=new OffscreenCanvas(128,192),ctx=canvas.getContext('2d');ctx.fillStyle='#6680aa';ctx.fillRect(0,0,128,192);const blob=await canvas.convertToBlob({type:'image/png'});
-  await drawing.addExternal(blob,{width:128,height:192},{basePrompt:'{blue sky}',prompt:'{blue sky}, quality',baseNegative:'bad',seed:0,cfgRescale:.25,naiMode:'furry',transparentBg:true,characters:[],localCharacters:[]},null);
+  await (await import('/tests/helpers/drawing-history.mjs')).seedHistory({drawing, home:window.home}, blob,{width:128,height:192},{basePrompt:'{blue sky}',prompt:'{blue sky}, quality',baseNegative:'bad',seed:0,cfgRescale:.25,naiMode:'furry',transparentBg:true,characters:[],localCharacters:[]},null);
   const p=ask.externalSnapshot().library.at(-1);return {id:p.id,label:p.label,scope:ask.externalSnapshot().pictureScope};
 });}
 

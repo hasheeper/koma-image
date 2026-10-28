@@ -93,7 +93,7 @@ export function getTurn(input: Readonly<Record<string, unknown>>, turns: readonl
   });
   return {
     turns: found.map(t => ({ turnId: t.turnId, question: t.question, reply: replyText(t),
-      draft: t.draft ?? null, attachments: t.attachments,
+      draft: t.draft ?? null, attachments: t.attachments, ...(t.pictureRefs ? {picture_refs:t.pictureRefs} : {}),
       // This includes exactly the initial state text, never a reconstructed workspace snapshot.
       ...(include === "full" ? { messages: archiveTurn(t, read).messages.map(m => ({ ...m, content: m.content.map(b =>
         b.type === "text" ? { type: b.type, text: b.text } : b.type === "result" ? { ...b,

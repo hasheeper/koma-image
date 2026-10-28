@@ -93,13 +93,13 @@ export function parseSlateEdit(raw: unknown, active: Slate | null, form: Drawing
     if (item.unbind) todo.binding = null;
     if (item.bind) {
       const bind = item.bind, image = library.find(p => p.aliases.includes(bind.source)), origin = image?.origins.find(o => o.label === bind.source);
-      if (!image || !origin || origin.source !== "history" && origin.source !== "favorites") throw new Error("绑图仅接受本轮 #h / #f 图片");
+      if (!image || !origin || origin.source !== "history" && origin.source !== "favorites" && origin.source !== "edit") throw new Error("绑图仅接受本轮 #h / #f / #e 图片");
       const assetId = crypto.randomUUID(), params = imageParameters(image.params);
       const caption: Binding["caption"] = { source: bind.caption_source, mode: bind.caption_mode, ...(bind.character_id ? { characterId: bind.character_id } : {}) };
       if (caption.source === "character" && !caption.characterId) throw new Error("角色标注需要 character_id");
       const ext = image.blob.type === "image/webp" ? "webp" : image.blob.type === "image/jpeg" ? "jpg" : "png";
       todo.binding = { assetId, target_path: assetPath(bind.target_path ?? `assets/${after.id}/${todo.id}-${assetId}.${ext}`), caption };
-      change.bindings.push({ assetId, label: bind.source, source: origin.source, ref: image.id, metadata: canonical({ params, size: image.size, type: image.blob.type, bytes: image.blob.size }) });
+      change.bindings.push({ assetId, entity_key:image.entity_key, source_ref:image.bindings?.[bind.source], label: bind.source, source: origin.source, ref: image.id, metadata: canonical({ params, size: image.size, type: image.blob.type, bytes: image.blob.size }) });
     }
     if (todo.status === "done" && todo.image_required && !todo.binding) throw new Error("此 Todo 需要绑图后才能完成；纯文本任务可明确关闭 image_required");
   }

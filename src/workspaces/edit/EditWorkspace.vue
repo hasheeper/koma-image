@@ -650,6 +650,9 @@ onBeforeUnmount(() => {
   editor.setMaskPort(undefined);
 });
 const number = (e: Event) => Number((e.target as HTMLInputElement).value);
+async function copyReference(v: EditorVersion) {
+  try { await navigator.clipboard.writeText(editor.reference(v)); ui.toast("已复制图片引用", "ok"); } catch { ui.toast("复制失败", "err"); }
+}
 </script>
 <template>
   <section
@@ -933,21 +936,16 @@ const number = (e: Event) => Number((e.target as HTMLInputElement).value);
             :data-compare="comparing ? 'on' : 'off'"
           >
             <p class="editor-info-meta">
-              <b>{{ label(shown) }}</b
+              <b :title="shown ? editor.reference(shown) : undefined">{{ shown ? editor.label(shown) : "" }} · {{ label(shown) }}</b
               ><span class="mono">{{ facts }}</span>
             </p>
             <div v-if="variants.length" class="seg director-variants" role="radiogroup" aria-label="去背景结果">
               <label v-for="v in variants" :key="v.id"><input type="radio" name="editorDirectorVariant" :value="v.id" :checked="s.viewId === v.id" :disabled="locked" @change="editor.view(v.id)" /><span>{{ directorVariantNames[v.director!.variant!] }}</span></label>
             </div>
             <div class="editor-info-actions" role="group" aria-label="图片操作">
-              <button v-if="view.viewed?.kind === 'manual'" class="ibtn" type="button"
-                :aria-label="view.inHistory ? '已存入历史' : '存入历史'" :data-tip="view.inHistory ? '已存入历史' : '存入历史'"
-                :disabled="locked || view.saving || view.inHistory" @click="editor.saveManual()">
-                <AppIcon :name="view.inHistory ? 'i-check' : 'i-history'" />
-              </button>
-              <button v-if="view.viewed?.kind === 'manual'" class="ibtn" type="button"
-                :aria-label="view.favorite ? '已收藏修图' : '收藏修图'" :data-tip="view.favorite ? '已收藏' : '收藏'"
-                :aria-pressed="view.favorite" :disabled="locked || view.saving || view.favorite" @click="editor.saveManual(true)">
+              <button v-if="view.viewed" class="ibtn" type="button"
+                :aria-label="view.favorite ? '已收藏' : '收藏图片'" :data-tip="view.favorite ? '已收藏' : '收藏'"
+                :aria-pressed="view.favorite" :disabled="locked || view.saving || view.favorite" @click="editor.saveFavorite()">
                 <AppIcon name="i-star" />
               </button>
               <button
@@ -1120,20 +1118,22 @@ const number = (e: Event) => Number((e.target as HTMLInputElement).value);
             class="tile"
             type="button"
             :data-version-id="v.id"
+            :style="{ '--image-ratio': v.width / v.height }"
             :data-base="groupIsBase(v.id) || undefined"
             :aria-current="v.id === s.viewId"
-            :aria-label="`${label(v)} · ${v.width}×${v.height}${v.id === s.baseId ? ' · 底图' : ''}`"
+            :title="`${editor.reference(v)} · 点击角标复制引用`"
+            :aria-label="`${editor.label(v)} · ${label(v)} · ${v.width}×${v.height}${v.id === s.baseId ? ' · 底图' : ''}`"
             draggable="true"
             @dragstart="dragVersion(v.id, $event)"
             @click="editor.view(v.id)"
             @dblclick="editor.setBase(v.id)"
           >
-            <img :src="v.url" alt="" decoding="async" draggable="false" /><span
+            <img :src="v.url" alt="" decoding="async" draggable="false" /><span class="tile-id" role="button" tabindex="0" :aria-label="`复制 ${editor.reference(v)}`" @click.stop="copyReference(v)" @keydown.enter.stop.prevent="copyReference(v)" @keydown.space.stop.prevent="copyReference(v)">{{ editor.label(v) }}</span><span
               v-if="groupIsBase(v.id)"
               class="tile-pin"
               ><AppIcon name="i-pin" /></span
             ><span v-if="v.director" class="director-badge"><AppIcon :name="directorTools.find(t => t.id === v.director?.tool)?.icon ?? 'i-dt-wand'" /></span><span
-              v-if="!groupIsBase(v.id) && !view.busy"
+              v-if="v.sequence !== 1 && !groupIsBase(v.id) && !view.busy"
               class="tile-x"
               role="button"
               aria-label="移除"

@@ -25,7 +25,7 @@ ASK 是图片工作台的创作搭档：感知当前状态，按需读取图片�
 | `get_state` | 当前工作台、冻结或最新状态、指定画板 |
 | `get_meta` | 图片完整参数，不发送像素 |
 | `diff_meta` | 参数与词文差异，不能代替视觉对比 |
-| `search_history` | 本轮历史、收藏与当前 CHAT 分支图片检索 |
+| `search_history` | 本轮历史、收藏、EDIT 版本与当前 CHAT 分支图片检索 |
 | `view_image` | glance／look／crop 按需看图 |
 | `view_sheet` | 2–6 图带 ID 拼图，用于预览与对比 |
 | `get_chat_context` | 冻结的当前 CHAT 分支、实际发送上下文与当前模型能力 |
@@ -45,7 +45,7 @@ ASK 是图片工作台的创作搭档：感知当前状态，按需读取图片�
 | `session.ts`、`runner.ts` | 轮次事务、稳定编号、上下文、工具循环与失败回滚 |
 | `provider.ts`、`adapters/` | 两协议转换、流式解析、编解码和实际请求捕获 |
 | `tools.ts` | 只读工具注册，仅接收只读端口 |
-| `digest/`、`library.ts`、`ids.ts` | 状态摘要、冻结图片索引、可公开编号与作用域 |
+| `digest/`、`library.ts`、`ids.ts`、`edit-context.ts` | 状态摘要、冻结图片索引、EDIT 只读目录、可公开编号与作用域 |
 | `search-history.ts`、`search-tags.ts` | 本地历史与共享词典查询 |
 | `draft/` | 结构校验、字段 diff、确认写入、冲突与撤销栈 |
 | `attachments.ts`、`vision.ts` | 用户附件、像素处理、引用计数与视觉预算 |

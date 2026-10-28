@@ -38,7 +38,7 @@ function handoffImage(label: string, base: DraftState, library: readonly Picture
     return { label, source: "chat", ref: image.assetId };
   }
   const picture = library.find((p) => p.aliases.includes(label)), origin = picture?.origins.find((o) => o.label === label);
-  if (!picture || (origin?.source !== "history" && origin?.source !== "favorites")) throw new Error(`${label} 不在本轮图片快照中`);
+  if (!picture || (origin?.source !== "history" && origin?.source !== "favorites" && origin?.source !== "edit")) throw new Error(`${label} 不在本轮图片快照中`);
   return { label, source: origin.source, ref: picture.id };
 }
 export function parseDraft(input: Readonly<Record<string, unknown>>, base: DraftState, library: readonly Picture[], question = ""): Draft {
@@ -124,7 +124,7 @@ export function parseDraft(input: Readonly<Record<string, unknown>>, base: Draft
     if (p.negative_prompt === undefined) delete values.negative_prompt;
     if (p.seed === undefined && p.seedStart === undefined) delete values.seed;
     if (p.batchTotal === undefined && p.batchCount === undefined) delete values.batchCount;
-    return { kind: "restore_partial" as const, source, fields: [...new Set(step.fields as RestoreKey[])], values };
+    return { kind: "restore_partial" as const, source, source_ref:image.bindings?.[source], fields: [...new Set(step.fields as RestoreKey[])], values };
   });
   if (steps.filter(s => s.kind === "slate_edit").length > 1) throw new Error("一份草稿只编辑一个任务板，请合并 Todo 操作");
   const workspaces = new Set(steps.map((s) => (s.kind === "chat_distill_branch" || s.kind === "chat_handoff" || s.kind === "prompt_patch" && s.target.startsWith("chat.")) ? "chat" : "image"));

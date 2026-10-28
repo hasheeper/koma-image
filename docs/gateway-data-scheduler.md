@@ -28,7 +28,7 @@ ASK 推理、命名与压缩不占生图槽，不调用报价、扣费或生成�
 
 | 数据库 | Store／用途 |
 | --- | --- |
-| `koma-image-favorites` | `favorites`：收藏原图、缩略图与参数；`referenceAssets`：NAI 参考原图；`vibeEncodings`：编码缓存 |
+| `koma-image-favorites` | `favorites`：收藏原图、缩略图与参数；`identity`／`favoriteTags`：收藏库身份、递增号与最小登记；`referenceAssets`：NAI 参考原图；`vibeEncodings`：编码缓存 |
 | `koma-chat` | `conversations`、`assets`：CHAT 与图片素材 |
 | `koma-handoff` | `items`：只认领一次的临时交接 |
 | `koma-ask` | `conversations`：用户显式收藏的 ASK 快照与附件 |
@@ -36,7 +36,7 @@ ASK 推理、命名与压缩不占生图槽，不调用报价、扣费或生成�
 | `koma-slate` | `state`、`assets`：本地任务、配方、提交记录和冻结成果；不进入普通备份 |
 | `koma-home` | `previews`：每 IMAGE 画板最新展示副本；不进入普通备份，不是可交付原图 |
 
-收藏库 schema version=2，其他数据库 version=1，与备份 envelope version=2 独立。名称集中于 `src/storage/names.ts`；偏好和凭据使用 `koma.*`，同步频道为 `koma-sync`。普通绘图历史、EDIT 画板／蒙版／版本及 Photopea 文档属于页面内存。HOME 封面、布局与返回位置存于独立偏好 `koma.home.v1`，不进入普通 ZIP。
+收藏库 schema version=3，其他数据库 version=1，与备份 envelope version=2 独立。名称集中于 `src/storage/names.ts`；偏好和凭据使用 `koma.*`，同步频道为 `koma-sync`。普通绘图历史、EDIT 画板／蒙版／版本及 Photopea 文档属于页面内存。HOME 封面、布局与返回位置存于独立偏好 `koma.home.v1`，不进入普通 ZIP。
 
 应用持共享数据租约，所有数据库写入经 `data.write`；延迟保存服务提供 flush，缓存提供 reload。备份／恢复先排空写入和本页共享租约，再取得独占数据锁与任务门；其他活跃标签页或任务会阻止独占。完成或失败后恢复租约并刷新缓存，不能直接绕过租约写库。
 

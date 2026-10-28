@@ -48,7 +48,7 @@ export function createReferenceReader(deps: {
           source: { kind: "attachment", id: item.id, heading, offset, end } }], stat: `${end - offset} 字` };
       } else {
         const result = await vision.image(attachmentPictures([item])[0], "look", undefined, visual);
-        outcome = { content: [{ type: "text", text: dataBlock(canonical({ id: item.id, path, version: item.origin?.version, bytes: result.bytes, pixels: result.pixels })) }, result.image], stat: `${Math.ceil(result.bytes / 1024)} KB` };
+        outcome = { content: [{ type: "text", text: dataBlock(canonical({ id: item.id, path, version: item.origin?.version, ...(result.duplicate ? { already_viewed_this_turn: true } : {}), bytes: result.bytes, pixels: result.pixels })) }, ...(result.image ? [result.image] : [])], stat: result.duplicate ? "本轮已查看" : `${Math.ceil(result.bytes / 1024)} KB` };
       }
       visual.signal.throwIfAborted();
       if (fresh) { cache.set(path, item); attached.push(item); deps.added(item); }

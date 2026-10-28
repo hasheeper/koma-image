@@ -76,7 +76,7 @@ onBeforeUnmount(() => { dialog.value?.close(); if (originalFocus instanceof HTML
 .home-viewer header > span { overflow: hidden; font: 12px/1.4 var(--mono); text-overflow: ellipsis; white-space: nowrap; }
 .home-viewer small { margin-left: 12px; color: var(--fg-3); font: 12px/1.4 var(--sans); }
 .home-viewer-stage { display: flex; flex: 1; align-items: center; justify-content: center; min-height: 0; }
-.home-viewer-stage img { display: block; max-width: 100%; max-height: 100%; object-fit: contain; border-radius: var(--r2); box-shadow: var(--print-shadow); }
+.home-viewer-stage img { display: block; max-width: 100%; max-height: 100%; object-fit: contain; background: var(--image-checker); border-radius: var(--r2); box-shadow: var(--print-shadow); }
 .home-viewer footer { display: flex; flex: none; justify-content: center; gap: 8px; }
 .home-viewer [aria-pressed="true"] { color: var(--a); }
 @media (max-width: 560px) { .home-viewer { width: calc(100vw - 16px); height: calc(100dvh - 16px); } }

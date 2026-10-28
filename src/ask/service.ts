@@ -1,3 +1,7 @@
+import { imageEntity } from "../domain/image-identity.ts";
+import type { Editor } from "../services/editor.ts";
+import { editPictures, editContext, withEditPictures, freezePictureRefs, bindPictures } from "./edit-context.ts";
+import type { PictureRefs } from "./edit-context.ts";
 import { homeContext } from "../home/ask-context.ts";
 import type { Home } from "../home/service.ts";
 import { canonical } from "./canonical.ts";
@@ -9,7 +13,7 @@ import type { ExternalOrigin, ExternalNote, InboxReceipt } from "../bridge/proto
 import { characterCapability, characterSummary, nextCharacterId } from "../domain/characters.ts";
 import { boardForm, boardColors } from "../domain/drawing.ts";
 import { stateHash } from "./draft/validate.ts";
-import { chatSnapshot, chatContext, chatDraftModel, chatImages, chatModelState, chatPictures } from "./chat-context.ts";
+import { chatSnapshot, chatContext, chatDraftModel, chatModelState, chatPictures } from "./chat-context.ts";
 import { computed, nextTick, shallowRef, watch } from "vue";
 import type { ShallowRef } from "vue";
 import type { ApplicationServices } from "../services/application.ts";
@@ -85,6 +89,7 @@ export interface CheckpointView {
   readonly receipts?: readonly ToolRow[];
 }
 export interface AskTurnView {
+  readonly pictureRefs?: PictureRefs;
   readonly id: number;
   readonly question: string;
   readonly anchor: string | null;
@@ -105,7 +110,6 @@ export type AskEntry =
 export type RetryMode = "plain" | "metadata" | "images" | "codec";
 interface ConversationScope {
   readonly id: string;
-  readonly ids: ReturnType<typeof createIds>;
   readonly attachments: ReturnType<typeof createAttachments>;
 }
 /** The current conversation lives in the service's refs while selected. */
@@ -149,26 +153,28 @@ export function createAsk(deps: {
   chat: Chat;
   slates?: Slates;
   home?: Home;
+  editor?: Editor;
   fetch?: typeof fetch;
   ui: Pick<Ui, "toast">;
 }) {
   const { services, router, drawing, chat } = deps;
   const { preferences, connections } = services;
   let filePort: FilePort | null = null;
-  const writer = createDraftWriter(drawing, chat, router, deps.slates, () => filePort),
+  const writer = createDraftWriter(drawing, chat, router, deps.slates, () => filePort, deps.editor),
     history = createDraftStack(writer),
     vision = createVision(),
     tools = createTools(),
     toolList = [...tools.values()].map((entry) => entry.tool);
+  const pageScope = crypto.randomUUID(), ids = createIds();
   const scopes = new Map<string, ConversationScope>();
   let referenceSource: RefSource | null = null;
   const pageAttachmentBytes = () => [...scopes.values()].reduce((sum, c) => sum + c.attachments.bytes, 0);
   function scope(id: string = crypto.randomUUID()) {
     let value = scopes.get(id);
-    if (!value) { value = { id, ids: createIds(), attachments: createAttachments(id => vision.forget(id)) }; scopes.set(id, value); }
+    if (!value) { value = { id, attachments: createAttachments(id => vision.forget(id)) }; scopes.set(id, value); }
     return value;
   }
-  let activeScope = scope(), ids = activeScope.ids, attachments = activeScope.attachments;
+  let activeScope = scope(), attachments = activeScope.attachments;
   const favorites = createAskFavorites(services), favoritesReady = shallowRef(false), favoriteBusy = shallowRef(false);
   const readSettings = () => readAskSettings(preferences.get(names.ask, null)),
     readAdult = () => preferences.get<unknown>(names.askAdult, false) === true;
@@ -227,17 +233,18 @@ export function createAsk(deps: {
     total.cacheWrite += value.cacheWrite;
   }
   const conversations = createConversations<Conversation>({
-    make: (id) => ({ id, slateId: null, title: UNTITLED, named: false, favorite: false, createdAt: Date.now(), scope: activeScope, origin: null, session: createSession(addUsage), entries: [], input: "", anchor: null, draft: null, externalQueue: [], tray: [], preparing: 0 }),
+    make: (id) => ({ id, slateId: null, title: UNTITLED, named: false, favorite: false, createdAt: Date.now(), scope: scope(), origin: null, session: createSession(addUsage), entries: [], input: "", anchor: null, draft: null, externalQueue: [], tray: [], preparing: 0 }),
     // Callers stash the refs first, so the records are current.
     empty: (c) => !c.favorite && !c.entries.length,
   });
+  activeScope=conversations.current.scope; attachments=activeScope.attachments;
   conversationId.value = conversations.current.id;
   function stash() {
     Object.assign(conversations.current, { entries: entries.value, input: input.value, anchor: anchor.value, draft: draft.value });
   }
   function load() {
     const c = conversations.current;
-    activeScope = c.scope; ids = activeScope.ids; attachments = activeScope.attachments;
+    activeScope = c.scope; attachments = activeScope.attachments;
     entries.value = c.entries; input.value = c.input; anchor.value = c.anchor;
     draft.value = c.draft; appliedDraft.value = null;
     tray.value = c.tray; preparing.value = c.preparing;
@@ -376,6 +383,7 @@ export function createAsk(deps: {
   /** Handoff images are checked live: IMAGE records by ID, CHAT pictures by asset. */
   function hasImage(image: HandoffImage) {
     if (image.source === "chat") return chat.assets.assets.has(image.ref);
+    if (image.source === "edit" && deps.editor?.record(image.ref)) return true;
     const d = drawing.snapshot();
     return d.history.some((r) => r.id === image.ref) || d.favorites.some((r) => r.id === image.ref);
   }
@@ -515,6 +523,31 @@ export function createAsk(deps: {
     draft.value = null; notice.value = ""; say("已忽略草稿，内容未修改");
   }
 
+  function pictureLibrary() {
+    const d = drawing.snapshot();
+    return withEditPictures(snapshotPictures(d.history, d.favorites, ids), editPictures(deps.editor, ids, chatPictures(chat.snapshot(), chat)));
+  }
+  const pictureScope = () => pageScope;
+  const pictureScopes = () => ({page:pageScope,favorites:drawing.favoritesScopeId,ask:activeScope.id,chat:chat.snapshot().current.id});
+  function boundPicture(label: string, refs?: PictureRefs) {
+    const all = [...pictureLibrary(), ...chatPictures(chat.snapshot(), chat), ...attachmentPictures(attachments.read([...new Set([...entryAttachments(entries.value), ...tray.value])]))];
+    if (!refs) return all.find(p => p.aliases.includes(label)) ?? null;
+    const ref = refs[label];
+    if (!ref) return null;
+    const scope = ref.scope;
+    const scopeValid = scope.kind === "page" ? scope.id===pageScope : scope.kind === "favorites" ? scope.id===drawing.favoritesScopeId : scope.kind === "ask" ? scope.id===activeScope.id : scope.id===chat.snapshot().current.id;
+    if (scope.kind==="chat" && scope.turn_id && scope.version_id && scope.asset_id) {
+      const c = chat.snapshot().conversations.find(c=>c.id===scope.id), t=c?.turns.find(t=>t.id===scope.turn_id), v=t?.versions.find(v=>v.id===scope.version_id), asset=chat.assets.assets.get(scope.asset_id);
+      if (c && t && v?.status==="done" && asset && v.blocks.some(b=>b.type==="image" && b.assetId===scope.asset_id) && (!ref.entity_key || ref.entity_key===`sha256:${asset.id}`)) return {
+        id:ref.record_id,entity_key:`sha256:${asset.id}`,scope, label,aliases:[label],createdAt:v.completedAt ?? 0,
+        blob:asset.blob,size:{width:asset.width,height:asset.height},params:{prompt:t.prompt},origins:[{source:"chat" as const,label,order:0}],
+      };
+    }
+    const exact = all.find(p => p.id===ref.record_id && (!ref.entity_key || p.entity_key===ref.entity_key));
+    // Original persisted record is readable across refresh; no label is resolved anew.
+    if (exact && (scopeValid || exact.origins.some(o=>o.source==="favorites"))) return exact;
+    return ref.entity_key ? all.find(p=>p.entity_key===ref.entity_key && p.origins.some(o=>o.source==="favorites")) ?? null : null;
+  }
   function digestNow(anchorLabel: string | null, formText = false, metadataOnly = !settings.value.images): Digest {
     const d = drawing.snapshot(),
       c = chat.snapshot(),
@@ -559,6 +592,8 @@ export function createAsk(deps: {
     }, { formText });
     return { ...digest, json: JSON.stringify({ ...JSON.parse(digest.json),
       ...(workspace === "home" && deps.home ? { home: homeContext(deps.home, ids, chat) } : {}),
+      picture_ref_version: 2, picture_scope_id: pictureScope(), favorites_scope_id:drawing.favoritesScopeId,
+      edit: editContext(deps.editor, pictureLibrary()),
       image_input: { enabled: !metadataOnly, mode: metadataOnly ? "metadata_only" : "on_demand",
         ...(metadataOnly ? { note: "本轮不发送任何图片，view_image、view_sheet 与 refs 图片读取不可用；请基于元数据回答，不要重复尝试看图。" } : {}) },
       active_slate: slateSummary(deps.slates?.get(conversations.current.slateId ?? "") ?? null),
@@ -582,6 +617,7 @@ export function createAsk(deps: {
   syncDrawing();
   const stops = [
     drawing.subscribe(syncDrawing),
+    ...(deps.editor ? [deps.editor.subscribe(() => { stateRevision.value++; libraryRevision.value++; draftRevision.value++; })] : []),
     ...(deps.slates ? [deps.slates.subscribe(() => { stateRevision.value++; draftRevision.value++; })] : []),
     chat.subscribe(() => { draftRevision.value++; libraryRevision.value++; }),
     watch(open, (shown) => { if (shown) void chat.warm(); }, { immediate: true }),
@@ -605,7 +641,7 @@ export function createAsk(deps: {
       attachments: e.turn.attachments.map(({ url: _url, ...a }) => a),
     } });
     return { version: 1, id: c.id, title: c.title, named: c.named, origin: c.origin, createdAt: c.createdAt, slateId: c.slateId,
-      scope: { id: c.scope.id, labels: c.scope.ids.snapshot() }, session, entries: savedEntries,
+      scope: { id: c.scope.id, labels: ids.snapshot(), attachmentCounters:c.scope.attachments.counters }, session, entries: savedEntries,
       input: c.input, anchor: c.anchor, tray: c.tray,
       attachments: c.scope.attachments.snapshot([...c.tray, ...entryAttachments(savedEntries), ...session.archive.flatMap(t => t.attachments)]),
       draft: c.draft ? { value: c.draft.draft, off: [...c.draft.off], turnId: c.draft.turnId } : null,
@@ -645,7 +681,7 @@ export function createAsk(deps: {
   }
   async function restoreFavorites() {
     try {
-      const saved = await favorites.read();
+      const saved = await Promise.all((await favorites.read()).map(async record=>({ ...record, attachments: await Promise.all(record.attachments.map(async a=>a.kind==="image" ? {...a,entity_key:await imageEntity(a.blob)} : a)) })));
       if (disposed) return;
       let checkpointId = 0;
       const restoredScopes = new Map<string, ConversationScope>();
@@ -653,10 +689,20 @@ export function createAsk(deps: {
         // Each page extends its own copy, so two tabs can both allocate #a2 without mixing them later.
         let context = restoredScopes.get(record.scope.id);
         if (!context) { context = scope(); restoredScopes.set(record.scope.id, context); }
-        context.ids.restore(record.scope.labels);
+        context.attachments.restoreCounters(record.scope.attachmentCounters);
         context.attachments.restore(record.attachments, [...record.tray, ...entryAttachments(record.entries)]);
-        const session = restoreSavedSession(record, addUsage);
+        const restoreRefs = (refs?: PictureRefs): PictureRefs | undefined => refs ? Object.fromEntries(Object.entries(refs).map(([tag,ref])=>[tag,ref.scope.kind === "ask" && ref.scope.id === record.scope.id ? {...ref,scope:{...ref.scope,id:context.id}} : ref])) : undefined;
+        const session = restoreSavedSession({...record,session:{...record.session,
+          turns:record.session.turns.map(t=>({...t,pictureRefs:restoreRefs(t.pictureRefs)})),
+          ...(record.session.archive ? {archive:record.session.archive.map(t=>({...t,pictureRefs:restoreRefs(t.pictureRefs)}))} : {}),
+        }}, addUsage);
+        const legacyRefs: Record<string, PictureRefs[string]> = Object.fromEntries((["history","favorites"] as const).flatMap((kind) => (kind === "favorites" && record.scope.labels.favoriteSeqs ? record.scope.labels.favoriteSeqs : record.scope.labels[kind].map((id,i)=>({id,seq:i+1}))).map(({id:recordId,seq}) => {
+          const tag = `#${kind === "history" ? "h" : "f"}${seq}`, stored = drawing.snapshot().favorites.find(r=>r.id===recordId);
+          return [tag,{tag,record_id:recordId,entity_key:stored?.entity_key ?? "",scope:{kind:kind==="history" ? "page" as const : "favorites" as const,id:`legacy:${record.scope.id}`}}];
+        })));
+        for (const a of record.attachments) if (a.kind === "image") legacyRefs[a.id] = {tag:a.id,record_id:a.id,entity_key:a.entity_key ?? "",scope:{kind:"ask",id:context.id}};
         const restoredEntries = record.entries.map(e => e.type === "note" ? { ...e, checkpoint: e.checkpoint ? { ...e.checkpoint, id: --checkpointId } : null } : { ...e, turn: { ...e.turn,
+          pictureRefs: restoreRefs(e.turn.pictureRefs) ?? legacyRefs,
           turnId: e.turn.turnId ?? (e.turn.committed ? session.records[e.turn.committed - 1]?.turnId ?? null : null),
           // Historical checkpoints remain visible, but can never alias a new page's undo record.
           checkpoint: e.turn.checkpoint ? { ...e.turn.checkpoint, id: --checkpointId } : null,
@@ -890,13 +936,13 @@ export function createAsk(deps: {
     const digest = digestNow(turnAnchor, false, metadataOnly), initialState = digestNow(turnAnchor, true, metadataOnly), snapshotTime = Date.now();
     const snapshot = drawing.snapshot(),
       frozenBoards = structuredClone(snapshot.boards),
-      library = [...snapshotPictures(snapshot.history, snapshot.favorites, ids), ...chatPictures(chat.snapshot(), chat), ...attachmentPictures(attachments.read([...new Set([...entryAttachments(entries.value), ...attached.map(a => a.id)])]))],
+      library = bindPictures([...withEditPictures(pictureLibrary(), chatPictures(chat.snapshot(), chat)), ...attachmentPictures(attachments.read([...new Set([...entryAttachments(entries.value), ...attached.map(a => a.id)])]))], pictureScopes()),
       turnChatContext = chatContext(chat.snapshot()),
       known = owner.session.viewed(),
       turnViewed = new Set(known),
       draftBase = readDraftState();
     const readBoards = new Set(draftBase.boardId ? [draftBase.boardId] : []);
-    if (!metadataOnly) for (const a of attached) if (a.kind === "image") turnViewed.add(a.id);
+    if (!metadataOnly) for (const a of attached) if (a.kind === "image") turnViewed.add(a.entity_key ?? a.id);
     const user: AskMessage = {
       role: "user",
       content: [
@@ -913,6 +959,7 @@ export function createAsk(deps: {
       id: ++sequence,
       question,
       anchor: turnAnchor,
+      pictureRefs: freezePictureRefs(library, pictureScopes()),
       items: [],
       status: "thinking",
       failure: null,
@@ -928,7 +975,8 @@ export function createAsk(deps: {
       attached, limits: config.textAttachments, pageBytes: pageAttachmentBytes, visual, vision,
       added(item) {
         working.attachments = [...working.attachments, attachmentView(item)];
-        library.push(...attachmentPictures([item])); libraryRevision.value++;
+        library.push(...bindPictures(attachmentPictures([item]),pictureScopes()));
+        working.pictureRefs = freezePictureRefs(library,pictureScopes()); libraryRevision.value++;
         schedule(); saveFavorite(owner);
       },
     });
@@ -1042,7 +1090,7 @@ export function createAsk(deps: {
       if (proposed) pacer.push(() => {}, PACE.beforeDraft);
       await pacer.settled();
       abort.signal.throwIfAborted();
-      working.turnId = turn.commit({ viewed: [...turnViewed].filter((id) => !known.has(id)), question,
+      working.turnId = turn.commit({ pictureRefs: working.pictureRefs, viewed: [...turnViewed].filter((id) => !known.has(id)), question,
         attachments: attached.map(a => a.id), targets: [...new Set([...(`${turnAnchor ?? ""} ${question}`.match(idPattern) ?? []),
           ...attached.filter(a => a.kind === "image").map(a => a.id), ...readTargets])],
         boards: [...readBoards],
@@ -1379,8 +1427,7 @@ export function createAsk(deps: {
     restored,
     externalWaiting: computed(() => { void externalRevision.value; void conversationId.value; return conversations.current.externalQueue.map(r => ({ id: r.turnId, title: r.draft.title })); }),
     externalSnapshot() {
-      const d = drawing.snapshot();
-      return { base: { ...readDraftState(), workspace: "image" as const }, library: snapshotPictures(d.history, d.favorites, ids), pictureScope: activeScope.id, ownerId: conversations.current.id };
+      return { base: { ...readDraftState(), workspace: "image" as const }, library: bindPictures(pictureLibrary(),pictureScopes()), edit: editContext(deps.editor, pictureLibrary()), pictureScope: pictureScope(), favoritesScope: drawing.favoritesScopeId, pictureRefVersion: 2 as const, ownerId: conversations.current.id };
     },
     reviewExternal(context: string, id: string) {
       if (!manageable()) return false;
@@ -1552,38 +1599,50 @@ export function createAsk(deps: {
     },
     labelFor(id: string) { return ids.label(id); },
     favoriteLabelFor(id: string) { return ids.favorite(id); },
-    pictureInfo(label: string) {
-      if (label.startsWith("#a")) {
-        const a = attachments.get(label);
-        return a?.kind === "image" ? { label, url: a.url, width: a.size.width, height: a.size.height } : null;
-      }
-      if (label.startsWith("#c")) {
-        const image = chatImages(chat.snapshot()).find((p) => p.aliases.includes(label));
-        const asset = image ? chat.assets.assets.get(image.assetId) : null;
-        return asset ? { label, url: asset.url, width: asset.width, height: asset.height } : null;
-      }
-      const id = ids.resolve(label), d = drawing.snapshot();
-      const item = [...d.history, ...d.favorites].find((r) => r.id === id);
-      return item ? { label, url: drawing.url(item, true), width: item.size.width, height: item.size.height } : null;
+    pictureCandidates(prefix: string) {
+      const library = withEditPictures(pictureLibrary(),chatPictures(chat.snapshot(),chat));
+      const attached = attachmentPictures(attachments.read([...new Set([...entryAttachments(entries.value),...tray.value])]));
+      const workspace=router.route.value.workspace;
+      const priority = (p: import("./library.ts").Picture) => workspace==="chat" ? p.origins.some(o=>o.source==="chat") ? 0 : 1 : /^#e/.test(anchor.value ?? "") ? p.origins.some(o=>o.source==="edit") ? 0 : 1 : p.origins.some(o=>o.source==="history") ? 0 : 1;
+      return [...library,...attached].sort((a,b)=>priority(a)-priority(b) || b.createdAt-a.createdAt).flatMap(p=>{
+        const label = workspace==="chat" ? p.origins.find(o=>o.source==="chat")?.label ?? p.label : p.aliases.find(tag=>/^#e\d+\./.test(tag)) && /^#e/.test(anchor.value ?? "") ? p.aliases.find(tag=>/^#e\d+[a-z]?$/.test(tag)) ?? p.label : p.label;
+        if (!label.toLowerCase().startsWith(prefix.toLowerCase()) && !p.aliases.some(tag=>tag.toLowerCase().startsWith(prefix.toLowerCase()))) return [];
+        const matched = label.toLowerCase().startsWith(prefix.toLowerCase()) ? label : p.aliases.find(tag=>tag.toLowerCase().startsWith(prefix.toLowerCase()))!;
+        const r=[...drawing.snapshot().history,...drawing.snapshot().favorites].find(r=>r.id===p.id);
+        return [{label:matched,url:drawing.url(r ?? {...p,thumbBlob:null},true),size:`${p.size.width}×${p.size.height}`}];
+      }).slice(0,7);
     },
-    locate(label: string) {
-      if (label.startsWith("#a")) return;
-      if (label.startsWith("#c")) {
-        router.switchWorkspace("chat");
-        if (window.matchMedia("(max-width: 860px)").matches) open.value = false;
+    pictureInfo(label: string, refs?: PictureRefs) {
+      const item = boundPicture(label, refs);
+      return item ? { label, url: drawing.url({ ...item, thumbBlob:null },true), width:item.size.width,height:item.size.height,
+        expired: !!refs?.[label] && refs[label].scope.kind==="page" && refs[label].scope.id!==pageScope,
+        parametersUnavailable:!!refs?.[label] && refs[label].record_id!==item.id } : null;
+    },
+    locate(label: string, refs?: PictureRefs) {
+      const item = boundPicture(label,refs);
+      if (!item) { notice.value = `${label} 已失效或原图不可用`; return; }
+      if (refs?.[label] && refs[label].record_id!==item.id) { notice.value="原图仍可预览，原记录参数已不可用"; return; }
+      const editBoard = refs?.[label]?.scope.board_id ?? item.origins.find(o=>o.label===label && o.source==="edit")?.boardId;
+      if (label.startsWith("#e") && item.origins.some(o=>o.source==="edit") && deps.editor?.locate(item.id,editBoard)) {
+        if (window.matchMedia("(max-width: 860px)").matches) open.value=false;
         return;
       }
-      const id = ids.resolve(label), d = drawing.snapshot();
-      const item = [...d.history, ...d.favorites].find((r) => r.id === id);
-      if (!item) { notice.value = `${label} 已不在本页历史或收藏中`; return; }
-      router.switchWorkspace("image");
-      drawing.show(item, true);
-      if (window.matchMedia("(max-width: 860px)").matches) open.value = false;
+      if (item.scope?.kind==="chat") { chat.locateImage(item.scope.id,item.scope.turn_id!,item.scope.version_id!,item.scope.asset_id!); router.switchWorkspace("chat"); return; }
+      const d = drawing.snapshot(), record = [...d.history,...d.favorites].find(r=>r.id===item.id);
+      if (record) { router.switchWorkspace("image"); drawing.show(record,true); }
+      if (window.matchMedia("(max-width: 860px)").matches) open.value=false;
     },
-    pick(label: string) {
-      if (!this.pictureInfo(label)) return;
-      anchor.value = label;
-      if (!input.value.trim()) input.value = `请分析 ${label}`;
+    pick(label: string, refs?: PictureRefs) {
+      const item = boundPicture(label,refs);
+      if (!item) return;
+      if (refs?.[label] && refs[label].record_id!==item.id) { notice.value="原图仍可预览，原记录参数已不可用"; return; }
+      // Use a current unambiguous alias only when it still binds this exact record.
+      const current = [...pictureLibrary(),...chatPictures(chat.snapshot(),chat)].find(p=>p.id===item.id);
+      if (!current) return;
+      const boardId = refs?.[label]?.scope.board_id;
+      label = current.origins.find(o=>o.source==="edit" && (!boardId || o.boardId===boardId) && /^#e\d+\./.test(o.label))?.label ?? current.label;
+      anchor.value=label;
+      if (!input.value.trim()) input.value=`请分析 ${label}`;
     },
     togglePreference() {
       preferencePaused.value = !preferencePaused.value;

@@ -197,7 +197,7 @@ body[data-state="done"] .result-panel { display: grid; }
   pointer-events: none;
 }
 .library-peek[hidden], .library-peek [hidden] { display: none; }
-.library-peek img { display: block; width: 100%; height: auto; border-radius: 5px; background: var(--canvas); }
+.library-peek img { display: block; width: 100%; height: auto; border-radius: 5px; background: var(--image-checker); }
 .library-peek p { display: flex; justify-content: space-between; gap: 6px; padding: 0 3px; font-size: var(--fz-2xs); line-height: 1.3; color: var(--fg-3); }
 .library-peek .mono { font-size: 10px; white-space: nowrap; }
 .library-peek p i { font-style: normal; color: var(--a); }
@@ -835,3 +835,5 @@ body[data-import="open"] #importSheet > .import-card { transform: none; }
   .topbar-history-slot .library-tab b { font-size: 12px; }
   .result-actions .ibtn { flex: 0 1 auto; width: 44px; min-width: 32px; height: 44px; }
 }
+
+.tile-favorite small { color: inherit; font: var(--fw-medium) 9px/1 var(--mono); }

@@ -1,6 +1,10 @@
+import type { ImageLineage } from "../domain/image-identity.ts";
 import type { Json } from "../domain/value.ts";
 export type Fields = Record<string, Json>;
 export interface FavoriteRecord {
+  entity_key?: string;
+  favSeq?: number;
+  lineage?: ImageLineage;
   id: string;
   createdAt: number;
   favoritedAt: number;
@@ -58,6 +62,7 @@ export interface ConversationRecord {
   updatedAt: number;
 }
 export interface AssetRecord {
+  entity_key?: string;
   id: string;
   name: string;
   origin: "upload" | "result" | "image";

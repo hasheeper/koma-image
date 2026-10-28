@@ -1,11 +1,12 @@
 <script setup lang="ts">
 import { computed, h } from "vue";
 import type { FunctionalComponent, VNodeChild } from "vue";
+import type { PictureRefs } from "./edit-context.ts";
 import AskReference from "./AskReference.vue";
 import { blocks, inline } from "./format.ts";
 import type { Block, Inline } from "./format.ts";
 
-const props = defineProps<{ text: string; inlineOnly?: boolean; lead?: boolean }>();
+const props = defineProps<{ text: string; inlineOnly?: boolean; lead?: boolean; pictureRefs?: PictureRefs }>();
 const content = computed(() => props.inlineOnly ? [] : blocks(props.text));
 const parts = computed(() => props.inlineOnly ? inline(props.text) : []);
 
@@ -14,7 +15,7 @@ function renderInline(parts: readonly Inline[]): VNodeChild[] {
   return parts.map(part => {
     switch (part.t) {
       case "text": return part.v;
-      case "id": return h(AskReference, { label: part.v });
+      case "id": return h(AskReference, { label: part.v, pictureRefs: props.pictureRefs });
       case "code": return h("code", null, part.v);
       case "br": return h("br");
       case "check": return h("input", { type: "checkbox", checked: part.checked, disabled: true, "aria-label": part.checked ? "已完成" : "未完成" });

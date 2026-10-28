@@ -626,7 +626,7 @@ export function createChat(services: ApplicationServices, ui: Ui) {
       const params: Fields = { ...chatImageOrigin(c, turn, version, assetId), tool: "chat", model: String(turn.settings.model ?? ""),
         modelName: models.find(m => m.id === turn.settings.model)?.name ?? String(turn.settings.model ?? ""),
         prompt: turn.prompt, chat_options: structuredClone(object(turn.settings.options)) as Fields, width: asset.width, height: asset.height };
-      const record = { id: chatImageId(c.id, turn.id, version.id, asset.id), createdAt: version.completedAt ?? Date.now(), blob: asset.blob,
+      const record = { entity_key: `sha256:${asset.id}`, lineage: { via: "chat" as const }, id: chatImageId(c.id, turn.id, version.id, asset.id), createdAt: version.completedAt ?? Date.now(), blob: asset.blob,
         size: { width: asset.width, height: asset.height }, params, quote: version.quote ? structuredClone(version.quote) : null };
       const thumbBlob = await makeThumb(asset.blob);
       if (disposed || !conversations.includes(c) || !c.turns.includes(turn) || !turn.versions.includes(version)) throw new Error("来源对话已变化");
@@ -865,6 +865,12 @@ export function createChat(services: ApplicationServices, ui: Ui) {
     },
     addConversation,
     switchConversation,
+    locateImage(conversationId: string, turnId: string, versionId: string, assetId: string) {
+      if (!mutable()) return false;
+      const c=conversations.find(c=>c.id===conversationId), t=c?.turns.find(t=>t.id===turnId), index=t?.versions.findIndex(v=>v.id===versionId) ?? -1;
+      if (!c || !t || index<0 || !t.versions[index].blocks.some(b=>b.type==="image" && b.assetId===assetId)) return false;
+      switchConversation(c); t.selectedVersion=index; c.headId=t.id; changed(true); return true;
+    },
     rename(c: ConversationRecord, title: string) {
       if (mutable()) {
         conversation.renameConversation(c, title);

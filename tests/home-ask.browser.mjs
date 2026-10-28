@@ -88,7 +88,7 @@ async function addImage(page, prompt) {
     g.fillStyle = "#7b3446";
     g.fillRect(0, 0, 256, 384);
     const blob = await canvas.convertToBlob({ type: "image/png" });
-    const record = await drawing.addExternal(blob, { width: 256, height: 384 }, { boardId: drawing.snapshot().activeBoardId, prompt, basePrompt: prompt, model: "gpt-image-1.5", modelName: "GPT Image", seed: 7 }, null);
+    const record = await (await import('/tests/helpers/drawing-history.mjs')).seedHistory({drawing, home:window.home}, blob, { width: 256, height: 384 }, { boardId: drawing.snapshot().activeBoardId, prompt, basePrompt: prompt, model: "gpt-image-1.5", modelName: "GPT Image", seed: 7 }, null);
     return record.id;
   }, prompt);
 }

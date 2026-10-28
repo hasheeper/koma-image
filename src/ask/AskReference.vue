@@ -2,9 +2,11 @@
 import { computed, onBeforeUnmount, shallowRef, watch } from "vue";
 import { useAsk } from "../app/ask";
 
-const props = defineProps<{ label: string }>(), ask = useAsk();
+import type { PictureRefs } from "./edit-context.ts";
+
+const props = defineProps<{ label: string; pictureRefs?: PictureRefs }>(), ask = useAsk();
 const button = shallowRef<HTMLElement | null>(null), shown = shallowRef(false), position = shallowRef({ left: "0px", top: "0px" });
-const info = computed(() => { void ask.libraryRevision.value; return ask.pictureInfo(props.label); });
+const info = computed(() => { void ask.libraryRevision.value; return ask.pictureInfo(props.label, props.pictureRefs); });
 let timer: ReturnType<typeof setTimeout> | undefined;
 let removeLayer = () => {};
 function close() { clearTimeout(timer); shown.value = false; }
@@ -15,7 +17,7 @@ function preview() {
   shown.value = true;
 }
 function hover() { clearTimeout(timer); timer = setTimeout(preview, 200); }
-function locate() { if (props.label.startsWith("#a")) preview(); else { close(); ask.locate(props.label); } }
+function locate() { if (props.label.startsWith("#a") || info.value?.parametersUnavailable) preview(); else { close(); ask.locate(props.label, props.pictureRefs); } }
 function outside(event: PointerEvent) { if (!button.value?.contains(event.target as Node)) close(); }
 watch(shown, (on) => {
   removeLayer();
@@ -30,7 +32,7 @@ onBeforeUnmount(() => { close(); removeLayer(); window.removeEventListener("scro
   <button ref="button" class="ask-id" :class="{ 'ask-reference-tile': !!$slots.default }" type="button" :disabled="!info" :aria-label="$slots.default ? `查看 ${label}` : undefined" :title="info ? `查看 ${label}` : `${label} 已移除或尚不可用`" @click="locate" @pointerenter="hover" @pointerleave="close" @focus="preview" @blur="close"><slot>{{ label }}</slot></button>
   <Teleport to="body">
     <div v-if="shown && info" class="ask-preview" :style="position" role="tooltip">
-      <img :src="info.url" alt="" /><span>{{ label }} · {{ info.width }}×{{ info.height }}</span>
+      <img :src="info.url" alt="" /><span>{{ label }}{{ info.expired ? "（旧页编号）" : "" }} · {{ info.width }}×{{ info.height }}{{ info.parametersUnavailable ? " · 原记录参数不可用" : "" }}</span>
     </div>
   </Teleport>
 </template>

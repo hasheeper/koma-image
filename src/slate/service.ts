@@ -1,3 +1,5 @@
+import { imageEntity } from "../domain/image-identity.ts";
+import type { Editor } from "../services/editor.ts";
 import { shallowRef } from "vue";
 import type { ApplicationServices } from "../services/application.ts";
 import type { Drawing } from "../services/drawing.ts";
@@ -14,7 +16,7 @@ export interface BoardWrite { id: string; before: Partial<DrawingForm>; after: P
 interface Journal { id: string; change: SlateChange; board?: BoardWrite }
 interface Stored { versions?: Record<string, number>; active: string | null; slates: Slate[]; journal: Journal | null }
 const blank = (): Stored => ({ active: null, slates: [], journal: null });
-export function createSlates(services: ApplicationServices, drawing: Drawing) {
+export function createSlates(services: ApplicationServices, drawing: Drawing, editor?: Pick<Editor, "records">) {
   const list = shallowRef<readonly Slate[]>([]), activeId = shallowRef<string | null>(null), visible = shallowRef(false), error = shallowRef("");
   const ready = shallowRef(false), busy = shallowRef(false), recovery = shallowRef(false);
   const listeners = new Set<() => void>(), pageId = crypto.randomUUID();
@@ -84,16 +86,16 @@ export function createSlates(services: ApplicationServices, drawing: Drawing) {
       if (change.directoryRequired && !syncDelivery) throw new Error("此草稿要求目录交付，请先挂载协同目录");
       const prepared: SlateAsset[] = [];
       // Resolve all sources and copy metadata before any async hashing lets a history change intervene.
-      const records = [...drawing.snapshot().history, ...drawing.snapshot().favorites];
+      const records = [...drawing.snapshot().history, ...drawing.snapshot().favorites, ...editor?.records() ?? []];
       for (const request of change.bindings) {
         const known = await asset(request.assetId);
         if (known) { prepared.push(known); continue; }
         const record = records.find(r => r.id === request.ref);
-        if (!record) throw new Error(`${request.label} 已移除，组合未应用`);
+        if (!record || request.entity_key && record.entity_key!==request.entity_key) throw new Error(`${request.label} 已移除，组合未应用`);
         const params = imageParameters(record.params);
         if (canonical({ params, size: record.size, type: record.blob.type, bytes: record.blob.size }) !== request.metadata) throw new Error(`${request.label} 参数已变化`);
         const blob = record.blob.slice(0, record.blob.size, record.blob.type);
-        prepared.push({ id: request.assetId, blob, sha256: await sha256(blob), width: record.size.width, height: record.size.height, mime: blob.type, sourceId: record.id, params, boundAt: new Date().toISOString() });
+        prepared.push({ id: request.assetId, blob, entity_key: await imageEntity(blob), source_ref:request.source_ref, sha256: await sha256(blob), width: record.size.width, height: record.size.height, mime: blob.type, sourceId: record.id, params, boundAt: new Date().toISOString() });
       }
       for (const todo of change.after?.todos ?? []) if (todo.binding) {
         const frozen = prepared.find(a => a.id === todo.binding!.assetId) ?? await asset(todo.binding.assetId);

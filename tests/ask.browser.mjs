@@ -24,6 +24,12 @@ before(async () => {
 });
 after(async () => { await browser?.close(); await server?.close(); });
 
+// Enter accepts an open picture candidate; these tests exercise sending an already composed question.
+async function submitAsk(page) {
+  if (await page.locator('#askPictureSuggestions').isVisible()) await page.locator('#askPrompt').press('Escape');
+  await page.locator('#askPrompt').press('Enter');
+}
+
 const hosts = { image: "gateway.example.test", chat: "chat.example.test", claude: "claude.example.test" };
 const reasoning = /^\/v1\/(?:chat\/completions|messages)$/;
 async function open(hash, { ready = "#settingsPanel[open]", ask = null, standard = false, chatModel = false, touch = false } = {}) {
@@ -106,7 +112,7 @@ async function addImage(page, prompt) {
     g.fillStyle = "#7b3446";
     g.fillRect(0, 0, 256, 384);
     const blob = await canvas.convertToBlob({ type: "image/png" });
-    const record = await drawing.addExternal(blob, { width: 256, height: 384 }, { prompt, basePrompt: prompt, model: "gpt-image-1.5", modelName: "GPT Image", seed: 7 }, null);
+    const record = await (await import('/tests/helpers/drawing-history.mjs')).seedHistory({drawing, home:window.home}, blob, { width: 256, height: 384 }, { prompt, basePrompt: prompt, model: "gpt-image-1.5", modelName: "GPT Image", seed: 7 }, null);
     return record.id;
   }, prompt);
 }
@@ -343,7 +349,7 @@ for (const connectionId of ['chat','claude']) test(`ASK retrieval: ${connectionI
     assert.deepEqual(queries,[],'opening ASK does not query the dictionary');
     llm.push({body:answer('get_state',{})},{body:answer('search_history',{query:'coffee AND hair white'})},
       {body:answer('search_tags',{queries:['loose socks','泡泡袜','错误'],limit_per_query:1})},{body:answer()});
-    await page.locator('#askPrompt').fill('查找之前的图片，并核对这几个词');await page.locator('#askPrompt').press('Enter');
+    await page.locator('#askPrompt').fill('查找之前的图片，并核对这几个词');await submitAsk(page);
     await page.locator('.ask-turn[data-status="done"]').waitFor();
     assert.equal(calls.length,4);assert.equal(queries.length,3);
     assert.equal(calls[0].raw.includes('prompt_sections'),false);
@@ -384,13 +390,13 @@ test('ASK retrieval: stopping a pending dictionary batch rolls back the turn and
     });
     llm.push({body:openai(tool('batch','search_tags',{queries:['词一','词二','词三']}),end('tool_calls'))});
     await page.evaluate(()=>ask.show());
-    await page.locator('#askPrompt').fill('这轮查词应该被取消');await page.locator('#askPrompt').press('Enter');
+    await page.locator('#askPrompt').fill('这轮查词应该被取消');await submitAsk(page);
     await page.waitForFunction(()=>document.querySelector('.ask-tool[data-state="run"]')?.textContent.includes('词典'));
     await page.waitForTimeout(50);assert.equal(count,3);
     await page.evaluate(()=>ask.stop());await page.locator('.ask-turn[data-status="stopped"]').waitFor();
     release();
     llm.push({body:openai(text('下一轮正常。'),end())});
-    await page.locator('#askPrompt').fill('下一轮');await page.locator('#askPrompt').press('Enter');
+    await page.locator('#askPrompt').fill('下一轮');await submitAsk(page);
     await page.locator('.ask-turn[data-status="done"]').waitFor();
     assert.equal(calls.length,2);assert.doesNotMatch(calls[1].raw,/这轮查词应该被取消|late_word|迟到结果/);
     assert.deepEqual(generation(requests),[]);assert.deepEqual(errors,[]);
@@ -417,7 +423,7 @@ for (const connectionId of ["chat", "claude"]) test(`ASK prompts: ${connectionId
   }, value);
   try {
     await bind(page);await page.keyboard.press("Control+j");await drawer(page).waitFor();
-    const send = async question => {await page.locator("#askPrompt").fill(question);await page.locator("#askPrompt").press("Enter");};
+    const send = async question => {await page.locator("#askPrompt").fill(question);await submitAsk(page);};
     // Hold the first HTTP response while the setting changes: the whole tool loop must stay neutral.
     llm.push({body:answer(true),wait:new Promise(resolve=>{release=resolve;})},{body:answer()});
     const dispatched=page.waitForRequest(request=>reasoning.test(new URL(request.url()).pathname));
@@ -642,7 +648,7 @@ test("ASK compatibility: catalog and manual model IDs keep spaces/suffixes throu
       );
       const start = calls.length;
       await page.locator("#askPrompt").fill("读取当前工作台状态");
-      await page.locator("#askPrompt").press("Enter");
+      await submitAsk(page);
       await drawer(page).locator('.ask-turn[data-status="done"]').waitFor();
       assert.equal(calls.length, start + 2);
       for (const call of calls.slice(start)) {
@@ -672,7 +678,7 @@ test("ASK composer: the model chip switches among picks across connections; a ru
     await page.keyboard.press("Control+j");
     await drawer(page).waitFor();
     const chip = drawer(page).locator(".ask-model"), menu = page.locator("#askModelMenu");
-    const send = async (question) => { await page.locator("#askPrompt").fill(question); await page.locator("#askPrompt").press("Enter"); };
+    const send = async (question) => { await page.locator("#askPrompt").fill(question); await submitAsk(page); };
     assert.equal((await chip.textContent()).trim(), "reasoning-a");
     await chip.click();
     // With picks on more than one connection, each set sits under its connection's name.
@@ -788,7 +794,7 @@ test("ASK Markdown: headings, nested lists, tables, literal code and links rende
     await bind(page); await addImage(page, 'synthetic test image');
     await page.keyboard.press('Control+j'); await drawer(page).waitFor();
     llm.push({ body: openai(...sample.match(/.{1,60}|\n/g).map(chunk => text(chunk)), end()) });
-    await page.locator('#askPrompt').fill('检查 Markdown 排版'); await page.locator('#askPrompt').press('Enter');
+    await page.locator('#askPrompt').fill('检查 Markdown 排版'); await submitAsk(page);
     await drawer(page).locator('.ask-turn[data-status="done"]').waitFor();
     const md = drawer(page).locator('.ask-markdown');
     assert.deepEqual(await md.locator('h3').allTextContents(), ['1. 表现到位的地方','2. 画面目前存在的问题','3. 提示词层面的潜在诱因']);
@@ -886,7 +892,7 @@ test("ASK drawer: Ctrl+J toggles, a scripted tool turn streams and is announced 
     );
     await page.locator("#askPrompt").fill("为什么 #h1 还是红眼睛？");
     await drawer(page).locator(".ask-composer").screenshot({ path: ".local/ask/composer-ready.png" });
-    await page.locator("#askPrompt").press("Enter");
+    await submitAsk(page);
     const turn = drawer(page).locator(".ask-turn").last();
     await turn.and(page.locator('[data-status="done"]')).waitFor();
     assert.equal(await page.locator("#askPrompt").inputValue(), "");
@@ -924,7 +930,7 @@ test("ASK drawer: Ctrl+J toggles, a scripted tool turn streams and is announced 
     // A second turn carries the first as history and a fresh state at the tail.
     llm.push({ body: openai(text("好的。"), end()) });
     await page.locator("#askPrompt").fill("再说一遍");
-    await page.locator("#askPrompt").press("Enter");
+    await submitAsk(page);
     await drawer(page).locator('.ask-turn[data-status="done"]').nth(1).waitFor();
     const third = calls[2];
     assert.ok(third.raw.startsWith(second.raw.slice(0, -2)));
@@ -957,7 +963,7 @@ test("ASK drawer: Esc closes the popover, then stops the turn, then the drawer; 
 
     llm.push({ delay: 4000, body: openai(text("太迟了"), end()) });
     await page.locator("#askPrompt").fill("越改越糊？");
-    await page.locator("#askPrompt").press("Enter");
+    await submitAsk(page);
     await drawer(page).locator('.ask-turn[data-status="thinking"]').waitFor();
     const motion = () =>
       drawer(page).evaluate((el) => [
@@ -984,7 +990,7 @@ test("ASK drawer: Esc closes the popover, then stops the turn, then the drawer; 
     // Refused by the channel: rolled back; codec retry hidden until adult is confirmed.
     llm.push({ status: 400, type: "application/json", body: JSON.stringify({ error: { message: "content_filter: request blocked" } }) });
     await page.locator("#askPrompt").fill("nsfw 标签为什么不生效");
-    await page.locator("#askPrompt").press("Enter");
+    await submitAsk(page);
     const failed = drawer(page).locator('.ask-turn[data-status="failed"]');
     await failed.waitFor();
     assert.match(await failed.locator(".ask-fail-text").textContent(), /content_filter/);
@@ -1010,7 +1016,7 @@ test("ASK drawer: Esc closes the popover, then stops the turn, then the drawer; 
     await page.waitForFunction(() => ask.adult.value === true);
     llm.push({ status: 403, type: "application/json", body: JSON.stringify({ error: { message: "blocked by moderation" } }) });
     await page.locator("#askPrompt").fill("nsfw 还是被拦截");
-    await page.locator("#askPrompt").press("Enter");
+    await submitAsk(page);
     await failed.waitFor();
     assert.deepEqual((await failed.locator(".ask-fail-actions button").allTextContents()).map((t) => t.trim()), ["重试", "仅发元数据重试", "设置"], 'empty vocabulary does not offer an ineffective codec retry');
     const emptyCalls = calls.length;
@@ -1089,7 +1095,7 @@ test("ASK drawer layering: settings above it, hidden with the editor, Anthropic 
       ),
     });
     await page.locator("#askPrompt").fill("这张的光影怎么来的？");
-    await page.locator("#askPrompt").press("Enter");
+    await submitAsk(page);
     const empty = drawer(page).locator('.ask-turn[data-status="failed"]');
     await empty.waitFor();
     assert.match(await empty.locator(".ask-fail-text").textContent(), /模型没有返回内容/);
@@ -1153,7 +1159,7 @@ test("ASK stop after network completion rolls back queued output and history", a
       { body: openai(text("audit first answer"), end()) },
     );
     await page.locator("#askPrompt").fill("audit cancelled question");
-    await page.locator("#askPrompt").press("Enter");
+    await submitAsk(page);
     await page.waitForFunction(() => ask.usage.value.input === 3600 && ask.running.value);
     const before = await page.evaluate(() => ({ running: ask.running.value, status: ask.live.value?.status }));
     assert.equal(before.running, true, "still shows a stoppable running turn");
@@ -1162,7 +1168,7 @@ test("ASK stop after network completion rolls back queued output and history", a
     const after = await page.evaluate(() => ask.entries.value.filter(e => e.type === "turn").map(e => ({ status: e.turn.status, question: e.turn.question })));
     llm.push({ body: openai(text("audit next answer"), end()) });
     await page.locator("#askPrompt").fill("audit next question");
-    await page.locator("#askPrompt").press("Enter");
+    await submitAsk(page);
     await drawer(page).locator('.ask-turn[data-status="done"]').last().waitFor();
     await page.waitForFunction(() => !ask.running.value);
     const nextHistory = calls.at(-1).body.messages.filter(m => m.role === "user").map(m => m.content);
@@ -1179,7 +1185,7 @@ async function addScene(page, variant = 0) {
     g.fillRect(300, 180, 160, 120); g.fillRect(550, 180, 160, 120);
     g.fillStyle = '#334a3e'; g.fillRect(0, 550, 1024, 218);
     const blob = await canvas.convertToBlob({type:'image/png'});
-    const record = await drawing.addExternal(blob, {width:1024,height:768}, {
+    const record = await (await import('/tests/helpers/drawing-history.mjs')).seedHistory({drawing, home:window.home}, blob, {width:1024,height:768}, {
       model:'gpt-image-1.5', modelName:'GPT Image', seed:variant,
       prompt:variant ? 'landscape, warm light, blue details' : 'landscape, blue details',
       basePrompt:variant ? 'landscape, warm light, blue details' : 'landscape, blue details',
@@ -1202,7 +1208,7 @@ test('ASK A1 S1: metadata, full image, padded crop, stable snapshot, privacy ret
     assert.equal(calls.length,0,'entry only opens, never sends');
     llm.push(toolReply('m1','get_meta',{id:'#h1'}),toolReply('v1','view_image',{id:'#h1',spec:'look'}),toolReply('v2','view_image',{id:'#h1',spec:'crop',region:[25,15,50,30]}),textReply('**暖色光照影响了蓝色。** #h1 可先核对 `warm light`。'));
     await page.locator('#askPrompt').fill('为什么 #h1 的蓝色细节变成暖色？');
-    await page.locator('#askPrompt').press('Enter');
+    await submitAsk(page);
     await drawer(page).locator('.ask-turn[data-status="done"]').waitFor();
     assert.equal(calls.length,4);
     assert.equal(imageBlocks(calls[0].body).length,0);
@@ -1225,7 +1231,7 @@ test('ASK A1 S1: metadata, full image, padded crop, stable snapshot, privacy ret
 
     // Privacy retry must strip pixels from earlier successful turns as well.
     llm.push({status:403,type:'application/json',body:JSON.stringify({error:{message:'content_filter blocked'}})});
-    await page.locator('#askPrompt').fill('再解释一次');await page.locator('#askPrompt').press('Enter');
+    await page.locator('#askPrompt').fill('再解释一次');await submitAsk(page);
     const failed=drawer(page).locator('.ask-turn[data-status="failed"]');await failed.waitFor();
     llm.push(toolReply('denied','view_image',{id:'#h1',spec:'look'}),textReply('本轮只能依据元数据。'));
     await failed.getByRole('button',{name:'仅发元数据重试',exact:true}).click();
@@ -1259,7 +1265,7 @@ for (const connection of ['chat', 'claude']) test(`ASK image retry modes: ordina
     walk(body.messages);
     return texts.flatMap(text=>[...text.matchAll(/<workspace_state>\s*([\s\S]*?)\s*<\/workspace_state>/g)].map(m=>JSON.parse(m[1]).image_input));
   };
-  const submit=async question=>{await page.locator('#askPrompt').fill(question);await page.locator('#askPrompt').press('Enter');};
+  const submit=async question=>{await page.locator('#askPrompt').fill(question);await submitAsk(page);};
   const idle=()=>page.waitForFunction(()=>!ask.running.value);
   try {
     await bind(page);await addScene(page);
@@ -1343,7 +1349,7 @@ test('ASK A1 S2: explicit two-picture selection, parameter diff, contact sheet, 
   assert.match(await page.locator('#askPrompt').inputValue(),/#h1.*#h2/);
   assert.equal(calls.length,0);
   llm.push(toolReply('d1','diff_meta',{a:'#h1',b:'#h2'}),toolReply('s1','view_sheet',{ids:['#h1','#h2']}),textReply('**#h2 增加了暖色光。** Scale 也从 5 改为 7；#h1 保留了蓝色。'));
-  await page.locator('#askPrompt').press('Enter');
+  await submitAsk(page);
   await drawer(page).locator('.ask-turn[data-status="done"]').waitFor();
   assert.match(JSON.stringify(calls[1].body),/warm light/);
   assert.equal(imageBlocks(calls.at(-1).body).length,1);
@@ -1352,7 +1358,7 @@ test('ASK A1 S2: explicit two-picture selection, parameter diff, contact sheet, 
   assert.equal(await page.evaluate(()=>drawing.snapshot().current.id),first);
 
   llm.push(toolReply('find','search_history',{query:'landscape'}),textReply('找到两张，选一张继续。'));
-  await page.locator('#askPrompt').fill('找一张之前的 landscape');await page.locator('#askPrompt').press('Enter');
+  await page.locator('#askPrompt').fill('找一张之前的 landscape');await submitAsk(page);
   await drawer(page).locator('.ask-turn[data-status="done"]').nth(1).waitFor();
   const candidates=drawer(page).getByRole('group',{name:'选择要分析的图片'});
   assert.equal(await candidates.getByRole('button').count(),2);
@@ -1372,7 +1378,7 @@ test('ASK A1 crop failure: sheet does not unlock crop, the reason stays visible 
     await bind(page); await addScene(page); await addScene(page,1);
     await page.locator('#askLauncher').click();
     llm.push(toolReply('first-look','view_image',{id:'#h1',spec:'look'}),textReply('已查看 #h1 全图。'));
-    await page.locator('#askPrompt').fill('先查看 #h1'); await page.locator('#askPrompt').press('Enter');
+    await page.locator('#askPrompt').fill('先查看 #h1'); await submitAsk(page);
     await page.waitForFunction(()=>!ask.running.value);
     llm.push(
       toolReply('sheet','view_sheet',{ids:['#h1','#h2']}),
@@ -1382,7 +1388,7 @@ test('ASK A1 crop failure: sheet does not unlock crop, the reason stays visible 
       toolReply('look-second','view_image',{id:'#h2',spec:'look'}),
       textReply('已补看 #h2 全图，继续依据实际返回的图片分析。'),
     );
-    await page.locator('#askPrompt').fill('对比 #h1 和 #h2 的细节'); await page.locator('#askPrompt').press('Enter');
+    await page.locator('#askPrompt').fill('对比 #h1 和 #h2 的细节'); await submitAsk(page);
     await page.waitForFunction(()=>!ask.running.value);
     const comparison=drawer(page).locator('.ask-turn').nth(1), rows=comparison.locator('.ask-tool');
     assert.deepEqual(await rows.evaluateAll(nodes=>nodes.map(n=>n.dataset.state)),['done','done','error','done','done']);
@@ -1393,7 +1399,7 @@ test('ASK A1 crop failure: sheet does not unlock crop, the reason stays visible 
     assert.equal(imageBlocks(calls.at(-1).body).length,4,'the rejected crop adds no pixels');
     await comparison.screenshot({path:'.local/ask/a1/crop-failure-reason.png'});
     llm.push(toolReply('bad-region','view_image',{id:'#h2',spec:'crop',region:[90,0,20,20]}),textReply('裁切坐标超出图片，基于已有全图回答。'));
-    await page.locator('#askPrompt').fill('再查看 #h2 的局部'); await page.locator('#askPrompt').press('Enter');
+    await page.locator('#askPrompt').fill('再查看 #h2 的局部'); await submitAsk(page);
     await page.waitForFunction(()=>!ask.running.value);
     const invalid=drawer(page).locator('.ask-turn').nth(2).locator('.ask-tool-reason');
     assert.match(await invalid.textContent(),/裁切区域须为图内的 0–100 百分比/);
@@ -1428,10 +1434,10 @@ test('ASK A1 vision: real resize/crop/cache, four-call and pixel/byte ceilings, 
    const c=context(), failures=[];
    try{await v.image(p,'crop',[10,10,20,20],c);}catch(e){failures.push(e.message);}
    const a=await v.image(p,'glance',undefined,c), b=await v.image(p,'glance',undefined,c);
-   await v.image(p,'crop',[10,10,20,20],c);await v.image(p,'glance',undefined,c);
-   try{await v.image(p,'glance',undefined,c);}catch(e){failures.push(e.message);}
-   const pixels=context();await v.image(p,'look',undefined,pixels);await v.image(p,'look',undefined,pixels);await v.image(p,'look',undefined,pixels);
-   try{await v.image(p,'look',undefined,pixels);}catch(e){failures.push(e.message);}
+   await v.image(p,'crop',[10,10,20,20],c);const resent=await v.image(p,'glance',undefined,c,true);await v.image(p,'glance',undefined,c,true);
+   try{await v.image(p,'glance',undefined,c,true);}catch(e){failures.push(e.message);}
+   const pixels=context();await v.image(p,'look',undefined,pixels,true);await v.image(p,'look',undefined,pixels,true);await v.image(p,'look',undefined,pixels,true);
+   try{await v.image(p,'look',undefined,pixels,true);}catch(e){failures.push(e.message);}
    const bytes=context();bytes.budget.bytes=399999;
    try{await v.image(p,'glance',undefined,bytes);}catch(e){failures.push(e.message);}
    const cancelled=context();const abort=new AbortController();abort.abort();cancelled.signal=abort.signal;
@@ -1447,14 +1453,14 @@ test('ASK A1 vision: real resize/crop/cache, four-call and pixel/byte ceilings, 
    try{await pending;}catch(e){failures.push(e.name);}
    v.dispose();try{await v.image(p,'glance',undefined,context());}catch(e){failures.push(e.message);}
    window.createImageBitmap=nativeDecode;
-   return {failures,calls:c.budget.calls,cache:a.image.data===b.image.data,pixels:a.pixels,bytesUnchanged:bytes.budget.bytes,decoded,closed,evicted};
+   return {failures,calls:c.budget.calls,cache:a.image.data===resent.image.data,duplicate:b.duplicate,pixels:a.pixels,bytesUnchanged:bytes.budget.bytes,decoded,closed,evicted};
   });
   assert.match(results.failures[0],/先用 glance 或 look/);
   assert.match(results.failures[1],/4 次/);
   assert.match(results.failures[2],/预算/);assert.match(results.failures[3],/预算/);
   assert.equal(results.failures[4],'AbortError');assert.equal(results.failures[5],'AbortError');assert.match(results.failures[6],/已关闭/);
   assert.equal(results.decoded,results.closed,'every bitmap closes, including cancellation');assert.equal(results.evicted,true);
-  assert.equal(results.calls,4);assert.equal(results.cache,true);assert.equal(results.pixels,384*288);
+  assert.equal(results.calls,4);assert.equal(results.cache,true);assert.equal(results.duplicate,true);assert.equal(results.pixels,384*288);
   assert.equal(results.bytesUnchanged,399999);assert.equal(calls.length,0);
   assert.deepEqual(generation(requests),[]);assert.deepEqual(errors,[]);
  }finally{await context.close();}
@@ -1481,7 +1487,7 @@ test('ASK A1 Anthropic: streamed visual tool, WebP tool_result, cache boundaries
    {type:'message_stop'},
   )});
   await page.getByRole('button',{name:'Ask 这张图',exact:true}).click();
-  await page.locator('#askPrompt').fill('查看 #h1');await page.locator('#askPrompt').press('Enter');
+  await page.locator('#askPrompt').fill('查看 #h1');await submitAsk(page);
   await drawer(page).locator('.ask-turn[data-status="done"]').waitFor();
   assert.equal(calls.length,2);
   const [first,second]=calls, result=second.body.messages.at(-1).content[0];
@@ -1569,7 +1575,7 @@ async function askDraft(page,llm,steps,question='把红眼睛改为蓝眼睛',ti
   llm.push(proposal(steps,title));
   await page.evaluate(()=>ask.show());
   await page.locator('#askPrompt').fill(question);
-  await page.locator('#askPrompt').press('Enter');
+  await submitAsk(page);
   await page.locator('.ask-draft[data-status="pending"]').waitFor();
   await openDraft(page);
 }
@@ -1598,7 +1604,7 @@ test('ASK text replacements: actual wire uses B; streamed reply, confirmed draft
     }});
     await page.evaluate(()=>ask.show());
     await page.locator('#askPrompt').fill('保留 red coat，增加柔光');
-    await page.locator('#askPrompt').press('Enter');
+    await submitAsk(page);
     await page.locator('.ask-draft[data-status="pending"]').waitFor();
     await openDraft(page);
     assert.match(calls[0].body.messages.at(-1).content,/保留 azure dress，增加柔光/);
@@ -1692,7 +1698,7 @@ test('ASK A2: changes while thinking realign unique anchors; stale preview finge
   try {
     await bind(page);await page.evaluate(()=>drawing.patch({prompt:'red eyes, user tags'}));
     llm.push({...proposal([patchStep('replace','red eyes','blue eyes'),patchStep('rewrite','','replacement','image.negative')]),delay:250});
-    await page.evaluate(()=>ask.show());await page.locator('#askPrompt').fill('调整眼睛');await page.locator('#askPrompt').press('Enter');
+    await page.evaluate(()=>ask.show());await page.locator('#askPrompt').fill('调整眼睛');await submitAsk(page);
     await page.waitForFunction(()=>ask.running.value);
     await page.evaluate(()=>drawing.patch({prompt:'user prefix, red eyes, user tags',negative:'manual negative'}));
     await page.locator('.ask-draft').waitFor();
@@ -1731,7 +1737,7 @@ test('ASK A2: Tab focus/selection/IME guards, Esc draft layer and stopped pacing
     await page.keyboard.press('Control+z');await reverted(page);
     await askDraft(page,llm,[patchStep('append','',', pending detail')]);
     await page.locator('#askPrompt').focus();await page.keyboard.press('Escape');await page.locator('.ask-draft').waitFor({state:'hidden'});assert.equal(await drawer(page).isVisible(),true);
-    llm.push(proposal([patchStep('append','',', new detail')]));await page.locator('#askPrompt').fill('追加细节');await page.locator('#askPrompt').press('Enter');
+    llm.push(proposal([patchStep('append','',', new detail')]));await page.locator('#askPrompt').fill('追加细节');await submitAsk(page);
     await page.waitForFunction(()=>ask.live.value?.items.some(i=>i.kind==='tools'));
     await page.keyboard.press('Escape');await page.waitForFunction(()=>!ask.running.value);
     assert.equal(await page.locator('.ask-draft').count(),0);assert.equal((await form(page)).prompt,'red eyes');
@@ -1777,7 +1783,7 @@ test('ASK H0: HOME restores local CHAT only; ASK warming issues no quote or quot
     }),{loaded:true,ready:false,models:0,quote:null,quota:null,prompt:'stored text'});
     const start=requests.length;
     llm.push({body:openai(tool('ctx','get_chat_context'),end('tool_calls'))},{body:openai(text('输入框里已有内容。'),end())});
-    await page.evaluate(()=>ask.show());await page.locator('#askPrompt').fill('对话输入框写了什么？');await page.locator('#askPrompt').press('Enter');
+    await page.evaluate(()=>ask.show());await page.locator('#askPrompt').fill('对话输入框写了什么？');await submitAsk(page);
     await page.waitForFunction(()=>!ask.running.value&&chat.snapshot().ready);
     assert.match(JSON.stringify(calls[1].body.messages.at(-1)),/stored text/);
     await page.waitForTimeout(800);
@@ -1921,7 +1927,7 @@ test('ASK A2: restore checklist reuses import rules; apply/undo issue zero quote
     await page.evaluate(async()=>{
       await drawing.patch({prompt:'adult woman, nude',model:'nai-diffusion-5-full',scale:5,seed:'42',width:832,height:1216});
       const c=new OffscreenCanvas(256,384);c.getContext('2d').fillRect(0,0,256,384);
-      await drawing.addExternal(await c.convertToBlob({type:'image/png'}),{width:256,height:384},{basePrompt:'adult woman, nude',model:'nai-diffusion-4-5-full',width:512,height:512,scale:7.3,seed:0,sampler:'k_euler',steps:99},null);
+      await (await import('/tests/helpers/drawing-history.mjs')).seedHistory({drawing, home:window.home}, await c.convertToBlob({type:'image/png'}),{width:256,height:384},{basePrompt:'adult woman, nude',model:'nai-diffusion-4-5-full',width:512,height:512,scale:7.3,seed:0,sampler:'k_euler',steps:99},null);
     });
     await page.waitForFunction(()=>drawing.snapshot().quote.status==='ready');await page.waitForTimeout(150);
     const initial=await form(page),start=requests.length;
@@ -1996,7 +2002,7 @@ test('ASK A3 S6: read locked CHAT context, review branch/skip/composer, apply wi
    const base_hash=JSON.parse(first.content.match(/<workspace_state>\n([\s\S]*?)\n<\/workspace_state>/)[1]).base_hash;
    return openai(text('从第一轮继续，保留原图并提纯描述。'),tool('draft','propose_draft',{base_hash,title:'提纯并准备新分支',steps:[{kind:'chat_distill_branch',source:'#c1.1',exclude:['#c2.1','#c3.1'],text:'保留轮廓和蓝色背景，增强清晰度'}]}),end('tool_calls'));
   }});
-  await page.evaluate(()=>ask.show());await page.locator('#askPrompt').fill('为什么越改越糊？从第一轮整理新分支');await page.locator('#askPrompt').press('Enter');
+  await page.evaluate(()=>ask.show());await page.locator('#askPrompt').fill('为什么越改越糊？从第一轮整理新分支');await submitAsk(page);
   await page.locator('.ask-draft[data-status="pending"]').waitFor();await openDraft(page);
   assert.deepEqual(await page.evaluate(()=>chat.snapshot().current),before);
   assert.match(calls[1].body.messages.at(-1).content,/actual_text/);assert.equal(await page.locator('[data-step="0:source"] button').count(),0);
@@ -2025,7 +2031,7 @@ test('ASK A4 inline: selected text, four widths, confirmation, undo, expand and 
   await page.waitForFunction(()=>document.activeElement?.id==='askPrompt');
   assert.equal(calls.length,0);assert.deepEqual(await page.evaluate(()=>ask.inline.value),{target:'image.prompt',text:'red eyes'});
   llm.push(proposal([patchStep('replace','red eyes','blue eyes')]));
-  await page.locator('#askPrompt').fill('把选中的眼睛颜色改成蓝色');await page.locator('#askPrompt').press('Enter');await page.locator('.ask-draft[data-status="pending"]').waitFor();
+  await page.locator('#askPrompt').fill('把选中的眼睛颜色改成蓝色');await submitAsk(page);await page.locator('.ask-draft[data-status="pending"]').waitFor();
   const dynamic=calls[0].body.messages.at(-1).content;
   assert.match(dynamic,/"inline_selection":\{"target":"image.prompt","text":"red eyes"\}/);assert.deepEqual(await form(page),initial);
   for(const width of [320,390,768,1440]){
@@ -2131,7 +2137,7 @@ test('ASK floating assistant: drag without opening or Vue updates, minimize pres
 
     llm.push({ body: openai(text('窗口收起后也保留这轮回复。'), end()), delay: 450 });
     await page.locator('#askPrompt').fill('解释当前图片');
-    await page.locator('#askPrompt').press('Enter');
+    await submitAsk(page);
     await page.waitForFunction(() => ask.running.value);
     await drawer(page).getByRole('button', { name: '收起 ASK', exact: true }).click();
     await drawer(page).waitFor({ state: 'hidden' });
@@ -2142,7 +2148,7 @@ test('ASK floating assistant: drag without opening or Vue updates, minimize pres
     await drawer(page).locator('.ask-stream').getByText('窗口收起后也保留这轮回复。', { exact: true }).waitFor();
     llm.push(proposal([patchStep('replace', 'red eyes', 'blue eyes')]));
     await page.locator('#askPrompt').fill('把红眼睛改成蓝色');
-    await page.locator('#askPrompt').press('Enter');
+    await submitAsk(page);
     await page.locator('.ask-draft[data-status="pending"]').waitFor();
     await page.locator('#askPrompt').fill('保留这条未发送的问题');
     await drawer(page).getByRole('button', { name: '收起 ASK', exact: true }).click();
@@ -2269,7 +2275,7 @@ test('ASK island: collapsed tools, reviewed draft, apply/undo, focus guards and 
     llm.push({ body: openai(tool('meta', 'get_meta', { id: '#h1' }), end('tool_calls')) });
     llm.push({ ...proposal([patchStep('replace', 'red eyes', 'blue eyes')]), delay: 700 });
     await page.locator('#askPrompt').fill('把红眼睛改成蓝色');
-    await page.locator('#askPrompt').press('Enter');
+    await submitAsk(page);
     await page.locator('#askDrawer [aria-label="收起 ASK"]').click();
     await islandMode(page, 'run');
     assert.match(await page.locator('.ask-activity').textContent(), /正在/);
@@ -2330,7 +2336,7 @@ test('ASK island: collapsed tools, reviewed draft, apply/undo, focus guards and 
     await page.locator('#askLauncher').click();
     assert.equal(await page.locator('#askPrompt').inputValue(), '保留输入');
     llm.push({ body: openai(text('这是新一轮普通回复。'), end()) });
-    await page.locator('#askPrompt').press('Enter');
+    await submitAsk(page);
     await page.locator('#askDrawer .ask-turn[data-status="done"]').nth(2).waitFor();
     await page.locator('#askDrawer [aria-label="收起 ASK"]').click();
     await islandMode(page, 'ready');
@@ -2384,7 +2390,7 @@ test('ASK island: text, error, stop and responsive morphs retain anchors without
       await shot('exp');
       llm.push({ ...proposal([patchStep('rewrite', '', 'blue eyes')]), delay: 700 });
       await page.locator('#askPrompt').fill('整理提示词');
-      await page.locator('#askPrompt').press('Enter');
+      await submitAsk(page);
       await page.locator('#askDrawer [aria-label="收起 ASK"]').click();
       await shot('run');
       await shot('ready');
@@ -2429,7 +2435,7 @@ test('ASK island: text, error, stop and responsive morphs retain anchors without
     await page.waitForTimeout(600);
     llm.push({ body: openai(text('原因是 `crimson theme` 的色调。'), end()), delay: 300 });
     await page.locator('#askPrompt').fill('解释图片');
-    await page.locator('#askPrompt').press('Enter');
+    await submitAsk(page);
     await page.locator('#askDrawer [aria-label="收起 ASK"]').click();
     await islandMode(page, 'ready');
     assert.equal(await page.locator('.ask-summary code').textContent(), 'crimson theme');
@@ -2440,7 +2446,7 @@ test('ASK island: text, error, stop and responsive morphs retain anchors without
     await page.locator('#askLauncher').click();
     llm.push({ status: 503, type: 'application/json', body: JSON.stringify({ error: { message: 'synthetic unavailable' } }), delay: 600 });
     await page.locator('#askPrompt').fill('失败示例');
-    await page.locator('#askPrompt').press('Enter');
+    await submitAsk(page);
     await page.locator('#askDrawer [aria-label="收起 ASK"]').click();
     await islandMode(page, 'ready');
     assert.match(await page.locator('.ask-summary').textContent(), /synthetic unavailable/);
@@ -2477,7 +2483,7 @@ test("ASK call debug: every model request, exact payload copy/export, images, ca
     );
     await page.evaluate(() => ask.show());
     await page.locator('#askPrompt').fill('检查 #h1 的场景');
-    await page.locator('#askPrompt').press('Enter');
+    await submitAsk(page);
     await page.locator('.ask-turn[data-status="done"]').waitFor();
     const summaries = await page.evaluate(() => ask.debug.value.calls);
     assert.equal(summaries.length,2);
@@ -2524,7 +2530,7 @@ test("ASK call debug: every model request, exact payload copy/export, images, ca
     assert.equal(await page.locator('#askDrawer').isVisible(),true);
     llm.push({body:openai(text('这次不报告缓存。'),{choices:[{delta:{},finish_reason:'stop'}],usage:{prompt_tokens:90,completion_tokens:10}})});
     await page.locator('#askPrompt').fill('再检查一次');
-    await page.locator('#askPrompt').press('Enter');
+    await submitAsk(page);
     await page.waitForFunction(() => ask.debug.value.calls.length===3 && !ask.running.value);
     await openDebug(page);
     await debug.waitFor();
@@ -2533,7 +2539,7 @@ test("ASK call debug: every model request, exact payload copy/export, images, ca
     await debug.getByRole('button',{name:'关闭调用上下文'}).click();
     llm.push({status:403,type:'application/json',body:JSON.stringify({error:{message:'Synthetic permission failure'}})});
     await page.locator('#askPrompt').fill('错误记录检查');
-    await page.locator('#askPrompt').press('Enter');
+    await submitAsk(page);
     await page.locator('.ask-turn[data-status="failed"]').waitFor();
     await openDebug(page);
     await debug.waitFor();
@@ -2564,7 +2570,7 @@ test("ASK call debug: Anthropic cache markers, creation/read counts and unknown 
     )});
     await page.evaluate(() => ask.show());
     await page.locator('#askPrompt').fill('当前工作台是什么状态？');
-    await page.locator('#askPrompt').press('Enter');
+    await submitAsk(page);
     await page.locator('.ask-turn[data-status="done"]').waitFor();
     await openDebug(page);
     const debug=page.locator('#askDebug');await debug.waitFor();
@@ -2581,7 +2587,7 @@ test("ASK call debug: Anthropic cache markers, creation/read counts and unknown 
       {type:'message_delta',delta:{stop_reason:'end_turn'},usage:{output_tokens:10}},
       {type:'message_stop'}
     )});
-    await page.locator('#askPrompt').fill('继续');await page.locator('#askPrompt').press('Enter');
+    await page.locator('#askPrompt').fill('继续');await submitAsk(page);
     await page.waitForFunction(() => ask.debug.value.calls.length===2 && !ask.running.value);
     await openDebug(page);await debug.waitFor();
     assert.deepEqual(await debug.locator('.debug-usage dd').allTextContents(),['60','未报告','未报告','未报告','10']);
@@ -2602,7 +2608,7 @@ test("ASK call debug: inspecting an active request preserves it, Esc closes only
       try {await route.fulfill({contentType:'text/event-stream',body:openai(text('合成完成'),end())});} catch {}
     });
     await page.evaluate(() => ask.show());
-    await page.locator('#askPrompt').fill('检查运行中的调用');await page.locator('#askPrompt').press('Enter');
+    await page.locator('#askPrompt').fill('检查运行中的调用');await submitAsk(page);
     await page.waitForFunction(() => ask.debug.value.calls.length===1);
     await openDebug(page);
     const debug=page.locator('#askDebug');await debug.waitFor();
@@ -2634,7 +2640,7 @@ const heading = (page) => drawer(page).locator('.ask-conv-title').textContent();
 async function askText(page, llm, question, answer = '模拟回答') {
   llm.push({body: openai(text(answer), end())});
   await page.evaluate(() => ask.show());
-  await page.locator('#askPrompt').fill(question); await page.locator('#askPrompt').press('Enter');
+  await page.locator('#askPrompt').fill(question); await submitAsk(page);
   await page.waitForFunction(() => !ask.running.value && ask.entries.value.at(-1)?.type === 'turn');
 }
 async function editQuestion(page, index = 0) {
@@ -2682,7 +2688,7 @@ test('ASK W2: new, switch and delete keep input, drafts and calls apart; the men
     assert.equal(await page.locator('#askPrompt').inputValue(),'B 的输入');
     let release;
     llm.push({wait:new Promise(done=>release=done),body:openai(text('B 的回答'),end())});
-    await page.locator('#askPrompt').press('Enter');
+    await submitAsk(page);
     await page.waitForFunction(()=>ask.running.value);
     assert.equal(await heading(page),'B 的输入');
     menu=await openConversations(page);
@@ -2832,7 +2838,7 @@ test('ASK W3: failed writes keep checkpoints, and running inference locks undo a
     assert.equal(await page.locator('.ask-checkpoint').getAttribute('data-state'),'reverted');
     await page.evaluate(()=>w3Preferences.set=w3Set);
     let release; llm.push({wait:new Promise(done=>release=done),body:openai(text('只读回复'),end())});
-    await page.locator('#askPrompt').fill('继续解释'); await page.locator('#askPrompt').press('Enter');
+    await page.locator('#askPrompt').fill('继续解释'); await submitAsk(page);
     await page.waitForFunction(()=>ask.running.value);
     assert.equal(await page.locator('.ask-checkpoint').getByRole('button',{name:'恢复',exact:true}).isDisabled(),true);
     const restore=await page.evaluate(()=>ask.redoId.value);
@@ -2872,7 +2878,7 @@ test('ASK W3: a later reply replaces the write pill, undo conflicts report from 
     await bind(page); await page.evaluate(()=>drawing.patch({prompt:'red eyes'}));
     await askDraft(page,llm,[patchStep('replace','red eyes','blue eyes')]); await applyDraft(page);
     let release; llm.push({wait:new Promise(done=>release=done),body:openai(text('这是后续的普通回复。'),end())});
-    await page.locator('#askPrompt').fill('继续解释'); await page.locator('#askPrompt').press('Enter');
+    await page.locator('#askPrompt').fill('继续解释'); await submitAsk(page);
     await page.waitForFunction(()=>ask.running.value);
     assert.equal(await page.locator('.ask-checkpoint').getByRole('button',{name:'回退',exact:true}).isDisabled(),true);
     await page.locator('#prompt').focus();
@@ -3035,7 +3041,7 @@ for(const connectionId of ['chat','claude']) test(`ASK W4: ${connectionId} fork 
     {type:'content_block_stop',index:0},
     {type:'message_delta',delta:{stop_reason:'end_turn'},usage:{output_tokens:10}},
     {type:'message_stop'});
-  const send=async question=>{llm.push({body:answer(`回答 ${question}`)});await page.locator('#askPrompt').fill(question);await page.locator('#askPrompt').press('Enter');await drawer(page).getByText(`回答 ${question}`,{exact:true}).waitFor();};
+  const send=async question=>{llm.push({body:answer(`回答 ${question}`)});await page.locator('#askPrompt').fill(question);await submitAsk(page);await drawer(page).getByText(`回答 ${question}`,{exact:true}).waitFor();};
   try {
     await bind(page); await addImage(page,'fork anchor'); await page.evaluate(()=>ask.show({anchor:'#h1'}));
     await send('第一轮'); await send('第二轮'); await send('第三轮');
@@ -3069,7 +3075,7 @@ test('ASK W4: fork drops checkpoints, notes and pending draft; source keeps them
     await askDraft(page,llm,[patchStep('replace','red eyes','blue eyes')],'已应用草稿'); await applyDraft(page);
     // External change during a successful turn creates a real note.
     llm.push({wait:new Promise(done=>release=done),body:openai(text('外部变动后的回答'),end())});
-    await page.locator('#askPrompt').fill('观察变化'); await page.locator('#askPrompt').press('Enter'); await page.waitForFunction(()=>ask.running.value);
+    await page.locator('#askPrompt').fill('观察变化'); await submitAsk(page); await page.waitForFunction(()=>ask.running.value);
     const first=await page.evaluate(()=>ask.entries.value.find(e=>e.type==='turn').id);
     assert.equal(await drawer(page).getByRole('button',{name:'从此处分支'}).first().isDisabled(),true);
     assert.equal(await page.evaluate(id=>ask.forkTurn(id),first),false);
@@ -3109,14 +3115,14 @@ test('ASK W4: editing failed and stopped questions truncates by committed count;
   try {
     await bind(page); await askText(page,llm,'成功前文');
     llm.push({status:500,type:'application/json',body:JSON.stringify({error:{message:'synthetic failure'}})});
-    await page.locator('#askPrompt').fill('失败问题'); await page.locator('#askPrompt').press('Enter'); await page.locator('.ask-turn[data-status="failed"]').waitFor();
+    await page.locator('#askPrompt').fill('失败问题'); await submitAsk(page); await page.locator('.ask-turn[data-status="failed"]').waitFor();
     assert.equal(await page.locator('.ask-turn[data-status="failed"]').getByRole('button',{name:'从此处分支'}).count(),0);
     await askText(page,llm,'稍后成功');
     const failure=await page.evaluate(()=>ask.entries.value.find(e=>e.type==='turn'&&e.turn.status==='failed').id);
     llm.push({body:openai(text('普通重试结果'),end())}); await page.evaluate(id=>ask.retry(id,'plain'),failure); await page.waitForFunction(()=>!ask.running.value);
     assert.deepEqual(await page.evaluate(()=>ask.entries.value.filter(e=>e.type==='turn').map(e=>e.turn.question)),['成功前文','稍后成功','失败问题']);
     llm.push({wait:new Promise(done=>release=done),body:openai(text('不应被保留'),end())});
-    await page.locator('#askPrompt').fill('停止问题'); await page.locator('#askPrompt').press('Enter'); await page.waitForFunction(()=>ask.running.value); await page.evaluate(()=>ask.stop());
+    await page.locator('#askPrompt').fill('停止问题'); await submitAsk(page); await page.waitForFunction(()=>ask.running.value); await page.evaluate(()=>ask.stop());
     release(); await page.locator('.ask-turn[data-status="stopped"]').waitFor();
     assert.equal(await page.locator('.ask-turn[data-status="stopped"]').getByRole('button',{name:'从此处分支'}).count(),0);
     await askText(page,llm,'停止之后的尾部');
@@ -3126,7 +3132,7 @@ test('ASK W4: editing failed and stopped questions truncates by committed count;
     assert.doesNotMatch(calls.at(-1).raw,/停止之后的尾部|不应被保留/);
     // A failed question between successful turns must also exclude its later committed tail.
     llm.push({status:500,type:'application/json',body:'{"error":{"message":"failure again"}}'});
-    await page.locator('#askPrompt').fill('再次失败'); await page.locator('#askPrompt').press('Enter'); await page.locator('.ask-turn[data-status="failed"]').waitFor();
+    await page.locator('#askPrompt').fill('再次失败'); await submitAsk(page); await page.locator('.ask-turn[data-status="failed"]').waitFor();
     await askText(page,llm,'失败后的尾部');
     const again=await editQuestion(page,4); await again.fill('修改失败问题'); llm.push({body:openai(text('失败轮编辑成功'),end())});
     await again.press('Enter'); await drawer(page).getByText('失败轮编辑成功',{exact:true}).waitFor();
@@ -3237,7 +3243,7 @@ for(const connection of ['chat','claude']) test(`ASK W5: ${connection} attachmen
     // The next metadata-only round keeps text but strips every image, including hot history.
     await page.evaluate(()=>ask.setImages(false));await attachImage(page,{name:'仅参数.png'});await attachText(page,'这份文字仍发送','notes.txt');
     assert.equal(await page.locator('.ask-tray .ask-att-dim').count(),1);
-    llm.push({body:scripted(connection)});await page.locator('#askPrompt').fill('只看参数');await page.locator('#askPrompt').press('Enter');
+    llm.push({body:scripted(connection)});await page.locator('#askPrompt').fill('只看参数');await submitAsk(page);
     await page.waitForFunction(()=>!ask.running.value);
     assert.equal(attachedImages(calls.at(-1).body).length,0);assert.match(calls.at(-1).raw,/这份文字仍发送/);
     assert.deepEqual(generation(requests),[]);assert.deepEqual(errors,[]);
@@ -3343,7 +3349,7 @@ test('ASK W5: file errors stay in one toast; preparing blocks send; deleting an 
       window.createImageBitmap=async(...args)=>{await bitmapGate;return bitmapOriginal(...args);};
       const c=new OffscreenCanvas(32,48);c.getContext('2d');void c.convertToBlob({type:'image/png'}).then(b=>ask.addFiles([new File([b],'迟到.png',{type:'image/png'})]));
     });await page.waitForFunction(()=>ask.preparing.value>0);assert.equal(await drawer(page).getByRole('button',{name:'发送',exact:true}).isEnabled(),false);
-    await page.locator('#askPrompt').press('Enter');assert.equal(calls.length,1);
+    await submitAsk(page);assert.equal(calls.length,1);
     await page.evaluate(()=>{ask.deleteConversation(ask.conversationId.value);allowBitmap();window.createImageBitmap=bitmapOriginal;});
     await page.waitForFunction(()=>!ask.preparing.value);assert.equal(await page.locator('.ask-tray').count(),0);
     await attachImage(page,{name:'新图片.png'});assert.equal(await page.locator('.ask-att-id').textContent(),'#a1');
@@ -3530,7 +3536,7 @@ for (const connection of ['chat','claude']) test(`ASK clean context: ${connectio
     await page.evaluate(()=>ask.show({anchor:'#h4'}));
     assert.equal(await page.locator('.ask-capsule-id').textContent(),'#h4');
     llm.push({body:scripted(connection,null)});
-    await page.locator('#askPrompt').fill('旧会话唯一标记');await page.locator('#askPrompt').press('Enter');
+    await page.locator('#askPrompt').fill('旧会话唯一标记');await submitAsk(page);
     await page.locator('.ask-turn[data-status=done]').waitFor();
     assert.equal(wireStates(calls[0].body)[0].image.history.mode,'A');
     await (await openConversations(page)).getByRole('menuitem',{name:'新对话',exact:true}).click();
@@ -3545,7 +3551,7 @@ for (const connection of ['chat','claude']) test(`ASK clean context: ${connectio
     const rewritten='pink hair, star hair ornament, magical girl, moonlit garden';
     llm.push({body:body=>scripted(connection,'propose_draft',{base_hash:wireStates(body).at(-1).base_hash,draft_title:'绘奈的新画面',steps:[patchStep('rewrite','',rewritten)]})},
       {body:scripted(connection,null).replace('附件已核对。','已按绘奈的新设定起草，草稿请核对。')});
-    await page.locator('#askPrompt').fill('按附件为新角色起草全新的画面');await page.locator('#askPrompt').press('Enter');
+    await page.locator('#askPrompt').fill('按附件为新角色起草全新的画面');await submitAsk(page);
     await page.locator('.ask-draft[data-status=pending]').waitFor();
     assert.equal(calls.length,3);
     const state=wireStates(calls[1].body)[0];
@@ -3565,7 +3571,7 @@ for (const connection of ['chat','claude']) test(`ASK clean context: ${connectio
     await page.evaluate(()=>ask.ignoreDraft());
     // Typed IDs are explicit anchors, even though ordinary opening was clean.
     llm.push({body:scripted(connection,null)});
-    await page.locator('#askPrompt').fill('请看 #h2');await page.locator('#askPrompt').press('Enter');
+    await page.locator('#askPrompt').fill('请看 #h2');await submitAsk(page);
     await page.locator('.ask-turn[data-status=done]').nth(1).waitFor();
     assert.equal(wireStates(calls[3].body).at(-1).anchor,'#h2');
     assert.equal(wireStates(calls[3].body).at(-1).image.history.mode,'A');
@@ -3581,7 +3587,7 @@ test('ASK clean context: on-demand initial form stays frozen; latest read append
     await page.evaluate(()=>{drawing.patch({prompt:'initial_text_only',negative:'initial_negative'});ask.show();});
     llm.push({wait:new Promise(done=>release=done),body:openai(tool('s1','get_state'),end('tool_calls'))},
       {body:openai(tool('s2','get_state',{scope:'latest'}),end('tool_calls'))},textReply('已核对初始与最新原文。'));
-    await page.locator('#askPrompt').fill('请读取原文');await page.locator('#askPrompt').press('Enter');
+    await page.locator('#askPrompt').fill('请读取原文');await submitAsk(page);
     await page.waitForFunction(()=>ask.running.value);await page.waitForTimeout(100);
     await page.evaluate(()=>drawing.patch({prompt:'externally_changed_text'}));release();
     await page.locator('.ask-turn[data-status=done]').waitFor();
@@ -3602,7 +3608,7 @@ test('ASK clean context: a completed empty reply after inspection gets one prose
   try {
     await bind(page);await addImage(page,'synthetic_scene');await page.evaluate(()=>ask.show());
     llm.push(toolReply('view','view_image',{id:'#h1',spec:'glance'}),{body:openai(end())},textReply('已查看 #h1，合成图呈单色背景。'));
-    await page.locator('#askPrompt').fill('看看刚才的图');await page.locator('#askPrompt').press('Enter');
+    await page.locator('#askPrompt').fill('看看刚才的图');await submitAsk(page);
     await page.locator('.ask-turn[data-status=done]').waitFor();
     assert.equal(calls.length,3);assert.equal(calls[2].body.tool_choice,'none');
     assert.equal(await page.locator('.ask-tool').count(),1);
@@ -3626,7 +3632,7 @@ test('ASK tag failures: partial errors keep header labels together, details belo
     await bind(page);await page.evaluate(()=>ask.show());
     llm.push(toolReply('state','get_state'),toolReply('batch1','search_tags',{queries:['hair buns','soft light','blue eyes','red hair','white shirt']}),
       toolReply('batch2','search_tags',{queries:['two buns','patting head','head pat','rain','night']}),textReply('部分词条未完成核验，保留已有结果继续起草。'));
-    await page.locator('#askPrompt').fill('核验这两批词条');await page.locator('#askPrompt').press('Enter');
+    await page.locator('#askPrompt').fill('核验这两批词条');await submitAsk(page);
     await page.locator('.ask-turn[data-status=done]').waitFor();
     const rows=drawer(page).locator('.ask-tool');
     assert.deepEqual(await rows.evaluateAll(els=>els.map(el=>el.dataset.state)),['done','done','done']);
@@ -3649,7 +3655,7 @@ test('ASK tag failures: partial errors keep header labels together, details belo
     }
     assert.equal(calls.length,4);assert.match(await page.locator('.ask-markdown').textContent(),/保留已有结果继续/);
     llm.push(toolReply('all','search_tags',{queries:['all failed']}),textReply('词典暂不可用，这一项尚未核验。'));
-    await page.locator('#askPrompt').fill('核验最后一项');await page.locator('#askPrompt').press('Enter');
+    await page.locator('#askPrompt').fill('核验最后一项');await submitAsk(page);
     await page.locator('.ask-turn[data-status=done]').nth(1).waitFor();
     await page.locator('.ask-tool[data-state=error] .ask-tool-reason').waitFor();
     assert.deepEqual(generation(requests),[]);assert.deepEqual(errors,[]);
@@ -3674,7 +3680,7 @@ for (const connectionId of ['chat','claude']) test(`C4 boards/characters: ${conn
         {kind:'character_edit',op:'set_position',id:'c2',x:.7,y:.4},
         {kind:'character_edit',op:'add',prompt:'girl, blonde hair',negative:'red hair',x:.3,y:.6},
       ]})}, {body:response(null)});
-    await page.locator('#askPrompt').fill('修改角色二，另一个画板仅供比较');await page.locator('#askPrompt').press('Enter');
+    await page.locator('#askPrompt').fill('修改角色二，另一个画板仅供比较');await submitAsk(page);
     await page.locator('.ask-draft[data-status=pending]').waitFor();await page.waitForFunction(()=>!ask.running.value);
     const initial=wireStates(calls[0].body)[0];assert.equal(initial.image.form.prompt,'2people, park');assert.equal(initial.image.form.characters[1].prompt,'boy, blue hair');assert.doesNotMatch(calls[0].raw,/inactive_secret/);assert.match(calls[1].raw,/inactive_secret/);
     await openDraft(page);assert.equal(await page.locator('#askFullDraft .draft-field').count(),2);assert.equal(await page.locator('#askFullDraft .draft-field[data-field="character:c2"] .draft-step').count(),3);
@@ -3717,7 +3723,7 @@ for (const connectionId of ['chat', 'claude']) test(`ASK named board: ${connecti
         steps: [patchStep(mode, '', text)],
       }) }, { body: scripted(connectionId, null) });
       await page.locator('#askPrompt').fill(name ? '保留原画板，在新画板尝试雨夜电车' : '给这份提示词补充晨光');
-      await page.locator('#askPrompt').press('Enter');
+      await submitAsk(page);
       await page.locator('.ask-draft[data-status=pending]').waitFor();
       await page.waitForFunction(() => !ask.running.value);
     };
@@ -3868,7 +3874,7 @@ for (const connectionId of ['chat', 'claude']) test(`ASK favorites: ${connection
       ask.show();
     });
     llm.push({ body: scripted(connectionId, 'get_meta', { id: '#a1' }) }, { body: scripted(connectionId, null) });
-    await page.locator('#askPrompt').fill('收藏样例 #h1 和 #a1'); await page.locator('#askPrompt').press('Enter');
+    await page.locator('#askPrompt').fill('收藏样例 #h1 和 #a1'); await submitAsk(page);
     await page.waitForFunction(() => !ask.running.value && ask.entries.value.length === 1);
     const id = await page.evaluate(() => ask.conversationId.value);
     const initialMessages = calls[1].body.messages;
@@ -3889,7 +3895,7 @@ for (const connectionId of ['chat', 'claude']) test(`ASK favorites: ${connection
     }
     await menu.getByRole('menuitem', { name: '新对话', exact: true }).click();
     llm.push({ body: scripted(connectionId, null) });
-    await page.locator('#askPrompt').fill('临时对话不会保存'); await page.locator('#askPrompt').press('Enter');
+    await page.locator('#askPrompt').fill('临时对话不会保存'); await submitAsk(page);
     await page.waitForFunction(() => !ask.running.value && ask.entries.value.length === 1);
     assert.equal(await page.evaluate(() => ask.conversations.value[0].id), id, 'favorites precede temporary conversations');
     await reloadAsk(page);
@@ -3900,11 +3906,11 @@ for (const connectionId of ['chat', 'claude']) test(`ASK favorites: ${connection
     assert.equal(await page.evaluate(() => ask.attachmentText('text-1')), 'attachment-original');
     assert.equal(await page.evaluate(async () => (await fetch(ask.pictureInfo('#a1').url)).ok), true);
     const added = await addImage(page, 'new history after reload');
-    assert.equal(await page.evaluate(id => ask.labelFor(id), added), '#h2');
-    assert.equal(await page.evaluate(() => ask.pictureInfo('#h1')), null, 'old history references never resolve to the new image');
+    assert.equal(await page.evaluate(id => ask.labelFor(id), added), '#h1', 'page history starts afresh after reload');
+    assert.equal(await page.evaluate(() => ask.pictureInfo('#h1', ask.entries.value[0].turn.pictureRefs)), null, 'old history references never resolve to the new image');
     const nextCall = calls.length;
     llm.push({ body: scripted(connectionId, 'view_image', { id: '#a1' }) }, { body: scripted(connectionId, null) });
-    await page.locator('#askPrompt').fill('继续查看附件'); await page.locator('#askPrompt').press('Enter');
+    await page.locator('#askPrompt').fill('继续查看附件'); await submitAsk(page);
     await page.waitForFunction(() => !ask.running.value && ask.entries.value.length === 2);
     await page.evaluate(() => ask.flushFavorites());
     const withoutCacheBoundary = value => JSON.parse(JSON.stringify(value, (key, item) => key === 'cache_control' ? undefined : item));
@@ -4011,7 +4017,7 @@ test('ASK favorites: separate tabs retain both favorites and isolate repeated at
   } finally { await context.close(); }
 });
 
-test('ASK favorites: two tabs extending the same saved scope keep newly numbered attachments independent', async () => {
+test('ASK favorites: new conversations in two tabs number attachments independently after a shared saved origin', async () => {
   const { page, context, llm, errors } = await open('/#/image', { ready: '.switcher', ask: askSettings() });
   try {
     await bind(page); await page.waitForFunction(() => ask.favoritesReady.value);
@@ -4032,8 +4038,8 @@ test('ASK favorites: two tabs extending the same saved scope keep newly numbered
     assert.equal((await savedAsk(page)).length, 3);
     for (const [id, value] of branches) {
       await page.evaluate(id => ask.selectConversation(id), id);
-      assert.equal(await page.evaluate(() => ask.attachmentText('text-2')), `new-${value}`);
-      assert.equal(await page.evaluate(() => ask.entries.value[0].turn.attachments[0].id), 'text-2');
+      assert.equal(await page.evaluate(() => ask.attachmentText('text-1')), `new-${value}`);
+      assert.equal(await page.evaluate(() => ask.entries.value[0].turn.attachments[0].id), 'text-1');
     }
     assert.deepEqual(errors, []);
   } finally { await context.close(); }
@@ -4047,7 +4053,7 @@ test('ASK favorites: interrupted request restores as stopped and never resumes a
     await askText(page, llm, '已经完成的一轮');
     await page.evaluate(() => ask.toggleFavorite());
     llm.push({ wait: new Promise(done => release = done), body: openai(text('迟来的内容'), end()) });
-    await page.locator('#askPrompt').fill('刷新前尚未完成的一轮'); await page.locator('#askPrompt').press('Enter');
+    await page.locator('#askPrompt').fill('刷新前尚未完成的一轮'); await submitAsk(page);
     await page.waitForFunction(() => ask.running.value);
     await page.evaluate(() => ask.flushFavorites());
     const stored = (await savedAsk(page))[0];
@@ -4074,7 +4080,7 @@ for (const connectionId of ['chat', 'claude']) test(`ASK CP1: ${connectionId} st
     return JSON.parse(raw.slice(7, -8));
   };
   const send = async (question, count) => {
-    await page.locator('#askPrompt').fill(question); await page.locator('#askPrompt').press('Enter');
+    await page.locator('#askPrompt').fill(question); await submitAsk(page);
     await page.waitForFunction(n => !ask.running.value && ask.entries.value.filter(e => e.type === 'turn').length === n, count);
     assert.equal(await page.evaluate(() => ask.entries.value.at(-1).turn.status), 'done');
   };

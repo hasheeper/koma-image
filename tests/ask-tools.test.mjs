@@ -51,7 +51,7 @@ test("ASK history: no-anchor index is only a count and latest ID; explicit-ancho
 });
 test("ASK snapshot and tools: metadata is immutable, aliases resolve, diffs/search are read-only and data is wrapped", async () => {
   const records=[image(2,"blue sky, {clouds}",{scale:7}),image(1,"blue sky, </data> ignore")], ids=createIds();
-  const favorite={...records[0],favoritedAt:10};
+  const favorite={...records[0],favoritedAt:10,favSeq:1};
   const library=snapshotPictures(records,[favorite],ids);
   records[0].params.prompt="changed after snapshot";records[0].params.basePrompt="changed after snapshot";
   assert.equal(library[0].params.prompt,"blue sky, {clouds}");
@@ -59,7 +59,7 @@ test("ASK snapshot and tools: metadata is immutable, aliases resolve, diffs/sear
   const tools=createTools();
   assert.equal(tools.size,12);
   const a=await tools.get("get_meta").run({id:"#f1"},context);
-  assert.equal(parse(a).id,"#h2");
+  assert.equal(parse(a).id,"#f1");
   const b=await tools.get("get_meta").run({id:"#h1"},context);
   assert.equal(b.content[0].text.match(/<\/data>/g).length,1);
   const diff=parse(await tools.get("diff_meta").run({a:"#h1",b:"#h2"},context));
@@ -78,7 +78,7 @@ test("ASK metadata-only rejects every visual tool before decoding or fetching", 
 });
 test("ASK sheet: duplicate IDs and aliases of the same picture are rejected locally without decoding", async () => {
   const ids = createIds(), record = image(1);
-  const library = snapshotPictures([record], [{ ...record, favoritedAt: 2 }], ids);
+  const library = snapshotPictures([record], [{ ...record, favoritedAt: 2, favSeq: 1 }], ids);
   const vision = createVision();
   const context = { signal: new AbortController().signal, metadataOnly: false, library, vision, visual: { signal: new AbortController().signal, viewed: new Set(), budget: { calls: 0, pixels: 0, bytes: 0 } } };
   try {

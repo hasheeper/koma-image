@@ -78,7 +78,7 @@
   position: relative; margin: auto;
   border-radius: var(--r2);
   overflow: hidden;
-  background: var(--sunken);
+  background: var(--image-checker);
   box-shadow:
     0 0 0 1px rgba(255, 255, 255, 0.06),
     0 1px 2px rgba(0, 0, 0, 0.24),
@@ -239,7 +239,6 @@
 
 /* ── Versions: the history rail ─────────────────────────────── */
 .editor-rail .tile { cursor: pointer; }
-.editor-print[data-transparent="true"] { background: repeating-conic-gradient(var(--chrome) 0% 25%, var(--sunken) 0% 50%) 0 0 / 16px 16px; }
 .director-variants.seg { flex: none; grid-auto-flow: column; grid-auto-columns: auto; gap: 2px; padding: 2px; margin-right: auto; align-self: center; }
 .director-variants.seg span { padding: 2px 9px; font-size: var(--fz-2xs); line-height: 1.5; }
 .editor-info-meta { align-items: center; }
@@ -322,3 +321,6 @@
   #editorHand, .editor-size output { display: none; }
   .editor-size { width: 104px; }
 }
+
+/* EDIT references share the existing compact thumbnail overlay. */
+.editor-rail .tile-id { position: absolute; bottom: 4px; left: 4px; padding: 2px 4px; color: var(--fg); font: var(--fw-medium) 10px/1.2 var(--mono); background: color-mix(in srgb, var(--chrome) 88%, transparent); border-radius: 4px; }

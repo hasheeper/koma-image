@@ -62,7 +62,7 @@ async function setup({seed=true,connection=true,path='/',width=1440}={}) {
     const boardB=await drawing.createBoard(); await drawing.renameBoard(boardB,'月夜海岸'); await drawing.switchBoard(boardA);
     for(const [i,r] of [2.4,.684,1,1.8,.75,1.4,.55,2,.8].entries()){
       const w=Math.round(420*r),h=420,boardId=i===0||i>4?boardB:boardA;
-      const item=await drawing.addExternal(await art(w,h,i),{width:w,height:h},{boardId,model:'nai-diffusion-4-5-full',prompt:'synthetic rendered prompt',basePrompt:'synthetic base prompt',width:w,height:h,seed:100+i,scale:5,steps:28},null);
+      const item=await (await import('/tests/helpers/drawing-history.mjs')).seedHistory({drawing, home:window.home}, await art(w,h,i),{width:w,height:h},{boardId,model:'nai-diffusion-4-5-full',prompt:'synthetic rendered prompt',basePrompt:'synthetic base prompt',width:w,height:h,seed:100+i,scale:5,steps:28},null);
       await drawing.toggleFavorite(item);
     }
     const {parseSlateEdit}=await import('/src/slate/edit.ts');
@@ -83,6 +83,72 @@ test('HOME default and unknown routes, first-use head, settings overlay and exis
     await page.goto(origin+'/#/home/editor');await bind(page);await page.waitForSelector('#imageEditor[data-active=true]');
     await page.evaluate(()=>app_shell.router.switchWorkspace('home'));await page.waitForURL('**/#/home');
     assert.equal(await page.locator('.home-page').count(),1);
+  } finally {await clean(t);}
+});
+
+test('HOME empty state uses the selected full-page glow and preserves ASK versus background image paste',async()=>{
+  const t=await setup({seed:false});const {page}=t;
+  try {
+    await page.waitForSelector('.home-welcome');
+    assert.equal(await page.evaluate(()=>home.snapshot().loaded),true);
+    assert.equal(await page.locator('.home-welcome h2').innerText(),'这里还空着呢');
+    assert.equal(await page.locator('.home-welcome p').innerText(),'有个想法？快去试试吧。');
+    for(const width of [320,390,768,1440]) {
+      await page.setViewportSize({width,height:900});
+      const geometry=await page.evaluate(()=>{
+        const card=document.querySelector('.home-welcome'),form=document.querySelector('.home-ask'),brand=document.querySelector('.home-brand');
+        const rect=el=>{const r=el.getBoundingClientRect();return {left:r.left,right:r.right,width:r.width,height:r.height};};
+        return {card:rect(card),form:rect(form),brand:rect(brand),art:rect(card.querySelector('img')),width:innerWidth,scroll:document.documentElement.scrollWidth,
+          background:getComputedStyle(document.querySelector('.home-shell'),'::before').backgroundImage,cardBackground:getComputedStyle(card).backgroundImage,
+          entries:[...document.querySelectorAll('.home-entries button')].map(b=>b.getBoundingClientRect().top)};
+      });
+      assert.ok(geometry.scroll<=width+1,`empty state overflow at ${width}`);
+      assert.equal(geometry.art.width,80);assert.equal(geometry.card.height,width<=860?160:176);
+      assert.ok(Math.abs(geometry.card.width-geometry.form.width)<1);
+      assert.ok(Math.abs((geometry.brand.left+geometry.brand.right)/2-width/2)<1);
+      assert.equal(new Set(geometry.entries).size,1,'all four entries stay on one row');
+      assert.match(geometry.background,/radial-gradient/);assert.equal(geometry.cardBackground,'none');
+      await page.screenshot({path:`.local/hm2/home-empty-${width}.png`,fullPage:true});
+    }
+    await page.evaluate(async()=>{
+      const canvas=new OffscreenCanvas(64,96),g=canvas.getContext('2d');g.fillStyle='#667788';g.fillRect(0,0,64,96);
+      window.pastedImage=new File([await canvas.convertToBlob({type:'image/png'})],'empty-home.png',{type:'image/png'});
+      const data=new DataTransfer();data.items.add(pastedImage);
+      document.querySelector('.home-ask textarea').dispatchEvent(new ClipboardEvent('paste',{clipboardData:data,bubbles:true,cancelable:true}));
+    });
+    await page.waitForSelector('#askIsland[data-home="half"]');
+    assert.equal(await page.evaluate(()=>editor.boards().filter(b=>b.versions.length).length),0,'ASK paste must not open EDIT');
+    await page.evaluate(()=>ask.hide());await page.waitForSelector('.home-welcome');
+    await page.evaluate(()=>{
+      const data=new DataTransfer();data.items.add(pastedImage);
+      document.querySelector('.home-page').dispatchEvent(new ClipboardEvent('paste',{clipboardData:data,bubbles:true,cancelable:true}));
+    });
+    await page.waitForSelector('#imageEditor[data-active=true]');
+    assert.equal(await page.evaluate(()=>editor.boards().filter(b=>b.versions.length).length),1);
+    await page.evaluate(()=>app_shell.router.switchWorkspace('home'));await page.waitForSelector('.home-face img');
+    assert.equal(await page.locator('.home-welcome').count(),0);
+    assert.equal(await page.evaluate(()=>getComputedStyle(document.querySelector('.home-shell'),'::before').opacity),'0');
+    await page.evaluate(()=>app_shell.router.switchWorkspace('image'));await page.waitForSelector('#prompt');
+    const boards=await page.evaluate(()=>editor.boards().length);
+    await page.evaluate(()=>{
+      const data=new DataTransfer();data.items.add(pastedImage);
+      document.body.dispatchEvent(new ClipboardEvent('paste',{clipboardData:data,bubbles:true,cancelable:true}));
+    });
+    assert.equal(await page.evaluate(()=>editor.boards().length),boards,'deactivated HOME must release its paste listener');
+  } finally {await clean(t);}
+});
+
+test('HOME never flashes the empty card while restoring existing pictures',async()=>{
+  const t=await setup();const {page}=t;
+  try {
+    await page.context().addInitScript(()=>{
+      window.emptyCardSeen=false;
+      new MutationObserver(()=>{if(document.querySelector('.home-welcome'))emptyCardSeen=true;}).observe(document,{subtree:true,childList:true});
+    });
+    await page.reload();await bind(page);await page.waitForSelector('.home-print');
+    assert.equal(await page.evaluate(()=>home.snapshot().loaded),true);
+    assert.equal(await page.evaluate(()=>emptyCardSeen),false);
+    assert.equal(await page.locator('.home-welcome').count(),0);
   } finally {await clean(t);}
 });
 

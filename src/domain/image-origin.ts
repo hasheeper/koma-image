@@ -2,14 +2,16 @@ import type { Fields, ConversationRecord, ConversationTurn, ConversationVersion 
 
 export type CreativeWorkspace = "image" | "chat" | "edit";
 export type LineId = `${CreativeWorkspace}:${string}`;
-const strings = ["boardId", "boardName", "boardColor", "chatConversationId", "chatConversationTitle", "chatTurnId", "chatVersionId", "chatAssetId", "editBoardId", "editBoardName", "editId", "editParent", "editSource", "editedAt"] as const;
+const strings = ["boardId", "boardName", "boardColor", "chatConversationId", "chatConversationTitle", "chatTurnId", "chatVersionId", "chatAssetId", "editBoardId", "editBoardName", "editId", "editParent", "editSource", "editedAt", "editOriginId", "editVariant"] as const;
 
-/** Only stable, non-secret provenance. Display numbers (#h/#f/#c) are never identities. */
+/** Only stable, non-secret provenance. Display tags are never identities. */
 export function imageOrigin(params: Readonly<Record<string, unknown>>): Fields {
   const out: Fields = {};
   for (const key of strings) if (typeof params[key] === "string") out[key] = params[key];
   if (params.sourceWorkspace === "image" || params.sourceWorkspace === "chat") out.sourceWorkspace = params.sourceWorkspace;
   if (Number.isSafeInteger(params.chatTurnNumber) && Number(params.chatTurnNumber) > 0) out.chatTurnNumber = Number(params.chatTurnNumber);
+  if (Number.isSafeInteger(params.editBoardSeq) && Number(params.editBoardSeq)>0) out.editBoardSeq=Number(params.editBoardSeq);
+  if (Number.isSafeInteger(params.editVersion) && Number(params.editVersion) > 0) out.editVersion = Number(params.editVersion);
   return out;
 }
 export function imageLine(params: Readonly<Record<string, unknown>>): LineId | null {

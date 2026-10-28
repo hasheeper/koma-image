@@ -1,3 +1,7 @@
+import { imageEntity } from "../domain/image-identity.ts";
+import type { ImageLineage } from "../domain/image-identity.ts";
+import { editLabel, qualifiedEditLabel } from "../domain/edit-identity.ts";
+import type { ImageRecord } from "../domain/drawing.ts";
 import { validateNaiText } from "../domain/nai-input.ts";
 import { supportsFocusedInpaint, inpaintFocusPlan, snapFocusRect, readInpaintFocus } from "../domain/inpaint-focus.ts";
 import type { FocusRect } from "../domain/inpaint-focus.ts";
@@ -54,7 +58,13 @@ export const modeNames = {
   director: "工具处理",
 };
 export interface EditorVersion {
+  entity_key: string;
+  lineage?: ImageLineage;
+  sourceRecord?: ImageRecord;
   id: number;
+  sequence: number;
+  recordId: string;
+  createdAt: number;
   parentId: number;
   kind: "source" | "result" | "manual";
   mode?: EditorMode;
@@ -68,7 +78,6 @@ export interface EditorVersion {
   quote?: Quote;
   original?: Promise<string>;
   png?: Promise<string>;
-  historyId?: string;
   sourceId?: string;
   director?: { tool: DirectorTool; group: string; variant?: DirectorVariant };
 }
@@ -77,6 +86,7 @@ export type EditReturn =
   | { mode: "selection" | "image-selection" | "auto" | "mask"; image: Blob; mask: Blob; format: MaskFormat };
 export interface EditorSession {
   id: string;
+  boardSeq: number;
   name: string;
   createdAt: number;
   updatedAt: number;
@@ -119,6 +129,7 @@ export interface EditorSession {
   appliedMaskRevision?: number;
   externalPending?: boolean;
   nextId: number;
+  nextSequence: number;
   resultCount: number;
   initialized: boolean;
 }
@@ -126,8 +137,9 @@ const session = (
   id: string,
   origin: "image" | "chat" | "edit",
   conversationId?: string,
+  boardSeq = 1,
 ): EditorSession => ({
-  id,
+  id, boardSeq,
   name: "编辑画板", createdAt: Date.now(), updatedAt: Date.now(), error: "",
   origin,
   conversationId,
@@ -156,7 +168,7 @@ const session = (
   },
   maskFor: 0,
   maskRevision: 0,
-  nextId: 1,
+  nextId: 1, nextSequence: 1,
   resultCount: 0,
   initialized: false,
 });
@@ -186,6 +198,7 @@ export function createEditor(
 ) {
   const sessions = new Map<string, EditorSession>(),
     listeners = new Set<() => void>();
+  let nextBoard = 2;
   let current = session(crypto.randomUUID(), "edit");
   let taskOwner: EditorSession | undefined;
   const locked = () => (busy || preparing) && taskOwner === current;
@@ -516,22 +529,35 @@ export function createEditor(
     emit();
     requote(delay);
   }
-  function addVersion(
+  async function addVersion(
     s: EditorSession,
-    data: Omit<EditorVersion, "id" | "url">,
+    data: Omit<EditorVersion, "id" | "url" | "sequence" | "recordId" | "createdAt" | "entity_key">,
   ) {
     if (disposed) throw new DOMException("编辑器已关闭", "AbortError");
+    const grouped = data.director && s.versions.find(v => v.director?.group === data.director!.group);
+    const sequence = grouped ? grouped.sequence : s.nextSequence++;
+    const sourceId = data.kind === "source" ? data.sourceId?.replace(/^(?:record|history|favorite):/, "") : undefined;
+    const candidate = data.sourceRecord ?? (sourceId ? [...drawing.snapshot().history, ...drawing.snapshot().favorites].find(r => r.id === sourceId) : undefined);
+    const entity_key = await imageEntity(data.blob);
+    const sourceRecord = candidate && (candidate.entity_key ?? await imageEntity(candidate.blob)) === entity_key ? candidate : undefined;
+    const recordId = sourceRecord?.id ?? `edit:${s.id}:${s.nextId}`;
+    if (disposed || !sessions.has(s.id)) throw new DOMException("编辑画板已关闭", "AbortError");
+    const parent = s.versions.find(v => v.id === data.parentId);
+    const via: ImageLineage["via"] = data.kind === "manual" ? "edit:photopea" : !!data.director ? "edit:director" : data.params?.enhance ? "edit:enhance" : data.mode === "inpaint" ? "edit:inpaint" : data.mode === "upscale" ? "edit:upscale" : data.kind === "source" ? "upload" : "edit:img2img";
+    const lineage: ImageLineage = data.kind === "source" ? sourceRecord?.lineage ?? {via:s.origin === "chat" ? "chat" : "upload"} : { via, ...(parent ? { parent_record_id: parent.recordId, parent_entity_key: parent.entity_key } : {}), ...(data.director ? { tool_detail: `${data.director.tool}${data.director.variant ? `:${data.director.variant}` : ""}` } : data.params?.inpaintFocus ? { tool_detail: "focused-inpaint" } : {}) };
     const v: EditorVersion = {
-      ...data,
+      ...data, entity_key, lineage, sourceRecord,
       sourceId: data.sourceId ?? `${data.kind === "source" ? "source" : "edit"}:${String(data.params?.editId ?? crypto.randomUUID())}`,
-      id: s.nextId++,
+      id: s.nextId++, sequence, recordId, createdAt: Date.now(),
       url: URL.createObjectURL(data.blob),
     };
+    v.params = { ...v.params, editBoardId: s.id, editBoardName: s.name, editBoardSeq: s.boardSeq, editVersion: sequence,
+      ...(v.director?.variant ? { editVariant: v.director.variant } : {}) };
     s.updatedAt = Date.now();
     s.versions.push(v);
     while (s.versions.length > 30) {
       const old = s.versions.find(
-        (x) => x.id !== s.baseId && x.id !== s.viewId && x !== v && (!x.director ||
+        (x) => x.sequence !== 1 && x.id !== s.baseId && x.id !== s.viewId && x !== v && (!x.director ||
           x.director.group !== v.director?.group && !s.versions.some(p => p.director?.group === x.director!.group && (p.id === s.baseId || p.id === s.viewId))),
       );
       if (!old) break;
@@ -558,7 +584,7 @@ export function createEditor(
     return { ...origin, editBoardId: s.id, editBoardName: s.name };
   }
   const parentIdentity = (v: EditorVersion) => typeof v.params?.editId === "string" ? `edit:${v.params.editId}`
-    : v.sourceId ?? (v.historyId ? `history:${v.historyId}` : `source:${crypto.randomUUID()}`);
+    : v.sourceId ?? v.recordId;
   function setBase(id: number) {
     if (locked() || reading || !current.versions.some((v) => v.id === id)) return;
     maskPort?.save();
@@ -624,23 +650,27 @@ export function createEditor(
       state.maskRevision !== current.maskRevision) throw new Error("编辑来源已变化，请重新打开高级编辑");
     return state;
   }
-  async function saveManual(v = viewed(), favorite = false) {
-    if (!v || v.kind !== "manual") return;
+  /** EDIT owns the transient version; favoriting copies it through the existing data lease. */
+  function record(s: EditorSession, v: EditorVersion): ImageRecord {
+    if (v.sourceRecord) return { ...v.sourceRecord };
+    return { id: v.recordId, entity_key: v.entity_key, lineage: v.lineage, createdAt: v.createdAt, blob: v.blob, thumbBlob: null,
+      params: { ...v.params, ...originOf(s, v), editBoardSeq: s.boardSeq,
+        editVersion: v.sequence, ...(s.versions[0]?.sourceId ? { editOriginId: s.versions[0].sourceId } : {}) },
+      size: { width: v.width, height: v.height }, quote: v.quote as Fields | undefined };
+  }
+  function records() { return [...sessions.values()].flatMap(s => s.versions.map(v => record(s, v))); }
+  async function saveFavorite(v = viewed()) {
+    if (!v) return;
     const owner = [...sessions.values()].find(s => s.versions.includes(v));
+    if (!owner) return;
     const pending = saves.get(v);
-    if (pending) { await pending; if (favorite) await saveManual(v, true); return; }
+    if (pending) return pending;
     const task = (async () => {
       try {
         if (services.data.phase !== "ready") throw new Error("数据维护中，请稍后保存");
-        const snapshot = drawing.snapshot();
-        let record = [...snapshot.history, ...snapshot.favorites].find(r => r.id === v.historyId);
-        if (!record) {
-          record = await drawing.addExternal(v.blob, { width: v.width, height: v.height }, v.params ?? {}, null);
-          v.historyId = record.id;
-        }
-        if (favorite && !drawing.snapshot().favorites.some(r => r.id === record!.id)) await drawing.toggleFavorite(record);
-        if (owner) owner.error = "";
-      } catch (e) { if (owner) owner.error = "修图已保留，保存失败：" + failure(e); }
+        if (!drawing.snapshot().favorites.some(r => r.id === v.recordId)) await drawing.toggleFavorite(record(owner, v));
+        owner.error = "";
+      } catch (e) { owner.error = "图片已保留，收藏失败：" + failure(e); }
     })();
     saves.set(v, task); emit();
     try { await task; } finally { saves.delete(v); emit(); }
@@ -674,7 +704,7 @@ export function createEditor(
           editSource: "photopea", editId: state.id,
           editParent: parentIdentity(state.source),
           editedAt: new Date().toISOString(), sourceRecipe: state.recipe };
-        added = addVersion(current, { kind: "manual", parentId: state.source.id, blob: result.image, ...size,
+        added = await addVersion(current, { kind: "manual", parentId: state.source.id, blob: result.image, ...size,
           name: `${stem(state.source.name)}-修图-${current.nextId}.${result.image.type === "image/jpeg" ? "jpg" : result.image.type.split("/")[1]}`, params });
         selectBase(current, added.id);
         // An explicit image-only return ignores Photopea's selection edits, but
@@ -688,7 +718,6 @@ export function createEditor(
     } finally {
       if (rev === readSequence) { reading = false; emit(); requote(0); }
     }
-    if (added && state.owner.origin !== "chat") await saveManual(added);
     return added;
   }
   async function importMask(blob: Blob, format: MaskFormat = "grayscale") {
@@ -734,17 +763,21 @@ export function createEditor(
     try {
       const size = await validateEditImage(blob);
       if (rev !== readSequence || s !== current || disposed) return;
+      let sourceRecord: ImageRecord | undefined;
       if (s.origin === "chat" && s.conversationId) {
         const c = chat.snapshot().conversations.find(c => c.id === s.conversationId);
         const asset = [...chat.assets.assets.values()].find(a => a.blob === blob);
         const turn = c && [...c.turns].reverse().find(t => t.versions.some(v => v.blocks.some(b => b.type === "image" && b.assetId === asset?.id)));
         const version = turn?.versions.find(v => v.blocks.some(b => b.type === "image" && b.assetId === asset?.id));
-        if (c && turn && version && asset) sourceId ??= chatImageId(c.id, turn.id, version.id, asset.id);
+        if (c && turn && version && asset) {
+          sourceId ??= chatImageId(c.id, turn.id, version.id, asset.id);
+          sourceRecord = await chat.favoriteRecord(c.id,turn.id,version.id,asset.id);
+        }
         params = { ...(params ?? {}), ...(c && turn && version && asset ? { tool: "chat", prompt: turn.prompt, ...chatImageOrigin(c, turn, version, asset.id) }
           : { sourceWorkspace: "chat", chatConversationId: s.conversationId, chatConversationTitle: c?.title ?? "对话" }) };
       }
-      const v = addVersion(s, {
-        kind: "source",
+      const v = await addVersion(s, {
+        kind: "source", sourceRecord,
         blob,
         name,
         ...size,
@@ -795,7 +828,7 @@ export function createEditor(
             sourceRecipe: imageParameters(sourceRecipe(parent.params ?? {})) as Fields,
             ...originOf(owner, parent), editId: crypto.randomUUID(), editParent: parentIdentity(parent), editedAt: new Date().toISOString(),
             via: { connection: output.via.connection, operation: "/ai/augment-image" } };
-          const version = addVersion(owner, { kind: "result", parentId: parent.id, blob: image.blob, width: image.width, height: image.height,
+          const version = await addVersion(owner, { kind: "result", parentId: parent.id, blob: image.blob, width: image.width, height: image.height,
             params, quote: output.quote ?? undefined, director: { tool: settings.tool, group, variant: image.variant },
             name: `${stem(parent.name)}-${directorName(settings.tool)}-${++owner.resultCount}${image.variant ? `-${image.variant}` : ""}.png` });
           versions.push(version);
@@ -804,12 +837,6 @@ export function createEditor(
         // Keep the viewed source in place. The result is available in the rail,
         // including when the user has moved to another EDIT board or workspace.
         emit();
-        for (const version of versions) if (owner.origin !== "chat") {
-          try {
-            const record = await drawing.addExternal(version.blob, { width: version.width, height: version.height }, version.params!, output.quote as Fields, output.ms);
-            version.historyId = record.id;
-          } catch { owner.error = `${directorName(settings.tool)}已完成，但未加入历史，请先下载`; }
-        }
         emit();
       }, controller.signal);
       if (result.status !== "completed") throw new Error(result.status === "busy" ? "另一个绘图任务正在进行" : "数据维护中，请稍后再试");
@@ -937,7 +964,7 @@ export function createEditor(
                     ...(p.model.profileId === "nai-official-v1" && p.mode === "inpaint" ? { noise: 0 } : {}),
                     cfgRescale: typeof p.payload.cfg_rescale === "number" ? p.payload.cfg_rescale : 0, tool: p.mode, via: output.via } as Fields);
             Object.assign(params, originOf(p.owner, p.parent), { editId: crypto.randomUUID(), editParent: parentIdentity(p.parent), editedAt: new Date().toISOString() });
-            last = addVersion(p.owner, {
+            last = await addVersion(p.owner, {
               kind: "result",
               blob: block.blob,
               ...block.size,
@@ -948,19 +975,7 @@ export function createEditor(
               params,
               name: `${stem(p.parent.name)}-${p.payload.enhance ? p.payload.enhanceScale === "max" ? "Enhance-Max" : "Enhance" : p.focusOriginal ? "聚焦重绘" : modeNames[p.mode]}-${++p.owner.resultCount}.${block.blob.type === "image/jpeg" ? "jpg" : block.blob.type.split("/")[1]}`,
             });
-            if (p.owner.origin !== "chat")
-              try {
-                const record = await drawing.addExternal(
-                  last.blob,
-                  block.size,
-                  params,
-                  output.quote as Fields,
-                  output.ms,
-                );
-                last.historyId = record.id;
-              } catch {
-                owner.error = `${modeNames[p.mode]}已完成，但未加入历史，请先下载`;
-              }
+
           }
           if (last) {
             if (
@@ -1014,7 +1029,7 @@ export function createEditor(
   }
   function createBoard() {
     if (preparing || reading || external || maskPort?.isDrawing()) return;
-    const next = session(crypto.randomUUID(), "edit");
+    const next = session(crypto.randomUUID(), "edit", undefined, nextBoard++);
     next.name = "编辑画板 " + (sessions.size + 1);
     sessions.set(next.id, next); switchBoard(next.id);
     return next.id;
@@ -1117,8 +1132,7 @@ export function createEditor(
       reading,
       preparing: preparing && taskOwner === current,
       saving: !!viewed() && saves.has(viewed()!),
-      inHistory: !!viewed()?.historyId && [...drawing.snapshot().history, ...drawing.snapshot().favorites].some(r => r.id === viewed()?.historyId),
-      favorite: !!viewed()?.historyId && drawing.snapshot().favorites.some(r => r.id === viewed()?.historyId),
+      favorite: !!viewed() && drawing.snapshot().favorites.some(r => r.id === viewed()?.recordId),
       runError: current.error,
       running,
       runningEnhance,
@@ -1200,7 +1214,17 @@ export function createEditor(
     },
     importMask,
     writeMask,
-    saveManual(favorite = false) { return saveManual(viewed(), favorite); },
+    saveFavorite() { return saveFavorite(); },
+    reference(v: EditorVersion) { const board=[...sessions.values()].find(s=>s.versions.includes(v)); return board ? qualifiedEditLabel(board,v) : ""; },
+    records,
+    record(id: string) { return records().find(r => r.id === id); },
+    label: editLabel,
+    locate(id: string, boardId?: string) {
+      const owner = [...sessions.values()].find(s => (!boardId || s.id === boardId) && s.versions.some(v => v.recordId === id));
+      const v = owner?.versions.find(v => v.recordId === id);
+      if (!owner || !v || !switchBoard(owner.id)) return false;
+      view(v.id); router.switchWorkspace("edit"); return true;
+    },
     setBase,
     view,
     refreshQuota,
@@ -1222,7 +1246,7 @@ export function createEditor(
       const conversationId = options.conversationId || (origin === "chat" ? chat.snapshot().current.id : undefined);
       const sourceKey = typeof options.settings?.editId === "string" ? "edit:" + options.settings.editId : options.sourceId?.replace(/^(history|favorite):/, "record:");
       const existing = blob ? [...sessions.values()].find(s => options.settings?.editBoardId === s.id || sourceKey && s.sourceKey === sourceKey || s.versions.some(v =>
-        s.origin === origin && s.conversationId === conversationId && v.blob === blob || sourceKey && (v.sourceId === sourceKey || v.params?.editId && "edit:" + v.params.editId === sourceKey || v.historyId && sourceKey === "record:" + v.historyId))) : current;
+        s.origin === origin && s.conversationId === conversationId && v.blob === blob || sourceKey && (v.sourceId === sourceKey || v.params?.editId && "edit:" + v.params.editId === sourceKey || sourceKey === "record:" + v.recordId))) : current;
       if (existing) {
         if (!switchBoard(existing.id)) return;
         const revision = ++openSequence;
@@ -1234,7 +1258,7 @@ export function createEditor(
         return;
       }
       maskPort?.save();
-      const next = !current.versions.length && taskOwner !== current ? current : session(crypto.randomUUID(), origin, conversationId);
+      const next = !current.versions.length && taskOwner !== current ? current : session(crypto.randomUUID(), origin, conversationId, nextBoard++);
       next.origin = origin; next.conversationId = conversationId;
       next.name = stem(name || "编辑画板"); next.sourceKey = sourceKey;
       sessions.set(next.id, next);
@@ -1433,7 +1457,7 @@ export function createEditor(
       scheduleQuote(key, 0);
     },
     remove(id: number) {
-      if (locked() || reading || id === current.baseId) return;
+      if (locked() || reading || id === current.baseId || current.versions.find(v => v.id === id)?.sequence === 1) return;
       const v = current.versions.find((v) => v.id === id);
       if (!v) return;
       const removed = v.director ? current.versions.filter(item => item.director?.group === v.director!.group) : [v];

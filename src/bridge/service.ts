@@ -115,7 +115,7 @@ export function createBridge(deps: { services: ApplicationServices; ask: Ask; dr
         if (!candidates.length || new Set(candidates.map(s => s.pictureScope)).size !== 1) throw new Error("base_hash 已过期或无法识别，请重新导出状态");
         snapshot = candidates.at(-1)!;
       }
-      const draft = receiveDraft(value, snapshot), origin: ExternalOrigin = { context: where, draftId: id, digest, label: typeof value.source_label === "string" ? value.source_label : "外部草稿" };
+      const draft = receiveDraft(value, snapshot, current.edit?.active_board_id), origin: ExternalOrigin = { context: where, draftId: id, digest, label: typeof value.source_label === "string" ? value.source_label : "外部草稿" };
       outcome = { draft_id: id, status: "pending" };
       // Durable dedup before enqueuing. A crash cannot silently replay an applied draft.
       await storage.receipt(where, outcome, digest);

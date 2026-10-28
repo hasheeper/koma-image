@@ -1,6 +1,6 @@
 # ASK 检索与状态
 
-更新：2026-10-26。R1–R4 已完成本地模拟收口。本文维护当前快照、历史检索、词典查询与消歧；勘探差异、原修订补丁与阶段证据见[归档](../archive/2026-10-25/README.md)。现行决策以[ASK 维护入口](ask-implementation-plan.md)为准。
+更新：2026-10-28。R1–R4 已完成本地模拟收口。本文维护当前快照、历史检索、词典查询与消歧；勘探差异、原修订补丁与阶段证据见[归档](../archive/2026-10-25/README.md)。现行决策以[ASK 维护入口](ask-implementation-plan.md)为准。
 
 ## 1. 状态与展示边界
 
@@ -41,8 +41,8 @@ interface SearchHistoryArgs {
   changed_field?: "prompt" | "negative" | "model" | "seed" | "steps" |
     "scale" | "cfg" | "sampler" | "width" | "height" | "size" |
     "strength" | "noise";
-  similar_to?: string; // 本轮有效 #h/#f/#c 图片 ID
-  scope?: "history" | "favorites" | "chat" | "all"; // 默认 all
+  similar_to?: string; // 本轮有效 #h/#f/#e/#c 图片 ID
+  scope?: "history" | "favorites" | "edit" | "chat" | "all"; // 默认 all
   limit?: number; // 默认 8，整数 1–15
 }
 ```
@@ -60,7 +60,7 @@ interface SearchHistoryArgs {
 
 ### 3.3 来源、前序与返回结构
 
-- 在筛选前建立每个来源的序列：history 用历史到达顺序；favorites 用记录 createdAt（不是收藏时间）；chat 用当前分支轮序。前序指同来源中仍保留的上一条，不代表完整生成历史。
+- 在筛选前建立每个来源的序列：history 用历史到达顺序；favorites 用记录 createdAt（不是收藏时间）；edit 用板内版本顺序；chat 用当前分支轮序。前序指同来源中仍保留的上一条，不代表完整生成历史。
 - `compared_to` 不跨来源，查 query 或 limit 不改变比较对象。只比较双方确实有值的参数；缺失字段不能解释为用户删除。size 在宽或高改变时出现，width/height 保留独立过滤。
 - 同一底层记录在历史和收藏中只返回一次；all 优先仍属于本轮 history 的标签，其次 favorites。限定 favorites 时必须返回 `#f` 标签。scope 按本轮列表成员关系判断，不能因 ID 注册表保留了旧 `#h` 就把仅在收藏的图片归入 history。返回 aliases，按记录 ID 去重，不按图片内容哈希合并；相似检索排除基准的所有别名。
 - CHAT 携带 prompt、图片尺寸、版本序号、版本内图序、是否选中，以及该轮模型名与已知选项值（`chat_options`，仅尺寸类与 quality）；缺失 seed/negative 等不补值，不从当前表单推断。
@@ -70,7 +70,7 @@ interface HistorySearchResult {
   matches: Array<{
     id: string;
     aliases: string[];
-    source: "history" | "favorites" | "chat";
+    source: "history" | "favorites" | "edit" | "chat";
     age: string | null;
     size: [number, number];
     seed: number | null;
@@ -167,3 +167,9 @@ rankTags 默认按收录量优先，精确词可能被高热度近似词挤出�
 ## HOME 状态
 
 `workspace: "home"` 时仍携带活动画板的完整基础／角色词文、CHAT 及模型状态；另有 `home.lines`（线 ID、类型、标题、可读取脸编号或 null、状态）和 `home.finals`（数量、最近最多 12 个 `#f` 与来源链）。活动任务板仍使用 `active_slate`。其他会话没有本轮可读取编号时脸编号为空；暂存 WebP 永不分配 `#h`／`#f`。此索引不预载历史词文和像素，读取继续使用现有工具。
+
+## 图片身份与 EDIT 只读感知
+
+[图片身份](../image-identity.md)统一原图实体、参数记录与冻结展示绑定。`picture_ref_version=2` 的状态同时给出页面与收藏库作用域；EDIT 目录包含板号、完整／本板编号、版本、尺寸、工具、出处和实体。`search_history(scope="edit")`、元数据、Diff、看图与 Slate 交付可访问本轮编辑图，仍不写 EDIT 参数。
+
+回复、草稿、账本与压缩归档保留具体绑定，切编辑板或 CHAT 分支不重解旧短码。视觉按实体共享资格与派生编码；同轮同规格重复请求不重发，新的规格／区域与跨轮重看按实际发送计预算。元数据按具体记录读取，不能因同字节覆盖另一份配方。附件原图身份与发送编码分离，拼图仍不授予单图裁切资格。

@@ -19,10 +19,12 @@ export interface Slate {
   todos: Todo[];
 }
 export interface SlateAsset {
+  entity_key?: string;
+  source_ref?: import("../domain/image-identity.ts").ImageTagBinding;
   id: string; blob: Blob; sha256: string; width: number; height: number; mime: string;
   sourceId: string; params: Record<string, unknown>; boundAt: string;
 }
-export interface BindRequest { assetId: string; source: "history" | "favorites"; ref: string; label: string; metadata: string }
+export interface BindRequest { entity_key?: string; source_ref?: import("../domain/image-identity.ts").ImageTagBinding; assetId: string; source: "history" | "favorites" | "edit"; ref: string; label: string; metadata: string }
 export interface SlateChange {
   before: Slate | null; after: Slate | null; id: string; bindings: BindRequest[]; directoryRequired: boolean;
 }

@@ -21,7 +21,7 @@ export interface SavedConversation {
   readonly named: boolean;
   readonly origin: ConversationOrigin | null;
   readonly createdAt: number;
-  readonly scope: { readonly id: string; readonly labels: IdSnapshot };
+  readonly scope: { readonly id: string; readonly labels: IdSnapshot; readonly attachmentCounters?: { images:number; texts:number } };
   readonly session: SessionSnapshot;
   readonly entries: readonly AskEntry[];
   readonly input: string;
