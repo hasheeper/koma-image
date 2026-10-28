@@ -1,6 +1,6 @@
 # NovelAI 官方接入与模型能力
 
-更新：2026-10-28。官方 API 作为独立 `nai-official-v1` Profile；用户单独添加连接和 Key。本文区分已实现的请求与界面、真实只读验证、尚未接入的能力和真实生成待验项。发布版本与线上页面核验见[发布记录](archive/2026-10-25-nai-release-verification.md)，历史接口来源见[归档](archive/2026-10-25/README.md)。
+更新：2026-10-28。官方 API 作为独立 `nai-official-v1` Profile；用户单独添加连接和 Key。本文区分已实现的请求与界面、真实只读验证、尚未接入的能力和真实生成待验项。当前发布版本与线上页面核验见[本轮发布记录](archive/2026-10-28-home-edit-nai-release-verification.md)，历史接口来源见[归档](archive/2026-10-25/README.md)。
 
 ## 适配结论
 

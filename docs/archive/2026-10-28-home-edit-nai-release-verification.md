@@ -19,4 +19,14 @@
 - 此前相同业务实现的原生协议、EDIT 画板、结果回流与工作区共 72 项通过，范围见[Director Tools 核验](2026-10-28-director-tools-verification.md)。本轮没有用这些数字代替实际供应商联调。
 - 静态产物核对主 JS／CSS、Worker、两套词表及许可、公开 Skill；隔离页面检查五个工作区、设置、token 计数与工具入口，未执行收费操作。
 
-完整日志、脱敏扫描和截图保存在本机 `.local/release-2026-10-28/`，不进入仓库或 Pages。Git 提交和线上资源核验结果另在发布完成后记录。
+完整日志、脱敏扫描和截图保存在本机 `.local/release-2026-10-28/`，不进入仓库或 Pages。113 份项目文档的本地文件链接检查通过。
+
+## Git 与 Pages
+
+- 应用及文档提交：[204b095](https://github.com/hasheeper/koma-image/commit/204b095cf945d39421d32048e5a5cceae2975216)，已推送至 `main` 和 `codex/ask-chat-handoff`。首次 HTTPS 推送遇到 HTTP 400，确认两分支仍在旧提交后，使用本次命令的 HTTP/1.1 与缓冲设置完成正常快进，没有强推。
+- 执行 `npm run deploy:pages`，Wrangler 4.151.1 重新构建后仅上传 `dist/` 至既有 `koma-image` 项目，生产分支 `main`。部署地址：[0fc880ec.koma-image.pages.dev](https://0fc880ec.koma-image.pages.dev/)，生产域名：[koma-image.pages.dev](https://koma-image.pages.dev/)。
+- 生产首页引用 `index-CgkSvfhQ.js` 与 `index-DiP0r8d3.css`，实际下载的字节 SHA-256 与本地产物一致；分词器 Worker、T5／Qwen 词表及三份许可／来源说明同样一致。
+- [公开 Skill](https://koma-image.pages.dev/skills/koma-bridge/SKILL.md) 返回 200、`text/plain; charset=utf-8` 与 `Content-Disposition: inline`，内容与发布文件一致。
+- 独立 Chromium 上核对 HOME／IMAGE／CHAT／EDIT／TAGS、现有设置页、V4.5 token 计数与六项工具入口；HOME 和保持打开的 Director 面板检查 320／390／768／1440px。使用合成图片与模拟账户响应，无页面异常、无真实生图或工具 POST。
+
+本记录随后作为纯文档提交补回仓库，不改变已部署的应用产物。线上检查没有读取用户现有页面、密钥、图片或 Photopea 文档；真实 NAI 效果与扣费、实际 Safari 和移动真机仍按[待办](../implementation-plan.md#仍待真实验证)单独核验。
