@@ -10,6 +10,8 @@ import {
   watch,
 } from "vue";
 import { useShell } from "../../app/shell";
+import { useAskPresentation } from "../../ask/presentation";
+const { fullscreen: askFullscreen } = useAskPresentation();
 import { useServices } from "../../app/services";
 import { useUi, message } from "../../app/ui";
 import { useWorkspaceLifecycle } from "../../app/workspace-lifecycle";
@@ -287,7 +289,7 @@ function turn(next: number) {
 }
 </script>
 <template>
-  <header class="topbar tags-topbar">
+  <header class="topbar tags-topbar" :inert="askFullscreen">
     <WorkspaceSwitch workspace="tags" /><a
       class="btn btn-quiet btn-sm tags-back"
       href="#/image"
@@ -295,7 +297,7 @@ function turn(next: number) {
       >回到绘图</a
     >
   </header>
-  <main class="tags-main" data-workspace-root="tags">
+  <main class="tags-main" data-workspace-root="tags" :inert="askFullscreen">
     <div class="tags-content">
       <section class="tags-hero">
         <p class="tags-kicker">DANBOORU TAG DICTIONARY</p>
@@ -530,6 +532,7 @@ function turn(next: number) {
   </main>
   <button
     class="tag-cart-fab"
+    :inert="askFullscreen"
     type="button"
     aria-label="打开 Prompt 组合"
     aria-controls="tagCart"
@@ -539,6 +542,7 @@ function turn(next: number) {
     <AppIcon name="tag-i-cart" /><span>{{ cart.length }}</span></button
   ><button
     class="tag-cart-backdrop"
+    :inert="askFullscreen"
     type="button"
     aria-label="关闭组合侧栏"
     @click="shellTags.cartOpen = false"

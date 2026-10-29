@@ -4,7 +4,7 @@
 
 站点：[Koma Image](https://koma-image.pages.dev/)。源码：[hasheeper/koma-image](https://github.com/hasheeper/koma-image)。本文说明仓库当前功能；线上部署版本需单独核对。
 
-产品定位、功能与整体框架从[产品总览](docs/product-overview.md)开始；技术实现见[架构](docs/architecture.md#核心技术)，视觉与交互原则见[设计语言](docs/design-language.md)。
+产品定位、功能与整体框架从[产品总览](docs/product/overview.md)开始；技术实现见[架构](docs/architecture.md#核心技术)，视觉与交互原则见[设计语言](docs/product/design-language.md)。
 
 ## 功能
 
@@ -15,7 +15,7 @@
 - **TAGS**：Tag 搜索、分类、组合和输入补全，Anime／Furry 使用对应词库。
 - **ASK**：工作台诊断、NAI 能力／token／只读费用、按需看图与候选检查、IMAGE／EDIT 修改草稿与图片交接、多会话和附件、检查点与撤销、上下文压缩及归档召回。写入前由用户确认，不自动生图或发送 CHAT 消息。
 - **待办**：默认浏览器本地任务与持久成果，HTTPS 在线站与本地运行均可用；会话输入框上方是紧凑 Todo，顶栏提供轻量总览，无需目录或 ASK Key。ASK 通过草稿推进任务与配方，可与提示词／参数／文件一并确认；需交图的任务绑图后才能完成，挂载后同步选定任务与成果。
-- **外部协同**：在 HOME 头部或 ASK 输入框附件旁挂载目录，手动 JSON 兜底位于现有「设置 → ASK → 外部协同」。外部 Agent 可提交 IMAGE 提示词、角色和参数草稿，无需 ASK 文本 Key；用户确认后应用。共享 `refs/` 由 ASK 按需读取，手动文件走原生附件入口；配方、备忘录与任务资料统一在草稿卡确认后保存或下载。详见[使用说明](docs/ask/bridge.md)。
+- **外部协同**：在 HOME 头部或 ASK 输入框附件旁挂载目录，手动 JSON 兜底位于现有「设置 → ASK → 外部协同」。外部 Agent 可提交 IMAGE 提示词、角色和参数草稿，无需 ASK 文本 Key；用户确认后应用。共享 `refs/` 由 ASK 按需读取，手动文件走原生附件入口；配方、备忘录与任务资料统一在草稿卡确认后保存或下载。详见[使用说明](docs/integrations/bridge.md)。
 - **数据**：画板、图片收藏、CHAT 与偏好保存在当前站点的浏览器中，支持新版 Koma ZIP 备份；域名与浏览器之间不自动同步。ASK 收藏会话及附件、Slate 任务与成果独立持久保存，不进入普通备份；未收藏 ASK、普通绘图历史和撤销栈刷新清空。
 
 ## 连接与验证边界
@@ -31,7 +31,7 @@
 | OpenAI Chat 兼容 | ASK 推理、命名与压缩 | 支持 |
 | Anthropic Messages | ASK 推理、命名与压缩 | 支持 |
 
-初始连接为空，启动不弹出配置窗；在设置中统一填写供应商名称、协议、地址与 Key，未配置 URL／Key 不请求上游。未知费用不显示为免费。上述接线已通过本地模拟检查，真实型号、效果、扣费、权限与 CORS 仍需按供应商核验；具体边界见 [NAI 专题](docs/novelai-official.md)与[当前待办](docs/implementation-plan.md)。
+初始连接为空，启动不弹出配置窗；在设置中统一填写供应商名称、协议、地址与 Key，未配置 URL／Key 不请求上游。未知费用不显示为免费。上述接线已通过本地模拟检查，真实型号、效果、扣费、权限与 CORS 仍需按供应商核验；具体边界见 [NAI 专题](docs/integrations/novelai.md)与[当前待办](docs/status.md)。
 
 ## 开发与检查
 
@@ -49,19 +49,32 @@ npm run check
 npm run preview
 ```
 
-`check` 包含字体一致性、Stylelint、严格类型、单元测试和生产构建；不包含浏览器及发布包套件。预览为 http://127.0.0.1:3217。业务回归按变更范围选择 `test:shell`、`test:services`、`test:shared`、`test:drawing`、`test:workspaces`、`test:home`、`test:native`、`test:ask`、`test:bridge`、`test:local`、`test:release`。已有 `dist/` 后可运行全部浏览器与发布包套件：
+`check` 包含字体一致性、Stylelint、严格类型、单元测试和生产构建；不包含浏览器及发布包套件。预览为 http://127.0.0.1:3217。
+
+| 命令 | 范围 |
+| --- | --- |
+| `npm run test:browser` | 构建后运行全部浏览器测试和发布包检查 |
+| `node scripts/test-browser.mjs` | 使用已有 `dist/` 运行同一完整清单，CI 在 `check` 后使用此入口 |
+| `node scripts/test-browser.mjs --list` | 只列出完整清单，不启动浏览器 |
+| `npm run test:ask`、`test:native`、`test:home`、`test:edit` | 按功能运行，使用已有构建；ASK 和原生协议包含拆分后的全部子套件 |
+| `node scripts/test-browser.mjs shell ask-vision` | 组合指定前缀；也可传完整 `.browser.mjs` 文件名 |
+
+入口自动发现 `tests/*.browser.mjs`，最多同时运行两个测试文件；不再在 CI 维护另一份手写清单。`test:services`、`test:shared`、`test:drawing`、`test:workspaces`、`test:bridge`、`test:local` 和 `test:release` 保留为专题入口。完整发布检查可运行：
 
 ```sh
-node --test --test-concurrency=2 tests/*.browser.mjs tests/release.package.mjs
+npm run check
+node scripts/test-browser.mjs
 ```
 
 自动化业务验证使用合成数据和模拟生成接口，不执行真实收费生成。历史实战、测试数量与执行范围保存在[归档](docs/archive/README.md)，不作为当前测试总数。
+
+ASK 与原生协议的浏览器测试按功能拆分，共用 `tests/helpers/` 中的模拟连接、响应和图片准备。Vite 测试服务器使用各套件独立的 `.local/test-cache/`，固定预构建依赖并关闭 HMR；浏览器内测试不引用 Vite 的内部缓存路径。新增测试按功能命名即可进入完整检查；等待界面就绪使用可观察状态，只有明确验证动画阶段、延迟或无副作用时才保留定时观察窗口。
 
 Photopea 的本地宿主回归为 `node --test tests/photopea.browser.mjs tests/editor-return.browser.mjs`。真实官方 iframe 往返须显式运行 `KOMA_PHOTOPEA_LIVE=1 node --test tests/photopea-live.browser.mjs`，仅使用合成图片，不配置 Key 或执行生图；默认浏览器套件跳过该联网核验。
 
 Director Tools 的协议与费用测试随 `check` 执行；界面、完整结果、选源与取消的模拟验证为 `node --test tests/director-tools.browser.mjs`，不向真实账户提交工具请求。
 
-Photopea 的生产静态包交互核验须先 `npm run build`，再运行 `KOMA_PHOTOPEA_LIVE=1 KOMA_PHOTOPEA_ENGINES=chromium,edge node --test tests/photopea-compat.browser.mjs`；Edge 需本机已安装。可显式添加 `webkit` 检查 Playwright WebKit 引擎，但不等同实际 Safari。该套件覆盖四档宽度、键盘菜单、真实鼠标选区、Chromium 触摸模拟改图与纯修图回历史，结果和未验环境见 [PE3 收口记录](docs/archive/2026-10-27-photopea-pe3-verification.md)。
+Photopea 的生产静态包交互核验须先 `npm run build`，再运行 `KOMA_PHOTOPEA_LIVE=1 KOMA_PHOTOPEA_ENGINES=chromium,edge node --test tests/photopea-compat.browser.mjs`；Edge 需本机已安装。可显式添加 `webkit` 检查 Playwright WebKit 引擎，但不等同实际 Safari。该套件覆盖四档宽度、键盘菜单、真实鼠标选区、Chromium 触摸模拟改图与纯修图回历史，结果和未验环境见 [PE3 收口记录](docs/archive/photopea/2026-10-27-photopea-pe3-verification.md)。
 
 ## 本地运行与发布
 
@@ -76,7 +89,7 @@ npm start
 
 ## 文档与目录
 
-从[产品总览](docs/product-overview.md)了解产品，从[文档索引](docs/README.md)按任务进入现行规范；[工程约定](AGENTS.md)保存稳定边界，[架构](docs/architecture.md)说明核心技术与模块，[设计语言](docs/design-language.md)说明界面取舍。旧阶段记录已退出必读入口，归档保留。
+从[产品总览](docs/product/overview.md)了解产品，从[文档索引](docs/README.md)按任务进入现行规范；[工程约定](AGENTS.md)保存稳定边界，[架构](docs/architecture.md)说明核心技术与模块，[设计语言](docs/product/design-language.md)说明界面取舍。旧阶段记录已退出必读入口，归档保留。
 
 ```text
 src/app/         单页外壳、路由和工作区生命周期
@@ -94,9 +107,9 @@ src/storage/    Koma 数据库与备份
 src/native/     Canvas、指针、元数据和图片处理
 public/         本地静态资源、字体和样式
 server.mjs      可选本地服务与固定路径代理
-scripts/        字体构建与发布打包
+scripts/        字体构建、测试入口与发布打包
 tests/          单元、浏览器与发布包验证
-docs/           现行文档与历史归档
+docs/           产品／工作区／集成／工程／ASK 规范与主题归档
 ```
 
 源码公开与使用授权分开：当前许可证为 `UNLICENSED`，尚未授予开源许可。字体与图标各自保留[第三方许可](docs/third-party-assets.md)。公开前检查与凭据报告方式见[安全说明](SECURITY.md)。

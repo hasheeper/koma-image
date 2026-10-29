@@ -1,6 +1,6 @@
 import { before, after, test } from "node:test";
 import assert from "node:assert/strict";
-import { createServer } from "vite";
+import { createServer } from './helpers/vite.mjs';
 import { chromium } from "playwright";
 
 let server, browser, origin;

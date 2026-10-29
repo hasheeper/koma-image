@@ -1,97 +1,10 @@
-import { before, after, test } from 'node:test';
+import { test, before } from 'node:test';
 import assert from 'node:assert/strict';
 import { mkdir } from 'node:fs/promises';
-import { createServer } from 'vite';
-import { chromium } from 'playwright';
-let server,browser,origin;
-before(async()=>{await mkdir('.local/hm3',{recursive:true});server=await createServer({server:{host:'127.0.0.1',port:0,open:false}});await server.listen();origin=`http://127.0.0.1:${server.httpServer.address().port}`;browser=await chromium.launch({headless:true});});
-after(async()=>{await browser?.close();await server?.close();});
-const hosts = { image: "gateway.example.test", chat: "chat.example.test", claude: "claude.example.test" };
-const reasoning = /^\/v1\/(?:chat\/completions|messages)$/;
-async function open(hash, { ready = "#settingsPanel[open]", ask = null, standard = false, chatModel = false, touch = false, motion = "reduce", width = 1440 } = {}) {
-  const context = await browser.newContext({ viewport: { width, height: 900 }, reducedMotion: motion, hasTouch: touch });
-  const page = await context.newPage(), requests = [], errors = [], llm = [], calls = [];
-  page.setDefaultTimeout(12000);
-  page.on("pageerror", (error) => errors.push(error.message));
-  await context.addInitScript(({ hosts, ask, standard }) => {
-    if (!/^https?:/.test(location.protocol) || localStorage.getItem("koma.routing.v1")) return;
-    const c = (id, name, baseUrl, profileId) => ({ id, name, baseUrl, profileId, credentialRef: `${id}-key`, revision: "rev1" });
-    localStorage.setItem("koma.routing.v1", JSON.stringify({ version: 1, links: {}, connections: {
-      image: c("image", "图像连接", `https://${hosts.image}/service`, standard ? "koma-standard-v1" : "openai-images-v1"),
-      chat: c("chat", "推理 Chat", `https://${hosts.chat}/v1`, "openai-chat-v1"),
-      claude: c("claude", "推理 Messages", `https://${hosts.claude}`, "anthropic-messages-v1"),
-    } }));
-    if (ask) localStorage.setItem("koma.ask.v1", JSON.stringify(ask));
-    sessionStorage.setItem("koma.session.keys", JSON.stringify({ "image-key": "synthetic-image", "chat-key": "synthetic-chat", "claude-key": "synthetic-claude" }));
-      localStorage.setItem("koma.prefs.v1", JSON.stringify({ tagSuggest: false }));
-  }, { hosts, ask, standard });
-  await context.route("**/*", async (route) => {
-    const request = route.request(), url = new URL(request.url());
-    if (url.origin === origin) return route.continue();
-    if (!Object.values(hosts).includes(url.hostname)) {
-      errors.push(`unexpected external origin: ${url.origin}`);
-      return route.abort();
-    }
-    requests.push({ host: url.hostname, path: url.pathname, method: request.method(), headers: request.headers() });
-    if (standard && url.hostname === hosts.image) {
-      if (url.pathname.endsWith("/image/models")) return route.fulfill({ json: {
-        studio_features: { version: 2, max_cost: true }, valid_samplers: ["k_euler_ancestral", "k_euler"],
-        models: { "nai-diffusion-5-full": { name: "NAI V5", provider: "novelai", max_resolution: 2200000, quota_group: "novelai" }, "nai-diffusion-4-5-full": { name: "NAI V4.5", provider: "novelai", max_resolution: 1048576, quota_group: "novelai" },
-          ...(chatModel ? { "gpt-image-2": { name: "GPT Image 2", provider: "openai", operations: ["generate", "edit"], tools: ["image-edit"], quota_group: "openai",
-            image_capabilities: { fields: { quality: { options: ["auto", "low", "high"], default: "auto" }, size: { options: ["1024x1024", "1536x1024"], default: "1024x1024" } } } } } : {}) },
-      } });
-      if (url.pathname.endsWith("/media/quota")) return route.fulfill({json:{credits:{remaining:100},images:{novelai:{used:0,remaining:100,limit:100}}}});
-      if (url.pathname.endsWith("/token_stats_data")) return route.fulfill({json:{temp_limits:{is_temp:false}}});
-      if (url.pathname.endsWith("/estimate")) return route.fulfill({json:{cost:1}});
-    }
-    if (request.method() === "GET" && url.pathname.endsWith("/v1/models"))
-      return route.fulfill({ json: { data: url.hostname === hosts.image ? [{ id: "gpt-image-1.5" }] : [{ id: "reasoning-b" }, { id: "reasoning-a" }] } });
-    if (request.method() === "POST" && url.hostname !== hosts.image && reasoning.test(url.pathname)) {
-      // A scripted model: each request takes the next reply in line.
-      const reply = llm.shift() ?? { body: openai(text("（脚本已用完）"), end()) };
-      calls.push({ host: url.hostname, path: url.pathname, headers: request.headers(), raw: request.postData(), body: JSON.parse(request.postData()) });
-      if (reply.wait) await reply.wait;
-      if (reply.delay) await new Promise((done) => setTimeout(done, reply.delay));
-      try {
-        await route.fulfill({ status: reply.status ?? 200, contentType: reply.type ?? "text/event-stream", body: typeof reply.body === "function" ? reply.body(calls.at(-1).body) : reply.body });
-      } catch {
-        // The page aborted the request first.
-      }
-      return;
-    }
-    errors.push(`unexpected endpoint: ${request.method()} ${url.pathname}`);
-    return route.fulfill({ status: 404, json: { error: "Unexpected request" } });
-  });
-  await page.goto(origin + hash);
-  await page.waitForSelector(ready);
-  return { page, context, requests, errors, llm, calls };
-}
-const openai = (...chunks) => [...chunks.map((c) => `data: ${JSON.stringify(c)}\n\n`), "data: [DONE]\n\n"].join("");
-const text = (content) => ({ choices: [{ index: 0, delta: { content } }] });
-const tool = (id, name, input = {}) => ({ choices: [{ index: 0, delta: { tool_calls: [{ index: 0, id, type: "function", function: { name, arguments: JSON.stringify(input) } }] } }] });
-const end = (finish_reason = "stop") => ({ choices: [{ index: 0, delta: {}, finish_reason }], usage: { prompt_tokens: 1800, completion_tokens: 40, prompt_tokens_details: { cached_tokens: 1500 } } });
-const anthropic = (...events) => events.map((e) => `event: ${e.type}\ndata: ${JSON.stringify(e)}\n\n`).join("");
-const askSettings = (over = {}) => ({ version: 1, connectionId: "chat", model: "reasoning-a", images: true, preference: "", words: [], replacements: [], alwaysCodec: false, ...over });
-/** Generation, edit, upscale, quote and balance endpoints: ASK must never reach them. */
-const generation = (requests) => requests.filter((r) => r.host === hosts.image && !r.path.endsWith("/v1/models"));
-async function bind(page) {
-  await page.evaluate(() => {
-    const p = document.body.__vue_app__._instance.provides;
-    for (const name of ["ask", "drawing", "editor", "chat", "home", "bridge", "slate", "app-shell", "ask-presentation"])
-      window[name.replaceAll("-", "_")] = p[Object.getOwnPropertySymbols(p).find((k) => k.description === name)];
-  });
-}
-async function addImage(page, prompt) {
-  return page.evaluate(async (prompt) => {
-    const canvas = new OffscreenCanvas(256, 384);
-    const g = canvas.getContext("2d");
-    g.fillStyle = "#7b3446";
-    g.fillRect(0, 0, 256, 384);
-    const blob = await canvas.convertToBlob({ type: "image/png" });
-    const record = await (await import('/tests/helpers/drawing-history.mjs')).seedHistory({drawing, home:window.home}, blob, { width: 256, height: 384 }, { boardId: drawing.snapshot().activeBoardId, prompt, basePrompt: prompt, model: "gpt-image-1.5", modelName: "GPT Image", seed: 7 }, null);
-    return record.id;
-  }, prompt);
-}
+import { useAskFixture, open, askSettings, bind, addImage, generation, openai, text, end } from './helpers/ask-fixture.mjs';
+
+useAskFixture();
+before(() => mkdir('.local/hm3', { recursive: true }));
 
 async function setup(options={}) { const t=await open('/#/home',{ready:'.home-head',ask:askSettings(),...options});await bind(t.page);await t.page.evaluate(()=>Promise.all([home.ready,ask.restored]));return t; }
 async function clean(t){assert.deepEqual(t.errors,[]);assert.equal(generation(t.requests).length,0);await t.context.close();}
@@ -180,7 +93,6 @@ test('HOME transitions clean temporary names; disabled and reduced motion take t
   await page.emulateMedia({reducedMotion:'no-preference'});await page.evaluate(()=>document.startViewTransition=undefined);await page.getByRole('button',{name:'打开 ASK',exact:true}).click();await page.waitForSelector('#askIsland[data-home="half"]');
  } finally {await clean(t);}
 });
-
 
 test('HOME drops keep original attachments and preview caches display-only; full dock retains page scroll',async()=>{
  const t=await setup();const {page}=t;

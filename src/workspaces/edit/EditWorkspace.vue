@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import {
   computed,
+  defineAsyncComponent,
   ref,
   shallowRef,
   watch,
@@ -12,6 +13,8 @@ import {
 import { useAsk, AskMark } from "../../app/ask";
 import { useEditor } from "../../app/editor";
 import { useShell } from "../../app/shell";
+import { useAskPresentation } from "../../ask/presentation";
+const { fullscreen: askFullscreen } = useAskPresentation();
 import { useServices } from "../../app/services";
 import { useUi } from "../../app/ui";
 import type { EditorSession, EditorVersion } from "../../services/editor";
@@ -45,7 +48,7 @@ import NaiPromptOptions from "../../workspaces/image/NaiPromptOptions.vue";
 import CharactersEditor from "../../workspaces/image/CharactersEditor.vue";
 import DrawingBottomPanel from "../../workspaces/image/DrawingBottomPanel.vue";
 import EditorParameters from "../../overlays/EditorParameters.vue";
-import PhotopeaPanel from "../../overlays/PhotopeaPanel.vue";
+const PhotopeaPanel = defineAsyncComponent(() => import("../../overlays/PhotopeaPanel.vue"));
 const { editor, view } = useEditor(),
   { router } = useShell(),
   services = useServices(),
@@ -672,6 +675,7 @@ async function copyReference(v: EditorVersion) {
     :data-rail="rail ? 'on' : 'off'"
     :data-photopea="photopea ? 'on' : undefined"
     data-workspace-root="edit"
+    :inert="askFullscreen"
     aria-label="图像编辑"
     @keydown="key"
     @keyup="keyup"

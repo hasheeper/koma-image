@@ -1,7 +1,7 @@
 import { before, after, test } from 'node:test';
 import assert from 'node:assert/strict';
 import { mkdir } from 'node:fs/promises';
-import { createServer } from 'vite';
+import { createServer } from './helpers/vite.mjs';
 import { chromium } from 'playwright';
 import { createArchive } from '../src/storage/backup-archive.ts';
 let server,browser,origin;
@@ -126,6 +126,26 @@ test('six API operations preserve source recipe; BG variants are grouped, alpha-
   });
   assert.equal(await page.evaluate(urls=>urls.every(u=>revoked.includes(u)),urls),true);assert.equal(await page.locator('.editor-rail .tile').count(),6);
   assert.deepEqual(errors,[]);
+});
+test('EDIT retention counts physical images and preserves complete protected Director groups', {timeout:45000}, async t=>{
+  const {page,posts,errors}=await setup(t);
+  await page.evaluate(async()=>{
+    await drawing.patch({editorHistoryLimit:0});
+    editor.setDirectorTool('bg-removal');
+    await editor.runDirector(); await editor.runDirector();
+    window.firstGroup=editor.session.versions.slice(1,4).map(v=>v.id);
+    window.secondGroup=editor.session.versions.slice(4).map(v=>v.id);
+    editor.view(firstGroup[1]);
+    await drawing.patch({editorHistoryLimit:4});
+  });
+  assert.equal(await page.evaluate(()=>editor.session.versions.length),7,'original, viewed group and newest result group stay intact');
+  await page.evaluate(async()=>{
+    editor.view(secondGroup[1]);
+    await drawing.patch({editorHistoryLimit:3});
+  });
+  assert.deepEqual(await page.evaluate(()=>editor.session.versions.map(v=>v.id)),[1,5,6,7],'old group is removed as a unit; protected images can exceed a smaller target');
+  assert.deepEqual(await page.evaluate(()=>editor.session.versions.slice(1).map(v=>editor.label(v))),['#e3a','#e3b','#e3c']);
+  assert.equal(posts.length,2); assert.deepEqual(errors,[]);
 });
 test('Director output stays with its frozen board and source while another board is active', {timeout:45000}, async t=>{
   const {page,posts,errors,control}=await setup(t);let release;control.delay=new Promise(r=>release=r);

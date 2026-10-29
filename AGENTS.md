@@ -1,14 +1,14 @@
 # Koma Image 工程约定
 
-这是独立复刻工程，并包含已批准的新子产品 Koma ASK。开始工作先读[架构](docs/architecture.md)、[业务契约](docs/business-contracts.md)及[当前状态与待办](docs/implementation-plan.md)，再按[文档索引](docs/README.md)阅读相关专题。历史阶段和原型集中在[历史索引](docs/archive/README.md)，退出必读入口；不从历史授权推导新的推送或发布授权。
+这是独立复刻工程，并包含已批准的新子产品 Koma ASK。开始工作先读[架构](docs/architecture.md)、[业务契约](docs/business-contracts.md)及[当前状态与待办](docs/status.md)，再按[文档索引](docs/README.md)阅读相关专题。历史阶段和原型集中在[历史索引](docs/archive/README.md)，退出必读入口；不从历史授权推导新的推送或发布授权。
 
 ## 范围与交付
 
-- 在 `codex/` 分支工作。推送 `hasheeper/koma-image` 和部署 Pages 每次需要用户明确授权，并先脱敏复查。生产分支为 `main`；Pages Direct Upload 只上传 `dist/`，构建和 Git 推送不自动发布。
+- 按用户已确认的单分支约定，当前仅保留 `main`，不自行新建长期分支。推送 `hasheeper/koma-image` 和部署 Pages 每次需要用户明确授权，并先脱敏复查。生产分支为 `main`；Pages Direct Upload 只上传 `dist/`，构建和 Git 推送不自动发布。
 - M1–M7、TS 迁移 T0–T5、字体／样式 G0–G4、ASK A0–A4／R1–R4／W1–W6／CP1–CP4、多角色与画板 C1–C5 已完成代码及对应本地模拟验收，不重复实施。具体供应商、真实图片与提示词质量、备忘录质量、缓存命中及 NAI 高级能力仍按当前待办核验，不用模拟结果声称真实联调成功。
 - 复刻原有业务与 UI，实际基线来自内部参考工程，不能凭空设计或声称已经核验。不复制内部基线、Git 历史、截图、真实备份、部署配置或凭据。
 - 已批准调整包括导航、默认头像、连接脱敏、Koma 命名、裁撤旧迁移、设置分组与样式统一、结果参数单行滚动、绘图空白页居中、Fredoka 品牌字和资源圆体。ASK 是批准的新产品形态；现有工作区只增加批准的入口与草稿写入路径。
-- 不顺便改变报价、分流、额度阈值、取消、失败及付费确认行为。现行界面与微调约束见[设计语言](docs/design-language.md)；ASK 以已批准 B v5 为准。
+- 不顺便改变报价、分流、额度阈值、取消、失败及付费确认行为。现行界面与微调约束见[设计语言](docs/product/design-language.md)；ASK 以已批准 B v5 为准。
 
 ## 外壳、类型与资源
 
@@ -16,7 +16,7 @@
 - Vue 管低频状态和 DOM；原生驱动管 Canvas、指针和逐帧更新。大图片、DOM、数据库、AbortController 和密钥不进入深层 reactive。
 - Vue 节点不由外部脚本包裹或搬移。高亮宿主写入模板，位置切换用 Teleport。监听器、Observer、rAF 和 Object URL 有对应暂停、恢复与清理责任。
 - `src/` 自有实现使用 TS／Vue TS，类型直接来自实现，不新增 JS 与手写配对声明，不放宽 strict 或忽略诊断。测试、服务器、工具和静态兼容脚本保留原运行方式。
-- 字体由 `config/fonts.json` 及 `config/font-ranges/koma-rounded.json` 管理；`public/fonts/index.css` 为生成文件。普通构建复用 WOFF2，Python 只用于主动离线重建。样式按[归属](docs/style-ownership.md)维护，不新增全局补丁；必要 lint 禁用注明原因。
+- 字体由 `config/fonts.json` 及 `config/font-ranges/koma-rounded.json` 管理；`public/fonts/index.css` 为生成文件。普通构建复用 WOFF2，Python 只用于主动离线重建。样式按[归属](docs/engineering/ui-maintenance.md)维护，不新增全局补丁；必要 lint 禁用注明原因。
 
 ## 协议与任务
 
@@ -27,7 +27,7 @@
 
 ## ASK 与数据
 
-- ASK 工作先读[现行契约与维护入口](docs/ask/ask-implementation-plan.md)；ASK 专题发生冲突时以该文为准，同时遵守本文工程约定。
+- ASK 工作先读[现行契约与维护入口](docs/ask/README.md)；ASK 专题发生冲突时以该文为准，同时遵守本文工程约定。
 - ASK 只用 `openai-chat` 和 `anthropic-messages` 推理协议，按能力过滤连接；不调用生图、编辑、放大、报价或扣费接口，不发送 CHAT 消息，不参与生成锁。写入只经草稿、用户确认与原数据路径，可检查冲突和撤销。
 - 模型能力由用户界定，不按名称拦截。保持技术与态度中立；「自由创作」默认关闭，附加语境、词表混淆与文本替换由此开关控制。开关不进备份；词条和规则默认空，只校验结构与映射冲突，不做词义分类或代码级画师拦截。
 - 未收藏 ASK、50 条撤销栈和调用调试仅保留本页；收藏会话、附件、待确认草稿、记忆、账本与归档保存在本机 `koma-ask`，不进普通备份。恢复的历史检查点只供查看。
@@ -39,4 +39,4 @@
 
 - 当前检查命令为 `npm run check`，依赖精确锁定并维护 `package-lock.json`。有新业务才增加必要测试，按变更运行相关浏览器或发布包套件。
 - 使用合成图片和模拟服务，不执行真实收费生成。UI 检查 320／390／768／1440px；高频仅验证不触发组件重渲染及无资源泄漏，不另建性能跑分。
-- 现行文档直接写当前行为；阶段过程、测试数字和过去授权放入归档。更新时同步入口与链接；`docs/release-guide.md` 和 `docs/third-party-assets.md` 为发布包固定文档路径。
+- 现行文档按产品、工作区、集成、工程和 ASK 分目录，同一主题只保留一个维护位置；`docs/status.md` 记录现状与待办。阶段过程、测试数字和过去授权放入按主题组织的归档。合并时移除重复入口并同步链接与锚点；`docs/release-guide.md` 和 `docs/third-party-assets.md` 为发布包固定文档路径。

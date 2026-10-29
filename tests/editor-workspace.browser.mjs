@@ -1,7 +1,7 @@
 import { before, after, test } from 'node:test';
 import assert from 'node:assert/strict';
 import { mkdir } from 'node:fs/promises';
-import { createServer } from 'vite';
+import { createServer } from './helpers/vite.mjs';
 import { chromium } from 'playwright';
 let server, browser, origin;
 before(async () => {
@@ -132,7 +132,7 @@ test('EDIT identities survive board switches, trimming, removed versions and dir
   assert.equal(result.firstScope,result.secondScope);
   for (const key of ['localMissing','oldCorrect','protectedSource','removedMissing','delivered']) assert.equal(result[key],true,key);
   assert.equal(result.history,0); assert.equal(result.current,null); assert.equal(result.eInHistory,false);
-  assert.equal(result.size,30); assert.equal(result.unique,30); assert.equal(result.first,'#e1'); assert.equal(result.last,'#e37');
+  assert.equal(result.size,35); assert.equal(result.unique,35); assert.equal(result.first,'#e1'); assert.equal(result.last,'#e37');
   assert.ok(result.favorites.includes(result.favoriteId)); assert.equal(result.editBoardId,await page.evaluate(()=>boardA)); assert.equal(result.originId,'record:a');
   for (const width of [320,390,768,1440]) {
     await page.setViewportSize({width,height:900});
@@ -140,5 +140,70 @@ test('EDIT identities survive board switches, trimming, removed versions and dir
     assert.equal(await page.locator('#imageEditor').evaluate(e=>e.scrollWidth<=innerWidth),true);
     assert.ok((await page.locator('.editor-rail .tile-id').allTextContents()).includes('#e1'));
   }
+  assert.deepEqual(errors,[]);
+});
+
+test('general retention settings commit complete values, trim each EDIT board and persist independently', {timeout:60000}, async t => {
+  const {page, errors} = await setup(t);
+  await page.evaluate(async () => {
+    for (let board = 0; board < 2; board++) {
+      if (board) await editor.open('edit', await makeImage('#663344'), 'B.png');
+      for (let i = 0; i < 6; i++) {
+        const token = editor.beginExternalEdit();
+        await editor.applyExternalEdit(token.id, {mode:'image', image:await makeImage(`rgb(${100+i},60,90)`,128,128)});
+      }
+    }
+    window.removedUrl = editor.session.versions[1].url;
+    app_shell.router.openOverlay('settings', 'general');
+  });
+  await page.waitForSelector('#editorHistoryLimit');
+  assert.equal(await page.locator('#historyLimit').inputValue(), '35');
+  assert.equal(await page.locator('#editorHistoryLimit').inputValue(), '35');
+  for (const width of [320,390,768,1440]) {
+    await page.setViewportSize({width,height:900});
+    await page.waitForFunction(() => {
+      const r = document.querySelector('#editorHistoryLimit').getBoundingClientRect();
+      return r.left >= 0 && r.right <= innerWidth;
+    });
+    assert.equal(await page.locator('.history-limit').evaluateAll(fields=>fields.every(field=>{
+      const input=field.querySelector('input').getBoundingClientRect(), unit=field.querySelector('span').getBoundingClientRect();
+      return unit.left>=input.right && unit.top>=input.top && unit.bottom<=input.bottom;
+    })),true,'quantity and unit remain on the same line');
+    await page.screenshot({path:`.local/edit-workspace/general-retention-${width}.png`});
+  }
+  const input = page.locator('#editorHistoryLimit');
+  for (const invalid of ['', '-1', '1.5']) {
+    await input.fill(invalid); await input.press('Tab');
+    assert.equal(await input.inputValue(),'35');
+  }
+  await input.fill('1');
+  assert.deepEqual(await page.evaluate(() => editor.boards().map(s=>s.versions.length)),[7,7], 'typing must not evict intermediate values');
+  await input.fill('4'); await input.press('Enter');
+  await page.waitForFunction(() => editor.boards().every(s=>s.versions.length===4));
+  assert.deepEqual(await page.evaluate(() => editor.boards().map(s=>s.versions.map(v=>v.sequence))),[[1,5,6,7],[1,5,6,7]]);
+  assert.equal(await page.evaluate(async()=>{try{await fetch(removedUrl);return false;}catch{return true;}}),true,'evicted original URL is released');
+  await page.locator('#historyLimit').fill('3'); await page.locator('#historyLimit').press('Tab');
+  await input.fill('0'); await input.press('Tab');
+  await page.waitForFunction(()=>JSON.parse(localStorage.getItem('koma.prefs.v1')).editorHistoryLimit===0);
+  await page.keyboard.press('Escape');
+  await page.evaluate(async()=>{
+    for(let i=0;i<36;i++) {
+      const token=editor.beginExternalEdit();
+      await editor.applyExternalEdit(token.id,{mode:'image',image:await makeImage(`rgb(${160+i},60,90)`,128,128)});
+    }
+  });
+  assert.equal(await page.evaluate(()=>editor.session.versions.length),40,'zero disables the cap');
+  const other=await page.context().newPage();
+  await other.goto(origin+'/#/edit/settings/general');
+  await other.waitForSelector('#editorHistoryLimit');
+  assert.equal(await other.locator('#historyLimit').inputValue(),'3');
+  assert.equal(await other.locator('#editorHistoryLimit').inputValue(),'0');
+  await other.locator('#editorHistoryLimit').fill('6'); await other.locator('#editorHistoryLimit').press('Tab');
+  await page.waitForFunction(()=>drawing.snapshot().form.editorHistoryLimit===6 && editor.session.versions.length===6);
+  await page.reload();
+  await page.evaluate(()=>location.hash='#/edit/settings/general');
+  await page.waitForSelector('#editorHistoryLimit');
+  assert.equal(await page.locator('#editorHistoryLimit').inputValue(),'6');
+  assert.equal(await page.locator('#historyLimit').inputValue(),'3');
   assert.deepEqual(errors,[]);
 });

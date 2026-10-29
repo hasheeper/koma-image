@@ -1,9 +1,9 @@
 // Production bundle + actual Photopea UI. Explicit opt-in; uses synthetic pixels, no providers.
-import {before,after,test} from 'node:test';
+import { before, after, test } from 'node:test';
 import assert from 'node:assert/strict';
-import {mkdir} from 'node:fs/promises';
-import {preview} from 'vite';
-import {chromium,webkit} from 'playwright';
+import { mkdir } from 'node:fs/promises';
+import { preview } from 'vite';
+import { chromium, webkit } from 'playwright';
 const live=process.env.KOMA_PHOTOPEA_LIVE==='1';
 const engines=(process.env.KOMA_PHOTOPEA_ENGINES||'chromium').split(',');
 let server,origin;

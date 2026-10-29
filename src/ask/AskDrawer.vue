@@ -27,7 +27,9 @@ const homeService = useHome().home;
 const drawingService = useDrawing().drawing, chatService = useChat().chat;
 const { router, image, chat } = useShell();
 const presentation = useAskPresentation();
-const { shown, mode, home, dock, canDock, latest, tools, compactDraft, completed, summary, outcome, dismiss } = presentation;
+const { shown, mode, home, mobile, fullscreen, dock, canDock, latest, tools, compactDraft, completed, summary, outcome, dismiss } = presentation;
+const inlineWindow = computed(() => !home.value && !mobile.value && !!ask.inline.value);
+const movable = computed(() => !home.value && !mobile.value && !ask.inline.value);
 const root = shallowRef<HTMLElement | null>(null),
   expanded = shallowRef(false),
   composer = shallowRef<InstanceType<typeof AskComposer> | null>(null);
@@ -82,11 +84,12 @@ onMounted(() => {
     place = installAskWindow(root.value, controller.signal);
   }
 });
-watch([mode, dock, ask.inline, expanded, () => router.route.value.workspace, () => image.historyOpen, () => chat.contextOpen], () => void nextTick(place), { flush: "post" });
+watch([mode, dock, fullscreen, ask.inline, expanded, () => router.route.value.workspace, () => image.historyOpen, () => chat.contextOpen], () => void nextTick(place), { flush: "post" });
 watch(ask.conversationId, clearDrop);
 watch(() => router.route.value.overlay, clearDrop);
 watch(ask.visible, visible => { if (!visible) { clearDrop(); ask.closeAttachment(); } });
 function resize() {
+  if (mobile.value) return;
   if (home.value) presentation.resizeHome();
   else if (!ask.inline.value) expanded.value = !expanded.value;
 }
@@ -121,7 +124,7 @@ watch(mode, async () => {
 onBeforeUnmount(() => { controller.abort(); ask.attach(null); });
 </script>
 <template>
-  <aside v-show="(!home || shown)" id="askIsland" ref="root" class="ask-island" :class="{ 'ask-inline': !home && !!ask.inline.value && shown }" :data-mode="mode" :data-home="home && shown ? dock : undefined" :data-workspace="router.route.value.workspace" :data-context-open="chat.contextOpen || undefined" :data-quiet="router.route.value.workspace === 'image' && image.state === 'busy' || undefined" :style="{ ...dimensions, '--ask-dock-w': `${presentation.dockWidth.value}px` }" aria-label="Koma ASK" :aria-describedby="home ? undefined : 'askMoveHint'">
+  <aside v-show="(!home || shown)" id="askIsland" ref="root" class="ask-island" :class="{ 'ask-inline': inlineWindow && shown }" :data-mode="mode" :data-home="home && shown ? dock : undefined" :data-fullscreen="fullscreen || undefined" :data-workspace="router.route.value.workspace" :data-context-open="chat.contextOpen || undefined" :data-quiet="router.route.value.workspace === 'image' && image.state === 'busy' || undefined" :style="{ ...dimensions, '--ask-dock-w': `${presentation.dockWidth.value}px` }" aria-label="Koma ASK" :aria-describedby="home || mobile ? undefined : 'askMoveHint'">
     <button v-show="mode === 'idle'" id="askLauncher" class="ask-layer ask-launcher ask-open" :inert="mode !== 'idle'" data-ask-grip type="button" aria-label="打开 Koma ASK" aria-controls="askDrawer" aria-expanded="false" title="Koma ASK · 可拖动 · ⌘J / Ctrl+J" @click="ask.show()"><AskMark interactive /></button>
     <div v-show="mode === 'run'" class="ask-layer ask-run" :inert="mode !== 'run'">
       <button class="ask-open ask-run-grip" data-ask-grip type="button" aria-label="展开 ASK 对话" @click="ask.show()"><AskMark thinking /><AskActivity /></button>
@@ -141,13 +144,13 @@ onBeforeUnmount(() => { controller.abort(); ask.attach(null); });
     <div v-show="mode === 'done'" class="ask-layer ask-done" :inert="mode !== 'done'">
       <button class="ask-open ask-done-grip" data-ask-grip type="button" aria-label="展开 ASK 对话" @click="ask.show()"><AppIcon name="i-check" /><span><b>已写入</b> · {{ ask.appliedDraft.value?.workspace === 'chat' ? '未发送' : '未生成' }}</span></button>
     </div>
-    <div v-show="shown" id="askDrawer" class="ask-layer ask-window" :class="{ 'ask-inline': !home && !!ask.inline.value, 'ask-expanded': !home && expanded && !ask.inline.value }" :inert="!shown" role="dialog" aria-modal="false" aria-label="Koma ASK" @paste="paste" @dragenter="drag" @dragover="drag" @dragleave="drag" @drop="drag">
+    <div v-show="shown" id="askDrawer" class="ask-layer ask-window" :class="{ 'ask-inline': inlineWindow, 'ask-expanded': movable && expanded }" :inert="!shown" role="dialog" :aria-modal="fullscreen" aria-label="Koma ASK" @paste="paste" @dragenter="drag" @dragover="drag" @dragleave="drag" @drop="drag">
       <header class="ask-head">
-        <div class="ask-handle" :data-ask-grip="home ? undefined : ''" :tabindex="home || ask.inline.value ? undefined : 0" role="group" :aria-label="home ? 'ASK' : '移动 ASK 窗口'" :aria-describedby="home ? undefined : 'askMoveHint'" @dblclick="resize"><AskMark :thinking="ask.running.value" /></div>
+        <div class="ask-handle" :data-ask-grip="movable ? '' : undefined" :tabindex="movable ? 0 : undefined" role="group" :aria-label="movable ? '移动 ASK 窗口' : 'ASK'" :aria-describedby="movable ? 'askMoveHint' : undefined" @dblclick="resize"><AskMark :thinking="ask.running.value" /></div>
         <AskConversations @chosen="composer?.focus(true)" />
-        <div class="ask-fill" :data-ask-grip="home ? undefined : ''" aria-hidden="true" @dblclick="resize"></div>
-        <button v-if="ask.inline.value" class="btn btn-quiet btn-xs" type="button" @click="ask.expand()">展开</button>
-        <button v-else-if="!home || canDock" class="ibtn" type="button" :aria-label="(home ? dock === 'full' : expanded) ? '还原 ASK 窗口' : '放大 ASK 窗口'" :title="(home ? dock === 'full' : expanded) ? '还原' : '放大'" @click="resize"><AppIcon :name="(home ? dock === 'full' : expanded) ? 'i-shrink' : 'i-expand'" /></button>
+        <div class="ask-fill" :data-ask-grip="movable ? '' : undefined" aria-hidden="true" @dblclick="resize"></div>
+        <button v-if="inlineWindow" class="btn btn-quiet btn-xs" type="button" @click="ask.expand()">展开</button>
+        <button v-else-if="!mobile && (!home || canDock)" class="ibtn" type="button" :aria-label="(home ? dock === 'full' : expanded) ? '还原 ASK 窗口' : '放大 ASK 窗口'" :title="(home ? dock === 'full' : expanded) ? '还原' : '放大'" @click="resize"><AppIcon :name="(home ? dock === 'full' : expanded) ? 'i-shrink' : 'i-expand'" /></button>
         <AskMore @debug="inspect()" />
         <button class="ibtn" type="button" aria-label="收起 ASK" title="收起" @click="ask.hide()"><svg class="ico" viewBox="0 0 24 24" aria-hidden="true"><path d="M5 12h14" /></svg></button>
       </header>
@@ -160,7 +163,7 @@ onBeforeUnmount(() => { controller.abort(); ask.attach(null); });
     </div>
     <Teleport :to="!home && mode === 'ready' && compactDraft ? '#askCompactDraft' : '#askFullDraft'" defer><DraftCard :compact="!home && mode === 'ready'" @review="ask.show()" /></Teleport>
     <div class="sr-only" role="status" aria-live="polite"><span :key="ask.announce.value.id">{{ ask.announce.value.text }}</span></div>
-    <span v-if="!home" id="askMoveHint" class="sr-only">拖动图标或标题栏移动；Alt 加方向键移动，Alt 加 Home 归位。⌘J 或 Ctrl+J 展开或收起。</span>
+    <span v-if="!home && !mobile" id="askMoveHint" class="sr-only">拖动图标或标题栏移动；Alt 加方向键移动，Alt 加 Home 归位。⌘J 或 Ctrl+J 展开或收起。</span>
   </aside>
   <AskDebug v-if="debugOpen" :turn="debugTurn" @close="debugOpen = false" />
 </template>
@@ -256,24 +259,33 @@ onBeforeUnmount(() => { controller.abort(); ask.attach(null); });
   .ask-launcher::before, .ask-launcher:hover::before { opacity: .12; transform: scale(.7); }
 }
 
-/* Approved HOME dock: the same window on a solid surface, without dragging. */
-.ask-island[data-workspace="home"][data-home] {
+/* HOME docking and mobile full-screen share the same solid surface. */
+.ask-island:is([data-home], [data-fullscreen]) {
   --ask-glass: var(--chrome); --ask-ring: var(--line-2);
-  top: 12px; right: 12px; bottom: 12px; left: auto; width: var(--ask-dock-w); height: auto;
   background: none; backdrop-filter: none; border-radius: 18px; box-shadow: none;
   transition-property: top, right, bottom, width, border-radius;
   transition-duration: .52s; transition-timing-function: cubic-bezier(.32, .72, 0, 1);
 }
-.ask-island[data-home]::before {
+.ask-island[data-workspace="home"][data-home="half"] {
+  top: 12px; right: 12px; bottom: 12px; left: auto; width: var(--ask-dock-w); height: auto;
+}
+.ask-island:is([data-home], [data-fullscreen])::before {
   position: absolute; inset: 0; z-index: -1; content: ""; background: var(--ask-glass); border-radius: inherit;
   box-shadow: inset 0 0 0 1px var(--ask-ring);
   transition: background-color .52s cubic-bezier(.32, .72, 0, 1), box-shadow .52s cubic-bezier(.32, .72, 0, 1);
 }
 /* Scoped CSS keeps the html ancestor as written; :global() would swallow the whole selector and hide the page. */
 html[data-home-vt] .ask-island[data-home]::before { opacity: 0; }
-.ask-island[data-workspace="home"][data-home="full"] { --ask-glass: var(--canvas); --ask-ring: transparent; top: 0; right: 0; bottom: 0; width: 100%; border-radius: 0; }
-.ask-island[data-home] :deep(.ask-stream), .ask-island[data-home] .ask-bottom { padding-inline: max(16px, calc((100% - 760px) / 2)); }
-.ask-island[data-home="full"] .ask-head { padding: 0 14px 0 18px; }
-.ask-island[data-home] :is(.ask-handle, .ask-fill) { cursor: default; touch-action: auto; }
-@media (prefers-reduced-motion: reduce) { .ask-island[data-home], .ask-island[data-home]::before { transition: none; } }
+.ask-island[data-workspace][data-fullscreen] {
+  --ask-glass: var(--canvas); --ask-ring: transparent;
+  top: var(--ask-viewport-top, 0px); right: auto; bottom: auto; left: var(--ask-viewport-left, 0px);
+  width: var(--ask-available-width, 100vw); height: var(--ask-available-height, 100dvh); border-radius: 0;
+  transition-property: border-radius;
+}
+.ask-island:is([data-home], [data-fullscreen]) :deep(.ask-stream), .ask-island:is([data-home], [data-fullscreen]) .ask-bottom { padding-inline: max(16px, calc((100% - 760px) / 2)); }
+.ask-island[data-fullscreen] .ask-head { height: calc(48px + env(safe-area-inset-top)); padding: env(safe-area-inset-top) max(14px, env(safe-area-inset-right)) 0 max(18px, env(safe-area-inset-left)); }
+.ask-island[data-fullscreen] .ask-bottom { padding-bottom: calc(14px + env(safe-area-inset-bottom)); }
+.ask-island:is([data-home], [data-fullscreen]) :is(.ask-handle, .ask-fill) { cursor: default; touch-action: auto; }
+:global(body:has(.ask-island[data-fullscreen])) { overflow: hidden; }
+@media (prefers-reduced-motion: reduce) { .ask-island:is([data-home], [data-fullscreen]), .ask-island:is([data-home], [data-fullscreen])::before { transition: none; } }
 </style>

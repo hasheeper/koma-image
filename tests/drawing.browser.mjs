@@ -1,7 +1,7 @@
 import { test, before, after } from "node:test";
 import assert from "node:assert/strict";
 import { mkdir } from "node:fs/promises";
-import { createServer } from "vite";
+import { createServer } from './helpers/vite.mjs';
 import { chromium } from "playwright";
 import { createArchive } from "../src/storage/backup-archive.ts";
 let browser, server, origin;
@@ -96,7 +96,8 @@ async function open(options = {}) {
     if (!localStorage.getItem("koma.prefs.v1"))
       localStorage.setItem(
         "koma.prefs.v1",
-        JSON.stringify({ tagSuggest: false }),
+        // A previously disabled history switch must not override the quantity.
+        JSON.stringify({ tagSuggest: false, localCache: false }),
       );
   });
   page.on("pageerror", (e) => errors.push(e.message));

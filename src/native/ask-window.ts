@@ -25,10 +25,14 @@ export function installAskWindow(root: HTMLElement, signal: AbortSignal) {
       canvas = nextCanvas;
       if (canvas) observer.observe(canvas);
     }
-    root.style.setProperty('--ask-available-height', `${window.visualViewport?.height ?? innerHeight}px`);
+    const viewport = window.visualViewport;
+    root.style.setProperty('--ask-available-height', `${viewport?.height ?? innerHeight}px`);
+    root.style.setProperty('--ask-available-width', `${viewport?.width ?? innerWidth}px`);
+    root.style.setProperty('--ask-viewport-top', `${viewport?.offsetTop ?? 0}px`);
+    root.style.setProperty('--ask-viewport-left', `${viewport?.offsetLeft ?? 0}px`);
     if (!root.getClientRects().length) return;
     if (root.dataset.mode === 'ready' && ready) root.style.setProperty('--ask-ready-height', `${ready.offsetHeight}px`);
-    if (root.dataset.workspace === 'home') {
+    if (root.dataset.workspace === 'home' || root.hasAttribute('data-fullscreen')) {
       root.style.removeProperty('--ask-right'); root.style.removeProperty('--ask-top'); return;
     }
     if (root.classList.contains('ask-inline')) return;
@@ -52,7 +56,7 @@ export function installAskWindow(root: HTMLElement, signal: AbortSignal) {
   root.querySelectorAll<HTMLElement>('[data-ask-grip], .ask-handle, .ask-fill').forEach(grip => {
     let start: { id: number; x: number; y: number; right: number; top: number } | null = null;
     let moved = false, suppressClick = false;
-    const enabled = () => root.dataset.workspace !== 'home' && !root.classList.contains('ask-inline');
+    const enabled = () => root.dataset.workspace !== 'home' && !root.hasAttribute('data-fullscreen') && !root.classList.contains('ask-inline');
     grip.addEventListener('pointerdown', event => {
       if (event.button !== 0 || !event.isPrimary || !enabled()) return;
       // The idle press scales visually; layout coordinates keep the drag stable.

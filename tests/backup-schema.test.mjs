@@ -14,6 +14,14 @@ test("image source priorities remain separate from available links in exported/r
   assert.deepEqual(restored.links, {});
 });
 
+test('history capacities round-trip as general preferences, separate from transient EDIT images', () => {
+  const drawing = JSON.stringify({historyLimit:17,editorHistoryLimit:0});
+  const preferences = collectBackupPreferences({getItem:key=>key===names.preferences?drawing:null});
+  const restored=validateBackupManifest({...manifest(),preferences});
+  assert.deepEqual(JSON.parse(restored.preferences.drawing),{historyLimit:17,editorHistoryLimit:0});
+  assert.equal('editor' in restored.preferences,false);
+});
+
 test('image identity metadata validates both registration directions and retains scoped lineage', () => {
   const entity_key=`sha256:${'a'.repeat(64)}`, parent_ref={tag:'#e1.2',record_id:'parent',entity_key,scope:{kind:'page',id:'old-page',board_id:'old-board'}};
   const favorite={id:'one',favSeq:3,entity_key,lineage:{via:'edit:photopea',parent_record_id:'parent',parent_entity_key:entity_key,parent_ref},image:{path:'favorites/0.png',type:'image/png'},thumbnail:null};

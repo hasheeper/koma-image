@@ -1,7 +1,7 @@
 import { before, after, test } from "node:test";
 import assert from "node:assert/strict";
 import { mkdir } from "node:fs/promises";
-import { createServer } from "vite";
+import { createServer } from './helpers/vite.mjs';
 import { chromium } from "playwright";
 import { createArchive } from "../src/storage/backup-archive.ts";
 let browser, server, origin;
@@ -750,12 +750,16 @@ test("dictionary and prompt: weighted handoff once, picker toggle, highlight, au
     await page.waitForSelector('section[aria-label="通用"]', {
       state: "visible",
     });
-    await page.locator('label[for="localCache"]').click();
-    assert.equal(await page.locator("#historyLimit").isDisabled(), true);
-    assert.equal(await page.locator("#historyLimit").inputValue(), "1");
-    await page.locator('label[for="localCache"]').click();
-    assert.equal(await page.locator("#historyLimit").inputValue(), "25");
+    assert.equal(await page.locator("#localCache").count(), 0);
+    assert.equal(await page.locator("#historyLimit").isDisabled(), false);
+    assert.equal(await page.locator("#historyLimit").inputValue(), "35");
+    await page.locator("#historyLimit").fill("1");
+    await page.locator("#historyLimit").press("Enter");
+    await page.waitForFunction(
+      () => JSON.parse(localStorage.getItem("koma.prefs.v1")).historyLimit === 1,
+    );
     await page.locator("#historyLimit").fill("0");
+    await page.locator("#historyLimit").press("Tab");
     await page.waitForFunction(
       () =>
         JSON.parse(localStorage.getItem("koma.prefs.v1")).historyLimit === 0,
@@ -763,7 +767,7 @@ test("dictionary and prompt: weighted handoff once, picker toggle, highlight, au
     await page.reload();
     await page.waitForSelector("#historyLimit");
     assert.equal(await page.locator("#historyLimit").inputValue(), "0");
-    assert.equal(await page.locator("#localCache").isChecked(), true);
+    assert.equal(await page.locator("#localCache").count(), 0);
     await clean(t);
   } catch (e) {
     await t.page.screenshot({ path: `${output}/failure-tags.png` });

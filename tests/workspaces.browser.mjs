@@ -1,7 +1,7 @@
 import { test, before, after } from "node:test";
 import assert from "node:assert/strict";
 import { mkdir } from "node:fs/promises";
-import { createServer } from "vite";
+import { createServer } from './helpers/vite.mjs';
 import { chromium } from "playwright";
 let browser, server, origin;
 const catalog = {
@@ -1193,7 +1193,7 @@ test("M5 embedded multi-image order, asset limits, exact bytes and immediate pag
   }
 });
 
-test("M6 EXIF orientation aligns source and mask; session switching and 30-version eviction preserve the base", async () => {
+test("M6 EXIF orientation aligns source and mask; session switching and default retention preserve the base", async () => {
   const t = await open("#/image"),
     p = t.page;
   try {
@@ -1279,7 +1279,7 @@ test("M6 EXIF orientation aligns source and mask; session switching and 30-versi
         old = editor.snapshot().viewed;
       editor.setMode("img2img");
       editor.setBase(base.id);
-      for (let i = 0; i < 32; i++) {
+      for (let i = 0; i < 37; i++) {
         // Synthetic derivatives exercise per-board eviction; imports create boards.
         const token = editor.beginExternalEdit();
         const c = new OffscreenCanvas(base.width, base.height), x = c.getContext("2d");
@@ -1296,7 +1296,7 @@ test("M6 EXIF orientation aligns source and mask; session switching and 30-versi
       };
     });
     assert.deepEqual(capped, {
-      count: 30,
+      count: 35,
       base: 1,
       retained: true,
       revoked: true,

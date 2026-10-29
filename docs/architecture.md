@@ -1,6 +1,6 @@
 # 架构规范
 
-更新：2026-10-29。描述当前核心技术、模块结构与所有权。产品定位和功能见[产品总览](product-overview.md)，功能状态和真实待验项见[当前状态](implementation-plan.md)，UI 标准见[设计语言](design-language.md)，行为约束见[业务契约](business-contracts.md)。
+更新：2026-10-29。描述当前核心技术、模块结构与所有权。产品定位和功能见[产品总览](product/overview.md)，功能状态和真实待验项见[当前状态](status.md)，UI 标准见[设计语言](product/design-language.md)，行为约束见[业务契约](business-contracts.md)。
 
 ## 核心技术
 
@@ -26,7 +26,8 @@
 - 单入口 `index.html`，轻量 hash 路由为 `#/home`、`#/image`、`#/chat`、`#/edit`、`#/tags`；HOME／IMAGE／CHAT／TAGS 以稳定 ID 使用 KeepAlive，EDIT 首次挂载后原位隐藏保活，避免移动 iframe 重载。空或未知路由进入 HOME，显式路由保留；HOME 没有车间顶栏。
 - 切换保留草稿、附件、选图、滚动和在途任务。EDIT 是独立页面，每张独立来源图拥有自己的编辑画板，设置为单例弹窗，备份为其子页；旧 backup 路由仍可访问。
 - `src/app/presentation.ts` 管页面 class、data 属性、标题、favicon 与样式开关。隐藏工作区暂停界面事件和绘制，不取消后台任务。
-- 应用级服务在 KeepAlive 外持有数据、任务与资源。ASK 由外壳持有，车间使用不挤压工作区的全局浮层，HOME 使用半屏／全屏停靠；EDIT 同样可用 ASK，Photopea 打开时收起并让出键盘。
+- 应用级服务在 KeepAlive 外持有数据、任务与资源。ASK 由外壳持有，车间桌面使用不挤压工作区的全局浮层，860px 及以下展开为全屏；HOME 使用半屏／全屏停靠；EDIT 同样可用 ASK，Photopea 打开时收起并让出键盘。
+- 设置、任务总览与 Photopea 界面在首次使用时按需加载。设置首次挂载后保留同一 dialog，Photopea 继续原位保留 iframe；应用级服务与工作区切换仍按原所有权运行。设置加载期间切走时，以最新路由决定是否打开。
 - `chat.html`、`tags.html`、`transfer.html` 只重定向到同一应用并保留查询参数，不初始化另一套应用或访问旧数据。
 
 ## DOM 与高频驱动
@@ -35,15 +36,15 @@ Vue 创建、包裹、移动和销毁节点。高亮组件在模板中声明 mir
 
 Canvas、指针、逐帧进度和明确委托的高频样式由原生驱动管理，结束时同步必要业务状态。Blob、ImageBitmap、DOM、数据库、AbortController 和 CryptoKey 不进入深层 reactive。监听器、Observer、rAF 与 Object URL 有明确的激活、暂停、引用和销毁责任。
 
-EDIT 由应用级服务持有独立画板、源版本、蒙版与任务归属。蒙版与手动聚焦框在同板同尺寸版本间沿用；聚焦重绘由客户端裁切／放大后单次请求，再仅合成原尺寸蒙版区域；手动结果与生成结果分型，原始出处及来源配方独立记录，结果留在 EDIT，经收藏与 Slate 交付。Director Tools 使用独立官方工具协议，输入取当前查看版本，去背景三种结果成组展示、保留透明通道与来源配方；所有输出解码与版本处理完成后释放同一任务槽。后台结果归发起画板，不抢占当前页；详见[编辑工作区](edit-workspace.md)。
+EDIT 由应用级服务持有独立画板、源版本、蒙版与任务归属。蒙版与手动聚焦框在同板同尺寸版本间沿用；聚焦重绘由客户端裁切／放大后单次请求，再仅合成原尺寸蒙版区域；手动结果与生成结果分型，原始出处及来源配方独立记录，结果留在 EDIT，经收藏与 Slate 交付。Director Tools 使用独立官方工具协议，输入取当前查看版本，去背景三种结果成组展示、保留透明通道与来源配方；所有输出解码与版本处理完成后释放同一任务槽。后台结果归发起画板，不抢占当前页；详见[编辑工作区](workspaces/edit.md)。
 
-Photopea 首次打开后保留单 iframe，每编辑画板拥有独立分层文档。固定脚本、串行消息、输入归一化与临时 PSD 元数据检查由 `src/native/photopea-*` 分工；宿主只持轻量身份与状态。回传冻结来源，经完整校验一次提交；临时内存副本导出干净图像和蒙版，原分层及撤销／重做保留。完整视口、延迟重排、通道隔离与资源清理见[Photopea 接入与工作栈](photopea-workstack-spec.md)。
+Photopea 首次打开后保留单 iframe，每编辑画板拥有独立分层文档。固定脚本、串行消息、输入归一化与临时 PSD 元数据检查由 `src/native/photopea-*` 分工；宿主只持轻量身份与状态。回传冻结来源，经完整校验一次提交；临时内存副本导出干净图像和蒙版，原分层及撤销／重做保留。完整视口、延迟重排、通道隔离与资源清理见[Photopea 接入与工作栈](integrations/photopea.md)。
 
 ## 协议与连接
 
 依赖方向为工作区 → domain／services → Gateway Profile → transport。Profile 声明目录、鉴权、报价、额度、路线及图像／推理能力，不按连接名称或域名分支。
 
-登记表包含六种协议：Koma 标准网关、OpenAI Images、Gemini 原生、NovelAI 官方、OpenAI Chat 兼容和 Anthropic Messages。前四种服务图像工作区，后两种仅服务 ASK 推理、命名和压缩。实现边界见[图像协议](native-image-protocols.md)和[ASK 运行契约](ask/ask-contracts-and-decisions.md)。
+登记表包含六种协议：Koma 标准网关、OpenAI Images、Gemini 原生、NovelAI 官方、OpenAI Chat 兼容和 Anthropic Messages。前四种服务图像工作区，后两种仅服务 ASK 推理、命名和压缩。实现边界见[图像协议](integrations/image-protocols.md)和[ASK 运行契约](ask/runtime.md)。
 
 标准网关保留防抖报价、执行前重报、`max_cost`、原生／Studio／工具分流和余额检查。无报价能力保留未知费用状态，与报价失败、零值、加载分开；生成按钮暂不展示未知费用标签。没有协议自动回退或生成自动重试。
 
@@ -51,7 +52,7 @@ Photopea 首次打开后保留单 iframe，每编辑画板拥有独立分层文�
 
 新环境连接为空；启动保留目标工作区，空配置或缺 Key 不自动打开设置或配置窗。用户在设置中通过统一「配置供应商」弹窗一次保存名称、协议、地址与 Key，配置 URL／Key 后才能请求。Key 按供应商选择浏览器保存或仅本次会话，不再使用口令和独立 Key 弹窗；凭据不进入普通备份。兼容服务不内置私有地址，NovelAI 官方可以固定公开官方主机。直连依赖服务支持 CORS。
 
-连接设置采用局部更新：排序、改名和模型来源编辑复用原始目录，保留当前列表与操作状态；地址／协议／Key 改变才使相应目录失效。原始目录缓存与执行上下文分离，后者仍按配置变化失效；报价和余额在执行前重新检查。具体责任见[网关与数据](gateway-data-scheduler.md)。
+连接设置采用局部更新：排序、改名和模型来源编辑复用原始目录，保留当前列表与操作状态；地址／协议／Key 改变才使相应目录失效。原始目录缓存与执行上下文分离，后者仍按配置变化失效；报价和余额在执行前重新检查。具体责任见[网关与数据](engineering/data-and-tasks.md)。
 
 ## 静态版与本地代理
 
@@ -67,17 +68,17 @@ Photopea 首次打开后保留单 iframe，每编辑画板拥有独立分层文�
 
 ## 调度与数据
 
-图像任务共用应用级调度器和 Web Locks，默认 N=1；忙时返回提示，不自动排队。批次持续占槽直到图片解码与结果处理完成。ASK 推理不占生成锁。数据库写入统一经数据租约和 `data.write`，延迟保存与缓存提供 flush／reload。详细责任见[网关、数据与调度](gateway-data-scheduler.md)。
+图像任务共用应用级调度器和 Web Locks，默认 N=1；忙时返回提示，不自动排队。批次持续占槽直到图片解码与结果处理完成。ASK 推理不占生成锁。数据库写入统一经数据租约和 `data.write`，延迟保存与缓存提供 flush／reload。详细责任见[网关、数据与调度](engineering/data-and-tasks.md)。
 
 数据库为 `koma-image-favorites`、`koma-chat`、`koma-handoff`、`koma-ask`、`koma-bridge`、`koma-slate`、`koma-home`，偏好与凭据使用 `koma.*`，同步频道为 `koma-sync`。锁和键名集中于 `src/storage/names.ts`。ASK 收藏会话及附件、记忆和归档保存在独立库，不进入普通 ZIP；撤销执行记录和调用调试不持久化。
 
-Bridge 的目录句柄、去重回执及预览归属保存在 `koma-bridge/state`，通过 `data.write` 写入且不进入普通备份。应用级 Bridge 服务负责前台文件同步，独立目录锁保证同源单写入者；外部草稿及队列归 ASK 会话持有，共用已有草稿与撤销服务。默认本地任务由 `src/slate/` 管理，`koma-slate` 保存任务、独立成果和跨画板提交记录；目录映射／交付回执保存在 `koma-bridge`，均不进入普通 ZIP。任务不属于 ASK 会话，目录和 Key 缺失时仍可使用。详见[外部协同与任务板](ask/bridge.md)。
+Bridge 的目录句柄、去重回执及预览归属保存在 `koma-bridge/state`，通过 `data.write` 写入且不进入普通备份。应用级 Bridge 服务负责前台文件同步，独立目录锁保证同源单写入者；外部草稿及队列归 ASK 会话持有，共用已有草稿与撤销服务。默认本地任务由 `src/slate/` 管理，`koma-slate` 保存任务、独立成果和跨画板提交记录；目录映射／交付回执保存在 `koma-bridge`，均不进入普通 ZIP。任务不属于 ASK 会话，目录和 Key 缺失时仍可使用。详见[外部协同与任务板](integrations/bridge.md)。
 
-HOME 服务在 App 中创建一次，订阅现有画板、图片、收藏、CHAT、EDIT、Slate 与路由，只投影身份和展示元数据。`koma-home/previews` 保存每 IMAGE 画板最新的 1080px 展示副本，`koma.home.v1` 保存封面、布局与返回位置；均不进入普通 ZIP，副本不可作为原图使用。写入遵守数据租约、flush／reload 和新旧源图校验，界面停用清理监听与测量，资源替换时释放 URL。CHAT 的首页读取仅访问本地存储，不触发目录、报价或额度。布局为纯尺寸计算，ASK 停靠复用同一服务与呈现状态，过渡保持 Vue 节点所有权；详见[HOME 工作区](koma-home.md)。
+HOME 服务在 App 中创建一次，订阅现有画板、图片、收藏、CHAT、EDIT、Slate 与路由，只投影身份和展示元数据。`koma-home/previews` 保存每 IMAGE 画板最新的 1080px 展示副本，`koma.home.v1` 保存封面、布局与返回位置；均不进入普通 ZIP，副本不可作为原图使用。写入遵守数据租约、flush／reload 和新旧源图校验，界面停用清理监听与测量，资源替换时释放 URL。CHAT 的首页读取仅访问本地存储，不触发目录、报价或额度。布局为纯尺寸计算，ASK 停靠复用同一服务与呈现状态，过渡保持 Vue 节点所有权；详见[HOME 工作区](workspaces/home.md)。
 
 CHAT 收藏复制原始字节到既有收藏库，以会话／轮次／版本／资产组成稳定身份；不依赖源会话继续存在。EDIT 与 Slate 参数白名单保留这些来源和 `editId`／`editParent`；显示编号不作为持久身份。CHAT 的词文和选项不是绘图配方，UI 参数导入和 ASK 部分恢复均拒绝将其写入绘图参数。
 
-这里的本地存储属于当前浏览器和站点来源，Cloudflare Pages 与本地服务均可运行 Todo；域名、端口或浏览器变化不共享数据。会话只关联 Slate ID，不拥有清单和成果；稳定身份与持久版本由任务服务管理，草稿校验沿用[共享编辑规则](ask/bridge.md#ask-推进与复合草稿)。
+这里的本地存储属于当前浏览器和站点来源，Cloudflare Pages 与本地服务均可运行 Todo；域名、端口或浏览器变化不共享数据。会话只关联 Slate ID，不拥有清单和成果；稳定身份与持久版本由任务服务管理，草稿校验沿用[共享编辑规则](integrations/bridge.md#ask-推进与复合草稿)。
 
 ASK 的只读工具与外部 IMAGE 收件共用草稿结构，提示词、参数、`slate_edit` 和 `save_ref` 在 DraftCard 审阅。确认写入器协调原画板路径、本地任务／资产及文件预检与补偿，完成记录复用工具完成态；文件系统与 IndexedDB 之间不提供跨进程原子事务。公开 `/skills/koma-bridge/SKILL.md` 只说明外部操作方式，目录内生成的 `PROTOCOL.md` 才描述当前字段，不构成远程文件访问接口。
 
@@ -87,7 +88,7 @@ NAI 参考资产与编码由应用级 `services/nai-references.ts` 管理，收�
 
 ## 图片身份
 
-[图片身份与引用](image-identity.md)区分原图字节实体、操作记录及带作用域的展示短码。收藏库 schema v3 在原存储上增加最小编号登记和库身份；收藏号跨刷新固定，页内历史与 EDIT 号不持久化。ASK 冻结整轮具体绑定，按实体共享视觉编码和已看资格，按记录读取配方。EDIT 结果不自动进入 IMAGE 历史，Bridge 仅导出 EDIT 只读目录，外部草稿仍只写 IMAGE。内置 ASK 的 NAI 能力／预算／费用通过共用只读服务获取；EDIT 草稿经专用无报价写入器应用，蒙版、底图与生成不交给 ASK。见 [NAI 基础感知](ask/ask-nai-awareness.md)及 [ASK × EDIT](ask/ask-edit.md)。
+[图片身份与引用](engineering/image-identity.md)区分原图字节实体、操作记录及带作用域的展示短码。收藏库 schema v3 在原存储上增加最小编号登记和库身份；收藏号跨刷新固定，页内历史与 EDIT 号不持久化。ASK 冻结整轮具体绑定，按实体共享视觉编码和已看资格，按记录读取配方。EDIT 结果不自动进入 IMAGE 历史，Bridge 仅导出 EDIT 只读目录，外部草稿仍只写 IMAGE。内置 ASK 的 NAI 能力／预算／费用通过共用只读服务获取；EDIT 草稿经专用无报价写入器应用，蒙版、底图与生成不交给 ASK。见 [NAI 基础感知](ask/nai-awareness.md)及 [ASK × EDIT](ask/edit.md)。
 
 ## 代码与维护入口
 
@@ -107,8 +108,10 @@ NAI 参考资产与编码由应用级 `services/nai-references.ts` 管理，收�
 
 `src/` 自有逻辑使用严格 TS／Vue TS，类型来自实现，不增加 JS 配对声明。测试、服务器和工具保留原运行方式。
 
-字体由配置生成，公共 CSS 按 tokens／base／controls／ui 分层，组件私有样式回归对应 Vue；保留词典 image＋tags、高亮全局指标等已记录依赖。维护入口见[字体](font-style-governance.md)、[样式归属](style-ownership.md)与[检查](style-ownership.md#样式检查)。
+字体由配置生成，公共 CSS 按 tokens／base／controls／ui 分层，组件私有样式回归对应 Vue；保留词典 image＋tags、高亮全局指标等已记录依赖。维护入口见[字体](engineering/ui-maintenance.md#字体配置与重建)、[样式归属](engineering/ui-maintenance.md)与[检查](engineering/ui-maintenance.md#样式检查)。
 
 ## 验证边界
 
 用合成数据和模拟接口验证业务。UI 基础宽度为 320／390／768／1440px；高频检查只验证不触发 Vue 重渲染及无资源泄漏。历史验收在[归档](archive/README.md)；真实供应商生成、效果、扣费和缓存命中仍需独立证据。
+
+CI 与本地完整浏览器检查共用 `scripts/test-browser.mjs` 自动发现清单。纯规则保留 Node 单元测试，浏览器用例按功能组织；共享模拟环境在 `tests/helpers/`，每套件 Vite 缓存独立于交互开发服务器及其他套件。真实 Photopea 联网测试仍需显式开启，默认跳过。命令与维护约定见[开发与检查](../README.md#开发与检查)。

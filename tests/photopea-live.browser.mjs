@@ -1,9 +1,9 @@
 // Explicit opt-in: real Photopea, synthetic images, no generation endpoints or credentials.
-import {before,after,test} from 'node:test';
+import { before, after, test } from 'node:test';
 import assert from 'node:assert/strict';
-import {mkdir} from 'node:fs/promises';
-import {createServer} from 'vite';
-import {chromium} from 'playwright';
+import { mkdir } from 'node:fs/promises';
+import { createServer } from './helpers/vite.mjs';
+import { chromium } from 'playwright';
 const enabled=process.env.KOMA_PHOTOPEA_LIVE==='1';
 let server,browser,origin;
 before(async()=>{if(!enabled)return;await mkdir('.local/workstack',{recursive:true});server=await createServer({server:{host:'127.0.0.1',port:0,open:false,hmr:false}});await server.listen();origin=`http://127.0.0.1:${server.httpServer.address().port}`;browser=await chromium.launch({headless:true});});

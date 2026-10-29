@@ -1,7 +1,7 @@
 import { before, after, test } from 'node:test';
 import assert from 'node:assert/strict';
 import { mkdir } from 'node:fs/promises';
-import { createServer } from 'vite';
+import { createServer } from './helpers/vite.mjs';
 import { chromium } from 'playwright';
 
 let server, browser, origin;
@@ -29,7 +29,7 @@ async function start(context, seed = false) {
     const { createSlates } = await import('/src/slate/service.ts');
     const { createUi } = await import('/src/app/ui.ts');
     const { createRouter } = await import('/src/app/router.ts');
-    const { effectScope } = await import('/node_modules/.vite/deps/vue.js');
+    const { effectScope } = await import('/tests/helpers/vue.mjs');
     window.names = (await import('/src/storage/names.ts')).names;
     window.dbTools = await import('/src/storage/databases.ts');
     window.errors = []; window.network = [];

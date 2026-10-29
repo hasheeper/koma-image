@@ -66,7 +66,7 @@ export function editAwareness(s: EditDraftState) {
   try {directorSizeValue=(s.viewing??source)?directorSize((s.viewing??source)!):null;} catch { /* Source issue remains visible. */ }
   const directorPrice=directorModel && directorSizeValue ? directorCost({model:directorModel.id,tool:'director',directorTool:c.director.tool,...directorSizeValue,...directorOptions},
     sameSource && directorModel.connection===model?.connection && pricing?.accountAt && Date.now()-pricing.accountAt<60_000 ? pricing.account : undefined) : null;
-  const {naiReferences:_refs,negative_prompt:_negative,historyLimit:_history,tagSuggest:_tags,localCache:_local,optimize:_optimize,cfg:_cfg,batchCount:_batch,...saved}=form as typeof form & {negative_prompt?:string};
+  const {naiReferences:_refs,negative_prompt:_negative,historyLimit:_history,editorHistoryLimit:_editorHistory,tagSuggest:_tags,optimize:_optimize,cfg:_cfg,batchCount:_batch,...saved}=form as typeof form & {negative_prompt?:string};
   const snapshot={ready:s.ready,active_board_id:s.id,board_seq:s.boardSeq,board_name:s.name,base_hash:editStateHash(s),mask_revision:s.maskRevision,
     mode,inpaint_kind:mode==='inpaint'?(c.focus.on?'focused':'normal'):undefined,mask:s.mask,focus_box,
     form:mode==='upscale'?{model:form.model,upscale:{kind:model?.provider==='fal'?'external':'native'}}:

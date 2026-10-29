@@ -1,6 +1,8 @@
 <script setup lang="ts">
 import { computed, shallowRef, ref, watch, nextTick, onDeactivated } from "vue";
 import { useShell } from "../../app/shell";
+import { useAskPresentation } from "../../ask/presentation";
+const { fullscreen: askFullscreen } = useAskPresentation();
 import { useChat } from "../../app/chat";
 import { useServices } from "../../app/services";
 import { useUi } from "../../app/ui";
@@ -368,7 +370,7 @@ onDeactivated(() => {
 });
 </script>
 <template>
-  <div class="chat-app" id="chatApp" data-workspace-root="chat">
+  <div class="chat-app" id="chatApp" data-workspace-root="chat" :inert="askFullscreen">
     <header class="topbar">
       <WorkspaceSwitch workspace="chat" /><button
         class="ibtn rail-toggle"

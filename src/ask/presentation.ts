@@ -9,9 +9,11 @@ import { createHomeTransitions } from "../home/transition.ts";
 export function createAskPresentation(ask: Ask, router: AppRouter) {
   const shown = shallowRef(ask.visible.value), homeSize = shallowRef<'half' | 'full'>('half');
   const viewport = shallowRef(innerWidth), home = computed(() => router.route.value.workspace === 'home');
+  const mobile = computed(() => viewport.value <= 860);
   const canDock = computed(() => viewport.value >= 1280);
   const dockWidth = computed(() => Math.round(Math.min(480, Math.max(420, viewport.value * .32))));
   const dock = computed(() => !home.value || !shown.value ? 'off' : !canDock.value ? 'full' : homeSize.value);
+  const fullscreen = computed(() => shown.value && (home.value ? dock.value === 'full' : mobile.value));
   const reserve = computed(() => home.value && shown.value && canDock.value ? dockWidth.value + 12 : 0);
   const dismissedTurn = shallowRef(0), dismissedApplied = shallowRef<object | null>(null);
   let measure = () => {};
@@ -71,7 +73,7 @@ export function createAskPresentation(ask: Ask, router: AppRouter) {
     else note.value = value;
   }, { flush: 'sync' });
   onScopeDispose(() => { transitions.cancel(); clearTimeout(doneTimer); window.removeEventListener('resize', resize); });
-  return { shown, mode, note, home, dock, canDock, dockWidth, reserve, homeSize, latest, tools, compactDraft, completed, activity, outcome, summary, dismiss,
+  return { shown, mode, note, home, mobile, fullscreen, dock, canDock, dockWidth, reserve, homeSize, latest, tools, compactDraft, completed, activity, outcome, summary, dismiss,
     measureWith(callback: () => void) { measure = callback; return () => { if (measure === callback) measure = () => {}; }; },
     resizeHome() { homeSize.value = homeSize.value === 'half' ? 'full' : 'half'; } };
 }

@@ -1,7 +1,7 @@
 import { before, after, test } from 'node:test';
 import assert from 'node:assert/strict';
 import { mkdir } from 'node:fs/promises';
-import { createServer } from 'vite';
+import { createServer } from './helpers/vite.mjs';
 import { chromium } from 'playwright';
 let server,browser,origin;
 before(async()=>{await mkdir('.local/ea',{recursive:true});server=await createServer({server:{host:'127.0.0.1',port:0,open:false,hmr:false}});await server.listen();origin='http://127.0.0.1:'+server.httpServer.address().port;browser=await chromium.launch({headless:true});});

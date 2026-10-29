@@ -9,6 +9,11 @@ import { activeCharacters, readCharacters, nextCharacterId, sameValue } from "./
 import type { Character, Placement } from "./characters.ts";
 import { naiCapabilities, compileNaiPrompt, readNaiSettings, naiModes, complexities, qualityPresets, negativePresets } from "./nai.ts";
 import { noiseSchedules, naiNoiseSchedule } from "./nai-parameters.ts";
+export const DEFAULT_HISTORY_LIMIT = 35;
+export const readHistoryLimit = (value: unknown): number =>
+  typeof value === "number" && Number.isSafeInteger(value) && value >= 0
+    ? value
+    : DEFAULT_HISTORY_LIMIT;
 export const DEFAULTS = {
   prompt: "",
   negative: "",
@@ -24,8 +29,8 @@ export const DEFAULTS = {
   batchCount: 1,
   optimize: false,
   transparentBg: false,
-  localCache: true,
-  historyLimit: 25,
+  historyLimit: DEFAULT_HISTORY_LIMIT,
+  editorHistoryLimit: DEFAULT_HISTORY_LIMIT,
   tagSuggest: true,
   naiReferences: emptyReferences(),
   characters: [] as Character[],

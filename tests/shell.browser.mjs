@@ -56,7 +56,11 @@ async function open(path = "/#/image") {
   });
   const page = await context.newPage();
   const errors = [],
-    external = [];
+    external = [],
+    scripts = [];
+  page.on("request", request => {
+    if (request.resourceType() === "script") scripts.push(new URL(request.url()).pathname);
+  });
   page.on("pageerror", (error) => errors.push(error.message));
   page.on("console", (message) => {
     if (message.type() === "error") errors.push(message.text());
@@ -76,7 +80,7 @@ async function open(path = "/#/image") {
   });
   await page.goto(`${origin}${path}`);
   await page.waitForSelector("[data-workspace-root]");
-  return { page, context, errors, external };
+  return { page, context, errors, external, scripts };
 }
 async function switchTo(page, id) {
   await page.locator(".switcher:visible").click();
@@ -354,6 +358,11 @@ test("repeat activation and dialog cycles retain one listener set and release in
       .sort();
   }
   for (const id of ["chat", "tags", "image"]) await switchTo(page, id);
+  // Compare repeated use after the lazy singleton has been created once.
+  await page.evaluate(() => { location.hash = "#/image/settings/connections"; });
+  await page.waitForSelector("#settingsPanel[open]");
+  await page.keyboard.press("Escape");
+  await page.waitForSelector("#settingsPanel[open]", { state: "hidden" });
   const initialWindow = await listeners("window");
   const initialViewport = await listeners("visualViewport");
   const initialDocument = await listeners("document");
@@ -419,6 +428,10 @@ test("neutral HTML redirects preserve tickets and work under a static subpath", 
           await result.page.locator("#tagSearch").inputValue(),
           "blue hair",
         );
+      if (file !== "transfer.html") {
+        await result.page.evaluate(route => { location.hash = `#/${route}/settings/connections`; }, route);
+        await result.page.waitForSelector("#settingsPanel[open]");
+      }
       const href = `${prefix}assets/icons.svg#i-swap`;
       await result.page.waitForFunction(href => {
         const value = document.querySelector(".conn-empty .connection-avatar use")?.getAttribute("href");
@@ -430,4 +443,38 @@ test("neutral HTML redirects preserve tickets and work under a static subpath", 
       await clean(result);
     }
   }
+});
+
+test('deferred panels stay cold at startup; late settings loading respects navigation and reuses its dialog', async () => {
+  const result = await open('/repo/#/home');
+  const { page, context, scripts } = result;
+  let release;
+  const held = new Promise(resolve => { release = resolve; });
+  let requested;
+  const loading = new Promise(resolve => { requested = resolve; });
+  try {
+    assert.equal(scripts.some(path => /\/(SettingsOverlay|PhotopeaPanel|SlatePanel)-/.test(path)), false);
+    await context.route('**/SettingsOverlay-*.js', async route => {
+      requested(); await held; await route.continue();
+    });
+    await page.evaluate(() => { location.hash = '#/home/settings/connections'; });
+    await loading;
+    await page.evaluate(() => { location.hash = '#/image'; });
+    release();
+    await page.waitForSelector('#prompt');
+    await page.waitForSelector('#settingsPanel', { state: 'attached' });
+    assert.equal(await page.locator('#settingsPanel').evaluate(dialog => dialog.open), false);
+    const dialog = await page.locator('#settingsPanel').elementHandle();
+    await page.locator('.switcher:visible').click();
+    await page.locator('.switch-menu:popover-open').getByRole('button', { name: /^设置/ }).click();
+    await page.waitForSelector('#settingsPanel[open]');
+    await page.keyboard.press('Escape');
+    await page.waitForSelector('#settingsPanel[open]', { state: 'hidden' });
+    await page.locator('.switcher:visible').click();
+    await page.locator('.switch-menu:popover-open').getByRole('button', { name: /^设置/ }).click();
+    await page.waitForSelector('#settingsPanel[open]');
+    assert.equal(await dialog.evaluate(node => node === document.querySelector('#settingsPanel')), true);
+    assert.equal(scripts.filter(path => /\/SettingsOverlay-/.test(path)).length, 1);
+    assert.equal(scripts.some(path => /\/(PhotopeaPanel|SlatePanel)-/.test(path)), false);
+  } finally { release(); await clean(result); }
 });

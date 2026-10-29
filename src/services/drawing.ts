@@ -11,6 +11,7 @@ import {
   DEFAULTS,
   collect,
   count,
+  readHistoryLimit,
   batchParams,
   drawingPayload,
   sizeProblem,
@@ -60,6 +61,8 @@ export function createDrawing(
   // Persistent values are small JSON; records and binary resources stay plain.
   form.seed = String(form.seed ?? "");
   form.naiReferences = readReferences(form.naiReferences);
+  form.historyLimit = readHistoryLimit(form.historyLimit);
+  form.editorHistoryLimit = readHistoryLimit(form.editorHistoryLimit);
   let models: CatalogModel[] = [],
     samplers = [DEFAULTS.sampler],
     model: CatalogModel | undefined;
@@ -157,7 +160,7 @@ export function createDrawing(
       }
   }
   function trim() {
-    const limit = form.localCache ? count(form.historyLimit, 0) : 1;
+    const limit = form.historyLimit;
     if (limit) history = history.slice(0, limit);
     prune();
   }
@@ -563,6 +566,8 @@ export function createDrawing(
   async function patch(values: Partial<DrawingForm>) {
     draftQuotePaused = false;
     form = { ...form, ...values };
+    form.historyLimit = readHistoryLimit(form.historyLimit);
+    form.editorHistoryLimit = readHistoryLimit(form.editorHistoryLimit);
     trim();
     if (values.model !== undefined) bindModel();
     else scheduleQuote();
@@ -859,6 +864,8 @@ export function createDrawing(
       const nextBoards = readBoards(saved);
       const next = { ...DEFAULTS, ...Object.fromEntries(Object.entries(object(saved)).filter(([k]) => k in DEFAULTS)), ...nextBoards.items.find(b => b.id === nextBoards.activeId)!.form };
       next.seed = String(next.seed ?? "");
+      next.historyLimit = readHistoryLimit(next.historyLimit);
+      next.editorHistoryLimit = readHistoryLimit(next.editorHistoryLimit);
       if (!sameValue(next, form) || !sameValue(nextBoards, boards)) {
         const changed = next.model !== form.model || nextBoards.activeId !== boards.activeId;
         if (changed && pending) { browsing = true; state = current ? "done" : "empty"; }

@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { provide, shallowRef, onScopeDispose, watch } from "vue";
+import { defineAsyncComponent, provide, shallowRef, onScopeDispose, watch } from "vue";
 import { createRouter } from "./router";
 import { createShell, shellKey } from "./shell";
 import { usePresentation } from "./presentation";
@@ -9,7 +9,6 @@ import { createHomeNavigation, homeNavigationKey } from "../home/navigation.ts";
 import ImageWorkspace from "../workspaces/image/ImageWorkspace.vue";
 import ChatWorkspace from "../workspaces/chat/ChatWorkspace.vue";
 import TagsWorkspace from "../workspaces/tags/TagsWorkspace.vue";
-import SettingsOverlay from "../overlays/SettingsOverlay.vue";
 import EditWorkspace from "../workspaces/edit/EditWorkspace.vue";
 import ConfirmSheet from "../shared/ConfirmSheet.vue";
 import ToastList from "../shared/ToastList.vue";
@@ -22,7 +21,6 @@ import { askKey } from "./ask";
 import { createBridge } from "../bridge/service";
 import { createSlates } from "../slate/service";
 import { slateKey } from "./slate";
-import SlatePanel from "../slate/SlatePanel.vue";
 import { bridgeKey } from "./bridge";
 import { createHome } from "../home/service.ts";
 import { homeKey } from "./home.ts";
@@ -82,6 +80,12 @@ onScopeDispose(() => { void bridge.dispose(); });
 usePresentation(shell, ui);
 const editCreated = shallowRef(router.route.value.workspace === "edit");
 watch(() => router.route.value.workspace, w => { if (w === "edit") editCreated.value = true; });
+const SettingsOverlay = defineAsyncComponent(() => import("../overlays/SettingsOverlay.vue"));
+const SlatePanel = defineAsyncComponent(() => import("../slate/SlatePanel.vue"));
+const settingsCreated = shallowRef(router.route.value.overlay === "settings");
+watch(() => router.route.value.overlay, overlay => {
+  if (overlay === "settings") settingsCreated.value = true;
+});
 // Stable workspace keys, regardless of overlay or query ticket. Components stay non-reactive.
 const workspaces = {
   home: HomeWorkspace,
@@ -100,7 +104,7 @@ const workspaces = {
   </KeepAlive>
   <AskDrawer />
   <SlatePanel v-if="slates.visible.value" />
-  <SettingsOverlay />
+  <SettingsOverlay v-if="settingsCreated" />
   <!-- Keep the iframe in place: KeepAlive DOM moves would reload Photopea. -->
   <EditWorkspace v-if="editCreated" v-show="router.route.value.workspace === 'edit'" />
   <ConfirmSheet />

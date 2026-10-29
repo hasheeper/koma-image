@@ -15,7 +15,7 @@ import { compileNaiPrompt, naiCapabilities, readNaiSettings, NAI_OFFICIAL_UPSCAL
 import { modelSamplers, editStrengthRange, naiNoiseSchedule, supportsNaiVariety } from "../domain/nai-parameters.ts";
 import { supportsNaiEnhance, availableEnhanceScales, naiEnhanceSize, naiEnhanceMagnitudes, isEnhanceScale } from "../domain/nai-enhance.ts";
 import type { EnhanceScale } from "../domain/nai-enhance.ts";
-import { randomSeed } from "../domain/drawing.ts";
+import { randomSeed, readHistoryLimit } from "../domain/drawing.ts";
 import { emptyReferences, readReferences, referencePlan, referenceModel, referenceOperation, referenceSurcharge } from "../domain/nai-references.ts";
 import type { NaiReferences } from "../domain/nai-references.ts";
 import { insufficientFunds } from "../domain/source-funding.ts";
@@ -609,10 +609,20 @@ export function createEditor(
       ...(v.director?.variant ? { editVariant: v.director.variant } : {}) };
     s.updatedAt = Date.now();
     s.versions.push(v);
-    while (s.versions.length > 30) {
+    trimVersions(s);
+    return v;
+  }
+  function trimVersions(s: EditorSession) {
+    const limit = readHistoryLimit(drawing.snapshot().form.editorHistoryLimit);
+    if (!limit) return;
+    // Keep complete groups and live inputs, even when they alone exceed the limit.
+    const newest = s.versions.at(-1);
+    const protectedVersion = (v: EditorVersion) => v.sequence === 1 || v.id === s.baseId || v.id === s.viewId ||
+      v === newest || v === external?.source || saves.has(v);
+    const protectedGroups = new Set(s.versions.filter(protectedVersion).flatMap(v => v.director ? [v.director.group] : []));
+    while (s.versions.length > limit) {
       const old = s.versions.find(
-        (x) => x.sequence !== 1 && x.id !== s.baseId && x.id !== s.viewId && x !== v && (!x.director ||
-          x.director.group !== v.director?.group && !s.versions.some(p => p.director?.group === x.director!.group && (p.id === s.baseId || p.id === s.viewId))),
+        (v) => !protectedVersion(v) && (!v.director || !protectedGroups.has(v.director.group)),
       );
       if (!old) break;
       const removed = old.director ? s.versions.filter(p => p.director?.group === old.director!.group) : [old];
@@ -624,7 +634,6 @@ export function createEditor(
         s.maskRevision++;
       }
     }
-    return v;
   }
   function originOf(s: EditorSession, v: EditorVersion): Fields {
     const origin = imageOrigin({ ...s.provenance, ...v.params });
@@ -1091,7 +1100,15 @@ export function createEditor(
     return next.id;
   }
   const stopReferences = services.references.subscribe(emit);
-  const stopDrawing = drawing.subscribe(emit);
+  let historyLimit = readHistoryLimit(drawing.snapshot().form.editorHistoryLimit);
+  const stopDrawing = drawing.subscribe(() => {
+    const next = readHistoryLimit(drawing.snapshot().form.editorHistoryLimit);
+    if (next !== historyLimit) {
+      historyLimit = next;
+      for (const s of sessions.values()) trimVersions(s);
+    }
+    emit();
+  });
   const stopConnect = services.connections.subscribeImages(() => {
     if (open) void catalog();
   });

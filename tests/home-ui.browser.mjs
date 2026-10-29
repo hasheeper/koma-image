@@ -1,7 +1,7 @@
 import { before, after, test } from 'node:test';
 import assert from 'node:assert/strict';
 import { mkdir } from 'node:fs/promises';
-import { createServer } from 'vite';
+import { createServer } from './helpers/vite.mjs';
 import { chromium } from 'playwright';
 let server, browser, origin;
 before(async () => {
@@ -212,7 +212,6 @@ test('finals reuse the real cover/favorite/recipe/delivery paths and the shared 
   } finally {await clean(t);}
 });
 
-
 test('CHAT lines locate their actual version; CHAT finals keep recipes disabled and hand off original bytes',async()=>{
   const t=await setup();const {page}=t;
   try {
@@ -251,7 +250,6 @@ test('CHAT lines locate their actual version; CHAT finals keep recipes disabled 
     assert.equal(await page.locator('.home-continue').innerText().then(t=>t.trim()),'继续编辑');
   } finally {await clean(t);}
 });
-
 
 test('HOME observers pause during repeated KeepAlive exits; native image state and menu nodes stay owned',async()=>{
   const t=await setup();const {page}=t;

@@ -161,7 +161,6 @@ watch(dock, clearDrop);
 .home-shell::after { position: fixed; inset: 0; opacity: .03; background: url('./grain.svg') repeat; background-size: 160px 160px; }
 .home-page.is-empty { position: relative; display: grid; grid-template-rows: minmax(48px, 2fr) auto 32px auto minmax(48px, 3fr); padding: 32px 0 36px; }
 .home-shell[data-ask="full"] { visibility: hidden; transition: visibility 0s .52s; }
-:global(body:has(.home-shell[data-ask="full"])) { overflow: hidden; }
 .home-page { width: min(84%, 1080px); min-height: 100dvh; margin: 0 auto; padding: var(--sp-6) 0 72px; outline: none; }
 .home-section + .home-section { margin-top: var(--sp-6); }
 /* One quiet line closing the page: the source repository. The empty page pins it to the bottom of its grid. */

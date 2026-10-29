@@ -3,6 +3,8 @@ import { computed, shallowRef, watch, onBeforeUnmount } from "vue";
 import { useSlates } from "../../app/slate";
 const slates = useSlates();
 import { useShell } from "../../app/shell";
+import { useAskPresentation } from "../../ask/presentation";
+const { fullscreen: askFullscreen } = useAskPresentation();
 import { useWorkspaceLifecycle } from "../../app/workspace-lifecycle";
 import AppIcon from "../../shared/AppIcon.vue";
 import WorkspaceSwitch from "../../shared/WorkspaceSwitch.vue";
@@ -130,7 +132,7 @@ function security() {
 }
 </script>
 <template>
-  <header class="topbar">
+  <header class="topbar" :inert="askFullscreen">
     <WorkspaceSwitch workspace="image" />
     <div class="topbar-menu">
       <button
@@ -175,7 +177,7 @@ function security() {
       />
     </div>
   </header>
-  <main ref="main" class="shell" data-workspace-root="image">
+  <main ref="main" class="shell" data-workspace-root="image" :inert="askFullscreen">
     <form
       class="composer generation-form"
       id="form"

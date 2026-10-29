@@ -8,7 +8,7 @@ export async function seedHistory({drawing, home}, blob, size, params, quote = n
     blob, thumbBlob, size, params, quote, ...(ms === undefined ? {} : {ms})};
   const {history, form} = drawing.snapshot();
   history.unshift(record);
-  const limit = form.localCache ? Number(form.historyLimit) : 1;
+  const limit = form.historyLimit;
   if (limit > 0) history.splice(limit);
   // Publish a new history-array reference through the existing removal notification.
   // No production fixture hook or external-image insertion API is retained.
