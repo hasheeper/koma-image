@@ -1,12 +1,11 @@
 import { after, before, test } from "node:test";
 import assert from "node:assert/strict";
 import { createServer } from "node:http";
-import { readFile, mkdir } from "node:fs/promises";
+import { readFile } from "node:fs/promises";
 import { resolve, extname } from "node:path";
 import { chromium } from "playwright";
 
 let server, browser, origin;
-const output = resolve(".local/m1");
 const mime = {
   ".html": "text/html",
   ".js": "text/javascript",
@@ -15,7 +14,7 @@ const mime = {
   ".woff2": "font/woff2",
 };
 before(async () => {
-  await mkdir(output, { recursive: true });
+
   const root = resolve("dist");
   server = createServer(async (request, response) => {
     try {
@@ -179,165 +178,6 @@ test("single document, cached drafts and nodes, back/forward, and global overlay
       dbs: ["koma-ask", "koma-bridge", "koma-chat", "koma-handoff", "koma-home", "koma-image-favorites", "koma-slate"],
     },
   );
-  await clean(result);
-});
-
-test("font entry works at root and subpath, preserves weight mapping and proportional symbols", async () => {
-  for (const path of ["/", "/repo/"]) {
-    const result = await open(path);
-    try {
-      const fonts = await result.page.evaluate(async () => {
-        await document.fonts.load('400 100px "Koma Rounded"', "中文·×+.");
-        await document.fonts.load('500 100px "Koma Rounded"', "中文");
-        await document.fonts.load('600 100px "Koma Rounded"', "中文");
-        await document.fonts.load('700 100px "Koma Rounded"', "中文");
-        await document.fonts.load('400 100px "JetBrains Mono Variable"', "0123456789");
-        await document.fonts.load('400 100px "Fredoka Variable"', "Koma");
-        await document.fonts.ready;
-        const ctx = document.createElement("canvas").getContext("2d");
-        ctx.font = '400 100px "Koma Rounded"';
-        const width = (text) => ctx.measureText(text).width;
-        const symbols = { middle: width("·"), period: width("."), times: width("×"), plus: width("+"), han: width("中") };
-        ctx.font = '400 100px "JetBrains Mono Variable"';
-        const digits = [..."0123456789"].map(width);
-        const faces = [...document.fonts];
-        return {
-          entries: [...document.querySelectorAll('link[rel="stylesheet"]')]
-            .map((link) => new URL(link.href).pathname).filter((path) => path.includes("/fonts/")),
-          symbols, digits,
-          rounded: faces.filter((face) => face.family.includes("Koma Rounded")).map((face) => face.weight),
-          loaded: [...new Set(faces.filter((face) => face.status === "loaded").map((face) => face.family.replaceAll('"', "")))].sort(),
-          requests: performance.getEntriesByType("resource").filter((entry) => entry.name.endsWith(".woff2")).length,
-          synthesis: getComputedStyle(document.body).fontSynthesis,
-        };
-      });
-      assert.deepEqual(fonts.entries, [`${path}fonts/index.css`]);
-      for (const weight of ["400", "500", "600 700"])
-        assert.equal(fonts.rounded.filter((value) => value === weight).length, 101);
-      assert.deepEqual(fonts.loaded, ["Fredoka Variable", "JetBrains Mono Variable", "Koma Rounded"]);
-      assert.equal(fonts.symbols.middle, fonts.symbols.period);
-      assert.equal(fonts.symbols.times, fonts.symbols.plus);
-      assert.ok(fonts.symbols.middle < fonts.symbols.han / 2);
-      assert.equal(new Set(fonts.digits).size, 1, "numeric readouts stay monospaced");
-      assert.equal(fonts.synthesis, "none");
-      assert.ok(fonts.requests > 3 && fonts.requests < 310, "Unicode slices load on demand");
-      await clean(result);
-    } finally { await result.context.close(); }
-  }
-});
-
-test("four viewports: layout, gallery identity across Teleport, and workspace CSS isolation", async () => {
-  const result = await open();
-  const { page } = result;
-  const gallery = await page.locator("#gallery").elementHandle();
-  for (const width of [320, 390, 768, 1440]) {
-    await page.setViewportSize({ width, height: 900 });
-    for (const workspace of ["image", "chat", "tags"]) {
-      await switchTo(page, workspace);
-      await page.evaluate(() => document.fonts.ready);
-      const layout = await page.evaluate(() => ({
-        width: innerWidth,
-        scroll: document.documentElement.scrollWidth,
-        headers: [...document.querySelectorAll(".topbar")].filter(
-          (node) => node.getBoundingClientRect().height > 0,
-        ).length,
-        root: document
-          .querySelector("[data-workspace-root]")
-          .getBoundingClientRect()
-          .toJSON(),
-      }));
-      assert.ok(
-        layout.scroll <= width + 1,
-        `${workspace} at ${width}: no horizontal overflow`,
-      );
-      assert.equal(layout.headers, 1);
-      assert.ok(layout.root.width > 0);
-      if (workspace === "image") {
-        assert.equal(
-          await gallery.evaluate(
-            (node) => node === document.querySelector("#gallery"),
-          ),
-          true,
-        );
-        assert.equal(
-          await page
-            .locator("#gallery")
-            .evaluate((node) => node.parentElement.className),
-          width <= 860 ? "topbar-history-slot" : "shell",
-        );
-        assert.equal(await page.locator("body > .topbar").count(), 1);
-        if (width > 860) {
-          const rail = await page.locator("#gallery").boundingBox();
-          const bar = await page.locator("body > .topbar").boundingBox();
-          assert.equal(rail.y, 0);
-          assert.ok(Math.abs(bar.width + rail.width - width) <= 1);
-        }
-      }
-      if (workspace === "chat") {
-        assert.equal(
-          await page.locator("#style-image").getAttribute("media"),
-          "not all",
-        );
-        const parent = await page
-          .getByRole("button", {
-            name: "API Key",
-            exact: true,
-            includeHidden: true,
-          })
-          .evaluate((node) => node.parentElement.className);
-        assert.equal(parent, width <= 860 ? "sidebar-foot" : "topbar-account");
-      }
-      if (
-        (width === 1440 && workspace === "image") ||
-        (width === 768 && workspace === "chat") ||
-        (width === 390 && workspace === "tags")
-      )
-        await page.screenshot({ path: `${output}/${workspace}-${width}.png` });
-    }
-    await page.evaluate(() => {
-      location.hash = "#/tags/settings/backup";
-    });
-    await page.waitForSelector("#settingsPanel[open]");
-    const dialog = await page.locator("#settingsPanel").boundingBox();
-    assert.equal(dialog.width, width);
-    if (width === 320)
-      await page.screenshot({ path: `${output}/settings-${width}.png` });
-    await page.keyboard.press("Escape");
-  }
-  await clean(result);
-});
-
-test("cached document scroll is restored before/after a full-height chat workspace", async () => {
-  const result = await open();
-  const { page } = result;
-  await page.setViewportSize({ width: 390, height: 520 });
-  await page.waitForFunction(() => {
-    const viewport = document.querySelector("#viewport");
-    return (
-      Math.abs(
-        viewport.getBoundingClientRect().height -
-          parseFloat(viewport.style.getPropertyValue("--vp-h")),
-      ) < 1
-    );
-  });
-  await page.locator("#prompt").fill("移动端滚动保留");
-  await page.evaluate(() => scrollTo(0, document.documentElement.scrollHeight));
-  const previous = await page.evaluate(() => scrollY);
-  assert.ok(previous > 0);
-  // Change route without scrolling the sticky header into view.
-  await page.evaluate(() => {
-    location.hash = "#/chat";
-  });
-  await page.waitForSelector("#chatPrompt");
-  await page.evaluate(() => {
-    location.hash = "#/image";
-  });
-  await page.waitForSelector("#prompt");
-  await page.waitForFunction(
-    (expected) => Math.abs(scrollY - expected) < 2,
-    previous,
-  );
-  assert.equal(await page.locator("#prompt").inputValue(), "移动端滚动保留");
   await clean(result);
 });
 

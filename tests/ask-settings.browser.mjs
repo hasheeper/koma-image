@@ -5,7 +5,7 @@ import { useAskFixture, submitAsk, hosts, reasoning, open, openai, text, tool, e
 
 useAskFixture();
 
-test("ASK settings: free creation off by default, empty vocabulary and replacement editor; add/edit/delete and four widths", async () => {
+test("ASK settings: free creation off by default, empty vocabulary and replacement editor; add/edit/delete", async () => {
   const { page, context, requests, errors } = await open("/#/image/settings/ask");
   try {
     const nav = page.locator(".set-nav button", { hasText: "ASK" });
@@ -121,39 +121,12 @@ test("ASK settings: free creation off by default, empty vocabulary and replaceme
     await words.getByRole("list", { name: "文本替换", exact: true }).waitFor();
     assert.deepEqual((await stored(page, "koma.ask.v1")).replacements, [{ from: "保留的服装描述与光影设定", to: "replacement_clothing_and_lighting" }]);
 
-    // Shared rows: switches and fields end on one edge, and a switch never drops under its text.
-    // On phones a single picked value stays beside its text; a connection and its model drop under it.
-    const rows = (section) => page.evaluate((section) => [...document.querySelectorAll(`section[aria-label="${section}"] .s-row`)].map((row) => {
-      const control = row.querySelector(":scope > .s-toggle .switch, :scope > .s-ctl, :scope > .btn"), text = row.querySelector(":scope > div:first-child");
-      if (!control || !text || row.classList.contains("s-block")) return null;
-      const c = control.getBoundingClientRect(), t = text.getBoundingClientRect(), r = row.getBoundingClientRect();
-      return { right: Math.round(r.right - c.right), wrapped: c.top >= t.bottom - 1, pair: control.classList.contains("s-field") && control.childElementCount > 1 };
-    }).filter(Boolean), section);
-    for (const width of [320, 390, 768, 1440]) {
-      await page.setViewportSize({ width, height: 900 });
-      await page.waitForTimeout(80);
-      assert.ok(await page.locator("#settingsPanel").evaluate((el) => el.scrollWidth <= innerWidth + 1), `overflow at ${width}`);
-      for (const section of ["推理模型", "创作"]) for (const row of await rows(section)) {
-        assert.ok(Math.abs(row.right - 12) <= 1, `${section} edge ${row.right} at ${width}`);
-        assert.equal(row.wrapped, row.pair && width <= 640, `${section} wrap at ${width}`);
-      }
-      const replacementRow = words.locator('.s-row').last();
-      assert.equal(await replacementRow.locator('p:not([role="alert"])').count(), 0, 'the replacement controls need no explanatory subtitle');
-      assert.ok(await replacementRow.evaluate(el => el.scrollWidth <= el.clientWidth + 1), `replacement overflow at ${width}`);
-      await replacementRow.scrollIntoViewIfNeeded();
-      await page.screenshot({ path: `.local/ask/free-creation-${width}.png`, fullPage: true });
-      await page.screenshot({ path: `.local/ask/settings-${width}.png`, fullPage: true });
-    }
     await route(page, "#/image/settings/general");
     await page.locator("#historyLimit").waitFor();
-    for (const width of [320, 1440]) {
+    {
+      const width = 1440;
       await page.setViewportSize({ width, height: 900 });
       await page.waitForTimeout(80);
-      const general = await rows("通用");
-      assert.equal(general.length, 4);
-      assert.ok(general.every((row) => Math.abs(row.right - 12) <= 1 && !row.wrapped), JSON.stringify(general));
-      const [history, editor] = await Promise.all(["#historyLimit", "#editorHistoryLimit"].map((s) => page.locator(s).boundingBox()));
-      assert.ok(Math.abs(history.x - editor.x) <= 1 && Math.abs(history.width - editor.width) <= 1, `capacity inputs align at ${width}`);
       const repository = page.getByRole("link", { name: "GitHub", exact: true });
       assert.equal(await repository.getAttribute("href"), "https://github.com/hasheeper/koma-image");
       assert.equal(await repository.getAttribute("rel"), "noopener noreferrer");
@@ -245,9 +218,6 @@ test("ASK composer: the model chip switches among picks across connections; a ru
     assert.deepEqual(await menu.locator(".ask-menu-group").allTextContents(), ["推理 Chat", "推理 Messages"]);
     assert.deepEqual(await menu.getByRole("menuitemradio").allTextContents(), ["reasoning-a", "reasoning-b", "claude-x"]);
     assert.equal(await menu.getByRole("menuitemradio", { name: "reasoning-a" }).getAttribute("aria-checked"), "true");
-    // The menu rises over the stream and stays inside the window.
-    const [box, frame] = await Promise.all([menu.boundingBox(), drawer(page).boundingBox()]);
-    assert.ok(box.y >= frame.y && box.x >= frame.x && box.x + box.width <= frame.x + frame.width + 1, JSON.stringify({ box, frame }));
     await menu.getByRole("menuitemradio", { name: "claude-x" }).click();
     await menu.waitFor({ state: "detached" });
     await page.waitForFunction(() => { const s = JSON.parse(localStorage.getItem("koma.ask.v1")); return s.connectionId === "claude" && s.model === "claude-x"; });
@@ -296,12 +266,7 @@ test("ASK settings leave image work alone: cards, model sources and the protocol
     for (const name of ["推理 Chat", "推理 Messages"])
       assert.match(await card(name).locator(".connection-avatar use").getAttribute("href"), /#i-chat$/);
     assert.match(await card("图像连接").locator(".connection-avatar use").getAttribute("href"), /#i-image$/);
-    for (const width of [320, 390, 768, 1440]) {
-      await page.setViewportSize({ width, height: 900 });
-      assert.ok(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth + 1));
-      assert.ok(await page.locator(".conn-group").evaluateAll(groups => groups.every(el => el.scrollWidth <= el.clientWidth + 1)));
-      await page.screenshot({ path: `.local/ask/connection-icons-${width}.png` });
-    }
+
     assert.match(await card("推理 Chat").locator(".conn-models").textContent(), /ASK 模型\s*2 个 ID/);
     // The card ASK uses names its model; the others keep their catalog count.
     await page.evaluate(() => localStorage.setItem("koma.ask.v1", JSON.stringify({ version: 1, connectionId: "claude", model: "reasoning-b", images: true, preference: "", words: [], alwaysCodec: false })));

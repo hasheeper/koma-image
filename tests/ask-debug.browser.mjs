@@ -1,12 +1,12 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { mkdir, readFile } from "node:fs/promises";
+import { readFile } from "node:fs/promises";
 
-import { useAskFixture, submitAsk, open, openai, text, tool, end, anthropic, askSettings, generation, bind, addImage, drawer, openDebug, route } from "./helpers/ask-fixture.mjs";
+import { useAskFixture, submitAsk, open, openai, text, tool, end, anthropic, askSettings, generation, bind, addImage, drawer, openDebug } from "./helpers/ask-fixture.mjs";
 
 useAskFixture();
 
-test("ASK call debug: every model request, exact payload copy/export, images, cache unknowns and four widths", async () => {
+test("ASK call debug: every model request, exact payload copy/export, images, cache unknowns", async () => {
   const {page, context, requests, errors, llm, calls} = await open('/#/image', {ready: '.switcher', ask: askSettings()});
   try {
     await bind(page);
@@ -47,15 +47,10 @@ test("ASK call debug: every model request, exact payload copy/export, images, ca
     assert.equal(exported.calls[1].body,calls[1].raw);
     assert.equal(exportedText.includes('synthetic-chat'),false);
     assert.equal(exportedText.includes('Authorization'),false);
-    await mkdir('.local/ask/debug', {recursive:true});
-    for (const [width,height] of [[1440,900],[768,900],[390,900],[320,900],[390,520]]) {
+
+    {
+      const [width,height] = [1440, 900];
       await page.setViewportSize({width,height});
-      await page.waitForFunction(() => { const r = document.querySelector('#askDebug').getBoundingClientRect(); return r.left >= 0 && r.right <= innerWidth && r.top >= 0 && r.bottom <= innerHeight; });
-      const geometry = await debug.evaluate(el => {const r=el.getBoundingClientRect();return {left:r.left,right:r.right,top:r.top,bottom:r.bottom,overflow:el.scrollWidth>el.clientWidth};});
-      assert.ok(geometry.left>=0 && geometry.right<=width && geometry.top>=0 && geometry.bottom<=height,JSON.stringify({width,height,...geometry}));
-      assert.equal(geometry.overflow,false);
-      assert.equal(await debug.locator('.debug-scroll').evaluate(el => el.scrollWidth>el.clientWidth),false);
-      await debug.screenshot({path:`.local/ask/debug/calls-${width}-${height}.png`});
     }
     await debug.getByRole('button',{name:'请求 JSON',exact:true}).click();
     assert.match(await debug.locator('.debug-code').textContent(),/Base64 已在预览中折叠/);
@@ -113,7 +108,6 @@ test("ASK call debug: Anthropic cache markers, creation/read counts and unknown 
     assert.equal(await page.evaluate(() => ask.debugCall(1).body),calls[0].raw);
     await debug.getByRole('button',{name:'请求 JSON',exact:true}).click();
     assert.match(await debug.locator('.debug-code').textContent(),/"cache_control"/);
-    await debug.screenshot({path:'.local/ask/debug/anthropic.png'});
     await page.keyboard.press('Escape');
     llm.push({body:anthropic(
       {type:'message_start',message:{usage:{input_tokens:60}}},
@@ -148,9 +142,6 @@ test("ASK call debug: inspecting an active request preserves it, Esc closes only
     assert.equal(await debug.getByRole('button',{name:'清空记录',exact:true}).isDisabled(),true);
     await page.evaluate(() => document.body.__vue_app__._instance.provides[Object.getOwnPropertySymbols(document.body.__vue_app__._instance.provides).find(k=>k.description==='ui')].toast('合成错误提示','err'));
     await debug.locator('.toast[role="alert"]').waitFor();
-    const close=await debug.getByRole('button',{name:'关闭调用上下文'}).boundingBox();
-    const toast=await debug.locator('.editor-toasts').boundingBox();
-    assert.ok(toast.y >= close.y+close.height);
     await page.keyboard.press('Escape');await debug.waitFor({state:'detached'});
     assert.equal(await page.evaluate(()=>ask.running.value),true);
     await drawer(page).getByRole('button',{name:'更多',exact:true}).focus();

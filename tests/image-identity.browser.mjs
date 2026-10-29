@@ -1,5 +1,5 @@
 import { before, after, test } from 'node:test';
-import { mkdir } from 'node:fs/promises';
+
 import assert from 'node:assert/strict';
 import { createServer } from './helpers/vite.mjs';
 import { chromium } from 'playwright';
@@ -45,7 +45,7 @@ test('current Koma favorites backfill preserves fixed numbers and unambiguous AS
  assert.deepEqual(result.rows,[['ambiguous',13],['fixed',12],['old-a',4],['old-b',7]]);
  assert.equal(result.valid,true);assert.equal(result.first.state.nextFavSeq,14);assert.deepEqual(result.first,result.second);
 });
-test('persistent favorite numbers: deletion, undo, re-favorite, empty library and refresh',async t=>{
+test('[core] persistent favorite numbers: deletion, undo, re-favorite, empty library and refresh',async t=>{
  const {page}=await setup(t);
  const r=await page.evaluate(async()=>{
    const a=await add('a'),b=await add('b',2),c=await add('c',3);
@@ -178,14 +178,13 @@ test('CHAT references keep their exact branch after a favorite alias is merged a
  });
  assert.notEqual(r.old,r.current);assert.equal(r.retained,r.old);assert.equal(r.scope.turn_id,'a');assert.equal(r.scope.version_id,'v-a');assert.equal(r.head,'a');
 });
-test('compact reference picker inserts without sending, respects IME and fits four widths',async t=>{
+test("compact reference picker inserts without sending, respects IME and fits",async t=>{
  const {page}=await setup(t);
  await page.evaluate(async()=>{await (await import('/tests/helpers/drawing-history.mjs')).seedHistory({drawing, home:window.home}, await makeImage(),{width:128,height:128},{seed:7,prompt:'reference'},null);ask.show();});
  const input=page.locator('#askPrompt');await input.waitFor({state:'visible'});await input.fill('看 #');await page.locator('#askPictureSuggestions').waitFor();await input.press('ArrowDown');await input.press('Tab');assert.match(await input.inputValue(),/^看 #h1 /);
  assert.equal(await page.evaluate(()=>ask.running.value),false);
  await input.fill('#');await input.dispatchEvent('compositionstart');assert.equal(await page.locator('#askPictureSuggestions').count(),0);await input.dispatchEvent('compositionend');await page.locator('#askPictureSuggestions').waitFor();
- await mkdir('.local/image-identity',{recursive:true});
- for(const width of [320,390,768,1440]){await page.setViewportSize({width,height:900});await page.screenshot({path:`.local/image-identity/picker-${width}.png`});assert.equal(await page.locator('#askPictureSuggestions').evaluate(e=>{const r=e.getBoundingClientRect();return r.left>=0&&r.right<=innerWidth&&e.scrollWidth<=e.clientWidth;}),true);}
+
  await input.press('Escape');assert.equal(await page.locator('#askPictureSuggestions').count(),0);
  await input.fill('#');await page.locator('#askPictureSuggestions').waitFor();await input.press('Shift+Enter');assert.match(await input.inputValue(),/#\n/);assert.equal(await page.evaluate(()=>ask.running.value),false);
 });

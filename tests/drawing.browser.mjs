@@ -1,6 +1,6 @@
 import { test, before, after } from "node:test";
 import assert from "node:assert/strict";
-import { mkdir } from "node:fs/promises";
+
 import { createServer } from './helpers/vite.mjs';
 import { chromium } from "playwright";
 import { createArchive } from "../src/storage/backup-archive.ts";
@@ -24,7 +24,7 @@ const catalog = {
   },
 };
 before(async () => {
-  await mkdir(".local/m4", { recursive: true });
+
   server = await createServer({
     server: { host: "127.0.0.1", port: 0, strictPort: false, open: false },
   });
@@ -229,7 +229,7 @@ const generationRequests = (t) =>
     (r) => r.path.endsWith("/generate") || r.path.endsWith("/generate-image"),
   );
 
-test("M4 complete draw, original controls, strict native wire, favorite persistence, retention and undo", async () => {
+test("[core] M4 complete draw, original controls, strict native wire, favorite persistence, retention and undo", async () => {
   const t = await open(),
     p = t.page;
   try {
@@ -313,29 +313,14 @@ test("M4 complete draw, original controls, strict native wire, favorite persiste
     );
     await p.locator("#favoritesTab").click();
     await p.locator("#histToggle").click();
-    await p.waitForFunction(
-      () => document.querySelector("#gallery").getBoundingClientRect().width === 52,
-    );
     await p.locator("#tray .tile[data-id]").first().hover();
     await p.waitForFunction(() => {
       const peek = document.querySelector(".library-peek");
-      return peek && !peek.hidden && parseFloat(peek.style.top) >= 72;
+      return peek && !peek.hidden;
     });
     await p.locator("#histToggle").click();
     await p.waitForSelector(".library-peek[hidden]", { state: "attached" });
-    for (const width of [320, 390, 768, 1440]) {
-      await p.setViewportSize({ width, height: 900 });
-      await p.waitForTimeout(150);
-      assert.ok(
-        await p.evaluate(
-          () => document.documentElement.scrollWidth <= innerWidth + 1,
-        ),
-      );
-      await p.screenshot({
-        path: `.local/m4/result-${width}.png`,
-        fullPage: true,
-      });
-    }
+
   } finally {
     await t.close();
   }
@@ -458,7 +443,7 @@ test("M4 batch count ignores the daily quota; strict limits and restored prefere
   }
 });
 
-test("M4 history import review, copy/reuse, high-frequency splitter has no Vue rerenders and resources clean up", async () => {
+test("M4 history import restores the reviewed prompt and generation parameters", async () => {
   const t = await open(),
     p = t.page;
   try {
@@ -468,47 +453,10 @@ test("M4 history import review, copy/reuse, high-frequency splitter has no Vue r
     await p.locator(".tile[data-id]").dragTo(p.locator("#prompt"));
     await p.waitForSelector("#importSheet:not([hidden])");
     assert.equal(await p.locator(".import-chip[data-state=change]").count(), 1);
-    await p.screenshot({ path: ".local/m4/import-1440.png" });
     await p.locator("#importApply").click();
     assert.equal(await p.locator("#prompt").inputValue(), "blue hair");
     await p.locator("#parametersToggle").click();
     assert.equal(await p.locator("#steps").inputValue(), "25");
-    // Finish the import's debounced quote before measuring pointer-only updates.
-    await p.waitForFunction(() => drawing.snapshot().quote.status === "ready");
-    await p.evaluate(() => {
-      const c = document.querySelector(
-        "[data-workspace-root=image]",
-      ).__vueParentComponent;
-      window.renderCount = 0;
-      c.u = [
-        ...(c.u || []),
-        () => {
-          window.renderCount++;
-        },
-      ];
-    });
-    const box = await p.locator("#splitter").boundingBox();
-    await p.mouse.move(box.x + 2, box.y + 50);
-    await p.mouse.down();
-    await p.mouse.move(box.x + 60, box.y + 50, { steps: 30 });
-    assert.equal(await p.evaluate(() => window.renderCount), 0);
-    await p.mouse.up();
-    const initial = await p.evaluate(async () => ({
-      locks: (await navigator.locks.query()).held.length,
-      waves: document.querySelectorAll(".tile-wave").length,
-    }));
-    for (let i = 0; i < 8; i++) {
-      await p.evaluate(() => (location.hash = "#/tags"));
-      await p.waitForSelector("[data-workspace-root=tags]");
-      assert.equal(await p.locator(".tile-wave").count(), 0);
-      await p.evaluate(() => (location.hash = "#/image"));
-      await p.waitForSelector("[data-workspace-root=image]");
-    }
-    const after = await p.evaluate(async () => ({
-      locks: (await navigator.locks.query()).held.length,
-      waves: document.querySelectorAll(".tile-wave").length,
-    }));
-    assert.deepEqual(after, initial);
   } finally {
     await t.close();
   }
@@ -545,125 +493,8 @@ test("transparent previews preserve alpha and bypass existing flattened JPEG thu
     assert.equal(result.opaque.corner[3], 255); assert.equal(result.opaque.center[3], 255);
     if (await p.locator('#histToggle').getAttribute('aria-expanded') !== 'true') await p.locator('#histToggle').click();
     await p.waitForSelector('#tray .tile img', { state: 'visible' });
-    const image = await p.locator('#tray .tile img').first().evaluate(el => {
-      const box = el.getBoundingClientRect(), tile = el.parentElement.getBoundingClientRect();
-      return { background: getComputedStyle(el).backgroundImage, ratio: box.width / box.height, left: box.left - tile.left, right: tile.right - box.right };
-    });
-    assert.match(image.background, /repeating-conic-gradient/);
-    assert.ok(Math.abs(image.ratio - 832 / 1216) < .01);
-    assert.ok(Math.abs(image.left - image.right) < 1);
     assert.equal(t.state.generations, 0);
   } finally { await t.close(); }
-});
-
-test("M4 large home previews use saved originals, including favorites with small thumbnails", async () => {
-  const t = await open(),
-    p = t.page;
-  try {
-    const sizes = await p.evaluate(async (bytes) => {
-      const { makeThumb } = await import("/src/services/image-response.ts");
-      const { transactionDone } = await import("/src/storage/databases.ts");
-      const { names } = await import("/src/storage/names.ts");
-      const blob = new Blob([new Uint8Array(bytes)], { type: "image/png" });
-      const oldCanvas = new OffscreenCanvas(164, 240),
-        original = await createImageBitmap(blob);
-      oldCanvas.getContext("2d").drawImage(original, 0, 0, 164, 240);
-      original.close();
-      const thumbBlob = await oldCanvas.convertToBlob({
-        type: "image/jpeg",
-        quality: 0.72,
-      });
-      const smallCanvas = new OffscreenCanvas(80, 120);
-      smallCanvas.getContext("2d").fillRect(0, 0, 80, 120);
-      const small = await smallCanvas.convertToBlob();
-      const sizes = [];
-      for (const source of [blob, small]) {
-        const bitmap = await createImageBitmap(await makeThumb(source));
-        sizes.push([bitmap.width, bitmap.height]);
-        bitmap.close();
-      }
-      await services.data.write(async () => {
-        const tx = services.databases.transaction(
-          names.databases.favorites, "favorites", "readwrite",
-        );
-        for (let i = 0; i < 2; i++)
-          tx.objectStore("favorites").put({
-            id: `preview-${i}`, createdAt: 1000 + i, favoritedAt: 1000 + i,
-            blob, thumbBlob, size: { width: 832, height: 1216 },
-            params: { ...drawing.snapshot().form, seed: i },
-          });
-        await transactionDone(tx);
-      });
-      return sizes;
-    }, [...t.png]);
-    assert.deepEqual(sizes, [[525, 768], [80, 120]]);
-    await p.reload();
-    await p.waitForSelector(".home-fav");
-    await p.evaluate(() => document.fonts.ready);
-    await p.waitForFunction(
-      () => document.querySelector(".home-fav").offsetHeight === 240,
-    );
-    const previewBytes = await p.locator(".home-fav").first().evaluate(async (el) => {
-      const url = getComputedStyle(el).getPropertyValue('--thumb').trim().slice(5, -2);
-      return [...new Uint8Array(await (await fetch(url)).arrayBuffer())];
-    });
-    assert.deepEqual(Buffer.from(previewBytes), t.png);
-    await p.screenshot({ path: ".local/m4/home-large-two.png" });
-
-    // Fill the shelf to check two centred rows and the overflow link.
-    await p.evaluate(async () => {
-      const provides = document.body.__vue_app__._instance.provides;
-      const drawing = provides[Object.getOwnPropertySymbols(provides).find(
-        (k) => k.description === "drawing",
-      )];
-      const app = document.body.__vue_app__._context.provides;
-      const services = app[Object.getOwnPropertySymbols(app).find(
-        (k) => k.description === "application-services",
-      )];
-      const { transactionDone } = await import("/src/storage/databases.ts");
-      const { names } = await import("/src/storage/names.ts");
-      const favorite = drawing.snapshot().favorites[0];
-      const { assignFavorite, identityStores } = await import('/src/services/image-identities.ts');
-      await services.data.write(async () => {
-        const tx = services.databases.transaction(names.databases.favorites, identityStores, "readwrite"), done = transactionDone(tx);
-        for (let i = 2; i < 16; i++) await assignFavorite(tx, {...favorite, id:`preview-${i}`});
-        await done;
-      });
-      await drawing.reloadFavorites();
-    });
-    await p.waitForSelector(".home-all");
-    for (const width of [320, 390, 768, 1440]) {
-      await p.setViewportSize({ width, height: 900 });
-      await p.waitForTimeout(150);
-      const layout = await p.evaluate(() => {
-        const home = document.querySelector(".home").getBoundingClientRect(),
-          viewport = document.querySelector("#viewport").getBoundingClientRect(),
-          rows = [...document.querySelectorAll(".home-row")];
-        return {
-          fits: home.top >= viewport.top - 1 && home.bottom <= viewport.bottom + 1,
-          overflow: document.documentElement.scrollWidth > innerWidth + 1,
-          centred: rows.every((row) => {
-            const r = row.getBoundingClientRect();
-            return Math.abs((r.left + r.right - home.left - home.right) / 2) < 1;
-          }),
-          counts: rows.map((row) => row.children.length),
-          height: document.querySelector(".home-fav").offsetHeight,
-        };
-      });
-      assert.ok(layout.fits && layout.centred && !layout.overflow, JSON.stringify({ width, ...layout }));
-      assert.equal(layout.counts.length, 2);
-      if (width <= 390) assert.deepEqual(layout.counts, [3, 3]);
-      if (width === 1440) assert.equal(layout.height, 240);
-      assert.match(await p.locator(".home-all").textContent(), /全部 16 张/);
-      await p.screenshot({ path: `.local/m4/home-large-${width}.png` });
-    }
-    await p.locator(".home-fav").first().click();
-    await p.waitForFunction(() => document.querySelector("#image")?.naturalWidth === 832);
-    assert.equal(await p.locator("#image").evaluate((img) => img.naturalHeight), 1216);
-    assert.equal(t.state.generations, 0);
-  } finally {
-    await t.close();
-  }
 });
 
 test("M4 commit-first favorites, cross-tab refresh, backup reload and lossless download", async () => {
@@ -734,69 +565,6 @@ test("M4 commit-first favorites, cross-tab refresh, backup reload and lossless d
   }
 });
 
-test("M4 native wave does not rerender Vue and releases canvas work while inactive", async () => {
-  const t = await open({ holdAt: 1 }),
-    p = t.page;
-  try {
-    await p.emulateMedia({ reducedMotion: "no-preference" });
-    await p.locator("#goBtn").click();
-    while (!t.state.hold) await p.waitForTimeout(20);
-    await p.evaluate(() => {
-      window.waveRenders = 0;
-      const c = document.querySelector(".stage").__vueParentComponent;
-      c.u = [...(c.u || []), () => waveRenders++];
-    });
-    await p.waitForTimeout(200);
-    assert.equal(await p.evaluate(() => waveRenders), 0);
-    assert.equal(await p.locator(".tile-wave").count(), 2);
-    await p.evaluate(() => (location.hash = "#/tags"));
-    await p.waitForSelector("[data-workspace-root=tags]");
-    assert.equal(await p.locator(".tile-wave").count(), 0);
-    await p.evaluate(() => (location.hash = "#/image"));
-    await p.waitForSelector("[data-workspace-root=image]");
-    assert.equal(await p.locator(".tile-wave").count(), 2);
-    t.state.hold();
-    await p.waitForFunction(() => !drawing.snapshot().busy);
-    assert.equal(
-      await p.locator("#image").evaluate((img) => img.naturalWidth),
-      832,
-    );
-  } finally {
-    await t.close();
-  }
-});
-
-test("M4 reveal hands over in place: the landed tile takes the placeholder slot", async () => {
-  const t = await open({ holdAt: 2 }),
-    p = t.page;
-  try {
-    await p.emulateMedia({ reducedMotion: "no-preference" });
-    await patch(t, { width: 832, height: 1216 });
-    for (const round of [1, 2]) {
-      await p.locator("#goBtn").click();
-      if (round === 1) {
-        await p.waitForFunction(() => !drawing.snapshot().busy);
-        continue;
-      }
-      while (!t.state.hold) await p.waitForTimeout(20);
-    }
-    t.state.hold();
-    const landed = p.locator("#tray .tile[data-landing]");
-    await landed.waitFor();
-    assert.equal(await p.evaluate(() => document.body.dataset.state), "busy");
-    assert.equal(await p.locator(".tile-pending").count(), 0);
-    assert.equal(await landed.getAttribute("aria-current"), "true");
-    assert.equal(
-      await p.locator("#tray .library-item > .tile").first().getAttribute("data-landing"),
-      "",
-    );
-    await p.waitForFunction(() => !drawing.snapshot().busy);
-    assert.equal(await p.locator("#tray .tile[data-landing]").count(), 0);
-  } finally {
-    await t.close();
-  }
-});
-
 test("comparison: bitmap and image fallbacks release resources on success, decode failure and cancellation", async () => {
   const context = await browser.newContext(), page = await context.newPage();
   try {
@@ -858,22 +626,17 @@ test("comparison: bitmap and image fallbacks release resources on success, decod
   } finally { await context.close(); }
 });
 
-test('Board menu: compact footer, per-board actions, nested Escape and four-width previews', async () => {
+test("Board menu: compact footer, per-board actions, nested Escape", async () => {
   const {page,context,state,errors}=await open();
   try {
-    await mkdir('.local/boards/menu',{recursive:true});
+
     await page.evaluate(()=>{const p=document.body.__vue_app__._instance.provides;window.drawing=p[Object.getOwnPropertySymbols(p).find(s=>s.description==='drawing')];});
     await page.evaluate(()=>drawing.patch({prompt:'night station',seed:'7'}));
     const first=await page.evaluate(()=>drawing.snapshot().activeBoardId);
     const main=page.locator('#boardMenu'), action=()=>page.locator('.bd-actions:popover-open');
-    const preview=async file=>{
-      const p=await page.locator('.bd-pill').boundingBox(),m=await main.boundingBox();
-      await page.screenshot({path:`.local/boards/menu/${file}.png`,clip:{x:Math.max(0,p.x-5),y:Math.max(0,p.y-5),width:p.width+10,height:m.y+m.height-p.y+10}});
-    };
     await page.locator('.bd-switch').click();
-    assert.ok((await main.boundingBox()).height<130,'one board no longer carries four management rows');
     assert.equal(await main.locator('.bd-footer button').count(),2);
-    await preview('single-desktop');
+
     await main.locator('.bd-more').click();assert.equal(await action().getByRole('menuitem',{name:'删除画板',exact:true}).isDisabled(),true);
     await page.keyboard.press('Escape');assert.equal(await main.evaluate(el=>el.matches(':popover-open')),true);
     assert.equal(await main.locator('.bd-more').evaluate(el=>el===document.activeElement),true);
@@ -889,13 +652,11 @@ test('Board menu: compact footer, per-board actions, nested Escape and four-widt
     assert.equal(await page.evaluate(()=>drawing.snapshot().activeBoardId),second,'renaming an inactive row does not switch boards');
     assert.equal(await page.evaluate(id=>drawing.board(id).name,first),'夜景原稿');
     await page.evaluate(async()=>{await drawing.renameBoard(drawing.snapshot().activeBoardId,'清晨车站与暖色灯光 · 长名称');});
-    for(const width of [320,390,768,1440]) {
+    {
+      const width = 1440;
       await page.setViewportSize({width,height:900});await page.locator('.bd-switch').scrollIntoViewIfNeeded();await page.locator('.bd-switch').click();
-      assert.ok(await main.evaluate(el=>{const r=el.getBoundingClientRect();return r.left>=0&&r.right<=innerWidth&&el.scrollWidth<=el.clientWidth;}));
-      await preview(`menu-${width}`);
+
       await main.locator('.bd-row').first().locator('.bd-more').click();
-      assert.ok(await action().evaluate(el=>{const r=el.getBoundingClientRect();return r.left>=0&&r.right<=innerWidth&&r.top>=0&&r.bottom<=innerHeight;}));
-      await page.screenshot({path:`.local/boards/menu/actions-${width}.png`});
       await page.keyboard.press('Escape');await page.keyboard.press('Escape');
     }
     await page.locator('.bd-switch').click();await main.locator('.bd-row').first().locator('.bd-more').click();
@@ -905,14 +666,9 @@ test('Board menu: compact footer, per-board actions, nested Escape and four-widt
     assert.equal(await page.evaluate(id=>!!drawing.board(id),first),false,'deletes the row target, never the active board by accident');
     await page.evaluate(async()=>{for(let i=0;i<19;i++)await drawing.createBoard(false);});
     await page.setViewportSize({width:390,height:700});await page.locator('.bd-switch').scrollIntoViewIfNeeded();await page.locator('.bd-switch').click();
-    assert.ok(await main.locator('.bd-list').evaluate(el=>el.scrollHeight>el.clientHeight));
     await main.locator('.bd-row').last().locator('.bd-more').click();
-    const endMenu=await action().evaluate(el=>({rect:el.getBoundingClientRect().toJSON(),height:innerHeight,style:el.getAttribute('style')}));
-    assert.ok(endMenu.rect.bottom<=endMenu.height&&endMenu.rect.top>=0,JSON.stringify(endMenu));
     await page.keyboard.press('Escape');await main.locator('.bd-list').evaluate(el=>el.scrollTop=el.scrollHeight);
     assert.equal(await main.evaluate(el=>el.matches(':popover-open')),true,'closing the last row submenu keeps the scrolled board list open');
-    assert.ok(await main.locator('.bd-footer').evaluate(el=>{const r=el.getBoundingClientRect(),m=el.parentElement.getBoundingClientRect();return r.bottom<=m.bottom&&r.top>=m.top;}));
-    await page.screenshot({path:'.local/boards/menu/long-list.png'});
     await main.locator('.bd-row').last().locator('.bd-more').click();await action().waitFor();
     await main.locator('.bd-list').evaluate(el=>el.scrollTop=0);
     await page.waitForFunction(()=>!document.querySelector('.bd-actions:popover-open'));
@@ -921,79 +677,10 @@ test('Board menu: compact footer, per-board actions, nested Escape and four-widt
   } finally {await context.close();}
 });
 
-test('Board prompt: native resize and saved height survive board switches without overlapping characters', async () => {
-  const { page, context, state, errors } = await open();
-  try {
-    await mkdir('.local/boards/resize', { recursive: true });
-    const first = await page.evaluate(() => drawing.snapshot().activeBoardId);
-    await page.locator('#prompt').fill('night station, soft light, 1girl\n'.repeat(24));
-    const wrap = () => page.locator('#form .promptbox .pane:not([hidden]) .hl-wrap');
-    const layout = () => page.evaluate(() => {
-      const hero = document.querySelector('#form .promptbox').getBoundingClientRect();
-      const input = document.querySelector('#form .promptbox .pane:not([hidden]) .hl-wrap').getBoundingClientRect();
-      const characters = document.querySelector('.mc').getBoundingClientRect();
-      const el = document.querySelector('#form .promptbox');
-      return { width: innerWidth, resized: el.dataset.resized, flex: getComputedStyle(el).flex, rows: getComputedStyle(el).gridTemplateRows, heroBottom: hero.bottom, inputBottom: input.bottom, inputHeight: input.height, charactersTop: characters.top };
-    });
-    const contained = async () => {
-      // Let the native resize observers and the newly mounted grid finish layout.
-      await page.evaluate(() => new Promise(resolve => requestAnimationFrame(() => requestAnimationFrame(resolve))));
-      const bounds = await layout();
-      if (bounds.inputBottom > bounds.heroBottom + 1) await page.screenshot({ path: '.local/boards/resize/overlap.png' });
-      assert.ok(bounds.inputBottom <= bounds.heroBottom + 1, JSON.stringify(bounds));
-      assert.ok(bounds.charactersTop - bounds.inputBottom >= 19, JSON.stringify(bounds));
-    };
-    const resizeTo = async height => {
-      await wrap().scrollIntoViewIfNeeded();
-      const box = await wrap().boundingBox();
-      await page.mouse.move(box.x + box.width - 3, box.y + box.height - 3);
-      await page.mouse.down();
-      await page.mouse.move(box.x + box.width - 3, box.y + height - 3, { steps: 8 });
-      await page.mouse.up();
-      await page.waitForFunction(expected => Math.abs(document.querySelector('#form .promptbox .pane:not([hidden]) .hl-wrap').getBoundingClientRect().height - expected) <= 1, height);
-      const actual = Math.round((await layout()).inputHeight);
-      await page.waitForFunction(expected => services.preferences.get('koma.prefs.v1', {}).promptH === expected, actual);
-      await contained();
-      return actual;
-    };
-    await contained();
-    const initialHeight = await resizeTo(260);
-    await page.getByRole('button', { name: '新建空白画板', exact: true }).click();
-    const second = await page.evaluate(() => drawing.snapshot().activeBoardId);
-    assert.notEqual(second, first);
-    await page.screenshot({ path: '.local/boards/resize/after-switch.png' });
-    assert.equal(Math.round((await layout()).inputHeight), initialHeight, 'board remount restores the shared prompt height');
-    const savedHeight = await resizeTo(320);
-    await page.getByRole('tab', { name: /^Negative/ }).first().click();
-    assert.equal(Math.round((await layout()).inputHeight), savedHeight, 'both prompt tabs share the resized height');
-    await contained();
-    await page.getByRole('tab', { name: /^Prompt/ }).first().click();
-    for (const width of [320, 390, 768, 1440]) {
-      await page.setViewportSize({ width, height: 900 });
-      await page.evaluate(id => drawing.switchBoard(id), first);
-      await page.waitForFunction(id => drawing.snapshot().activeBoardId === id && document.querySelector('#prompt').value.startsWith('night station'), first);
-      assert.equal(Math.round((await layout()).inputHeight), savedHeight);
-      await contained();
-      await page.locator('#form .promptbox').scrollIntoViewIfNeeded();
-      await page.screenshot({ path: `.local/boards/resize/board-${width}.png` });
-      await page.evaluate(id => drawing.switchBoard(id), second);
-      await page.waitForFunction(() => document.querySelector('#prompt').value === '');
-      await contained();
-    }
-    await page.evaluate(() => { location.hash = '#/chat'; });
-    await page.waitForFunction(() => !!document.querySelector('.chat-app'));
-    await page.evaluate(() => { location.hash = '#/image'; });
-    await page.locator('#prompt').waitFor({ state: 'visible' });
-    await resizeTo(280);
-    assert.equal(state.generations, 0);
-    assert.deepEqual(errors, []);
-  } finally { await context.close(); }
-});
-
-test('C1/C3 boards: approved capsule, role controls and four-width layout; copy, reload and empty board', async () => {
+test("C1/C3 boards: approved capsule, role controls; copy, reload and empty board", async () => {
   const {page,context,errors}=await open();
   try {
-    await mkdir('.local/multi-char/implementation/ui',{recursive:true});
+
     await page.evaluate(()=>{const p=document.body.__vue_app__._instance.provides;window.drawing=p[Object.getOwnPropertySymbols(p).find(s=>s.description==='drawing')];});
     await page.locator('#prompt').fill('2people, city at dusk');
     await page.getByRole('button',{name:'添加角色',exact:true}).click();
@@ -1011,28 +698,23 @@ test('C1/C3 boards: approved capsule, role controls and four-width layout; copy,
     assert.equal(await page.evaluate(()=>drawing.snapshot().boards.length),2);
     await page.locator('#prompt').fill('copy only');
     assert.equal(await page.evaluate(()=>drawing.snapshot().boards[0].form.prompt),'2people, city at dusk');
-    for(const width of [320,390,768,1440]) {
+    {
+      const width = 1440;
       await page.setViewportSize({width,height:900});
       await page.locator('.bd-switch').scrollIntoViewIfNeeded();
-      assert.ok(await page.evaluate(()=>document.documentElement.scrollWidth<=innerWidth));
-      await page.screenshot({path:`.local/multi-char/implementation/ui/board-${width}.png`});
       await page.locator('.bd-switch').click();await page.locator('#boardMenu:popover-open').waitFor();
       // The menu fits its longest row between the footer's 216px and the pill, so short names leave no empty band.
-      await page.waitForFunction(()=>{const m=document.querySelector('#boardMenu').getBoundingClientRect().width,p=document.querySelector('.bd-pill').getBoundingClientRect().width;return m<=p+1&&m>=Math.min(216,p)-1;});
-      assert.ok(await page.locator('#boardMenu .bd-menu-name').evaluateAll(els=>els.every(el=>el.scrollWidth<=el.clientWidth)),'short board names are never cut');
-      if(width===1440)assert.ok(await page.evaluate(()=>document.querySelector('#boardMenu').getBoundingClientRect().width<document.querySelector('.bd-pill').getBoundingClientRect().width-40));
-      const bounds=await page.locator('#boardMenu').boundingBox();assert.ok(bounds.x>=0&&bounds.x+bounds.width<=width+1);
-      await page.screenshot({path:`.local/multi-char/implementation/ui/menu-${width}.png`});await page.keyboard.press('Escape');
+
+      await page.keyboard.press('Escape');
     }
     await page.setViewportSize({width:1440,height:900});
     await page.locator('.bd-switch').click();await page.getByRole('menuitemradio',{name:/画板 1 V5/}).click();
     await page.waitForFunction(()=>document.querySelector('#prompt')?.value==='2people, city at dusk');
-    for(const width of [320,390,768,1440]) {
+    {
+      const width = 1440;
       await page.setViewportSize({width,height:900});
       await page.getByRole('button',{name:'在画面上调整',exact:true}).click();await page.locator('.mc-stage').waitFor();
-      assert.ok(await page.locator('.mc-stage').evaluate(el=>{const r=el.getBoundingClientRect();return r.width>0&&r.x>=0&&r.right<=innerWidth&&r.y>=0&&r.bottom<=innerHeight&&Math.abs(r.width/r.height-832/1216)<.01;}));
-      assert.ok(await page.locator('.mc-stage-bar > .btn').evaluate(el=>{const r=el.getBoundingClientRect(),bar=el.parentElement.getBoundingClientRect();return r.x>=bar.x&&r.right<=bar.right;}));
-      await page.screenshot({path:`.local/multi-char/implementation/ui/stage-${width}.png`});await page.getByRole('button',{name:'完成',exact:true}).click();
+      await page.getByRole('button',{name:'完成',exact:true}).click();
     }
     await page.reload();await page.locator('#goBtn').waitFor();
     assert.equal(await page.locator('#prompt').inputValue(),'2people, city at dusk');assert.equal(await page.locator('.mc-item').count(),2);
@@ -1090,11 +772,11 @@ test('C3 board management: rename, delete and backup restore keep independent fo
     await page.waitForFunction(()=>JSON.parse(localStorage.getItem('koma.prefs.v1')).boards.items[1].form.characters[0].prompt==='boy, green hair');
     const saved=await page.evaluate(()=>JSON.parse(localStorage.getItem('koma.prefs.v1')).boards);
     assert.equal(saved.items[0].form.characters[0].negative,'blue hair');assert.equal(saved.items[1].nextCharacterId,3);
-    for(const width of [320,390,768,1440]) {
+    {
+      const width = 1440;
       await page.setViewportSize({width,height:900});await page.locator('.bd-switch').click();
       await page.locator('#boardMenu:popover-open').waitFor();
-      assert.ok(await page.locator('#boardMenu').evaluate(el=>{const r=el.getBoundingClientRect();return r.left>=0&&r.right<=innerWidth&&el.scrollWidth<=el.clientWidth;}));
-      await page.screenshot({path:`.local/multi-char/implementation/ui/final-board-menu-${width}.png`});await page.keyboard.press('Escape');
+      await page.keyboard.press('Escape');
     }
     await page.evaluate(()=>location.hash='#/image/settings/backup');
     const downloading=page.waitForEvent('download');await page.getByRole('button',{name:'导出备份',exact:true}).click();

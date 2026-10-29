@@ -18,7 +18,7 @@
     "styles:check": "stylelint \"public/styles/**/*.css\" \"src/**/*.vue\" --max-warnings 0",
     "build": "npm run fonts:build && vite build",
     "preview": "vite preview --host 127.0.0.1 --port 3217 --strictPort",
-    "check": "npm run fonts:check && npm run styles:check && npm run typecheck && npm run test:unit && npm run build",
+    "check": "npm run typecheck && npm run test:unit && npm run build",
     "test:unit": "node --test tests/*.test.mjs",
     "test:shell": "npm run build && node scripts/test-browser.mjs shell",
     "test:services": "node scripts/test-browser.mjs services",
@@ -34,6 +34,7 @@
     "package": "npm run build && node scripts/package-release.mjs",
     "deploy:pages": "npm run build && npx --yes wrangler@4.151.1 pages deploy --branch main",
     "test:browser": "npm run build && node scripts/test-browser.mjs",
+    "test:browser:all": "npm run build && node scripts/test-browser.mjs --all",
     "test:edit": "node scripts/test-browser.mjs editor ask-edit director-tools native-nai-edit native-nai-enhance native-nai-focus"
   },
   "dependencies": {

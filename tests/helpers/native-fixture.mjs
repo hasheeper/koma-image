@@ -1,6 +1,5 @@
 import { before, after } from "node:test";
 
-import { mkdir } from "node:fs/promises";
 import { createServer } from "./vite.mjs";
 import { chromium } from "playwright";
 import { createArchive } from "../../src/storage/backup-archive.ts";
@@ -140,7 +139,7 @@ async function chooseInpaint(page, focused) {
 
 export function useNativeFixture() {
 before(async () => {
-  await mkdir(".local/native-protocols", { recursive: true });
+
   server = await createServer({ server: { host: "127.0.0.1", port: 0, open: false } });
   await server.listen();
   origin = `http://127.0.0.1:${server.httpServer.address().port}`;

@@ -1,12 +1,12 @@
 // Explicit opt-in: real Photopea, synthetic images, no generation endpoints or credentials.
 import { before, after, test } from 'node:test';
 import assert from 'node:assert/strict';
-import { mkdir } from 'node:fs/promises';
+
 import { createServer } from './helpers/vite.mjs';
 import { chromium } from 'playwright';
 const enabled=process.env.KOMA_PHOTOPEA_LIVE==='1';
 let server,browser,origin;
-before(async()=>{if(!enabled)return;await mkdir('.local/workstack',{recursive:true});server=await createServer({server:{host:'127.0.0.1',port:0,open:false,hmr:false}});await server.listen();origin=`http://127.0.0.1:${server.httpServer.address().port}`;browser=await chromium.launch({headless:true});});
+before(async()=>{if(!enabled)return;server=await createServer({server:{host:'127.0.0.1',port:0,open:false,hmr:false}});await server.listen();origin=`http://127.0.0.1:${server.httpServer.address().port}`;browser=await chromium.launch({headless:true});});
 after(async()=>{await browser?.close();await server?.close();});
 async function setup(t){
  const context=await browser.newContext({viewport:{width:1440,height:900}}),page=await context.newPage(),errors=[];
@@ -32,7 +32,7 @@ async function open(page){await page.locator('#editorPhotopea').click();await pa
 async function choose(page,label){await page.locator('.photopea-choice').click();await page.getByRole('menuitemradio',{name:label,exact:true}).click();}
 async function apply(page){
  await page.getByRole('button',{name:'应用并返回',exact:true}).click();
- await page.waitForFunction(()=>{const p=document.querySelector('.photopea-panel');return !p||getComputedStyle(p).display==='none'||!!p.querySelector('[role=alert]');},null,{timeout:35000});
+ await Promise.race([page.locator('.photopea-panel').waitFor({state:'hidden',timeout:35000}),page.locator('.photopea-panel [role=alert]').waitFor({state:'visible',timeout:35000})]);
  if(await page.locator('.photopea-panel').isVisible()){
   const stats=await page.evaluate(async()=>{const out=[];for(const buf of ppBuffers.slice(-4)){const b=await createImageBitmap(new Blob([buf],{type:'image/png'})),c=new OffscreenCanvas(b.width,b.height),x=c.getContext('2d');x.drawImage(b,0,0);b.close();const data=x.getImageData(0,0,c.width,c.height).data;let count=0;for(let i=3;i<data.length;i+=4)if(data[i]>32)count++;out.push({width:c.width,height:c.height,count});}return out;});
   throw new Error(await page.locator('.photopea-panel').innerText()+'\n'+JSON.stringify(stats)+'\n'+JSON.stringify(await page.evaluate(()=>ppLog.slice(-30))));
@@ -63,7 +63,7 @@ test('real Photopea workstack: alpha layer + selection union, clean no-op, histo
  // Erase the renamed mask layer; empty is an explicit clear, not an absent response.
  await page.evaluate(()=>probe('var d=app.activeDocument;for(var i=0;i<d.layers.length;i++)if(d.layers[i].name==="区域")d.activeLayer=d.layers[i];d.selection.selectAll();d.selection.clear();d.selection.deselect();app.echoToOE("PROBE:{}");'));
  await apply(page);assert.equal((await bits(page)).some(n=>n!==0),false);assert.equal(await page.evaluate(()=>editor.session.versions.length),1);
- assert.deepEqual(errors,[]);await page.screenshot({path:'.local/workstack/empty-return.png'});
+ assert.deepEqual(errors,[]);
 });
 
 test('real Photopea retains custom layers after return, refreshes only external mask, swaps baked descendant base without double overlay', {skip:!enabled,timeout:150000},async t=>{
@@ -82,8 +82,8 @@ test('real Photopea retains custom layers after return, refreshes only external 
  await choose(page,'仅蒙版');await apply(page);assert.deepEqual(await bits(page),native,'mask-only validates the current A2 pixels');
  assert.equal(await page.evaluate(()=>editor.session.versions.length),3);
  await open(page);const damaged=await page.evaluate(()=>probe('var d=app.activeDocument;for(var i=0;i<d.layers.length;i++)if(d.layers[i].name==="Koma 蒙版")d.layers[i].remove();app.echoToOE("PROBE:{}");'));
- assert.equal(damaged.error,undefined);await choose(page,'仅图像');await page.getByRole('button',{name:'应用并返回',exact:true}).click();await page.waitForFunction(()=>{const p=document.querySelector('.photopea-panel');return getComputedStyle(p).display==='none'||p.querySelector('[role=alert]');},null,{timeout:35000});assert.match(await page.locator('.photopea-panel').innerText(),/结构已变化/,JSON.stringify(await page.evaluate(()=>ppLog.slice(-20))));assert.equal(await page.evaluate(()=>editor.session.versions.length),3);
- assert.deepEqual(errors,[]);await page.screenshot({path:'.local/workstack/structure-error.png'});
+ assert.equal(damaged.error,undefined);await choose(page,'仅图像');await page.getByRole('button',{name:'应用并返回',exact:true}).click();await page.locator('.photopea-panel [role=alert]').waitFor();assert.match(await page.locator('.photopea-panel').innerText(),/结构已变化/,JSON.stringify(await page.evaluate(()=>ppLog.slice(-20))));assert.equal(await page.evaluate(()=>editor.session.versions.length),3);
+ assert.deepEqual(errors,[]);
 });
 
 test('real Photopea transparent image, image-only retains native coverage, crop returns aligned mask and size change rebuilds stack', {skip:!enabled,timeout:150000},async t=>{

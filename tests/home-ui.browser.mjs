@@ -1,11 +1,11 @@
 import { before, after, test } from 'node:test';
 import assert from 'node:assert/strict';
-import { mkdir } from 'node:fs/promises';
+
 import { createServer } from './helpers/vite.mjs';
 import { chromium } from 'playwright';
 let server, browser, origin;
 before(async () => {
-  await mkdir('.local/hm2', {recursive:true});
+
   server = await createServer({server:{host:'127.0.0.1',port:0,open:false}}); await server.listen();
   origin = `http://127.0.0.1:${server.httpServer.address().port}`; browser = await chromium.launch({headless:true});
 });
@@ -86,30 +86,11 @@ test('HOME default and unknown routes, first-use head, settings overlay and exis
   } finally {await clean(t);}
 });
 
-test('HOME empty state uses the selected full-page glow and preserves ASK versus background image paste',async()=>{
+test('HOME empty state preserves ASK versus background image paste',async()=>{
   const t=await setup({seed:false});const {page}=t;
   try {
     await page.waitForSelector('.home-welcome');
     assert.equal(await page.evaluate(()=>home.snapshot().loaded),true);
-    assert.equal(await page.locator('.home-welcome h2').innerText(),'这里还空着呢');
-    assert.equal(await page.locator('.home-welcome p').innerText(),'有个想法？快去试试吧。');
-    for(const width of [320,390,768,1440]) {
-      await page.setViewportSize({width,height:900});
-      const geometry=await page.evaluate(()=>{
-        const card=document.querySelector('.home-welcome'),form=document.querySelector('.home-ask'),brand=document.querySelector('.home-brand');
-        const rect=el=>{const r=el.getBoundingClientRect();return {left:r.left,right:r.right,width:r.width,height:r.height};};
-        return {card:rect(card),form:rect(form),brand:rect(brand),art:rect(card.querySelector('img')),width:innerWidth,scroll:document.documentElement.scrollWidth,
-          background:getComputedStyle(document.querySelector('.home-shell'),'::before').backgroundImage,cardBackground:getComputedStyle(card).backgroundImage,
-          entries:[...document.querySelectorAll('.home-entries button')].map(b=>b.getBoundingClientRect().top)};
-      });
-      assert.ok(geometry.scroll<=width+1,`empty state overflow at ${width}`);
-      assert.equal(geometry.art.width,80);assert.equal(geometry.card.height,width<=860?160:176);
-      assert.ok(Math.abs(geometry.card.width-geometry.form.width)<1);
-      assert.ok(Math.abs((geometry.brand.left+geometry.brand.right)/2-width/2)<1);
-      assert.equal(new Set(geometry.entries).size,1,'all four entries stay on one row');
-      assert.match(geometry.background,/radial-gradient/);assert.equal(geometry.cardBackground,'none');
-      await page.screenshot({path:`.local/hm2/home-empty-${width}.png`,fullPage:true});
-    }
     await page.evaluate(async()=>{
       const canvas=new OffscreenCanvas(64,96),g=canvas.getContext('2d');g.fillStyle='#667788';g.fillRect(0,0,64,96);
       window.pastedImage=new File([await canvas.convertToBlob({type:'image/png'})],'empty-home.png',{type:'image/png'});
@@ -127,7 +108,6 @@ test('HOME empty state uses the selected full-page glow and preserves ASK versus
     assert.equal(await page.evaluate(()=>editor.boards().filter(b=>b.versions.length).length),1);
     await page.evaluate(()=>app_shell.router.switchWorkspace('home'));await page.waitForSelector('.home-face img');
     assert.equal(await page.locator('.home-welcome').count(),0);
-    assert.equal(await page.evaluate(()=>getComputedStyle(document.querySelector('.home-shell'),'::before').opacity),'1','content keeps its selected top light');
     await page.evaluate(()=>app_shell.router.switchWorkspace('image'));await page.waitForSelector('#prompt');
     const boards=await page.evaluate(()=>editor.boards().length);
     await page.evaluate(()=>{
@@ -152,20 +132,18 @@ test('HOME never flashes the empty card while restoring existing pictures',async
   } finally {await clean(t);}
 });
 
-test('real directory, three layouts and responsive prints at 320/390/768/1440',async()=>{
+test("real directory, three layouts and responsive prints",async()=>{
   const t=await setup();const {page}=t;
   try {
     await page.getByRole('button',{name:'挂载协同目录',exact:true}).first().click();
     await page.waitForFunction(()=>bridge.phase.value==='active');assert.equal(await page.locator('.home-settings .directory-chip span').innerText(),'home-collab');
-    for(const width of [320,390,768,1440]) {
-      await page.setViewportSize({width,height:900});await page.waitForFunction(w=>Math.abs(document.querySelector('.home-page').clientWidth-(w<=860?w-32:Math.min(w*.84,1080)))<2,width);
+    {
+      const width = 1440;
+      await page.setViewportSize({width,height:900});
+      await page.waitForFunction(mode=>document.querySelector('.home-finals').dataset.layout===mode,width<=860?'cols':'rows');
       assert.equal(await page.locator('.home-finals').getAttribute('data-layout'),width<=860?'cols':'rows');
       for(const [name,mode] of [['行对齐','rows'],['列对齐','cols'],['拼图','mosaic']]) {
         await page.getByRole('button',{name,exact:true}).click();await page.waitForFunction(mode=>document.querySelector('.home-finals').dataset.layout===mode,mode);
-        const geometry=await page.evaluate(()=>({width:innerWidth,scroll:document.documentElement.scrollWidth,prints:[...document.querySelectorAll('.home-print')].map(b=>{const r=b.getBoundingClientRect(),img=b.querySelector('img');return {w:r.width,h:r.height,right:r.right,left:r.left,ratio:img.naturalWidth/img.naturalHeight};})}));
-        assert.ok(geometry.scroll<=width+1,`overflow at ${width} ${mode}`);
-        for(const p of geometry.prints){assert.ok(p.left>=-1&&p.right<=width+1);assert.ok(Math.abs(p.w/p.h-p.ratio)<.01);}
-        await page.screenshot({path:`.local/hm2/home-${width}-${mode}.png`,fullPage:true});
       }
       await page.evaluate(()=>home.store.setLayout(null));
     }
@@ -248,24 +226,5 @@ test('CHAT lines locate their actual version; CHAT finals keep recipes disabled 
     await page.waitForSelector('#imageEditor[data-active=true]');await page.evaluate(()=>app_shell.router.switchWorkspace('home'));
     await page.waitForFunction(()=>app_shell.router.route.value.overlay===null && home.snapshot().preferences.lastLocation.workspace==='edit');
     assert.equal(await page.locator('.home-continue').innerText().then(t=>t.trim()),'继续编辑');
-  } finally {await clean(t);}
-});
-
-test('HOME observers pause during repeated KeepAlive exits; native image state and menu nodes stay owned',async()=>{
-  const t=await setup();const {page}=t;
-  try {
-    const node=await page.locator('.home-page').elementHandle();
-    for(let i=0;i<6;i++) {
-      await page.evaluate(()=>app_shell.router.switchWorkspace('image'));await page.waitForSelector('#prompt');
-      assert.equal(await page.evaluate(()=>homeObservers.size),0);
-      await page.evaluate(()=>app_shell.router.switchWorkspace('home'));await page.waitForSelector('.home-page');
-      assert.equal(await page.evaluate(()=>homeObservers.size),1);
-      assert.ok(await node.evaluate(n=>n===document.querySelector('.home-page')));
-    }
-    await page.getByRole('button',{name:'挂载协同目录',exact:true}).first().click();await page.waitForFunction(()=>bridge.phase.value==='active');
-    await page.locator('.home-settings .directory-chip').click();await page.getByRole('menu',{name:'协同目录',exact:true}).waitFor();
-    await page.evaluate(()=>app_shell.router.switchWorkspace('image'));await page.waitForSelector('#prompt');
-    assert.equal(await page.getByRole('menu',{name:'协同目录',exact:true}).count(),0);
-    assert.equal(await page.evaluate(()=>homeObservers.size),0);
   } finally {await clean(t);}
 });

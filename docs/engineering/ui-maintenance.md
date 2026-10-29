@@ -95,7 +95,7 @@ AI 命名的共用星光／停止按钮与状态动效由 `src/shared/AiNameButt
 
 ## 样式检查
 
-### 同一检查入口
+### 按改动检查
 
 ```sh
 npm ci
@@ -105,7 +105,7 @@ npm run check
 
 `stylelint.config.mjs` 为唯一样式检查配置，精确锁定 Stylelint 17.16.0 和 Vue 样式解析器 postcss-html 2.0.0。`styles:check` 检查 `public/styles/**/*.css` 与 `src/**/*.vue` 的样式块，不解析 Vue 的脚本、模板事件或动态样式值。
 
-`check` 依次执行字体一致性、样式检查、严格类型、单元测试和生产构建。现有 CI 已调用同一个 `check`，没有另建一套 CI 规则。`dev`／`build` 保持原工作方式，不强制每次热更新都完整检查；提交前运行 `check`。
+`check` 仅执行严格类型、纯逻辑单元测试和构建；样式与字体检查为按需命令。CI 额外只跑少量业务冒烟，不对 CSS 值、尺寸、动画或视口间距做断言。纯样式调整目视核对涉及页面即可，不要求全量浏览器回归。
 
 生成字体 CSS、构建输出、依赖和 `.local/` 不参与手写样式检查。字体仍由 `fonts:check` 核对配置、生成声明、字体资源、许可与预加载，不因排除生成文件而放弃验证。
 
@@ -169,7 +169,7 @@ npm run fonts:check
 
 如调整预加载清单，同时更新 `index.html` 的对应 `<link>`；不匹配时生成与检查都会报错。生成失败不会覆盖现有 CSS。源码中的生成文件应随清单变更一起提交。
 
-`npm run dev` 与 `npm run build` 会先生成字体 CSS；已开启的开发服务器中修改配置后，重新执行 `fonts:build` 即可更新静态 CSS。`npm run check` 先检查生成一致性，过期时直接失败，避免构建自动修正后掩盖漏提交。CI 继续使用同一 `check`。
+`npm run dev` 与 `npm run build` 会先生成字体 CSS；已开启的开发服务器中修改配置后，重新执行 `fonts:build` 即可更新静态 CSS。字体配置变更应在构建前显式运行 `npm run fonts:check`，避免构建自动生成后掩盖漏提交；普通检查不重复执行字体专项验证。
 
 普通构建只需要 Node 与已提交的 WOFF2，不需要 Python、原始 TTF、外部字体服务或额外 npm 依赖。
 
@@ -178,9 +178,9 @@ npm run fonts:check
 只有主动更新字体资源时才执行以下流程。源文件由维护者自行准备，不纳入普通构建或发布包：
 
 ```sh
-python3 -m venv .local/font-tools
-.local/font-tools/bin/python -m pip install fonttools==4.60.1 brotli==1.1.0
-.local/font-tools/bin/python scripts/build-rounded-font.py /path/to/ttf-dir
+python3 -m venv /tmp/koma-font-tools
+/tmp/koma-font-tools/bin/python -m pip install fonttools==4.60.1 brotli==1.1.0
+/tmp/koma-font-tools/bin/python scripts/build-rounded-font.py /path/to/ttf-dir
 npm run fonts:build
 npm run check
 ```

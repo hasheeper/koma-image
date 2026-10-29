@@ -1,6 +1,6 @@
 import { before, after } from "node:test";
 import assert from "node:assert/strict";
-import { mkdir } from "node:fs/promises";
+
 import { createServer } from "./vite.mjs";
 import { chromium } from "playwright";
 
@@ -339,16 +339,7 @@ async function cp3Manual(page, llm, connectionId, memo = '边界内的合成备�
 
 export function useAskFixture() {
 before(async () => {
-  await mkdir(".local/ask/window", { recursive: true });
-  await mkdir(".local/ask/w5", { recursive: true });
-  await mkdir(".local/ask/w6", { recursive: true });
-  await mkdir(".local/ask/markdown", { recursive: true });
-  await mkdir(".local/ask/island", { recursive: true });
-  await mkdir(".local/ask/a4", { recursive: true });
-  await mkdir(".local/ask/a3", { recursive: true });
-  await mkdir(".local/ask/a2", { recursive: true });
-  await mkdir(".local/ask/a1", { recursive: true });
-  await mkdir(".local/ask/h4", { recursive: true });
+
   server = await createServer({ server: { host: "127.0.0.1", port: 0, open: false, hmr: false } });
   await server.listen();
   origin = `http://127.0.0.1:${server.httpServer.address().port}`;

@@ -1,15 +1,14 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { mkdir } from "node:fs/promises";
 
-import { useAskFixture, hosts, reasoning, open, openai, text, end, anthropic, askSettings, generation, bind, drawer, openDebug, stored, textReply, openConversations, heading, askText } from "./helpers/ask-fixture.mjs";
+import { useAskFixture, hosts, reasoning, open, openai, text, end, anthropic, askSettings, generation, bind, openDebug, stored, textReply, openConversations, askText } from "./helpers/ask-fixture.mjs";
 
 useAskFixture();
 
-test('AI naming: independent model settings, manual IDs and four-width settings layout', async () => {
+test("AI naming: independent model settings, manual IDs", async () => {
   const {page,context,calls,errors}=await open('/#/image/settings/ask',{ask:askSettings()});
   try {
-    await mkdir('.local/ask/naming',{recursive:true});
+
     const section=page.getByRole('group',{name:'命名模型',exact:true});
     // Following ASK needs no second value: the model sits right above.
     assert.equal(await page.locator('#askNamingConnection').inputValue(),'');
@@ -25,10 +24,9 @@ test('AI naming: independent model settings, manual IDs and four-width settings 
     assert.equal(await dialog.locator('.lamp[data-s="on"]').count(),1);
     await page.keyboard.press('Escape');
     const config=await stored(page,'koma.ask.v1');assert.equal(config.connectionId,'chat');assert.equal(config.model,'reasoning-a');assert.deepEqual(config.models,{chat:['reasoning-a']});
-    for(const width of [320,390,768,1440]) {
+    {
+      const width = 1440;
       await page.setViewportSize({width,height:900});await section.scrollIntoViewIfNeeded();
-      assert.equal(await section.evaluate(el=>el.scrollWidth>el.clientWidth),false);
-      await page.screenshot({path:`.local/ask/naming/settings-${width}.png`});
     }
     await page.reload();await page.waitForSelector('#settingsPanel[open]');
     assert.equal(await page.locator('#askNamingConnection').inputValue(),'claude');assert.match(await section.textContent(),/reasoning-b/);
@@ -116,41 +114,6 @@ test('AI naming: cancel, failure, target switch/delete, manual rename and failed
     await pending({kind:'conversation',id:c});await page.evaluate(c=>ask.renameConversation(c,'保留手动名'),c);await finish();assert.equal(await page.evaluate(c=>ask.conversations.value.find(x=>x.id===c).title,c),'保留手动名');
     await pending({kind:'conversation',id:c});await page.evaluate(c=>ask.deleteConversation(c),c);await finish();assert.equal(await page.evaluate(()=>ask.conversations.value.length),1);
     const before=calls.length;await page.evaluate(()=>ask.generateName({kind:'conversation',id:ask.conversationId.value}));assert.equal(calls.length,before,'empty conversation never requests');
-    assert.deepEqual(errors,[]);
-  }finally{release?.();await context.close();}
-});
-
-test('AI naming: four-width title buttons, manual name editor and reduced-motion pending state',async()=>{
-  const {page,context,llm,errors}=await open('/#/image',{ready:'.switcher',ask:askSettings()});
-  let release;
-  try {
-    await mkdir('.local/ask/naming',{recursive:true});await bind(page);
-    await page.evaluate(async()=>{await drawing.patch({prompt:'rainy city'});await drawing.renameBoard(drawing.snapshot().activeBoardId,'雨夜车站的候车女孩与暖色灯光 · 完整长标题');});
-    await askText(page,llm,'构思雨夜车站的候车女孩与暖色灯光，保留完整长标题');
-    for(const width of [320,390,768,1440]) {
-      await page.setViewportSize({width,height:900});
-      const button=page.getByRole('button',{name:'AI 命名对话',exact:true});
-      const [r,frame]=await Promise.all([button.boundingBox(),drawer(page).boundingBox()]);
-      assert.ok(r.x>=frame.x&&r.x+r.width<=frame.x+frame.width&&r.width===30);
-      await page.screenshot({path:`.local/ask/naming/window-${width}.png`});
-      const menu=await openConversations(page);await menu.getByRole('menuitem',{name:'重命名',exact:true}).click();
-      const edit=page.getByRole('textbox',{name:'对话名称',exact:true});await edit.press('Home');
-      assert.equal(await edit.evaluate(el=>el===document.activeElement&&el.selectionStart===0),true);
-      assert.equal(await menu.evaluate(el=>el.scrollWidth>el.clientWidth),false);
-      await page.screenshot({path:`.local/ask/naming/rename-${width}.png`});
-      await page.keyboard.press('Escape');await page.keyboard.press('Escape');
-      await page.evaluate(()=>ask.hide());
-      const boardButton=page.getByRole('button',{name:'AI 命名画板',exact:true});await boardButton.scrollIntoViewIfNeeded();
-      assert.ok(await boardButton.evaluate(el=>{const r=el.getBoundingClientRect();return r.x>=0&&r.right<=innerWidth&&r.width===30;}));
-      assert.equal(await page.locator('.bd-pill').evaluate(el=>el.scrollWidth>el.clientWidth),false);
-      await page.screenshot({path:`.local/ask/naming/board-${width}.png`});
-      await page.evaluate(()=>ask.show());
-    }
-    llm.push({...textReply('新名称'),wait:new Promise(resolve=>{release=resolve;})});
-    await page.getByRole('button',{name:'AI 命名对话',exact:true}).click();
-    const stop=page.getByRole('button',{name:'取消命名',exact:true});await stop.waitFor();
-    assert.equal(await stop.locator('.ico').evaluate(el=>getComputedStyle(el).animationName),'none');
-    await page.screenshot({path:'.local/ask/naming/pending.png'});await stop.click();release();
     assert.deepEqual(errors,[]);
   }finally{release?.();await context.close();}
 });

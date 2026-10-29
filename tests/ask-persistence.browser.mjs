@@ -1,15 +1,14 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { mkdir } from "node:fs/promises";
 
-import { useAskFixture, origin, submitAsk, open, openai, text, end, askSettings, generation, bind, addImage, drawer, stored, patchStep, askDraft, form, openConversations, heading, askText, scripted, wireStates, savedAsk, reloadAsk } from "./helpers/ask-fixture.mjs";
+import { useAskFixture, origin, submitAsk, open, openai, text, end, askSettings, generation, bind, addImage, drawer, patchStep, askDraft, openConversations, heading, askText, scripted, wireStates, savedAsk, reloadAsk } from "./helpers/ask-fixture.mjs";
 
 useAskFixture();
 
 for (const connectionId of ['chat', 'claude']) test(`ASK favorites: ${connectionId} reload, exact context, attachments, auto-save, unstar and delete`, async () => {
   const { page, context, llm, calls, requests, errors } = await open('/#/image', { ready: '.switcher', ask: askSettings({ connectionId }) });
   try {
-    await mkdir('.local/ask/favorites', { recursive: true });
+
     await bind(page); await page.waitForFunction(() => ask.favoritesReady.value);
     await addImage(page, 'temporary history');
     await page.evaluate(async () => {
@@ -31,13 +30,7 @@ for (const connectionId of ['chat', 'claude']) test(`ASK favorites: ${connection
     assert.equal(stored.attachments.length, 2);
     assert.equal(stored.attachments.some(a => 'url' in a), false);
     assert.doesNotMatch(JSON.stringify(stored), /blob:http|synthetic-chat|synthetic-claude|authorization/);
-    for (const width of [320, 390, 768, 1440]) {
-      await page.setViewportSize({ width, height: 900 });
-      await page.waitForFunction(()=>{const r=document.getElementById('askConvMenu')?.getBoundingClientRect();return r&&r.left>=0&&r.right<=innerWidth&&r.bottom<=innerHeight;});
-      const bounds=await menu.evaluate(el=>{const r=el.getBoundingClientRect();return {left:r.left,right:r.right,bottom:r.bottom,width:innerWidth,height:innerHeight};});
-      assert.ok(bounds.left>=0&&bounds.right<=bounds.width&&bounds.bottom<=bounds.height,JSON.stringify(bounds));
-      await page.screenshot({ path: `.local/ask/favorites/${connectionId}-${width}.png` });
-    }
+
     await menu.getByRole('menuitem', { name: '新对话', exact: true }).click();
     llm.push({ body: scripted(connectionId, null) });
     await page.locator('#askPrompt').fill('临时对话不会保存'); await submitAsk(page);

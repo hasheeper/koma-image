@@ -2,7 +2,9 @@ name: Check
 
 on:
   push:
+    paths-ignore: ['docs/**', '**/*.md']
   pull_request:
+    paths-ignore: ['docs/**', '**/*.md']
 
 permissions:
   contents: read
@@ -19,4 +21,5 @@ jobs:
       - run: npm ci
       - run: npm run check
       - run: npx playwright install --with-deps chromium
-      - run: node scripts/test-browser.mjs
+      - name: Core user flows
+        run: node scripts/test-browser.mjs

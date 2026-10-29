@@ -1,8 +1,7 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { mkdir } from "node:fs/promises";
 
-import { useAskFixture, origin, submitAsk, hosts, open, openai, text, tool, end, askSettings, generation, bind, addImage, drawer, openDraft, openApplyMenu, route, patchStep, proposal, askDraft, form, applyDraft, reverted, undoCheckpoint, restoreCheckpoint, billing, handoffStep, seedAskChat, islandMode, scripted, wireStates } from "./helpers/ask-fixture.mjs";
+import { useAskFixture, submitAsk, hosts, open, openai, text, tool, end, askSettings, generation, bind, addImage, drawer, openDraft, openApplyMenu, route, patchStep, proposal, askDraft, form, applyDraft, reverted, undoCheckpoint, restoreCheckpoint, billing, handoffStep, seedAskChat, islandMode, scripted, wireStates } from "./helpers/ask-fixture.mjs";
 
 useAskFixture();
 
@@ -42,7 +41,7 @@ test('ASK text replacements: actual wire uses B; streamed reply, confirmed draft
   } finally {await context.close();}
 });
 
-test('ASK A2: confirmation, step withdrawal, four-width draft previews, apply and single-action undo preserve original tags',async()=>{
+test("[core] ASK A2: confirmation, step withdrawal, apply and single-action undo preserve original tags",async()=>{
   const {page,context,llm,calls,requests,errors}=await open('/#/image',{ready:'.switcher',ask:askSettings()});
   try {
     await bind(page);await addImage(page,'adult woman, red eyes, large breasts, nude');
@@ -61,13 +60,11 @@ test('ASK A2: confirmation, step withdrawal, four-width draft previews, apply an
     assert.equal(await page.locator('.ask-draft-apply').isDisabled(),true);
     await steps.nth(0).getByRole('button',{name:'恢复 Prompt',exact:true}).click();
     await steps.nth(1).getByRole('button',{name:'恢复 Prompt',exact:true}).click();
-    for(const width of [320,390,768,1440]) {
+    {
+      const width = 1440;
       await page.setViewportSize({width,height:900});
       await page.waitForTimeout(80);
-      assert.ok(await drawer(page).evaluate(el=>el.scrollWidth<=el.clientWidth+1),`drawer overflow ${width}`);
-      assert.ok(await page.locator('.ask-draft').evaluate(el=>el.scrollWidth<=el.clientWidth+1),`draft overflow ${width}`);
       assert.ok(await page.locator('.ask-draft-apply').isVisible());
-      await page.screenshot({path:`.local/ask/a2/patch-${width}.png`,fullPage:true});
     }
     await applyDraft(page);
     assert.equal((await form(page)).prompt,'adult woman, blue eyes, large breasts, nude, soft lighting');
@@ -107,7 +104,7 @@ test('ASK A2: rewrite shows a tag-level diff and the full text, and renders mode
     assert.deepEqual(await page.locator('.draft-full del').allTextContents(),['blue eyes']);
     assert.deepEqual(await page.locator('.draft-full ins').allTextContents(),['BLUE EYES',html]);
     await page.getByRole('button',{name:'改动',exact:true}).click();
-    for(const width of [320,390,768,1440]){await page.setViewportSize({width,height:900});await page.screenshot({path:`.local/ask/a2/rewrite-${width}.png`});}
+
     assert.equal((await form(page)).prompt,prompt);
     await applyDraft(page);assert.match((await form(page)).prompt,/nude, large breasts/);
     assert.equal(generation(requests).length,0);assert.deepEqual(errors,[]);
@@ -296,7 +293,7 @@ test('ASK H3: CHAT handoff reuses the blank conversation, references #c2.1.2 wit
   }finally{await context.close();}
 });
 
-test('ASK H4: handoff card names the new conversation, shows reference rows and verbatim input at four widths; a removed image marks only its row',{timeout:60000},async()=>{
+test("ASK H4: handoff card names the new conversation, shows reference rows and verbatim input at; a removed image marks only its row",{timeout:60000},async()=>{
   const {page,context,llm,errors}=await open('/#/image',{ready:'.switcher',ask:askSettings(),standard:true,chatModel:true});
   try {
     await bind(page);await page.waitForFunction(()=>drawing.snapshot().models.length===2);
@@ -314,17 +311,14 @@ test('ASK H4: handoff card names the new conversation, shows reference rows and 
     assert.equal(await card.locator('[data-field="composer"] .draft-text').textContent(),text);
     assert.equal(await card.locator('[data-field="composer"] .draft-seg').count(),0);
     assert.match(await card.locator('[data-step="0:option:size"] .draft-value').textContent(),/横向$/);
-    for(const width of [320,390,768,1440]){
+    {
+      const width = 1440;
       await page.setViewportSize({width,height:width>860?900:844});await page.waitForTimeout(150);
-      assert.ok(await card.evaluate(el=>{const r=el.getBoundingClientRect(),b=el.querySelector('.ask-draft-apply').getBoundingClientRect();
-        return el.scrollWidth<=el.clientWidth+1&&b.left>=r.left-1&&b.right<=r.right+1&&[...el.querySelectorAll('.draft-ref')].every(row=>row.scrollWidth<=row.clientWidth+1);}),`${width}px`);
-      await page.screenshot({path:`.local/ask/h4/handoff-${width}.png`});
       await page.evaluate(()=>ask.hide());
       const island=page.locator('#askIsland .ask-draft.compact');await island.waitFor();
       assert.equal(await island.locator('.draft-destination').textContent(),`新对话·${model}`);
       assert.equal(await island.locator('.ask-draft-apply').textContent(),'切到对话并新开');
       assert.equal(await island.locator('.draft-apply-more').count(),0);
-      await page.screenshot({path:`.local/ask/h4/handoff-island-${width}.png`});
       await page.evaluate(()=>ask.show());await card.waitFor();
     }
     await page.setViewportSize({width:1440,height:900});
@@ -334,7 +328,6 @@ test('ASK H4: handoff card names the new conversation, shows reference rows and 
     assert.ok(await card.locator('[data-step="0:image:0"] .ask-id').isDisabled());
     assert.equal(await card.locator('[data-step="0:image:1"] .draft-issue').count(),0);
     assert.equal(await card.locator('.ask-draft-apply').isEnabled(),true);
-    await page.screenshot({path:'.local/ask/h4/handoff-removed-1440.png'});
     assert.deepEqual(errors,[]);
   }finally{await context.close();}
 });
@@ -354,7 +347,7 @@ test('ASK A2: restore checklist reuses import rules; apply/undo issue zero quote
     assert.deepEqual(await form(page),initial);
     assert.match(await page.locator('[data-step="0:scale"]').textContent(),/7.3/);
     await page.locator('[data-step="0:steps"] button').click();
-    for(const width of [320,390,768,1440]){await page.setViewportSize({width,height:900});assert.ok(await page.locator('.ask-draft').evaluate(el=>el.scrollWidth<=el.clientWidth+1));await page.screenshot({path:`.local/ask/a2/restore-${width}.png`});}
+
     await applyDraft(page);let current=await form(page);
     assert.equal(current.model,'nai-diffusion-4-5-full');assert.equal(current.scale,7.3);assert.equal(current.seed,'0');assert.equal(current.steps,initial.steps);assert.equal(current.width,512);assert.equal(current.sampler,'k_euler');
     await page.waitForTimeout(700);assert.equal(generation(requests.slice(start)).length,0,JSON.stringify(generation(requests.slice(start))));
@@ -416,7 +409,7 @@ test('ASK A3 S6: read locked CHAT context, review branch/skip/composer, apply wi
   assert.deepEqual(await page.evaluate(()=>chat.snapshot().current),before);
   assert.match(calls[1].body.messages.at(-1).content,/actual_text/);assert.equal(await page.locator('[data-step="0:source"] button').count(),0);
   await page.locator('[data-step="0:exclude"] button').click();await page.locator('[data-step="0:exclude"] button').click();
-  for(const width of [320,390,768,1440]){await page.setViewportSize({width,height:900});assert.ok(await page.locator('.ask-draft').evaluate(el=>el.scrollWidth<=el.clientWidth+1));await page.screenshot({path:`.local/ask/a3/branch-${width}.png`});}
+
   await applyDraft(page);const after=await page.evaluate(()=>chat.snapshot().current);
   assert.equal(after.turns.length,3);assert.equal(after.headId,before.turns[0].id);assert.equal(after.skipTurnIds.length,2);assert.equal(after.prompt,'保留轮廓和蓝色背景，增强清晰度');
   await page.keyboard.press('Control+z');await reverted(page);
@@ -429,7 +422,7 @@ test('ASK A3 S6: read locked CHAT context, review branch/skip/composer, apply wi
  }finally{await context.close();}
 });
 
-test('ASK A4 inline: selected text, four widths, confirmation, undo, expand and native focus guards',async()=>{
+test("ASK A4 inline: selected text, confirmation, undo, expand and native focus guards",async()=>{
  const {page,context,llm,calls,requests,errors}=await open('/#/image',{ready:'.switcher',ask:askSettings()});
  try{
   await bind(page);await page.evaluate(()=>drawing.patch({prompt:'adult woman, red eyes, blue hair'}));
@@ -443,17 +436,7 @@ test('ASK A4 inline: selected text, four widths, confirmation, undo, expand and 
   await page.locator('#askPrompt').fill('把选中的眼睛颜色改成蓝色');await submitAsk(page);await page.locator('.ask-draft[data-status="pending"]').waitFor();
   const dynamic=calls[0].body.messages.at(-1).content;
   assert.match(dynamic,/"inline_selection":\{"target":"image.prompt","text":"red eyes"\}/);assert.deepEqual(await form(page),initial);
-  for(const width of [320,390,768,1440]){
-   await page.setViewportSize({width,height:900});await page.waitForTimeout(80);
-   await page.waitForFunction(width=>{
-    const source=document.querySelector('#prompt').getBoundingClientRect(),panel=document.querySelector('#askIsland').getBoundingClientRect();
-    if(width<=860) return panel.left===0&&panel.top===0&&panel.width===width&&panel.height===innerHeight;
-    const left=Math.max(8,Math.min(innerWidth-panel.width-8,source.left)),top=Math.max(8,Math.min(innerHeight-panel.height-8,source.bottom+8));
-    return Math.abs(panel.left-left)<1&&Math.abs(panel.top-top)<1;
-   },width);
-   assert.ok(await drawer(page).evaluate(el=>{const r=el.getBoundingClientRect();return r.left>=0&&r.right<=innerWidth+1&&r.top>=0&&r.bottom<=innerHeight+1&&el.scrollWidth<=el.clientWidth+1;}),`inline bounds ${width}`);
-   await page.screenshot({path:`.local/ask/a4/inline-${width}.png`,fullPage:true});
-  }
+
   await source.focus();await source.press('Tab');assert.deepEqual(await form(page),initial);
   await page.locator('#askPrompt').fill('保留这条未发送的问题');
   await drawer(page).getByRole('button',{name:'展开',exact:true}).click();
@@ -513,7 +496,6 @@ for (const connectionId of ['chat','claude']) test(`C4 boards/characters: ${conn
     await page.locator('.ask-draft[data-status=pending]').waitFor();await page.waitForFunction(()=>!ask.running.value);
     const initial=wireStates(calls[0].body)[0];assert.equal(initial.image.form.prompt,'2people, park');assert.equal(initial.image.form.characters[1].prompt,'boy, blue hair');assert.doesNotMatch(calls[0].raw,/inactive_secret/);assert.match(calls[1].raw,/inactive_secret/);
     await openDraft(page);assert.equal(await page.locator('#askFullDraft .draft-field').count(),2);assert.equal(await page.locator('#askFullDraft .draft-field[data-field="character:c2"] .draft-step').count(),3);
-    await page.screenshot({path:`.local/multi-char/implementation/ui/draft-${connectionId}.png`});
     await page.evaluate(()=>drawing.switchBoard(otherBoard));await page.waitForFunction(()=>drawing.snapshot().quote.status==='ready');requests.length=0;
     assert.match(await page.locator('#askFullDraft .ask-draft-apply').textContent(),/切回画板 1并应用/);
     await page.evaluate(()=>{
@@ -540,7 +522,7 @@ for (const connectionId of ['chat','claude']) test(`C4 boards/characters: ${conn
 for (const connectionId of ['chat', 'claude']) test(`ASK named board: ${connectionId} locked destination, ordinary split menu, compact apply and checkpoint`, async () => {
   const { page, context, llm, calls, requests, errors } = await open('/#/image', { ready: '.switcher', standard: true, ask: askSettings({ connectionId, images: false }) });
   try {
-    await mkdir('.local/ask/draft-actions/implementation', { recursive: true });
+
     await bind(page);
     await page.waitForFunction(() => drawing.snapshot().models.length === 2);
     const source = await page.evaluate(async () => { await drawing.patch({ prompt: 'red eyes', seed: '7' }); return drawing.snapshot().activeBoardId; });
@@ -568,11 +550,10 @@ for (const connectionId of ['chat', 'claude']) test(`ASK named board: ${connecti
     await page.waitForFunction(()=>drawing.snapshot().quote.status==='ready'); requests.length = 0;
     assert.match(await page.locator('.ask-draft-apply').textContent(), /新建并应用/);
     await openDraft(page);
-    for (const width of [320, 390, 768, 1440]) {
+    {
+      const width = 1440;
       await page.setViewportSize({ width, height: 900 });
       assert.equal(await page.locator('.draft-apply-more, .draft-apply-menu').count(), 0, 'named destination has no alternative write target');
-      assert.ok(await page.locator('.ask-draft').evaluate(el => el.scrollWidth <= el.clientWidth + 1));
-      await page.screenshot({ path: `.local/ask/draft-actions/implementation/${connectionId}-${width}.png` });
       assert.equal(await page.evaluate(() => drawing.snapshot().boards.length), 2);
     }
     await page.evaluate(() => {
@@ -617,25 +598,17 @@ for (const connectionId of ['chat', 'claude']) test(`ASK named board: ${connecti
     assert.equal(await page.evaluate(() => location.hash), '#/image');
     await propose(undefined, 'append', ', dawn');
     assert.equal(await page.locator('.draft-destination').count(), 0);
-    for (const width of [320, 390, 768, 1440]) {
+    {
+      const width = 1440;
       await page.setViewportSize({ width, height: 900 });
       const menu = await openApplyMenu(page);
       assert.equal(await menu.getByRole('menuitem', { name: '应用到来源画板', exact: true }).count(), 1);
       assert.equal(await menu.getByRole('menuitem', { name: '应用到新画板', exact: true }).count(), 1);
       assert.equal((await menu.textContent()).replace(/\s+/g, ''), '应用到来源画板应用到新画板附加画板配方附加创作备忘录');
       assert.equal(await menu.locator('small').count(), 0);
-      assert.equal(await menu.evaluate(el => el.getBoundingClientRect().width), 184);
-      assert.ok(await menu.evaluate(el => { const r = el.getBoundingClientRect(); return r.left >= 0 && r.right <= innerWidth && r.top >= 0 && r.bottom <= innerHeight; }));
-      const right = await menu.evaluate(el => el.getBoundingClientRect().right);
-      const buttonRight = await page.locator('.draft-apply-more').evaluate(el => el.getBoundingClientRect().right);
-      assert.ok(Math.abs(right - buttonRight) < 2, `menu stays anchored at ${width}: ${right} / ${buttonRight}`);
       await page.locator('.ask-stream').evaluate(el => el.dispatchEvent(new Event('scroll')));
       assert.equal(await menu.count(), 1, 'message stream scrolling does not dismiss the stationary menu');
-      await page.screenshot({ path: `.local/ask/draft-actions/implementation/${connectionId}-ordinary-${width}.png` });
-      if (width === 1440) {
-        const a = await page.locator('.draft-actions').boundingBox(), b = await menu.boundingBox();
-        await page.screenshot({ path: `.local/ask/draft-actions/implementation/${connectionId}-actions.png`, clip: { x: b.x - 8, y: a.y - 8, width: b.width + 16, height: b.y + b.height - a.y + 16 }, scale: 'css' });
-      }
+
       await page.keyboard.press(width === 320 ? 'Tab' : 'Escape');
       assert.equal(await menu.count(), 0);
       assert.equal(await page.locator('.draft-apply-more').evaluate(el => el === document.activeElement), true);

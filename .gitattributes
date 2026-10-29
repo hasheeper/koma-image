@@ -5,3 +5,5 @@
 *.webp binary
 *.woff2 binary
 /public/fonts/index.css linguist-generated=true
+# Keep test sources reviewable, but exclude them from product language statistics.
+/tests/** linguist-detectable=false

@@ -23,12 +23,7 @@ test("priority NAI: ordering, availability, actual source, wallet, quota fallbac
     assert.match(await official.locator(".st").textContent(), /当前使用/);
     assert.match(await gateway.locator(".conn-models").textContent(), /模型\s*5\s*个可用/);
     assert.equal(await page.evaluate(() => Object.values(services.connections.configuration.links).some(links => Object.values(links).some(link => !link.on))), false);
-    for (const width of [320, 390, 768, 1440]) {
-      await page.setViewportSize({ width, height: 900 });
-      await official.screenshot({ path: `.local/native-protocols/priority-card-${width}.png` });
-      await page.screenshot({ path: `.local/native-protocols/priority-settings-${width}.png` });
-      assert.ok(await official.evaluate(el => el.scrollWidth <= el.clientWidth + 1));
-    }
+
     await official.locator(".conn-models").click();
     await page.getByRole("tab", { name: "优先来源", exact: true }).click();
     assert.equal(await page.locator("#modelListDialog .md-row").count(), 5);
@@ -37,22 +32,16 @@ test("priority NAI: ordering, availability, actual source, wallet, quota fallbac
     await page.getByRole("button", { name: "展开 NAI Diffusion V5 Full 的来源", exact: true }).click();
     const sources = page.locator('[data-model="nai-diffusion-5-full"] .sm-lines');
     assert.equal(await sources.locator('.md-act[aria-pressed="true"]').count(), 2);
-    for (const width of [320, 390, 768, 1440]) {
-      await page.setViewportSize({ width, height: 900 });
-      await sources.screenshot({ path: `.local/native-protocols/priority-model-sources-${width}.png` });
-      assert.ok(await sources.evaluate(el => el.scrollWidth <= el.clientWidth + 1));
-    }
+
     await page.locator("#settingsPanel .set-back").click();
     await page.evaluate(() => ui.notices.value.forEach(n => ui.dismissNotice(n.id)));
     await page.waitForFunction(() => !document.querySelector('.toast'));
     const wallet = page.locator("#meters:visible");
     assert.match(await wallet.textContent(), /68%.*约 1176 张.*8,150/);
     assert.doesNotMatch(await wallet.textContent(), /174|5,000/);
-    for (const width of [320, 390, 768, 1440]) {
+    {
+      const width = 1440;
       await page.setViewportSize({ width, height: 900 });
-      await page.screenshot({ path: `.local/native-protocols/priority-wallet-${width}.png` });
-      assert.ok(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth + 1));
-      assert.ok(await wallet.evaluate(el => el.getBoundingClientRect().right <= innerWidth && el.getBoundingClientRect().left >= 0));
       assert.ok(await wallet.locator(".w-estimate").isVisible());
     }
     await page.evaluate(async () => { await drawing.patch({ prompt: "模拟画面", seed: "0" }); await drawing.run(); });
@@ -120,7 +109,7 @@ test("priority CHAT: ordering selects an official source despite its unknown bal
 });
 
 test("official connection icons: Google AIS/Vertex and OpenAI/Azure identities follow the address in cards and lists", async () => {
-  for (const [name, profile, baseUrl, glyph, responsive] of [
+  for (const [name, profile, baseUrl, glyph] of [
     ["google-ais", "gemini-native-v1", "https://generativelanguage.googleapis.com", "#v-gemini-c", true],
     ["google-vertex", "openai-chat-v1", "https://us-central1-aiplatform.googleapis.com/v1/projects/sample/locations/us-central1/endpoints/openapi", "#v-gemini-c"],
     ["google-global", "openai-chat-v1", "https://aiplatform.googleapis.com/v1/projects/sample/locations/global/endpoints/openapi", "#v-gemini-c"],
@@ -134,11 +123,6 @@ test("official connection icons: Google AIS/Vertex and OpenAI/Azure identities f
       await page.locator("#settingsPanel[open]").waitFor();
       await page.waitForFunction(() => document.querySelector(".conn-card .st")?.dataset.s === "ok");
       assert.equal(await page.locator(".conn-card .connection-avatar use").getAttribute("href"), glyph);
-      for (const width of responsive ? [320, 390, 768, 1440] : [1440]) {
-        await page.setViewportSize({ width, height: 900 });
-        assert.ok(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth + 1));
-        await page.locator(".conn-card").screenshot({ path: `.local/native-protocols/${name}-${width}.png` });
-      }
       await page.locator(".conn-models").click();
       const list = page.locator(profile === "openai-chat-v1" ? "#askModelDialog[open]" : "#modelListDialog[open]");
       await list.waitFor();

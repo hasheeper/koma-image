@@ -49,32 +49,37 @@ npm run check
 npm run preview
 ```
 
-`check` 包含字体一致性、Stylelint、严格类型、单元测试和生产构建；不包含浏览器及发布包套件。预览为 http://127.0.0.1:3217。
+`check` 只运行严格类型、纯逻辑 Node 单元测试和生产构建，不启动浏览器。预览为 http://127.0.0.1:3217。
 
-| 命令 | 范围 |
+| 命令 | 使用时机 |
 | --- | --- |
-| `npm run test:browser` | 构建后运行全部浏览器测试和发布包检查 |
-| `node scripts/test-browser.mjs` | 使用已有 `dist/` 运行同一完整清单，CI 在 `check` 后使用此入口 |
-| `node scripts/test-browser.mjs --list` | 只列出完整清单，不启动浏览器 |
-| `npm run test:ask`、`test:native`、`test:home`、`test:edit` | 按功能运行，使用已有构建；ASK 和原生协议包含拆分后的全部子套件 |
-| `node scripts/test-browser.mjs shell ask-vision` | 组合指定前缀；也可传完整 `.browser.mjs` 文件名 |
+| `npm run check` | 类型、逻辑和构建检查；CI 使用同一入口 |
+| `node scripts/test-browser.mjs` | 使用已有 `dist/` 运行少量 `[core]` 业务冒烟；CI 仅额外执行这些用例 |
+| `npm run test:browser` | 先构建，再运行上述核心冒烟 |
+| `node scripts/test-browser.mjs --list` | 只查看默认选中的文件，不启动浏览器 |
+| `npm run test:ask`、`test:native`、`test:home`、`test:edit` | 对相关功能改动手动运行专题测试，使用已有构建 |
+| `node scripts/test-browser.mjs shell ask-vision` | 按文件名前缀组合专题；也可传完整 `.browser.mjs` 文件名 |
+| `npm run test:browser:all` | 显式运行全部浏览器测试，日常修改不默认执行 |
+| `npm run test:release` | 修改打包／本地服务器时单独检查发布包 |
+| `npm run styles:check`、`npm run fonts:check` | 修改相关样式规范／字体配置时按需检查 |
 
-入口自动发现 `tests/*.browser.mjs`，最多同时运行两个测试文件；不再在 CI 维护另一份手写清单。`test:services`、`test:shared`、`test:drawing`、`test:workspaces`、`test:bridge`、`test:local` 和 `test:release` 保留为专题入口。完整发布检查可运行：
+核心冒烟复用现有测试，以标题中的 `[core]` 标记为唯一清单：
 
-```sh
-npm run check
-node scripts/test-browser.mjs
-```
+| 链路 | 保护的实际结果 |
+| --- | --- |
+| IMAGE 生成 → 历史 → 收藏 | 请求载荷、原图和参数、收藏持久化与撤销 |
+| CHAT 发送 → 多版本 | 发送上下文、附件消费、版本／分支和草稿保存 |
+| EDIT 编辑 → 蒙版 → 衍生图 | 编辑请求、蒙版像素、撤销／重做与结果归属 |
+| ASK 提议 → 确认 → 撤销 | 未确认不写入，确认和撤销操作正确，不触发生图 |
+| 图片身份 | 收藏删除／撤销／重收藏／刷新后的稳定编号 |
 
-自动化业务验证使用合成数据和模拟生成接口，不执行真实收费生成。历史实战、测试数量与执行范围保存在[归档](docs/archive/README.md)，不作为当前测试总数。
+协议型号组合、参考编码、压缩归档、Bridge／Slate、备份失败恢复与 Photopea 具体分层行为保留为按需专题；新增业务才补必要用例。纯样式改动目视确认涉及页面，不因布局变化运行所有专题。
 
-ASK 与原生协议的浏览器测试按功能拆分，共用 `tests/helpers/` 中的模拟连接、响应和图片准备。Vite 测试服务器使用各套件独立的 `.local/test-cache/`，固定预构建依赖并关闭 HMR；浏览器内测试不引用 Vite 的内部缓存路径。新增测试按功能命名即可进入完整检查；等待界面就绪使用可观察状态，只有明确验证动画阶段、延迟或无副作用时才保留定时观察窗口。
+浏览器断言只覆盖业务操作、载荷、状态、IndexedDB 和图片／蒙版结果。**不锁死字号、圆角、阴影、动画、控件尺寸或间距，不做四档视口几何巡检。** 画笔／框选操作可以读取元素坐标，但验证的是实际蒙版和聚焦范围，不是 CSS。
 
-Photopea 的本地宿主回归为 `node --test tests/photopea.browser.mjs tests/editor-return.browser.mjs`。真实官方 iframe 往返须显式运行 `KOMA_PHOTOPEA_LIVE=1 node --test tests/photopea-live.browser.mjs`，仅使用合成图片，不配置 Key 或执行生图；默认浏览器套件跳过该联网核验。
+测试使用合成图片和模拟接口，不执行真实收费生成。各测试服务器使用系统临时 Vite 缓存并在关闭时清理，不自动保存截图。`.local/` 仅保留轻量原型源稿及唯一历史恢复备份；旧截图、录屏、审计代码树和重复环境已清除，文字验收记录仍在[归档](docs/archive/README.md)。测试文件通过 `.gitattributes` 排除出 GitHub 语言占比，仍正常展示差异。
 
-Director Tools 的协议与费用测试随 `check` 执行；界面、完整结果、选源与取消的模拟验证为 `node --test tests/director-tools.browser.mjs`，不向真实账户提交工具请求。
-
-Photopea 的生产静态包交互核验须先 `npm run build`，再运行 `KOMA_PHOTOPEA_LIVE=1 KOMA_PHOTOPEA_ENGINES=chromium,edge node --test tests/photopea-compat.browser.mjs`；Edge 需本机已安装。可显式添加 `webkit` 检查 Playwright WebKit 引擎，但不等同实际 Safari。该套件覆盖四档宽度、键盘菜单、真实鼠标选区、Chromium 触摸模拟改图与纯修图回历史，结果和未验环境见 [PE3 收口记录](docs/archive/photopea/2026-10-27-photopea-pe3-verification.md)。
+真实 Photopea 往返仍需显式运行 `KOMA_PHOTOPEA_LIVE=1 node --test tests/photopea-live.browser.mjs`；静态包核验先构建，再运行 `KOMA_PHOTOPEA_LIVE=1 KOMA_PHOTOPEA_ENGINES=chromium,edge node --test tests/photopea-compat.browser.mjs`。这些核验使用合成图片，默认不联网；Edge 须已安装，Playwright WebKit 不等同实际 Safari。
 
 ## 本地运行与发布
 

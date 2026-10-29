@@ -10,7 +10,7 @@ Koma 默认没有连接和 Key。浏览器直连时，用户配置的地址和 K
 
 ```sh
 gitleaks git . --log-opts=--all --redact
-gitleaks dir dist --redact
+gitleaks dir dist --config .gitleaks.toml --redact
 ```
 
-仓库的 `.gitleaks.toml` 只排除一个明确的非秘密 UI 标识；不能将真实凭据或整类文件加入忽略。扫描日志留在被忽略的 `.local/`。自动扫描不能证明不存在所有敏感内容，仍须检查默认地址、文档、第三方资源和发布清单。
+仓库的 `.gitleaks.toml` 只排除一个明确的非秘密 UI 标识；不能将真实凭据或整类文件加入忽略。扫描日志和临时审计副本放在系统临时目录，完成后清理，不堆入 `.local/`。自动扫描不能证明不存在所有敏感内容，仍须检查默认地址、文档、第三方资源和发布清单。
