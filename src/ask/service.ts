@@ -87,7 +87,7 @@ export interface CheckpointView {
   readonly id: number;
   readonly editBoardId?: string;
   readonly title: string;
-  readonly status: "applied" | "reverted";
+  readonly status: "applied" | "reverted" | "dismissed";
   readonly added: number;
   readonly removed: number;
   readonly receipts?: readonly ToolRow[];
@@ -529,9 +529,16 @@ export function createAsk(deps: {
   const restoreDraft = (id: number) => moveDraft(id, true);
   function ignoreDraft(quiet = false) {
     if (!draft.value || writingDraft.value || controller || disposed) return;
-    const entry = entries.value.find(e => e.type === "turn" && e.id === draft.value?.turnId);
-    if (entry?.type === "turn" && entry.turn.turnId) conversations.current.session.updateDraft(entry.turn.turnId, "dismissed");
-    externalStatus(draft.value, "dismissed");
+    const record = draft.value;
+    const entry = entries.value.find(e => e.type === "turn" && e.id === record.turnId);
+    if (entry?.type === "turn") {
+      if (entry.turn.turnId) conversations.current.session.updateDraft(entry.turn.turnId, "dismissed");
+      const plan = draftPlan.value;
+      const { added, removed } = plan ? draftView(plan) : { added: 0, removed: 0 };
+      const view: CheckpointView = { id: record.id, title: record.draft.title, status: "dismissed", added, removed };
+      entries.value = entries.value.map(e => e === entry ? { ...entry, turn: { ...entry.turn, checkpoint: view } } : e);
+    }
+    externalStatus(record, "dismissed");
     draft.value = null; notice.value = "";
     if (!quiet) say("已放弃草稿，内容未修改");
   }

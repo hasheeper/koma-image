@@ -29,6 +29,9 @@ for (const connectionId of ['chat', 'claude']) test(`ASK draft feedback: ${conne
     await page.waitForFunction(() => !ask.running.value && ask.entries.value.at(-1)?.turn?.status === 'failed');
     assert.equal(calls.length, before + 1, 'a follow-up starts one ordinary request and never retries itself');
     assert.equal(await page.evaluate(() => ask.draftPlan.value), null, 'the superseded draft cannot still be applied');
+    const dismissed = drawer(page).locator('.ask-checkpoint[data-state="dismissed"]');
+    assert.equal(await dismissed.locator('.checkpoint-title').textContent(), '已驳回调整眼睛');
+    assert.equal(await dismissed.locator('button').count(), 0);
     assert.equal(await page.evaluate(() => ask.undoId.value), null);
     assert.equal((await form(page)).prompt, 'red eyes');
     const wireText = content => typeof content === 'string' ? content : content.filter(b => b.type === 'text').map(b => b.text).join('\n');
@@ -41,6 +44,7 @@ for (const connectionId of ['chat', 'claude']) test(`ASK draft feedback: ${conne
     await page.evaluate(() => ask.toggleFavorite());
     const saved = (await savedAsk(page))[0];
     assert.equal(saved.session.turns[0].draft.status, 'dismissed');
+    assert.equal(saved.entries[0].turn.checkpoint.status, 'dismissed');
     assert.equal(saved.draft, null);
     assert.match(saved.entries.at(-1).turn.draftFeedback, /blue eyes/);
 

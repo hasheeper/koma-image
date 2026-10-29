@@ -14,7 +14,7 @@ const tabs = computed(() => [
   ...(ask.memory.value?.attachments.length ? [{ id: "files", label: `附件 ${ask.memory.value.attachments.length}` }] : []),
 ]);
 const preview = computed(() => ask.attachmentPreview.value?.inline ? ask.attachmentPreview.value : null);
-const statuses = { pending: "待确认", applied: "已应用", reverted: "已回退", dismissed: "已忽略" };
+const statuses = { pending: "待确认", applied: "已应用", reverted: "已回退", dismissed: "已驳回" };
 let origin: HTMLElement | null = null, stopLayer = () => {};
 async function inspect(event: MouseEvent, kind: "turn" | "text", target: string) {
   origin = event.currentTarget as HTMLElement;

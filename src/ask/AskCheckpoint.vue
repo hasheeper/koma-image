@@ -20,12 +20,12 @@ const summary = computed(() => {
     <AskToolGroup :rows="rows" :source="source" :label="summary" :reverted="checkpoint.status === 'reverted'"><template #action><button v-if="checkpoint.editBoardId && checkpoint.status==='applied'" type="button" aria-label="去编辑" title="去编辑" @click="ask.goEdit(checkpoint.editBoardId)"><AppIcon name="i-edit" /></button><button v-if="ask.undoId.value === checkpoint.id" type="button" aria-label="回退" title="回退" :disabled="ask.running.value || ask.writingDraft.value" @click="ask.undoDraft(checkpoint.id)"><AppIcon name="i-undo" /></button><button v-else-if="ask.redoId.value === checkpoint.id" type="button" aria-label="恢复" title="恢复" :disabled="ask.running.value || ask.writingDraft.value" @click="ask.restoreDraft(checkpoint.id)"><AppIcon name="i-redo" /></button></template></AskToolGroup>
   </div>
   <div v-else class="ask-checkpoint" :data-state="checkpoint.status" :data-id="checkpoint.id">
-    <AppIcon :name="checkpoint.status === 'applied' ? 'i-check' : 'i-undo'" />
-    <span class="checkpoint-title" :title="checkpoint.title">{{ checkpoint.status === 'applied' ? '已写入' : '已回退' }}<b>{{ checkpoint.title }}</b></span>
+    <AppIcon :name="checkpoint.status === 'applied' ? 'i-check' : checkpoint.status === 'dismissed' ? 'i-close' : 'i-undo'" />
+    <span class="checkpoint-title" :title="checkpoint.title">{{ checkpoint.status === 'applied' ? '已写入' : checkpoint.status === 'dismissed' ? '已驳回' : '已回退' }}<b>{{ checkpoint.title }}</b></span>
     <button v-if="checkpoint.editBoardId && checkpoint.status==='applied'" type="button" aria-label="去编辑" title="去编辑" @click="ask.goEdit(checkpoint.editBoardId)"><AppIcon name="i-edit" /></button>
     <span class="checkpoint-stat" :aria-label="`新增 ${checkpoint.added} 项，删除 ${checkpoint.removed} 项`"><span v-if="checkpoint.added" class="ins">+{{ checkpoint.added }}</span><span v-if="checkpoint.removed" class="del">−{{ checkpoint.removed }}</span></span>
-    <button v-if="ask.undoId.value === checkpoint.id" type="button" aria-label="回退" title="回退" :disabled="ask.running.value || ask.writingDraft.value" @click="ask.undoDraft(checkpoint.id)"><AppIcon name="i-undo" /></button>
-    <button v-else-if="ask.redoId.value === checkpoint.id" type="button" aria-label="恢复" title="恢复" :disabled="ask.running.value || ask.writingDraft.value" @click="ask.restoreDraft(checkpoint.id)"><AppIcon name="i-redo" /></button>
+    <button v-if="checkpoint.status === 'applied' && ask.undoId.value === checkpoint.id" type="button" aria-label="回退" title="回退" :disabled="ask.running.value || ask.writingDraft.value" @click="ask.undoDraft(checkpoint.id)"><AppIcon name="i-undo" /></button>
+    <button v-else-if="checkpoint.status === 'reverted' && ask.redoId.value === checkpoint.id" type="button" aria-label="恢复" title="恢复" :disabled="ask.running.value || ask.writingDraft.value" @click="ask.restoreDraft(checkpoint.id)"><AppIcon name="i-redo" /></button>
   </div>
 </template>
 <style scoped>
@@ -44,6 +44,7 @@ const summary = computed(() => {
 .ask-checkpoint button:disabled { color: var(--fg-4); cursor: default; }
 .ask-checkpoint[data-state="reverted"] > .ico, .ask-checkpoint[data-state="reverted"] :is(b, .ins, .del) { color: var(--fg-3); }
 .ask-checkpoint[data-state="reverted"] .checkpoint-stat { text-decoration: line-through; }
+.ask-checkpoint[data-state="dismissed"] > .ico, .ask-checkpoint[data-state="dismissed"] :is(.ins, .del) { color: var(--fg-3); }
 @media (hover: none) { .ask-checkpoint button { width: 36px; height: 36px; } }
 .receipt-checkpoint { display: block; min-height: 26px; padding: 0; background: none; border: 0; border-radius: 0; }
 </style>
