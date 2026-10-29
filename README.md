@@ -12,6 +12,7 @@
   <a href="https://koma-image.pages.dev/">在线体验</a> ·
   <a href="#工作区">工作区</a> ·
   <a href="#快速开始">快速开始</a> ·
+  <a href="#外部-agent-接入">外部 Agent 接入</a> ·
   <a href="docs/README.md">文档</a> ·
   <a href="LICENSE">使用许可</a>
 </p>
@@ -62,6 +63,28 @@
 
 - **诊断与起草**：按需调用拼图预览、单图审视与局部裁切查看画面细节，对比历史参数差异，并在递交草稿前用本地工具预检候选词段的 Token 用量；支持在 `IMAGE`、`CHAT`、`EDIT` 之间一键带图与预设交接。
 - **Slate 任务板与 `.koma-bridge`**：在会话内拆解多图待办、锁定画风基底、绑图结单；挂载本地目录后，外部 Agent 可在无需配置站内 ASK Key 的情况下读取画板状态与 `refs/` 资料、投递修改草稿并接收 `assets/` 交付原图（详见 [SKILL.md](https://koma-image.pages.dev/skills/koma-bridge/SKILL.md)）。
+
+<a id="外部-agent-接入"></a>
+
+## 🤖 外部 Agent 接入
+
+**[打开外部 Agent 使用指南 · SKILL.md](https://koma-image.pages.dev/skills/koma-bridge/SKILL.md)**
+
+Claude Code、Codex 等能访问本机文件的 Agent，可以通过协同目录读取画板、查看预览、修改提示词与参数、维护多图任务。指南可直接通过网页按纯文本读取，**无需下载或安装技能，也无需配置站内 ASK 文本模型或 Key**。
+
+1. 在 Koma 的 **HOME 头部**或 **ASK 输入框「＋」旁**挂载一个本机目录，例如 `.koma-bridge/`。
+2. 将下面这段话发给外部 Agent，填入实际挂载目录的完整路径。
+3. Agent 投递后，回到 Koma 审阅草稿并点击「应用」；需要生图时再使用原有生成按钮。
+
+```text
+请先阅读 Koma 外部协同指南：
+https://koma-image.pages.dev/skills/koma-bridge/SKILL.md
+
+我已在 Koma 挂载协同目录：<替换为本机目录的完整路径>
+请读取其中的 PROTOCOL.md 和 state.live.json，按我的要求准备修改草稿。
+```
+
+详细说明见[外部协同与任务板](docs/integrations/bridge.md)。
 
 ## 🔌 协议与连接
 
