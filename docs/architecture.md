@@ -1,6 +1,6 @@
 # 架构规范
 
-更新：2026-10-28。描述当前核心技术、模块结构与所有权。产品定位和功能见[产品总览](product-overview.md)，功能状态和真实待验项见[当前状态](implementation-plan.md)，UI 标准见[设计语言](design-language.md)，行为约束见[业务契约](business-contracts.md)。
+更新：2026-10-29。描述当前核心技术、模块结构与所有权。产品定位和功能见[产品总览](product-overview.md)，功能状态和真实待验项见[当前状态](implementation-plan.md)，UI 标准见[设计语言](design-language.md)，行为约束见[业务契约](business-contracts.md)。
 
 ## 核心技术
 
@@ -12,7 +12,7 @@
 | IndexedDB + 本地偏好存储 | 图片收藏、CHAT、已收藏 ASK、Slate 和协同映射分别持久化；页面临时历史与撤销记录保持独立生命周期 |
 | Web Locks + BroadcastChannel | 图像任务、数据租约、任务清单和目录同步的同源互斥及轻量跨页通知；不保证外部进程的文件互斥 |
 | Fetch + 流式协议适配 | Gateway Profile 负责鉴权、请求和能力；ASK 的 OpenAI Chat／Anthropic Messages 适配器处理流式文本与工具调用 |
-| Web Crypto | Key 的 PBKDF2／AES-GCM 保护，以及图片、资料与交付文件的 SHA-256 校验；Key 不随构建注入浏览器 |
+| Web Crypto | 图片、资料与交付文件的 SHA-256 校验；Key 不随构建注入浏览器 |
 | File System Access API | 用户授权后的协同目录读写与句柄恢复；无该 API 时可手动导入／下载 JSON，Todo 不依赖此能力 |
 | 本地 NAI tokenizer Worker | 按型号加载 T5／Qwen3.5 许可词表；有界缓存与空闲终止，不外发提示词，不阻塞主线程分词 |
 | Marked + Entities | ASK 的 CommonMark／GFM 解析和实体解码；解析树映射为 Vue 节点，行内裸 `<br>` 可换行，其他原始 HTML 保持文字 |
@@ -26,7 +26,7 @@
 - 单入口 `index.html`，轻量 hash 路由为 `#/home`、`#/image`、`#/chat`、`#/edit`、`#/tags`；HOME／IMAGE／CHAT／TAGS 以稳定 ID 使用 KeepAlive，EDIT 首次挂载后原位隐藏保活，避免移动 iframe 重载。空或未知路由进入 HOME，显式路由保留；HOME 没有车间顶栏。
 - 切换保留草稿、附件、选图、滚动和在途任务。EDIT 是独立页面，每张独立来源图拥有自己的编辑画板，设置为单例弹窗，备份为其子页；旧 backup 路由仍可访问。
 - `src/app/presentation.ts` 管页面 class、data 属性、标题、favicon 与样式开关。隐藏工作区暂停界面事件和绘制，不取消后台任务。
-- 应用级服务在 KeepAlive 外持有数据、任务与资源。ASK 由外壳持有，车间使用不挤压工作区的全局浮层，HOME 使用半屏／全屏停靠；进入 EDIT 时隐藏 ASK。
+- 应用级服务在 KeepAlive 外持有数据、任务与资源。ASK 由外壳持有，车间使用不挤压工作区的全局浮层，HOME 使用半屏／全屏停靠；EDIT 同样可用 ASK，Photopea 打开时收起并让出键盘。
 - `chat.html`、`tags.html`、`transfer.html` 只重定向到同一应用并保留查询参数，不初始化另一套应用或访问旧数据。
 
 ## DOM 与高频驱动
@@ -49,7 +49,7 @@ Photopea 首次打开后保留单 iframe，每编辑画板拥有独立分层文�
 
 图像模型的可用来源与供应商优先级分开保存。连接页按配置能力分为图像与文本两区，综合供应商的两类接口分别显示。仅图像区通过上移／下移排序，非秘密配置为 `Routing.order`；未排序时保持原连接顺序，文本始终保持添加顺序。绘图／CHAT／编辑共用 `services/source-priority.ts`，按同一模型和当前操作筛选可用来源，只在明确额度不足时继续检查下一来源；余额未知仍按优先级使用。执行前重新检查报价和余额，提交生成后不因失败或取消换源重试。原生目录只提供 ID，规范模型匹配与手动来源由用户配置；ASK 仍手动选模，不参与图像优先级分流。
 
-新环境连接为空；配置 URL／Key 后才能请求。兼容服务不内置私有地址，NovelAI 官方可以固定公开官方主机。直连依赖服务支持 CORS。
+新环境连接为空；启动保留目标工作区，空配置或缺 Key 不自动打开设置或配置窗。用户在设置中通过统一「配置供应商」弹窗一次保存名称、协议、地址与 Key，配置 URL／Key 后才能请求。Key 按供应商选择浏览器保存或仅本次会话，不再使用口令和独立 Key 弹窗；凭据不进入普通备份。兼容服务不内置私有地址，NovelAI 官方可以固定公开官方主机。直连依赖服务支持 CORS。
 
 连接设置采用局部更新：排序、改名和模型来源编辑复用原始目录，保留当前列表与操作状态；地址／协议／Key 改变才使相应目录失效。原始目录缓存与执行上下文分离，后者仍按配置变化失效；报价和余额在执行前重新检查。具体责任见[网关与数据](gateway-data-scheduler.md)。
 
@@ -83,11 +83,11 @@ ASK 的只读工具与外部 IMAGE 收件共用草稿结构，提示词、参数
 
 NAI 参考资产与编码由应用级 `services/nai-references.ts` 管理，收藏库保留 referenceAssets／vibeEncodings 两个独立存储；画板只持小型 JSON。Vibe 编码与生图共用任务锁，成功编码立即落库，参考准备后固定来源上下文。
 
-普通备份使用 `app=koma-image`、`kind=backup`、`version=2`；数据库 schema version 与备份 envelope version 独立。普通历史、编辑会话、交接数据、HOME 展示副本与偏好、Key 和派生密钥不导出。仅支持新版 Koma 格式，不检测、转换或清理旧应用数据。
+普通备份使用 `app=koma-image`、`kind=backup`、`version=2`；数据库 schema version 与备份 envelope version 独立。普通历史、编辑会话、交接数据、HOME 展示副本与偏好、Key 不导出。仅支持新版 Koma 格式，不检测、转换或清理旧应用数据。
 
 ## 图片身份
 
-[图片身份与引用](image-identity.md)区分原图字节实体、操作记录及带作用域的展示短码。收藏库 schema v3 在原存储上增加最小编号登记和库身份；收藏号跨刷新固定，页内历史与 EDIT 号不持久化。ASK 冻结整轮具体绑定，按实体共享视觉编码和已看资格，按记录读取配方。EDIT 结果不自动进入 IMAGE 历史，Bridge 仅导出 EDIT 只读目录，草稿写入目标不变。
+[图片身份与引用](image-identity.md)区分原图字节实体、操作记录及带作用域的展示短码。收藏库 schema v3 在原存储上增加最小编号登记和库身份；收藏号跨刷新固定，页内历史与 EDIT 号不持久化。ASK 冻结整轮具体绑定，按实体共享视觉编码和已看资格，按记录读取配方。EDIT 结果不自动进入 IMAGE 历史，Bridge 仅导出 EDIT 只读目录，外部草稿仍只写 IMAGE。内置 ASK 的 NAI 能力／预算／费用通过共用只读服务获取；EDIT 草稿经专用无报价写入器应用，蒙版、底图与生成不交给 ASK。见 [NAI 基础感知](ask/ask-nai-awareness.md)及 [ASK × EDIT](ask/ask-edit.md)。
 
 ## 代码与维护入口
 

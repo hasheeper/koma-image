@@ -57,8 +57,10 @@ const currentModel = computed(() => editorView.value.open
   ? editorView.value.upscaleOpen ? editorView.value.upscaleModel : editorView.value.model
   : router.route.value.workspace === "chat" ? chatView.value.model : drawingView.value.model);
 const local = connections.local;
+const supplierLogo = `${import.meta.env.BASE_URL}assets/favicon-image.svg`;
 const dialog = useTemplateRef<HTMLDialogElement>("dialog"),
-  form = useTemplateRef<HTMLDialogElement>("connectionForm");
+  form = useTemplateRef<HTMLDialogElement>("connectionForm"),
+  formKey = useTemplateRef<HTMLInputElement>("connectionKey");
 const modelsSection =
   useTemplateRef<InstanceType<typeof ModelsSection>>("modelsSection");
 const importInput = useTemplateRef<HTMLInputElement>("importInput");
@@ -81,11 +83,15 @@ const formTarget = ref<string | null>(null),
   formName = ref(""),
   formProfile = ref(STANDARD_PROFILE_ID),
   formUrl = ref(""),
-  formError = ref("");
+  formError = ref(""),
+  formBusy = ref(false),
+  formKeyVisible = ref(false),
+  formRemember = ref(true);
+let formKeyTouched = false, formKeyFromSaved = false;
 const { requestClose, cancel, closed } = useDialog(
   "settings",
   dialog,
-  () => !busy.value,
+  () => !busy.value && !formBusy.value,
 );
 const sections: { id: SettingsSection; label: string; icon: string }[] = [
   { id: "connections", label: "连接", icon: "swap" },
@@ -104,24 +110,12 @@ const mode = computed(() => {
   version.value;
   return vault.mode();
 });
-const unlocked = computed(() => {
+const formHasKey = computed(() => {
   version.value;
-  return vault.isUnlocked();
+  const c = formTarget.value ? routing.value.connections[formTarget.value] : undefined;
+  return Boolean(c && vault.key(c.credentialRef));
 });
-const host = (url: string) => {
-  try {
-    return new URL(url).host;
-  } catch {
-    return "";
-  }
-};
-// The card shows the address without its https scheme; the menu shows the Key's ends when it is readable.
 const endpoint = (url: string) => url.replace(/^https:\/\//, "");
-const keyTail = (id: string) => {
-  version.value;
-  const key = vault.key(id);
-  return !key ? "" : key.length > 8 ? `${key.slice(0, 3)}••••${key.slice(-4)}` : "••••";
-};
 // A healthy status shows its first clause ("可用"); the full text stays in the tooltip. Problems show in full.
 const statusLabel = (status?: { s: string; text: string }) =>
   !status ? "未检查" : status.s === "ok" ? status.text.split(/ · |，/)[0] : status.text;
@@ -242,7 +236,7 @@ async function loadConnection(id: string, force = false) {
   const c = routing.value.connections[id], key = connections.catalogKey(id);
   if (!c) return;
   if (!key) {
-    statuses.value[id] = { s: "wait", text: mode.value === "empty" ? "未配置 Key" : "请先解锁 Key" };
+    statuses.value[id] = { s: "wait", text: "未配置 Key" };
     return;
   }
   const contextKey = connections.context(id).cacheKey, previous = checks.get(id);
@@ -354,6 +348,7 @@ onBeforeUnmount(() => {
   unvault();
   unask();
   closeMenu();
+  wipeKey();
   form.value?.close();
 });
 async function commit(value: Routing) {
@@ -363,23 +358,55 @@ async function commit(value: Routing) {
     ui.toast(message(error), "err");
   }
 }
+function wipeKey() {
+  if (formKey.value) formKey.value.value = "";
+  formKeyVisible.value = false;
+  formKeyTouched = false;
+  formKeyFromSaved = false;
+}
+function keyEdited() {
+  formKeyTouched = true;
+  formKeyFromSaved = false;
+}
+function toggleKey() {
+  if (formBusy.value || !formKey.value) return;
+  if (!formKeyVisible.value && !formKey.value.value && !formKeyTouched) {
+    const c = formTarget.value ? routing.value.connections[formTarget.value] : undefined;
+    const saved = c ? vault.key(c.credentialRef) : null;
+    if (saved) {
+      formKey.value.value = saved;
+      formKeyFromSaved = true;
+    }
+  }
+  formKeyVisible.value = !formKeyVisible.value;
+}
+function closeForm() {
+  if (!formBusy.value) {
+    wipeKey();
+    form.value?.close();
+  }
+}
 function add() {
-  if (local) return;
+  if (local || formBusy.value) return;
   formTarget.value = null;
-  formName.value = `连接 ${Object.keys(routing.value.connections).length + 1}`;
+  formName.value = "";
   formUrl.value = "";
   formProfile.value = STANDARD_PROFILE_ID;
+  formRemember.value = true;
   formError.value = "";
+  wipeKey();
   form.value?.showModal();
 }
 function edit(id: string) {
   const c = routing.value.connections[id];
-  if (local || !c) return;
+  if (local || !c || formBusy.value) return;
   formTarget.value = id;
   formName.value = c.name;
   formUrl.value = c.baseUrl;
   formProfile.value = c.profileId;
+  formRemember.value = vault.key(c.credentialRef) ? vault.remembered(c.credentialRef) : true;
   formError.value = "";
+  wipeKey();
   form.value?.showModal();
 }
 function selectProtocol() {
@@ -387,73 +414,63 @@ function selectProtocol() {
   const target = formTarget.value ? routing.value.connections[formTarget.value] : undefined;
   if (target && profileFor(formProfile.value).protocol === "novelai" && target.baseUrl !== NOVELAI_IMAGE_URL) {
     formProfile.value = target.profileId;
-    formError.value = "请单独添加 NovelAI 官方连接，并填写对应 Key";
+    formError.value = "请单独配置 NovelAI 官方供应商，并填写对应 Key";
     return;
   }
   if (profileFor(formProfile.value).protocol === "novelai") formUrl.value = NOVELAI_IMAGE_URL;
   else if (formUrl.value === NOVELAI_IMAGE_URL) formUrl.value = "";
 }
 async function saveForm() {
+  if (local || formBusy.value) return;
   formError.value = "";
-  if (formTarget.value) return saveEdit(formTarget.value);
+  formBusy.value = true;
+  let stagedRef: string | undefined;
   try {
-    const baseUrl = normalizeBaseUrl(formUrl.value),
-      suffix = crypto.randomUUID(),
-      id = `connection-${suffix}`;
-    const next = structuredClone(routing.value);
-    next.connections[id] = {
-      id,
-      name: formName.value.trim() || "连接",
-      baseUrl,
-      profileId: formProfile.value,
-      credentialRef: `key-${suffix}`,
-      revision: crypto.randomUUID(),
-    };
-    await connections.save(next);
-    form.value?.close();
-    ui.requestKey(next.connections[id].credentialRef);
-  } catch (error) {
-    formError.value = message(error);
-  }
-}
-// Saves only what changed; a new protocol starts with empty model sources, as before.
-async function saveEdit(id: string) {
-  const name = formName.value.trim();
-  if (!name) {
-    formError.value = "请填写连接名称";
-    return;
-  }
-  try {
-    const baseUrl = normalizeBaseUrl(formUrl.value),
-      next = structuredClone(routing.value),
-      c = next.connections[id];
-    if (c && (c.name !== name || c.baseUrl !== baseUrl || c.profileId !== formProfile.value)) {
-      if (c.profileId !== formProfile.value) {
-        next.links[id] = {};
-      }
-      Object.assign(c, { name, baseUrl, profileId: formProfile.value });
-      await connections.save(next);
+    const name = formName.value.trim();
+    if (!name) throw new Error("请填写供应商名称");
+    const baseUrl = normalizeBaseUrl(formUrl.value), next = structuredClone(routing.value);
+    const previous = formTarget.value ? next.connections[formTarget.value] : undefined;
+    if (formTarget.value && !previous) throw new Error("供应商已被删除，请重新配置");
+    const input = formKeyFromSaved ? "" : formKey.value?.value.trim() ?? "", oldKey = previous ? vault.key(previous.credentialRef) : null;
+    const endpointChanged = previous && (previous.baseUrl !== baseUrl || previous.profileId !== formProfile.value);
+    if (endpointChanged && !input) throw new Error("地址或协议已更改，请重新填写对应的 API Key");
+    if (!input && !oldKey) throw new Error("请填写 API Key");
+    const id = previous?.id ?? `connection-${crypto.randomUUID()}`;
+    // Stage a fresh reference so a new Key can never be paired with the previous destination.
+    const replaceKey = !previous || Boolean(input && input !== oldKey) || endpointChanged;
+    const credentialRef = replaceKey ? `key-${crypto.randomUUID()}` : previous.credentialRef;
+    next.connections[id] = { id, name, baseUrl, profileId: formProfile.value, credentialRef, revision: previous?.revision ?? crypto.randomUUID() };
+    if (previous && previous.profileId !== formProfile.value) next.links[id] = {};
+    const validated = validateRouting(next);
+    if (replaceKey) {
+      await vault.setKey(credentialRef, input || oldKey!, formRemember.value);
+      stagedRef = credentialRef;
     }
+    await connections.save(validated);
+    stagedRef = undefined;
+    if (previous && previous.credentialRef !== credentialRef && !Object.values(connections.configuration.connections).some(c => c.credentialRef === previous.credentialRef)) {
+      await vault.removeKey(previous.credentialRef);
+    } else if (previous && !replaceKey && formRemember.value !== vault.remembered(credentialRef)) {
+      await vault.setKey(credentialRef, oldKey!, formRemember.value);
+    }
+    wipeKey();
     form.value?.close();
   } catch (error) {
+    if (stagedRef) {
+      try { await vault.removeKey(stagedRef); } catch { /* An unreferenced Key cannot be used by any supplier. */ }
+    }
     formError.value = message(error);
+  } finally {
+    formBusy.value = false;
   }
 }
 async function remove(id: string) {
   const c = routing.value.connections[id];
   if (!c) return;
-  // A locked vault cannot drop this connection's Key, so unlock first.
-  if (mode.value === "encrypted" && !unlocked.value) {
-    ui.toast("请先解锁 Key，再删除连接", "warn", {
-      label: "解锁",
-      run: async () => ui.requestKey(c.credentialRef),
-    });
-    return;
-  }
   if (
     !(await ui.confirm({
       title: `删除「${c.name}」？`,
-      message: "同时删除这个连接的 Key 和模型来源，不可恢复。",
+      message: "同时删除这个供应商的 Key 和模型来源，不可恢复。",
       confirmLabel: "删除",
       tone: "danger",
     }))
@@ -464,7 +481,8 @@ async function remove(id: string) {
     delete next.connections[id];
     delete next.links[id];
     await connections.save(next);
-    if (vault.key(c.credentialRef)) await vault.removeKey(c.credentialRef);
+    if (!Object.values(connections.configuration.connections).some(item => item.credentialRef === c.credentialRef))
+      await vault.removeKey(c.credentialRef);
   } catch (error) {
     ui.toast(message(error), "err");
   }
@@ -502,18 +520,6 @@ async function forget() {
   } catch (error) {
     ui.toast(message(error), "err");
   }
-}
-async function lock() {
-  try {
-    await vault.lock();
-  } catch (error) {
-    ui.toast(message(error), "err");
-  }
-}
-function key() {
-  const id = Object.values(routing.value.connections)[0]?.credentialRef;
-  if (id) ui.requestKey(id);
-  else router.selectSection("connections");
 }
 function exportConfig() {
   download(
@@ -641,7 +647,7 @@ async function reveal(id: string) {
                 type="button"
                 @click="add"
               >
-                <AppIcon name="i-plus" />添加连接
+                <AppIcon name="i-plus" />配置供应商
               </button>
               <p v-if="local">连接由本地服务管理，模型来源可在此调整。</p>
             </div>
@@ -651,7 +657,7 @@ async function reveal(id: string) {
             >
               <ConnectionAvatar /><span>尚未配置连接</span
               ><button class="btn btn-quiet btn-sm" type="button" @click="add">
-                添加连接
+                配置供应商
               </button>
             </div>
             <template v-else>
@@ -709,19 +715,7 @@ async function reveal(id: string) {
                       @click="closeMenu"
                     >
                       <button class="menu-item" type="button" role="menuitem" @click="edit(c.id)">
-                        <AppIcon name="i-rename" /><span>编辑连接…</span></button
-                      ><button
-                        class="menu-item"
-                        type="button"
-                        role="menuitem"
-                        @click="ui.requestKey(c.credentialRef)"
-                      >
-                        <AppIcon name="i-lock" /><span>{{
-                          unlocked ? "更换 Key…" : "配置或解锁 Key…"
-                        }}</span
-                        ><small v-if="keyTail(c.credentialRef)" class="menu-meta">{{
-                          keyTail(c.credentialRef)
-                        }}</small>
+                        <AppIcon name="i-rename" /><span>配置供应商</span>
                       </button>
                       <hr role="separator" />
                       <button
@@ -730,7 +724,7 @@ async function reveal(id: string) {
                         role="menuitem"
                         @click="remove(c.id)"
                       >
-                        <AppIcon name="i-trash" /><span>删除连接</span>
+                        <AppIcon name="i-trash" /><span>删除供应商</span>
                       </button>
                     </div>
                   </template>
@@ -836,52 +830,10 @@ async function reveal(id: string) {
               <div v-else class="sp-group">
                 <div class="s-row">
                   <div>
-                    <b>{{
-                      mode === "empty"
-                        ? "未配置 Key"
-                        : mode === "session"
-                          ? "不保存"
-                          : "口令加密"
-                    }}</b>
-                    <p>
-                      {{
-                        mode === "session"
-                          ? "Key 保存在当前会话，关闭所有页面后失效。"
-                          : "所有连接的 Key 用同一个口令加密保存在本机。"
-                      }}
-                    </p>
+                    <b>API Key</b>
                   </div>
-                  <button
-                    v-if="unlocked"
-                    class="btn btn-quiet btn-xs"
-                    type="button"
-                    @click="
-                      ui.credential.value = { id: '', action: 'passphrase' }
-                    "
-                  >
-                    {{
-                      mode === "session" ? "改为口令加密" : "修改口令"
-                    }}</button
-                  ><button
-                    v-else
-                    class="btn btn-quiet btn-xs"
-                    type="button"
-                    @click="key"
-                  >
-                    {{ mode === "empty" ? "配置 Key" : "解锁" }}
-                  </button>
-                </div>
-                <div v-if="unlocked && mode === 'encrypted'" class="s-row">
-                  <div>
-                    <b>锁定</b>
-                    <p>所有打开的页面一起锁定，进行中的生成会先完成。</p>
-                  </div>
-                  <button
-                    class="btn btn-quiet btn-xs"
-                    type="button"
-                    @click="lock"
-                  >
-                    立即锁定
+                  <button class="btn btn-quiet btn-xs" type="button" @click="router.selectSection('connections')">
+                    配置供应商
                   </button>
                 </div>
                 <div v-if="mode !== 'empty'" class="s-row">
@@ -968,17 +920,22 @@ async function reveal(id: string) {
   </dialog>
   <dialog
     ref="connectionForm"
-    class="modal set-ui"
-    aria-labelledby="connectionTitle"
+    class="modal set-ui supplier-form"
+    aria-label="供应商设置"
+    @cancel.prevent="closeForm"
+    @close="wipeKey"
   >
     <form class="modal-form" @submit.prevent="saveForm">
-      <header class="modal-head">
-        <h2 id="connectionTitle">{{ formTarget ? "编辑连接" : "添加连接" }}</h2>
+      <header class="modal-head supplier-head">
+        <div class="supplier-brand">
+          <img :src="supplierLogo" width="128" height="128" alt="" />
+          <span id="connectionTitle" class="brand-title">Koma Image</span>
+        </div>
       </header>
       <div class="modal-body">
         <div class="fld">
           <label for="connectionProtocol">接口协议</label>
-          <select id="connectionProtocol" v-model="formProfile" @change="selectProtocol">
+          <select id="connectionProtocol" v-model="formProfile" :disabled="formBusy" @change="selectProtocol">
             <option v-for="p in connectionProfiles" :key="p.id" :value="p.id">{{ p.label }}</option>
           </select>
         </div>
@@ -987,33 +944,49 @@ async function reveal(id: string) {
           ><input
             id="connectionName"
             v-model="formName"
+            :disabled="formBusy"
+            placeholder="供应商名称"
             type="text"
             maxlength="128"
           />
         </div>
         <div class="fld">
-          <label for="connectionUrl">连接 URL</label
+          <label for="connectionUrl">地址</label
           ><input
             id="connectionUrl"
             v-model="formUrl"
+            :disabled="formBusy"
             :readonly="profileFor(formProfile).protocol === 'novelai'"
             type="text"
             placeholder="https://"
             autocomplete="off"
             spellcheck="false"
-          /><span v-if="profileFor(formProfile).protocol === 'novelai'" class="hint">基础生图与图生图；Key 仅发送到 image.novelai.net，生成尚未实测。</span
-          ><span v-else class="hint"
-            >Key 会发送到 {{ host(formUrl) || "填写的连接地址" }}</span
-          >
+          />
         </div>
+        <div class="fld">
+          <label for="connectionKey">API Key</label>
+          <div class="connection-secret">
+            <input id="connectionKey" ref="connectionKey" :type="formKeyVisible ? 'text' : 'password'" autocomplete="off" spellcheck="false"
+              :disabled="formBusy" :placeholder="formHasKey ? '留空保留原 Key' : '填写 API Key'" @input="keyEdited" />
+            <button class="ibtn connection-key-toggle" type="button" :disabled="formBusy"
+              :aria-label="formKeyVisible ? '隐藏 API Key' : '显示 API Key'" :aria-pressed="formKeyVisible"
+              :title="formKeyVisible ? '隐藏 API Key' : '显示 API Key'" aria-controls="connectionKey" @click="toggleKey">
+              <AppIcon :name="formKeyVisible ? 'i-eye-off' : 'i-eye'" />
+            </button>
+          </div>
+        </div>
+        <label class="connection-remember">
+          <input v-model="formRemember" type="checkbox" :disabled="formBusy" />
+          <span>在此浏览器保存 Key</span>
+        </label>
       </div>
       <footer class="modal-foot">
         <p class="modal-error" role="alert">{{ formError }}</p>
         <div class="modal-actions">
-          <button class="btn btn-quiet" type="button" @click="form?.close()">
+          <button class="btn btn-quiet" type="button" @click="closeForm" :disabled="formBusy">
             取消</button
-          ><button class="btn btn-primary" type="submit">
-            {{ formTarget ? "保存" : "添加" }}
+          ><button class="btn btn-primary" type="submit" :disabled="formBusy">
+            {{ formBusy ? "保存中…" : "保存" }}
           </button>
         </div>
       </footer>
@@ -1041,3 +1014,67 @@ async function reveal(id: string) {
     @change="saveAsk"
   />
 </template>
+
+<style scoped>
+.supplier-head {
+  display: grid;
+  justify-content: stretch;
+  gap: 12px;
+  padding-bottom: 12px;
+}
+.supplier-brand {
+  display: flex;
+  align-items: center;
+  gap: 11px;
+}
+.supplier-brand img {
+  width: 40px;
+  height: 40px;
+  object-fit: contain;
+  border-radius: 11px;
+  filter: drop-shadow(0 4px 10px rgb(115 54 135 / 28%));
+}
+.supplier-brand .brand-title {
+  font-size: 26px;
+  font-weight: 650;
+  letter-spacing: 0;
+  line-height: 1.3;
+  padding-block: 2px;
+}
+.supplier-form .modal-body {
+  display: grid;
+  gap: 10px;
+  padding-bottom: 16px;
+}
+.supplier-form .fld {
+  gap: 5px;
+}
+.connection-secret {
+  position: relative;
+  min-width: 0;
+}
+.connection-secret input {
+  padding-right: 38px;
+}
+.supplier-form .connection-key-toggle {
+  position: absolute;
+  top: 2px;
+  right: 2px;
+  width: 30px;
+  height: calc(100% - 4px);
+  border-radius: var(--r2);
+}
+.connection-remember {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  color: var(--fg-2);
+  font-size: var(--fz-xs);
+}
+.connection-remember input {
+  width: 14px;
+  height: 14px;
+  margin: 0;
+  accent-color: var(--a);
+}
+</style>

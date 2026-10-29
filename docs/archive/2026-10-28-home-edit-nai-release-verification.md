@@ -1,6 +1,6 @@
 # HOME、EDIT 与 NAI 更新发布核验
 
-日期：2026-10-28。用户明确授权本轮文档整理、Git 推送与 Cloudflare Pages 发布。基线为 `1fd1be3` 后在本会话确认的 HOME、独立 EDIT、Photopea、NAI 编辑与 Director Tools 更新；不延伸为今后的发布授权。
+日期：2026-10-28。用户明确授权本轮文档整理、Git 推送与 Cloudflare Pages 发布。基线为 `a537b53` 后在本会话确认的 HOME、独立 EDIT、Photopea、NAI 编辑与 Director Tools 更新；不延伸为今后的发布授权。
 
 ## 文档与实现对齐
 
@@ -23,7 +23,7 @@
 
 ## Git 与 Pages
 
-- 应用及文档提交：[204b095](https://github.com/hasheeper/koma-image/commit/204b095cf945d39421d32048e5a5cceae2975216)，已推送至 `main` 和 `codex/ask-chat-handoff`。首次 HTTPS 推送遇到 HTTP 400，确认两分支仍在旧提交后，使用本次命令的 HTTP/1.1 与缓冲设置完成正常快进，没有强推。
+- 应用及文档提交：[8c32b73](https://github.com/hasheeper/koma-image/commit/8c32b73c84d3385ebb9bc41464685fcdd02afe17)，已推送至 `main` 和 `codex/ask-chat-handoff`。首次 HTTPS 推送遇到 HTTP 400，确认两分支仍在旧提交后，使用本次命令的 HTTP/1.1 与缓冲设置完成正常快进，没有强推。
 - 执行 `npm run deploy:pages`，Wrangler 4.151.1 重新构建后仅上传 `dist/` 至既有 `koma-image` 项目，生产分支 `main`。部署地址：[0fc880ec.koma-image.pages.dev](https://0fc880ec.koma-image.pages.dev/)，生产域名：[koma-image.pages.dev](https://koma-image.pages.dev/)。
 - 生产首页引用 `index-CgkSvfhQ.js` 与 `index-DiP0r8d3.css`，实际下载的字节 SHA-256 与本地产物一致；分词器 Worker、T5／Qwen 词表及三份许可／来源说明同样一致。
 - [公开 Skill](https://koma-image.pages.dev/skills/koma-bridge/SKILL.md) 返回 200、`text/plain; charset=utf-8` 与 `Content-Disposition: inline`，内容与发布文件一致。

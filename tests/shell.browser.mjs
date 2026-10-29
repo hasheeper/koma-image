@@ -76,11 +76,6 @@ async function open(path = "/#/image") {
   });
   await page.goto(`${origin}${path}`);
   await page.waitForSelector("[data-workspace-root]");
-  if (!/transfer\.html|\/settings\//.test(path)) {
-    await page.waitForSelector("#settingsPanel[open]");
-    await page.locator("#settingsPanel .set-back").click();
-    await page.waitForSelector("#settingsPanel[open]", { state: "hidden" });
-  }
   return { page, context, errors, external };
 }
 async function switchTo(page, id) {
@@ -393,7 +388,7 @@ test("repeat activation and dialog cycles retain one listener set and release in
   );
   assert.equal(await page.locator("#gallery").count(), 1);
   assert.equal(await page.locator("[data-workspace-root]:visible").count(), 1);
-  assert.equal(await page.locator("dialog").count(), 7);
+  assert.equal(await page.locator("dialog").count(), 6);
   await cdp.detach();
   await clean(result);
 });

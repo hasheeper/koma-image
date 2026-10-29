@@ -44,7 +44,7 @@ test("empty connections cannot communicate; configuration and cache identity nev
   connections.supplyKey("key-primary", "replacement-test-key");
   assert.throws(first.assertCurrent, /改变/);
   assert.notEqual(first.cacheKey, connections.context("primary").cacheKey);
-  connections.lock(); assert.throws(() => connections.context("primary"), /Key/);
+  connections.clearKey("key-primary"); assert.throws(() => connections.context("primary"), /Key/);
   connections.supplyKey("key-primary", "synthetic-restored");
   const beforeCorruption = connections.context("primary");
   for (const key of saved.keys()) saved.set(key, "invalid JSON");

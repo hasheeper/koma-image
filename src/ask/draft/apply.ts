@@ -1,3 +1,5 @@
+import { checkEditConfiguration } from "./edit-configuration.ts";
+import { makeThumb } from "../../services/image-response.ts";
 import type { Editor } from "../../services/editor.ts";
 import { fileIssue } from "./files.ts";
 import type { FilePort } from "./files.ts";
@@ -16,12 +18,21 @@ import type { DraftPlan, Field } from "./types.ts";
 const labels: Partial<Record<Field, string>> = { prompt: "Prompt", negative: "Negative", composer: "对话输入框", model: "模型", width: "尺寸", height: "尺寸", seed: "Seed", steps: "步数", scale: "Guidance", cfg: "中转 CFG（旧）", cfgRescale: "Guidance Rescale", varietyPlus: "Variety+", naiMode: "模式", complexity: "Complexity", qualityPreset: "质量预设", negativePreset: "负向预设", transparentBg: "透明底", sampler: "采样器", batchCount: "张数", characters: "角色组", placement: "角色定位" };
 
 /** The only ASK module with write ports. Called exclusively by user actions. */
-export function createDraftWriter(drawing: Drawing, chat: Chat, router: AppRouter, slates?: Slates, filePort?: () => FilePort | null, editor?: Pick<Editor, "records">) {
+export function createDraftWriter(drawing: Drawing, chat: Chat, router: AppRouter, slates?: Slates, filePort?: () => FilePort | null, editor?: Pick<Editor, "records" | "askSnapshot" | "writeAskDraft" | "insertAskBoard" | "removeAskBoard">) {
   const chatKey = () => chatDraftKey(chat.snapshot().current);
   const readBoards = () => new Map((drawing.snapshot().boards ?? []).map(b => [b.id, structuredClone(b)]));
   const handoffTarget = (receipt: string | null) => receipt ? String(JSON.parse(receipt)[0]) : "";
   function conflictAt(plan: DraftPlan, side: "before" | "after", receipt: string | null, fallback: DrawingForm, current: ConversationRecord, boards: ReadonlyMap<string, DrawingBoard>,
     find: (id: string) => ConversationRecord | undefined) {
+    if(plan.edit) {
+      const state=editor?.askSnapshot(plan.edit.id);
+      if(plan.editHandoff?.created&&side==='before'&&!state)return '';
+      if(!state)return '编辑画板已关闭';
+      if(state.blocked)return state.blocked;
+      if(state.baseId!==plan.edit.baseId&&side==='before')return '编辑底图已变化';
+      if(!sameValue(state.config,plan.edit[side]))return '编辑配置已变化';
+      return side==='before'?checkEditConfiguration(state,plan.edit.after):'';
+    }
     // A handoff opens its own conversation; only undo depends on CHAT's current state.
     if (plan.handoff) {
       if (side === "before") return "";
@@ -42,6 +53,7 @@ export function createDraftWriter(drawing: Drawing, chat: Chat, router: AppRoute
   const boardConflict = (plan: DraftPlan, side: "before" | "after", receipt: string | null = null) =>
     conflictAt(plan, side, receipt, drawing.snapshot().form, chat.snapshot().current, readBoards(), (id) => chat.snapshot().conversations.find((c) => c.id === id));
   const conflict = (plan: DraftPlan, side: "before" | "after", receipt: string | null = null) => {
+    if(side==="before"&&plan.workspace==="edit"&&plan.steps.some(step=>step.issue))return "草稿有冲突，请重新提议";
     const issue = fileIssue(plan.files ?? [], filePort?.()?.context()); if (issue) return issue;
     if (plan.slate && (!slates || contentKey(slates.get(plan.slate.id)) !== contentKey(plan.slate[side]))) return "任务板已变化";
     return boardConflict(plan, side, receipt);
@@ -53,14 +65,32 @@ export function createDraftWriter(drawing: Drawing, chat: Chat, router: AppRoute
       if (image.source === "chat") return { asset: image.ref };
       const record = records.find((r) => r.id === image.ref);
       if (!record) throw new Error(`${image.label} 已移除`);
-      return { blob: record.blob, name: imageFileName(record) };
+      return { blob: record.blob, name: imageFileName(record), lineage:{via:"chat" as const,parent_record_id:record.id,parent_entity_key:record.entity_key,parent_ref:image.binding} };
     });
   }
   async function writeLocal(plan: DraftPlan, undo: boolean, receipt: string | null) {
     const reason = conflict(plan, undo ? "after" : "before", receipt);
     if (reason) throw new Error(reason);
-    if (!plan.changes.length && !plan.branch && !plan.handoff && !plan.slate && !plan.files?.length) throw new Error("草稿没有可写入内容");
+    if (!plan.edit && !plan.changes.length && !plan.branch && !plan.handoff && !plan.slate && !plan.files?.length) throw new Error("草稿没有可写入内容");
     if (router.route.value.overlay) throw new Error("请先关闭当前面板");
+    if(plan.edit) {
+      const e=plan.edit,before=undo?e.after:e.before,after=undo?e.before:e.after;
+      let inserted=false;
+      if(!undo&&plan.editHandoff?.created&&!editor?.askSnapshot(e.id)) {
+        const h=plan.editHandoff,image=h.image,d=drawing.snapshot();
+        const record=image.source==='chat'?await (async()=>{const a=chat.assets.get(image.ref);return {id:image.ref,entity_key:a.entity_key,createdAt:Date.now(),blob:a.blob,thumbBlob:await makeThumb(a.blob),name:a.name,size:{width:a.width,height:a.height},params:h.params,...(a.lineage?{lineage:a.lineage}:{})};})():[...d.history,...d.favorites,...editor?.records()??[]].find(r=>r.id===image.ref);
+        if(!record)throw new Error('交接来源已移除');
+        await editor!.insertAskBoard({...h.target,config:before},record,h.origin);inserted=true;
+      }
+      const live=editor!.askSnapshot(e.id);
+      const lateIssue=!undo&&live?checkEditConfiguration(live,after):'';
+      if(lateIssue){if(inserted)editor!.removeAskBoard(e.id);throw new Error(lateIssue);}
+      editor!.writeAskDraft(e.id,before,after);
+      try { if(plan.slate) {const change=undo?{...plan.slate,before:plan.slate.after,after:plan.slate.before,bindings:[]}:plan.slate;await slates!.commit(change,undefined,true);} }
+      catch(error){editor!.writeAskDraft(e.id,after,before);if(inserted)editor!.removeAskBoard(e.id);throw error;}
+      if(undo&&plan.editHandoff?.created)editor!.removeAskBoard(e.id);
+      return null;
+    }
     if (plan.slate) {
       const board: BoardWrite | undefined = plan.changes.length || plan.createdBoard ? { id: plan.boardId!,
         before: Object.fromEntries(plan.changes.map(c => [c.field, c[undo ? "after" : "before"]])),
@@ -71,7 +101,7 @@ export function createDraftWriter(drawing: Drawing, chat: Chat, router: AppRoute
       if (board) router.switchWorkspace("image");
       return null;
     }
-    if (!plan.changes.length && !plan.branch && !plan.handoff) return null;
+    if (!plan.edit && !plan.changes.length && !plan.branch && !plan.handoff) return null;
     const images = plan.handoff && !undo ? handoffImages(plan) : [];
     router.switchWorkspace(plan.workspace);
     if (router.route.value.workspace !== plan.workspace) throw new Error("未能切换到目标工作区");
@@ -108,11 +138,19 @@ export function createDraftWriter(drawing: Drawing, chat: Chat, router: AppRoute
     simulate() {
       const form = structuredClone(drawing.snapshot().form), boards = readBoards(), snapshot = chat.snapshot(),
         conversations = new Map(snapshot.conversations.map((c) => [c.id, structuredClone(c)]));
+      const edits=new Map<string,import("../../domain/edit-draft.ts").EditConfiguration>();
       const tasks = new Map(slates?.list.value.map(s => [s.id, structuredClone(s)]) ?? []);
       let current = conversations.get(snapshot.current.id) ?? structuredClone(snapshot.current);
       return {
         undo(plan: DraftPlan, receipt: string | null) {
           if (plan.slate && contentKey(tasks.get(plan.slate.id) ?? null) !== contentKey(plan.slate.after)) throw new Error("任务板已变化");
+          if(plan.edit) {
+            const e=plan.edit,current=edits.get(e.id)??editor?.askSnapshot(e.id)?.config;
+            if(!current||!sameValue(current,e.after))throw new Error('编辑配置已变化');
+            const live=editor?.askSnapshot(e.id);if(live?.blocked)throw new Error(live.blocked);
+            if(plan.slate){if(plan.slate.before)tasks.set(plan.slate.id,structuredClone(plan.slate.before));else tasks.delete(plan.slate.id);}
+            edits.set(e.id,structuredClone(e.before));return null;
+          }
           const reason = conflictAt(plan, "after", receipt, form, current, boards, (id) => conversations.get(id));
           if (reason) throw new Error(reason);
           if (plan.slate) { if (plan.slate.before) tasks.set(plan.slate.id, structuredClone(plan.slate.before)); else tasks.delete(plan.slate.id); }

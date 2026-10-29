@@ -1,0 +1,9 @@
+[extend]
+useDefault = true
+
+[[allowlists]]
+description = "NovelAI purchased-usage UI key, not an API credential"
+condition = "AND"
+paths = ['''(^|/)src/overlays/SettingsOverlay\.vue$''', '''(^|/)dist/assets/index-[^/]+\.js$''']
+regexTarget = "secret"
+regexes = ['''^nai-v5-purchased$''']

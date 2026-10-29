@@ -1,3 +1,4 @@
+import { naiQuoteKey } from "./nai-awareness.ts";
 import { imageEntity } from "../domain/image-identity.ts";
 import { assignFavorite, retireFavorite, identityStores, readFavoriteIdentity } from "./image-identities.ts";
 import { validateNaiText } from "../domain/nai-input.ts";
@@ -84,6 +85,8 @@ export function createDrawing(
   let quota: QuotaStatus | null = null,
     quotaLoading = false,
     quotaAt = 0,
+    quoteAt = 0,
+    quoteKey = "",
     quote: QuoteState = { status: "idle", quote: null };
   let favoritesLoading = true,
     favoritesError = "",
@@ -270,6 +273,7 @@ export function createDrawing(
       return source.quote;
     }, s => {
       quote = s.status === "error" ? { ...s, quote: null } : s;
+      if(s.status === "ready") {quoteAt=Date.now();quoteKey=naiQuoteKey(form,model);}
       emit();
     });
     scheduleQuote();
@@ -610,7 +614,7 @@ export function createDrawing(
       return;
     }
     if (!model) {
-      notify(catalogError || "请先配置连接并解锁 Key", "warn", {
+      notify(catalogError || "请先配置供应商和 API Key", "warn", {
         label: "设置",
         run: async () => {
           router.openOverlay("settings", "connections");
@@ -937,6 +941,8 @@ export function createDrawing(
       label,
       quota,
       quotaLoading,
+      quotaAt,
+      quoteAt, quoteKey,
       quote,
       batchCount: batchCount(),
       favoritesLoading,

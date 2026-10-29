@@ -1,3 +1,7 @@
+import { naiCapabilities } from "../../domain/nai.ts";
+import { parseEditHandoff,validateEditHandoff } from "./edit-handoff.ts";
+import { parseEditDraft, validateEditDraft, draftTarget } from "./edit.ts";
+import { editStateHash } from "../../domain/edit-draft.ts";
 import { parseFile, fileIssue } from "./files.ts";
 import { canReuseDrawingParams } from "../../domain/image-origin.ts";
 import { parseSlateEdit } from "../../slate/edit.ts";
@@ -25,7 +29,7 @@ const text = (value: unknown, max = 24000) => {
   if (typeof value !== "string" || value.length > max) throw new Error("草稿文字长度或类型无效");
   return value;
 };
-export const stateHash = (s: DraftState) => workspaceHash(s.form, s.composer, s.boardId);
+export const stateHash = (s: DraftState) => s.workspace === "edit" && s.edit ? editStateHash(s.edit) : workspaceHash(s.form, s.composer, s.boardId);
 /** Asked outside CHAT, a CHAT write always opens a new conversation. */
 const outsideChat = (base: DraftState) => {
   if (base.workspace && base.workspace !== "chat") throw new Error("在 HOME／IMAGE／TAGS 提问时，写入 CHAT 一律新开会话：请改用 chat_handoff");
@@ -35,13 +39,16 @@ function handoffImage(label: string, base: DraftState, library: readonly Picture
   if (label.startsWith("#c")) {
     const image = base.chat ? chatImage(base.chat, label) : null;
     if (!image) throw new Error(`${label} 不在当前分支或没有已完成图片`);
-    return { label, source: "chat", ref: image.assetId };
+    const binding = library.find(p=>p.aliases.includes(label))?.bindings?.[label];
+    return { label, source: "chat", ref: image.assetId, ...(binding ? {binding} : {}) };
   }
   const picture = library.find((p) => p.aliases.includes(label)), origin = picture?.origins.find((o) => o.label === label);
   if (!picture || (origin?.source !== "history" && origin?.source !== "favorites" && origin?.source !== "edit")) throw new Error(`${label} 不在本轮图片快照中`);
-  return { label, source: origin.source, ref: picture.id };
+  return { label, source: origin.source, ref: picture.id, ...(picture.bindings?.[label] ? {binding:picture.bindings[label]} : {}) };
 }
 export function parseDraft(input: Readonly<Record<string, unknown>>, base: DraftState, library: readonly Picture[], question = ""): Draft {
+  if(Array.isArray(input.steps)&&input.steps.some(s=>s?.kind==="edit_handoff"))return parseEditHandoff(input,base,library,question);
+  if (draftTarget(input,base) === "edit") return parseEditDraft(input,base,library,question);
   // Keep in-flight responses and earlier tool turns using `title` readable.
   const title = text(input.draft_title ?? input.title, 120).trim();
   if (!title || input.base_hash !== stateHash(base)) throw new Error("草稿 base_hash 与本轮快照不符，请使用本轮原始值");
@@ -166,15 +173,24 @@ const roleGroupText = (chars: DraftState["form"]["characters"], placement: strin
 const labels: Partial<Record<Field, string>> = { prompt: "Prompt", negative: "Negative", composer: "对话输入框", width: "宽", height: "高", steps: "步数", scale: "Guidance", cfg: "中转 CFG（旧）", cfgRescale: "Guidance Rescale", noiseSchedule: "噪声调度", varietyPlus: "Variety+", naiMode: "模式", complexity: "Complexity", qualityPreset: "质量预设", negativePreset: "负向预设", transparentBg: "透明底", sampler: "采样器", seed: "Seed", model: "模型", batchCount: "批次" };
 
 export function validateDraft(draft: Draft, now: DraftState, options: ValidateOptions): DraftPlan {
+  if(draft.editHandoff)return validateEditHandoff(draft,now,options);
+  if(draft.target === "edit") return validateEditDraft(draft,now,options);
   if (draft.steps[0].kind === "chat_distill_branch") return validateBranch(draft, now, options);
   if (draft.steps[0].kind === "chat_handoff") return validateHandoff(draft, now, options);
   const workspace: "image" | "chat" = draft.steps[0].kind === "prompt_patch" && draft.steps[0].target.startsWith("chat.") ? "chat" : "image";
   const initial = structuredClone({ ...now.form, characters: now.form.characters ?? [], composer: now.composer }), working = structuredClone(initial);
   let allocation = Math.max(now.nextCharacterId ?? 1, draft.base.nextCharacterId ?? 1, nextCharacterId(draft.base.form.characters ?? []));
+  const finalModel = draft.steps.reduce((id, step, i) => {
+    if (options.off.has(`${i}:model`)) return id;
+    const value = step.kind === 'params_patch' ? step.params.model
+      : step.kind === 'restore_partial' && step.fields.includes('model') ? resolveModel(now.models, String(step.values.model ?? ''))?.id : undefined;
+    if (!value || !sameValue(initial.model, draft.base.form.model) && !sameValue(initial.model, value)) return id;
+    return value;
+  }, now.form.model);
   const checked: CheckedStep[] = [];
   let aligned = stateHash(now) !== draft.baseHash;
   const checkText = (id: string, target: TextTarget, mode: TextMode, anchor: string, replacement: string, label?: string) => {
-    const match = /^image\.char\.(c[1-9]\d*)\.(prompt|negative)$/.exec(target);
+    const match = /^(?:image|edit)\.char\.(c[1-9]\d*)\.(prompt|negative)$/.exec(target);
     const char = match ? working.characters.find(c => c.id === match[1]) : undefined;
     const charField = match?.[2] as "prompt" | "negative" | undefined;
     const field = target === "chat.composer" ? "composer" : target === "image.prompt" ? "prompt" : target === "image.negative" ? "negative" : null;
@@ -218,7 +234,7 @@ export function validateDraft(draft: Draft, now: DraftState, options: ValidateOp
     }
     if (step.kind === "prompt_patch") return checkText(String(i), step.target, step.mode, step.anchor, step.text);
     if (step.kind === "character_edit") {
-      const id = String(i), enabled = !options.off.has(id), cap = characterCapability(working.model);
+      const id = String(i), enabled = !options.off.has(id), cap = characterCapability(finalModel);
       let issue = now.boardPresent === false ? "来源画板已删除" : !sameValue(initial.characters, draft.base.form.characters ?? []) || initial.placement !== draft.base.form.placement && draft.base.form.placement !== undefined ? "角色组已在外部修改，请重新提议" : "";
       const chars = structuredClone(working.characters), c = chars.find(c => c.id === step.id);
       let before = "", after = "", label = "角色", characterId = step.id;
@@ -227,7 +243,7 @@ export function validateDraft(draft: Draft, now: DraftState, options: ValidateOp
       if (step.op === "add") {
         const addedId = `c${allocation++}`; characterId = addedId;
         label = "新增"; after = `${step.prompt ?? ""}\n${step.on === false ? "停用" : "启用"} · ${step.cell ?? (step.x === undefined ? "默认位置" : `${step.x}, ${step.y}`)}`;
-        if (!cap.max || chars.length >= cap.max) issue ||= "已达当前模型角色上限";
+        if (step.on !== false && (!cap.max || chars.filter(c=>c.on).length >= cap.max)) issue ||= "已达当前模型角色上限";
         chars.push({ id: addedId, on: step.on !== false, prompt: step.prompt ?? "", negative: step.negative ?? "", centers: [center ?? { x: .5, y: .5 }] });
         if (step.negative) after += `\nNegative: ${step.negative}`;
       } else if (step.op === "reorder") {
@@ -291,8 +307,8 @@ export function validateDraft(draft: Draft, now: DraftState, options: ValidateOp
   });
   const allowedSamplers = now.samplersByModel?.[working.model] ?? now.samplers;
   const model = resolveModel(now.models, working.model);
-  const samplerConflict = (working.model !== initial.model || working.sampler !== initial.sampler) && !allowedSamplers.includes(working.sampler);
-  const sizeConflict = model && (working.width !== initial.width || working.height !== initial.height || working.model !== initial.model) && sizeProblem(working.width, working.height, model.maxPixels).fatal;
+  const samplerConflict = (working.model !== initial.model || working.sampler !== initial.sampler) && !naiCapabilities(working.model).medium && !allowedSamplers.includes(working.sampler);
+  const sizeConflict = !options.editing && model && (working.width !== initial.width || working.height !== initial.height || working.model !== initial.model) && sizeProblem(working.width, working.height, model.maxPixels).fatal;
   if (samplerConflict || sizeConflict) {
     // These four fields form one constraint group. Reverting only the model
     // could leave a sampler that the original model cannot accept.
@@ -306,7 +322,7 @@ export function validateDraft(draft: Draft, now: DraftState, options: ValidateOp
   if (direct) {
     const keys = new Set<ParameterKey>();
     draft.steps.forEach((s, i) => { if (s.kind === "params_patch") for (const key of Object.keys(s.params) as ParameterKey[]) if (!options.off.has(`${i}:${key}`)) keys.add(key); });
-    if (working.model !== initial.model) for (const key of ["steps", "cfgRescale", "varietyPlus", "complexity", "qualityPreset", "negativePreset", "transparentBg"] as const) keys.add(key);
+
     const issue = [...keys].map(key => parameterIssue(key, working, model)).find(Boolean);
     if (issue) for (let i = 0; i < checked.length; i++) if (checked[i].enabled && checked[i].kind === "parameter") checked[i] = { ...checked[i], issue: checked[i].issue || issue };
     if (checked.some(s => s.enabled && s.issue)) Object.assign(working, structuredClone(initial));

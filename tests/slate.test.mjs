@@ -116,9 +116,9 @@ test('B3 existing task files cannot rebase stale or missing versions onto the la
   assert.equal(step.todos[0].description,'review this change');
   assert.equal(current.todos[0].description,'','conversion never mutates local state');
 });
-test('B3 full state is read only on demand; selected Slate exports remain explicitly scoped',()=>{
+test('B3 full state is read only on demand; selected Slate exports remain explicitly scoped',async()=>{
   const slate=create(),get=createTools().get('get_state'),ctx={state:()=>({text:'summary',images:0}),readSlate:()=>slate};
-  assert.equal(get.run({},ctx).content.length,1);assert.match(get.run({include_slate:true},ctx).content[1].text,new RegExp(slate.id));
+  assert.equal((await get.run({},ctx)).content.length,1);assert.match((await get.run({include_slate:true},ctx)).content[1].text,new RegExp(slate.id));
   const doc={title:'memo',stem:'memo',formats:{md:'chosen text'}};
   assert.equal(combineSlateDocument(doc,null),doc);const combined=combineSlateDocument(doc,slate);assert.match(combined.formats.md,/chosen text/);assert.match(combined.formats.md,/系列/);
 });

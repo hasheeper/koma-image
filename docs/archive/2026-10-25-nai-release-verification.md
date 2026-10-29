@@ -1,6 +1,6 @@
 # NAI 适配发布与线上页面核验
 
-日期：2026-10-25。发布源码提交为 `82c55c9c738b86110b896ce778b148c530012e1e`（`Add NovelAI controls, reference workflow and provider priorities`），已推送至 `hasheeper/koma-image` 的 `main`。本次记录已经完成的发布，不构成后续推送或部署授权。现行能力与待办见[NAI 官方接入](../novelai-official.md)和[当前状态](../implementation-plan.md)。
+日期：2026-10-25。发布源码提交为 `786e8f456b3fbbd2fd10371ee65f164fbe0f14f4`（`Add NovelAI controls, reference workflow and provider priorities`），已推送至 `hasheeper/koma-image` 的 `main`。本次记录已经完成的发布，不构成后续推送或部署授权。现行能力与待办见[NAI 官方接入](../novelai-official.md)和[当前状态](../implementation-plan.md)。
 
 生产站点：[koma-image.pages.dev](https://koma-image.pages.dev/)。Pages Direct Upload 回执：[53575fbf.koma-image.pages.dev](https://53575fbf.koma-image.pages.dev)。只上传 `dist/`，构建与 Git 推送各自不触发自动发布。
 

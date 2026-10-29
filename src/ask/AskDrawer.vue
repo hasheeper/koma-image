@@ -121,7 +121,7 @@ watch(mode, async () => {
 onBeforeUnmount(() => { controller.abort(); ask.attach(null); });
 </script>
 <template>
-  <aside v-show="router.route.value.workspace !== 'edit' && (!home || shown)" id="askIsland" ref="root" class="ask-island" :class="{ 'ask-inline': !home && !!ask.inline.value && shown }" :data-mode="mode" :data-home="home && shown ? dock : undefined" :data-workspace="router.route.value.workspace" :data-context-open="chat.contextOpen || undefined" :data-quiet="router.route.value.workspace === 'image' && image.state === 'busy' || undefined" :style="{ ...dimensions, '--ask-dock-w': `${presentation.dockWidth.value}px` }" aria-label="Koma ASK" :aria-describedby="home ? undefined : 'askMoveHint'">
+  <aside v-show="(!home || shown)" id="askIsland" ref="root" class="ask-island" :class="{ 'ask-inline': !home && !!ask.inline.value && shown }" :data-mode="mode" :data-home="home && shown ? dock : undefined" :data-workspace="router.route.value.workspace" :data-context-open="chat.contextOpen || undefined" :data-quiet="router.route.value.workspace === 'image' && image.state === 'busy' || undefined" :style="{ ...dimensions, '--ask-dock-w': `${presentation.dockWidth.value}px` }" aria-label="Koma ASK" :aria-describedby="home ? undefined : 'askMoveHint'">
     <button v-show="mode === 'idle'" id="askLauncher" class="ask-layer ask-launcher ask-open" :inert="mode !== 'idle'" data-ask-grip type="button" aria-label="打开 Koma ASK" aria-controls="askDrawer" aria-expanded="false" title="Koma ASK · 可拖动 · ⌘J / Ctrl+J" @click="ask.show()"><AskMark interactive /></button>
     <div v-show="mode === 'run'" class="ask-layer ask-run" :inert="mode !== 'run'">
       <button class="ask-open ask-run-grip" data-ask-grip type="button" aria-label="展开 ASK 对话" @click="ask.show()"><AskMark thinking /><AskActivity /></button>
@@ -269,7 +269,8 @@ onBeforeUnmount(() => { controller.abort(); ask.attach(null); });
   box-shadow: inset 0 0 0 1px var(--ask-ring);
   transition: background-color .52s cubic-bezier(.32, .72, 0, 1), box-shadow .52s cubic-bezier(.32, .72, 0, 1);
 }
-:global(html[data-home-vt]) .ask-island[data-home]::before { opacity: 0; }
+/* Scoped CSS keeps the html ancestor as written; :global() would swallow the whole selector and hide the page. */
+html[data-home-vt] .ask-island[data-home]::before { opacity: 0; }
 .ask-island[data-workspace="home"][data-home="full"] { --ask-glass: var(--canvas); --ask-ring: transparent; top: 0; right: 0; bottom: 0; width: 100%; border-radius: 0; }
 .ask-island[data-home] :deep(.ask-stream), .ask-island[data-home] .ask-bottom { padding-inline: max(16px, calc((100% - 760px) / 2)); }
 .ask-island[data-home="full"] .ask-head { padding: 0 14px 0 18px; }

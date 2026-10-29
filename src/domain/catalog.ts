@@ -8,6 +8,8 @@ import type { GatewayProfile } from "../gateway/profile.ts";
 export interface CatalogEntry { id: string; family?: string }
 export interface CatalogModel {
   profileId?: string;
+  /** Non-secret connection revision; invalidates cached read-only estimates. */
+  sourceRevision?: string;
   id: string; upstreamId: string; connection: string; name: string; description: string; provider: string; family?: string;
   quotaGroup?: string; maxPixels: number; operations: string[]; tools: string[]; replaces: string[];
   fields: Record<string, { options: string[]; default: string }>;
@@ -93,7 +95,7 @@ export function normalizeCatalog(raw: unknown, routing: Routing, connection: str
       else delete fields[key];
     }
     const native = profile?.protocol && profile.protocol !== "standard";
-    models.push({ id, upstreamId, connection, ...(profile ? { profileId: profile.id } : {}), name: String(meta.name || entry?.name || id), description: String(meta.description || ""),
+    models.push({ id, upstreamId, connection, sourceRevision: routing.connections[connection]?.revision, ...(profile ? { profileId: profile.id } : {}), name: String(meta.name || entry?.name || id), description: String(meta.description || ""),
       provider, family: entry?.family ?? (typeof meta.editor_family === "string" ? meta.editor_family : undefined),
       quotaGroup: typeof meta.quota_group === "string" ? meta.quota_group : undefined,
       maxPixels: Number(meta.max_resolution) || 1_048_576, operations: strings(meta.operations), fields, replaces: strings(meta.replaces), tools: strings(meta.tools),

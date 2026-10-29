@@ -9,6 +9,7 @@ import {
   onBeforeUnmount,
 } from "vue";
 
+import { useAsk, AskMark } from "../../app/ask";
 import { useEditor } from "../../app/editor";
 import { useShell } from "../../app/shell";
 import { useServices } from "../../app/services";
@@ -26,6 +27,7 @@ import { names } from "../../storage/names";
 import { createMaskEditor } from "../../native/mask-editor.ts";
 import type { MaskEditor } from "../../native/mask-editor.ts";
 import { createEditorCanvas } from "../../native/editor-canvas";
+import { createEditorToolbar } from "../../native/editor-toolbar";
 import WorkspaceSwitch from "../../shared/WorkspaceSwitch.vue";
 import EditBoards from "./EditBoards.vue";
 import { createFocusRegion } from "../../native/focus-region";
@@ -60,6 +62,7 @@ const inpaintMode = shallowRef<InstanceType<typeof EditToolMode>>();
 const upscaleMode = shallowRef<InstanceType<typeof EditToolMode>>();
 const directorPanel = shallowRef<InstanceType<typeof DirectorTools>>();
 const bottomPanel = shallowRef<InstanceType<typeof DrawingBottomPanel>>();
+const ask = useAsk();
 const photopea = shallowRef<ReturnType<typeof editor.beginExternalEdit>>();
 const photopeaCreated = shallowRef(false);
 const tab = ref<"prompt" | "negative_prompt">("prompt"),
@@ -203,6 +206,7 @@ const removeGuard = router.guard((previous, next) => {
 let mask: MaskEditor | undefined,
   focusRegion: ReturnType<typeof createFocusRegion> | undefined,
   canvas: ReturnType<typeof createEditorCanvas> | undefined,
+  toolbar: ReturnType<typeof createEditorToolbar> | undefined,
   activeSession: EditorSession | undefined,
   maskRevision = -1,
   syncing = false,
@@ -320,6 +324,7 @@ function pause() {
   for (const menu of dialog.value?.querySelectorAll<HTMLElement>(":popover-open") ?? []) menu.hidePopover();
   focusRegion?.pause();
   canvas?.pause();
+  toolbar?.pause();
   stopClock();
   promptObserver?.disconnect();
   activeEvents?.abort();
@@ -332,6 +337,7 @@ async function activate() {
   if (!view.value.open || !dialog.value || photopea.value) return;
   ensureMask();
   canvas?.resume();
+  toolbar?.resume();
   focusRegion?.resume();
   canvas?.restore(editor.session.viewport);
   paintBrush();
@@ -617,6 +623,7 @@ function paste(e: ClipboardEvent) {
   }
 }
 onMounted(() => {
+  toolbar = createEditorToolbar(dialog.value!);
   mask = createMaskEditor(maskCanvas.value!, changedMask);
   focusRegion = createFocusRegion(dialog.value!, focusHost.value!, {
     size: () => view.value.base, rect: () => editor.session.focus.rect,
@@ -646,6 +653,7 @@ onBeforeUnmount(() => {
   pause();
   focusRegion?.dispose();
   canvas?.dispose();
+  toolbar?.dispose();
   mask?.dispose();
   editor.setMaskPort(undefined);
 });
@@ -682,6 +690,7 @@ async function copyReference(v: EditorVersion) {
     <header class="topbar editor-bar" :hidden="!!photopea" :inert="!!photopea">
       <WorkspaceSwitch workspace="edit" />
       <div class="topbar-end editor-bar-end" role="group" aria-label="工具">
+        <button class="ibtn" type="button" aria-label="打开 ASK" @click="ask.show()"><AskMark :thinking="ask.running.value" /></button>
         <button id="editorPhotopea" class="ibtn" type="button" aria-label="高级编辑" data-tip="高级编辑 · Photopea" :disabled="locked || !view.viewed" @click="openPhotopea"><span class="editor-photopea-logo" aria-hidden="true" /></button>
         <button
           class="ibtn"
@@ -826,7 +835,7 @@ async function copyReference(v: EditorVersion) {
               type="button"
               aria-label="重新报价"
               :disabled="locked"
-              @click="editor.retry('edit')"
+              @click="editor.retry('edit', true)"
             >
               <AppIcon name="i-retry" />
             </button>
@@ -942,7 +951,121 @@ async function copyReference(v: EditorVersion) {
             <div v-if="variants.length" class="seg director-variants" role="radiogroup" aria-label="去背景结果">
               <label v-for="v in variants" :key="v.id"><input type="radio" name="editorDirectorVariant" :value="v.id" :checked="s.viewId === v.id" :disabled="locked" @change="editor.view(v.id)" /><span>{{ directorVariantNames[v.director!.variant!] }}</span></label>
             </div>
-            <div class="editor-info-actions" role="group" aria-label="图片操作">
+          </div>
+          <div
+            class="editor-toolbar"
+            role="toolbar"
+            aria-label="画布工具"
+            :hidden="!shown"
+          >
+            <div class="editor-tool-controls">
+              <div class="editor-picture-ops">
+                <EditToolMode ref="inpaintMode" class="inpaint-mode" id="editorInpaint" :label="s.focus.on ? '聚焦' : '重绘'" :aria-label="s.focus.on ? '聚焦重绘' : '重绘'" :icon="s.focus.on ? 'i-frame' : 'i-mask'" :active="s.mode === 'inpaint'" :value="s.focus.on ? 'focused' : 'ordinary'" menu-label="重绘方式" :options="inpaintOptions" :disabled="locked || !editorModels({ models: view.models }, 'inpaint').length" @toggle="changeInpaint()" @select="value => changeInpaint(value === 'focused')" />
+                <EditToolMode ref="upscaleMode" class="upscale-mode" id="editorUpscale" label="放大" icon="i-upscale" :title="upscaleTitle" :active="view.upscaleOpen" :value="upscaleKind" controls="editorUpscalePop" menu-label="放大方式" :options="upscaleOptions" :disabled="locked || !upModels.length" @toggle="editor.upscaleToggle(!view.upscaleOpen)" @select="changeUpscale" />
+                <DirectorTools ref="directorPanel" />
+              </div>
+              <span class="editor-sep" aria-hidden="true"></span>
+              <div class="editor-mask-tools" :hidden="!maskActive">
+                <button class="ibtn" type="button" aria-label="导入黑白蒙版" data-tip="导入黑白蒙版"
+                  :disabled="locked" @click="maskFile?.click()"><AppIcon name="i-upload" /></button>
+                <button
+                  class="ibtn"
+                  type="button"
+                  aria-label="画笔"
+                  data-tip="画笔 · B"
+                  :aria-pressed="!eraser && !focusTool"
+                  @click="setBrush(false)"
+                >
+                  <AppIcon name="i-brush" /></button
+                ><button
+                  class="ibtn"
+                  type="button"
+                  aria-label="橡皮擦"
+                  data-tip="橡皮擦 · E"
+                  :aria-pressed="eraser && !focusTool"
+                  @click="setBrush(true)"
+                >
+                  <AppIcon name="i-eraser" /></button
+                ><button v-if="s.focus.on" id="editorSelectFocus" class="ibtn" type="button" aria-label="框选聚焦范围" data-tip="聚焦范围 · F" :aria-pressed="focusTool" :disabled="locked || !view.focusAvailable" @click="focusTool ? setBrush(eraser) : selectFocus()"><AppIcon name="i-frame" /></button
+                ><label class="editor-size"
+                  ><input
+                    v-model.number="brush"
+                    type="range"
+                    min="8"
+                    max="256"
+                    step="1"
+                    aria-label="笔刷大小"
+                    @input="paintBrush"
+                  /><output class="mono">{{ brush }}</output></label
+                ><button
+                  class="ibtn"
+                  type="button"
+                  aria-label="撤销"
+                  :disabled="locked || !undo"
+                  @click="mask?.undo()"
+                >
+                  <AppIcon name="i-undo" /></button
+                ><button
+                  class="ibtn"
+                  type="button"
+                  aria-label="重做"
+                  :disabled="locked || !redo"
+                  @click="mask?.redo()"
+                >
+                  <AppIcon name="i-redo" /></button
+                ><button
+                  class="ibtn"
+                  type="button"
+                  aria-label="清空蒙版"
+                  :disabled="locked"
+                  @click="mask?.clear()"
+                >
+                  <AppIcon name="i-trash" /></button
+                ><span class="editor-sep"></span>
+              </div>
+              <button
+                class="ibtn"
+                id="editorHand"
+                type="button"
+                aria-label="平移"
+                data-tip="平移 · H / 空格"
+                aria-pressed="false"
+                @click="canvas?.toggleHand()"
+              >
+                <AppIcon name="i-hand" /></button
+              ><button
+                class="ibtn editor-zoom-step"
+                type="button"
+                aria-label="缩小"
+                @click="canvas?.step(-1)"
+              >
+                <AppIcon name="i-zoom-out" /></button
+              ><button
+                class="editor-zoom mono"
+                id="editorZoomValue"
+                type="button"
+                aria-label="缩放到 100%"
+                @click="canvas?.zoomTo(1)"
+              >
+                100%</button
+              ><button
+                class="ibtn editor-zoom-step"
+                type="button"
+                aria-label="放大"
+                @click="canvas?.step(1)"
+              >
+                <AppIcon name="i-zoom-in" /></button
+              ><button
+                class="ibtn"
+                type="button"
+                aria-label="适应窗口"
+                @click="canvas?.fit()"
+              >
+                <AppIcon name="i-fit" />
+              </button>
+            </div>
+            <div class="editor-info-actions" :hidden="!view.viewed" role="group" aria-label="图片操作">
+              <span class="editor-sep" aria-hidden="true"></span>
               <button v-if="view.viewed" class="ibtn" type="button"
                 :aria-label="view.favorite ? '已收藏' : '收藏图片'" :data-tip="view.favorite ? '已收藏' : '收藏'"
                 :aria-pressed="view.favorite" :disabled="locked || view.saving || view.favorite" @click="editor.saveFavorite()">
@@ -993,117 +1116,6 @@ async function copyReference(v: EditorVersion) {
                 ><AppIcon name="i-download"
               /></a>
             </div>
-          </div>
-          <div
-            class="editor-toolbar"
-            role="toolbar"
-            aria-label="画布工具"
-            :hidden="!shown"
-          >
-            <div class="editor-picture-ops">
-              <EditToolMode ref="inpaintMode" class="inpaint-mode" id="editorInpaint" :label="s.focus.on ? '聚焦' : '重绘'" :aria-label="s.focus.on ? '聚焦重绘' : '重绘'" :icon="s.focus.on ? 'i-frame' : 'i-mask'" :active="s.mode === 'inpaint'" :value="s.focus.on ? 'focused' : 'ordinary'" menu-label="重绘方式" :options="inpaintOptions" :disabled="locked || !editorModels({ models: view.models }, 'inpaint').length" @toggle="changeInpaint()" @select="value => changeInpaint(value === 'focused')" />
-              <EditToolMode ref="upscaleMode" class="upscale-mode" id="editorUpscale" label="放大" icon="i-upscale" :title="upscaleTitle" :active="view.upscaleOpen" :value="upscaleKind" controls="editorUpscalePop" menu-label="放大方式" :options="upscaleOptions" :disabled="locked || !upModels.length" @toggle="editor.upscaleToggle(!view.upscaleOpen)" @select="changeUpscale" />
-              <DirectorTools ref="directorPanel" />
-            </div>
-            <span class="editor-sep" aria-hidden="true"></span>
-            <div class="editor-mask-tools" :hidden="!maskActive">
-              <button class="ibtn" type="button" aria-label="导入黑白蒙版" data-tip="导入黑白蒙版"
-                :disabled="locked" @click="maskFile?.click()"><AppIcon name="i-upload" /></button>
-              <button
-                class="ibtn"
-                type="button"
-                aria-label="画笔"
-                data-tip="画笔 · B"
-                :aria-pressed="!eraser && !focusTool"
-                @click="setBrush(false)"
-              >
-                <AppIcon name="i-brush" /></button
-              ><button
-                class="ibtn"
-                type="button"
-                aria-label="橡皮擦"
-                data-tip="橡皮擦 · E"
-                :aria-pressed="eraser && !focusTool"
-                @click="setBrush(true)"
-              >
-                <AppIcon name="i-eraser" /></button
-              ><button v-if="s.focus.on" id="editorSelectFocus" class="ibtn" type="button" aria-label="框选聚焦范围" data-tip="聚焦范围 · F" :aria-pressed="focusTool" :disabled="locked || !view.focusAvailable" @click="focusTool ? setBrush(eraser) : selectFocus()"><AppIcon name="i-frame" /></button
-              ><label class="editor-size"
-                ><input
-                  v-model.number="brush"
-                  type="range"
-                  min="8"
-                  max="256"
-                  step="1"
-                  aria-label="笔刷大小"
-                  @input="paintBrush"
-                /><output class="mono">{{ brush }}</output></label
-              ><button
-                class="ibtn"
-                type="button"
-                aria-label="撤销"
-                :disabled="locked || !undo"
-                @click="mask?.undo()"
-              >
-                <AppIcon name="i-undo" /></button
-              ><button
-                class="ibtn"
-                type="button"
-                aria-label="重做"
-                :disabled="locked || !redo"
-                @click="mask?.redo()"
-              >
-                <AppIcon name="i-redo" /></button
-              ><button
-                class="ibtn"
-                type="button"
-                aria-label="清空蒙版"
-                :disabled="locked"
-                @click="mask?.clear()"
-              >
-                <AppIcon name="i-trash" /></button
-              ><span class="editor-sep"></span>
-            </div>
-            <button
-              class="ibtn"
-              id="editorHand"
-              type="button"
-              aria-label="平移"
-              data-tip="平移 · H / 空格"
-              aria-pressed="false"
-              @click="canvas?.toggleHand()"
-            >
-              <AppIcon name="i-hand" /></button
-            ><button
-              class="ibtn editor-zoom-step"
-              type="button"
-              aria-label="缩小"
-              @click="canvas?.step(-1)"
-            >
-              <AppIcon name="i-zoom-out" /></button
-            ><button
-              class="editor-zoom mono"
-              id="editorZoomValue"
-              type="button"
-              aria-label="缩放到 100%"
-              @click="canvas?.zoomTo(1)"
-            >
-              100%</button
-            ><button
-              class="ibtn editor-zoom-step"
-              type="button"
-              aria-label="放大"
-              @click="canvas?.step(1)"
-            >
-              <AppIcon name="i-zoom-in" /></button
-            ><button
-              class="ibtn"
-              type="button"
-              aria-label="适应窗口"
-              @click="canvas?.fit()"
-            >
-              <AppIcon name="i-fit" />
-            </button>
           </div>
         </div>
       </section>
@@ -1226,7 +1238,7 @@ async function copyReference(v: EditorVersion) {
           class="ibtn ibtn-xs"
           type="button"
           aria-label="重新报价"
-          @click="editor.retry('upscale')"
+          @click="editor.retry('upscale', true)"
         >
           <AppIcon name="i-retry" />
         </button>

@@ -1,6 +1,6 @@
 # Photopea 工作栈、自动回传与同尺寸复用核验
 
-日期：2026-10-27。基线 `1fd1be3`，分支 `codex/ask-chat-handoff` 的本地未提交工作树；包含此前 EDIT／Photopea 已授权改动。本文不表示已经提交、推送或部署。当前规则见[工作栈规范](../photopea-workstack-spec.md)与[接入说明](../photopea-workstack-spec.md)。
+日期：2026-10-27。基线 `a537b53`，分支 `codex/ask-chat-handoff` 的本地未提交工作树；包含此前 EDIT／Photopea 已授权改动。本文不表示已经提交、推送或部署。当前规则见[工作栈规范](../photopea-workstack-spec.md)与[接入说明](../photopea-workstack-spec.md)。
 
 ## 已落地行为
 

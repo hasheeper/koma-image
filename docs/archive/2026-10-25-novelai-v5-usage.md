@@ -1,6 +1,6 @@
 # NovelAI V5 额度展示验证
 
-日期：2026-10-25。基线提交：`2d0d490`，验证对象为其上的工作区修改，包含此前的[连接兼容修复](2026-10-25-novelai-connection-check.md)。现行规则见 [NovelAI 官方基础接入](../novelai-official.md)。
+日期：2026-10-25。基线提交：`72fb655`，验证对象为其上的工作区修改，包含此前的[连接兼容修复](2026-10-25-novelai-connection-check.md)。现行规则见 [NovelAI 官方基础接入](../novelai-official.md)。
 
 ## 依据与范围
 

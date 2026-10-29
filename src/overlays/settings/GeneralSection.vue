@@ -1,6 +1,8 @@
 <script setup lang="ts">
 import { computed } from "vue";
 import { useDrawing } from "../../app/drawing";
+import AppIcon from "../../shared/AppIcon.vue";
+import RepoLink from "../../shared/RepoLink.vue";
 const { drawing, view } = useDrawing();
 const form = computed(() => view.value.form);
 function change(
@@ -64,6 +66,17 @@ function change(
             <span class="switch" aria-hidden="true"></span>
           </label>
         </div>
+      </div>
+    </div>
+    <div class="sp-group">
+      <div class="s-row">
+        <div>
+          <b>关于</b>
+          <p>Koma Image 源码仓库</p>
+        </div>
+        <RepoLink class="btn btn-quiet btn-sm"
+          ><AppIcon name="i-github" />GitHub<AppIcon name="i-external"
+        /></RepoLink>
       </div>
     </div>
   </section>

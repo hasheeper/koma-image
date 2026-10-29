@@ -39,13 +39,13 @@ export function metadata(image: DigestImage): Record<string, unknown> {
     width: image.size.width,
     height: image.size.height,
   };
-  if (image.params.tool === "manual-edit") {
+  if (image.params.tool === "manual-edit" || image.params.tool === "director") {
     const manual = imageParameters(image.params);
     out.edit_source = manual.editSource;
     out.source_recipe = manual.sourceRecipe;
   }
   // All parameters currently persisted by drawing/editor; omit routing and binary inputs.
-  for (const key of ["model", "modelName", "seed", "steps", "scale", "cfg", "cfgRescale", "noiseSchedule", "naiMode", "complexity", "qualityPreset", "negativePreset", "sampler", "strength", "noise", "noise_schedule", "cfg_rescale", "enhance", "enhanceScale", "enhanceMagnitude", "tool", "transparentBg", "optimize", "cache", "transform_prompt", "transform_mode", "randomSeed", "batchCount", "batchIndex", "batchTotal", "isComparison", "comparisonTotal", "seedStart", "version", "image_index", "selected"])
+  for (const key of ["model", "modelName", "seed", "steps", "scale", "cfg", "cfgRescale", "noiseSchedule", "varietyPlus", "directorTool", "directorVariant", "defry", "emotion", "naiMode", "complexity", "qualityPreset", "negativePreset", "sampler", "strength", "noise", "noise_schedule", "cfg_rescale", "enhance", "enhanceScale", "enhanceMagnitude", "tool", "transparentBg", "optimize", "cache", "transform_prompt", "transform_mode", "randomSeed", "batchCount", "batchIndex", "batchTotal", "isComparison", "comparisonTotal", "seedStart", "version", "image_index", "selected"])
     if (image.params[key] === null || ["string", "number", "boolean"].includes(typeof image.params[key])) out[key] = image.params[key];
   if (image.params.naiReferences) out.references = referenceSummary(image.params.naiReferences);
   const focus = readInpaintFocus(image.params.inpaintFocus);

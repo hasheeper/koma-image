@@ -375,9 +375,6 @@ body[data-swap="instant"] .layer { transition: none; }
 
 
 /* ── Import sheet ────────────────────────────────────────────── */
-/* Same backdrop as .gate but on its own attribute hook, because the gate's
-   transitions are bound to body[data-gate] and that flag is spent by the
-   time the app is usable. */
 /* Scoped by id: an unscoped .sheet rule here also revealed the tag picker. */
 body[data-import="open"] #importSheet { opacity: 1; }
 body[data-import="open"] #importSheet > .import-card { transform: none; }

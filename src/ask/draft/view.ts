@@ -21,7 +21,7 @@ export interface FieldView {
   readonly full: readonly Piece[] | null;
 }
 /** Where a creating draft writes, shown under its title. */
-export interface Destination { readonly label: "新画板" | "新对话"; readonly name: string }
+export interface Destination { readonly label: "新画板" | "新对话" | "编辑画板"; readonly name: string }
 export interface DraftView { readonly fields: readonly FieldView[]; readonly added: number; readonly removed: number; readonly destination: Destination | null }
 
 const fields: Record<Exclude<FieldKey, `character:${string}`>, { label: string; icon: string }> = {
@@ -110,7 +110,7 @@ function stepView(step: CheckedStep, handoff: boolean, slate?: SlateChange): Ste
   if (step.kind === "parameter") {
     const [name, source = ""] = step.label.split(" · "), changed = step.before !== step.after ? 1 : 0;
     return { kind: "param", step, name, source, icon: step.id.startsWith("0:option:") ? "i-frame" : paramIcons[name] ?? "i-parameters",
-      before: step.displayBefore ?? (step.before || "随机"), after: step.displayAfter ?? (step.after || "随机"), added: changed, removed: changed };
+      before: step.displayBefore ?? (step.before || (name === "Seed" ? "随机" : "—")), after: step.displayAfter ?? (step.after || (name === "Seed" ? "随机" : "—")), added: changed, removed: changed };
   }
   if (step.kind === "handoff") return { kind: "ref", step, label: step.after, added: 0, removed: 0 };
   // A new conversation has no text to compare; show its input verbatim.
@@ -147,6 +147,6 @@ export function draftView(plan: DraftPlan): DraftView {
     const change = opened || key === "params" || key === "branch" || key === "characters" ? undefined : plan.changes.find((c) => c.field === key);
     out.push({ key, ...(key.startsWith("character:") ? { label: steps[0].step.characterLabel ?? key, icon: "i-model" } : fields[key as keyof typeof fields]), steps, full: change ? diffTags(tagsOf(String(change.before)), tagsOf(String(change.after))) : null });
   }
-  const destination: Destination | null = plan.newBoardName ? { label: "新画板", name: plan.newBoardName } : opened ? { label: "新对话", name: opened.after } : null;
+  const destination: Destination | null = plan.workspace === "edit" ? {label:"编辑画板",name:[plan.boardName,plan.editSourceTag].filter(Boolean).join(" · ")} : plan.newBoardName ? { label: "新画板", name: plan.newBoardName } : opened ? { label: "新对话", name: opened.after } : null;
   return { fields: out, added, removed, destination };
 }

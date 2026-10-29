@@ -1,6 +1,6 @@
 # 供应商分区与图像优先级验证
 
-日期：2026-10-25。基线提交：`2d0d490`，验证对象为 `codex/ask-chat-handoff` 上的未提交工作区修改，保留此前 NAI 账户、V5 额度和连接图标改动。现行行为见[连接设置](../shared-settings-tags.md)、[架构](../architecture.md)和[业务契约](../business-contracts.md)。
+日期：2026-10-25。基线提交：`72fb655`，验证对象为 `codex/ask-chat-handoff` 上的未提交工作区修改，保留此前 NAI 账户、V5 额度和连接图标改动。现行行为见[连接设置](../shared-settings-tags.md)、[架构](../architecture.md)和[业务契约](../business-contracts.md)。
 
 ## 已确认规则与实现
 

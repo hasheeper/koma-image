@@ -14,6 +14,8 @@ ASK 模型列表补充的 Claude、DeepSeek、Kimi、MiniMax（color 变体）�
 
 高级编辑入口的 `public/assets/photopea-logo.png` 来自 [Photopea 官方 Logo](https://www.photopea.com/promo/icon512.png)。保留官方轮廓，去除绿色底色与阴影，生成 128px 透明单色图；通过 CSS mask 跟随工具栏的文字色、悬停与禁用状态。该标识仅用于识别 Photopea 入口，商标归原权利人，不适用上述 LobeHub Icons 的 MIT 许可。
 
+HOME 页脚与设置「关于」的 GitHub 标志取自 GitHub Primer Octicons 的 `mark-github` 路径，作为 `i-github` 收入 `public/assets/icons.svg`，跟随文字色。SVG 路径的 MIT 许可保留于 `public/assets/octicons-LICENSE`，随构建发布；该许可不授予 GitHub 商标权，标志仅用于链接本项目源码仓库，商标归 GitHub, Inc.。
+
 字体配置现集中于 `config/fonts.json` 与 `config/font-ranges/koma-rounded.json`，浏览器只加载由 Node 生成的 `public/fonts/index.css`。普通构建复用现有 WOFF2；上述 Python 脚本只用于主动离线重建，并继续保留原字形修改和许可。维护命令与 G0／G1 验证见[字体维护](https://github.com/hasheeper/koma-image/blob/main/docs/font-style-governance.md)。
 
 NAI token 计数使用 `@huggingface/tokenizers` 0.2.0（Apache-2.0）与自托管的 [google-t5/t5-small](https://huggingface.co/google-t5/t5-small)／[Qwen/Qwen3.5-0.8B](https://huggingface.co/Qwen/Qwen3.5-0.8B) 公开 tokenizer 词表（Apache-2.0）。只分发词表和计数所需配置，不含模型权重或 NovelAI 应用代码；根据公开客户端核对的预处理规则配置 T5／Qwen 计数。调整及来源清单在 `public/tokenizers/NOTICE.txt`，许可在同目录 `LICENSE` 和 `tokenizers-LICENSE.txt`，构建原样复制至 `dist/tokenizers/`。首次按需加载词表约 1.1MB／9.1MB；提示词仅在本机 Worker 内处理。

@@ -62,7 +62,7 @@ const close = async (server) => {
   server.closeAllConnections();
   await new Promise((resolve) => server.close(resolve));
 };
-async function open(path = "#/image", staleVault = false) {
+async function open(path = "#/image", browserCredentials = false) {
   const upstreamRequests = [],
     browserRequests = [],
     errors = [],
@@ -117,25 +117,22 @@ async function open(path = "#/image", staleVault = false) {
     viewport: { width: 1440, height: 900 },
     reducedMotion: "reduce",
   });
-  await context.addInitScript((stale) => {
+  await context.addInitScript((browserCredentials) => {
     if (location.protocol === "about:") return;
     localStorage.setItem(
       "koma.prefs.v1",
       JSON.stringify({ tagSuggest: false }),
     );
-    if (stale)
+    if (browserCredentials)
       localStorage.setItem(
-        "koma.vault.v2",
+        "koma.credentials.v1",
         JSON.stringify({
-          v: 2,
-          kdf: "PBKDF2-SHA256",
-          iterations: 210000,
-          salt: "AA==",
-          iv: "AA==",
-          ct: "AA==",
+          version: 1,
+          epoch: "browser-fixture",
+          keys: { "local-server": "synthetic-browser-key-must-not-replace-server-key" },
         }),
       );
-  }, staleVault);
+  }, browserCredentials);
   const page = await context.newPage();
   page.setDefaultTimeout(12000);
   page.on("pageerror", (e) => errors.push(e.message));
@@ -196,7 +193,7 @@ async function assertPrivate(t) {
         r.url.startsWith("https://tagsuggest.zeabur.app/"),
     ),
   );
-  assert.equal(await t.page.locator("#gate[open]").count(), 0);
+  assert.equal(await t.page.locator("dialog[open] #connectionKey").count(), 0);
 }
 
 test("M7 production local settings: readonly credentials, isolated model preferences, backup roundtrip and four viewports", async () => {
@@ -207,7 +204,7 @@ test("M7 production local settings: readonly credentials, isolated model prefere
       () => document.querySelector(".conn-card .st")?.dataset.s === "ok",
     );
     assert.equal(
-      await p.getByRole("button", { name: "添加连接", exact: true }).count(),
+      await p.getByRole("button", { name: "配置供应商", exact: true }).count(),
       0,
     );
     assert.equal(
@@ -216,7 +213,7 @@ test("M7 production local settings: readonly credentials, isolated model prefere
     );
     assert.equal(
       await p
-        .getByRole("button", { name: "配置或解锁 Key", exact: true })
+        .getByRole("button", { name: "配置供应商", exact: true })
         .count(),
       0,
     );

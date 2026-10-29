@@ -232,12 +232,12 @@ test("runner: prose completion failures and aborts keep transaction semantics; u
   assert.deepEqual(held.session.messages, []);
 });
 
-test("state tool: initial text is read by default; latest is explicit and invalid scopes never read", () => {
+test("state tool: initial text is read by default; latest is explicit and invalid scopes never read", async () => {
   const entry = createTools().get("get_state"), scopes = [];
   const context = { state: scope => { scopes.push(scope); return { text: scope, images: 4 }; } };
-  assert.equal(entry.run({}, context).content[0].text, "initial");
-  assert.equal(entry.run({ scope: "latest" }, context).content[0].text, "latest");
-  assert.throws(() => entry.run({ scope: "wrong" }, context), /scope/);
+  assert.equal((await entry.run({}, context)).content[0].text, "initial");
+  assert.equal((await entry.run({ scope: "latest" }, context)).content[0].text, "latest");
+  await assert.rejects(() => entry.run({ scope: "wrong" }, context), /scope/);
   assert.deepEqual(scopes, ["initial", "latest"]);
 });
 

@@ -75,7 +75,8 @@ async function open(profile, seed = true, customId = "", account = { status: 200
     }
     errors.push(`unexpected endpoint: ${url.pathname}`); return route.fulfill({ status: 404, json: { error: "Unexpected protocol request" } });
   });
-  await page.goto(origin + (profile === "nai-official-v1" ? "/#/image" : "/#/chat"));
+  const workspace = profile === "nai-official-v1" ? "image" : "chat";
+  await page.goto(origin + `/#/${workspace}${seed ? "" : "/settings/connections"}`);
   await page.waitForFunction(() => !!document.body.__vue_app__?._instance);
   await bind(page);
   return { page, context, requests, errors, png };
@@ -515,15 +516,14 @@ test("NovelAI settings: an unsubscribed Key loads models and purchased Anlas wit
   const { page } = t;
   try {
     await page.locator("#settingsPanel[open]").waitFor();
-    await page.getByRole("button", { name: "添加连接", exact: true }).click();
+    await page.getByRole("button", { name: "配置供应商", exact: true }).click();
     await page.locator("#connectionProtocol").selectOption("nai-official-v1");
     await page.locator("#connectionName").fill("模拟未订阅账号");
     assert.equal(await page.locator("#connectionUrl").inputValue(), "https://image.novelai.net");
-    assert.match(await page.locator("dialog[open]:has(#connectionTitle) .hint").textContent(), /Key 仅发送到 image\.novelai\.net/);
-    await page.getByRole("button", { name: "添加", exact: true }).click();
-    await page.locator("#setupKey").fill("synthetic-native-only");
-    await page.locator("#gate label").filter({ hasText: "不保存" }).click();
-    await page.locator("#gate").getByRole("button", { name: "保存", exact: true }).click();
+    assert.equal(await page.locator("dialog[open]:has(#connectionTitle) .hint").count(), 0);
+    await page.locator("#connectionKey").fill("synthetic-native-only");
+    await page.getByRole("checkbox", { name: "在此浏览器保存 Key" }).uncheck();
+    await page.locator("dialog[open]:has(#connectionTitle)").getByRole("button", { name: "保存", exact: true }).click();
     await page.waitForFunction(() => document.querySelector(".conn-card .st")?.dataset.s === "ok" && drawing.snapshot().models.length === 5);
     assert.match(await page.locator(".conn-card .st").textContent(), /^Key 有效/);
     assert.match(await page.locator(".conn-card .st").getAttribute("title"), /Key 有效 · 未订阅 · 生图尚未实测/);
@@ -649,14 +649,13 @@ test("native connection settings: explicit protocol, saved selection, key input,
   const t = await open("gemini-native-v1", false), { page } = t;
   try {
     await page.locator("#settingsPanel[open]").waitFor();
-    await page.getByRole("button", { name: "添加连接", exact: true }).click();
+    await page.getByRole("button", { name: "配置供应商", exact: true }).click();
     await page.locator("#connectionProtocol").selectOption("gemini-native-v1");
     await page.locator("#connectionName").fill("模拟原生连接");
     await page.locator("#connectionUrl").fill("https://gateway.example.test/google");
-    await page.getByRole("button", { name: "添加", exact: true }).click();
-    await page.locator("#setupKey").fill("synthetic-native-only");
-    await page.locator("#gate label").filter({ hasText: "不保存" }).click();
-    await page.locator("#gate").getByRole("button", { name: "保存", exact: true }).click();
+    await page.locator("#connectionKey").fill("synthetic-native-only");
+    await page.getByRole("checkbox", { name: "在此浏览器保存 Key" }).uncheck();
+    await page.locator("dialog[open]:has(#connectionTitle)").getByRole("button", { name: "保存", exact: true }).click();
     await page.waitForFunction(() => document.querySelector(".conn-card .st")?.dataset.s === "ok");
     assert.match(await page.locator(".conn-card .conn-name .type").textContent(), /Gemini 原生/);
     assert.ok(t.requests.every(r => r.method === "GET"));
@@ -668,14 +667,15 @@ test("native connection settings: explicit protocol, saved selection, key input,
     }
     // The protocol is changed in the connection form; NovelAI official still needs its own connection.
     await page.getByRole("button", { name: "更多操作", exact: true }).click();
-    await page.getByRole("menuitem", { name: "编辑连接…", exact: true }).click();
+    await page.getByRole("menuitem", { name: "配置供应商", exact: true }).click();
     const form = page.locator("dialog[open]:has(#connectionTitle)"), protocol = form.getByRole("combobox", { name: "接口协议", exact: true });
     assert.equal(await protocol.inputValue(), "gemini-native-v1");
     await protocol.selectOption("nai-official-v1");
     assert.equal(await protocol.inputValue(), "gemini-native-v1");
-    assert.match(await form.locator(".modal-error").textContent(), /单独添加 NovelAI 官方连接/);
+    assert.match(await form.locator(".modal-error").textContent(), /单独配置 NovelAI 官方供应商/);
     assert.ok(t.requests.every(r => !r.path.includes("/user/subscription")));
     await protocol.selectOption("openai-images-v1");
+    await page.locator("#connectionKey").fill("synthetic-openai-only");
     await form.getByRole("button", { name: "保存", exact: true }).click();
     await page.waitForFunction(() => services.connections.configuration.connections[Object.keys(services.connections.configuration.connections)[0]].profileId === "openai-images-v1" && document.querySelector(".conn-card .st")?.dataset.s === "ok");
     assert.ok(t.requests.some(r => r.path === "/google/v1/models"));

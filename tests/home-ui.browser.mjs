@@ -76,9 +76,9 @@ function clean(t){assert.deepEqual(t.errors,[]);assert.ok(!t.requests.some(p=>/g
 test('HOME default and unknown routes, first-use head, settings overlay and existing deep links',async()=>{
   const t=await setup({seed:false,connection:false});const {page}=t;
   try {
-    assert.match(page.url(),/#\/home\/settings\/connections$/);await page.locator('#settingsPanel .set-back').click();
+    assert.match(page.url(),/#\/home$/);assert.equal(await page.locator('dialog[open]').count(),0);
     await page.waitForURL('**/#/home'); assert.equal(await page.locator('.home-section').count(),0);assert.equal(await page.locator('.topbar:visible').count(),0);
-    await page.goto(origin+'/?cold=1#/unknown');await bind(page);await page.waitForURL(/#\/home\/settings\/connections$/);
+    await page.goto(origin+'/?cold=1#/unknown');await bind(page);await page.waitForURL(/#\/home$/);assert.equal(await page.locator('dialog[open]').count(),0);
     await page.goto(origin+'/#/image/settings/backup');await page.waitForSelector('#settingsPanel[open]');assert.match(page.url(),/#\/image\/settings\/backup$/);
     await page.goto(origin+'/#/home/editor');await bind(page);await page.waitForSelector('#imageEditor[data-active=true]');
     await page.evaluate(()=>app_shell.router.switchWorkspace('home'));await page.waitForURL('**/#/home');
@@ -127,7 +127,7 @@ test('HOME empty state uses the selected full-page glow and preserves ASK versus
     assert.equal(await page.evaluate(()=>editor.boards().filter(b=>b.versions.length).length),1);
     await page.evaluate(()=>app_shell.router.switchWorkspace('home'));await page.waitForSelector('.home-face img');
     assert.equal(await page.locator('.home-welcome').count(),0);
-    assert.equal(await page.evaluate(()=>getComputedStyle(document.querySelector('.home-shell'),'::before').opacity),'0');
+    assert.equal(await page.evaluate(()=>getComputedStyle(document.querySelector('.home-shell'),'::before').opacity),'1','content keeps its selected top light');
     await page.evaluate(()=>app_shell.router.switchWorkspace('image'));await page.waitForSelector('#prompt');
     const boards=await page.evaluate(()=>editor.boards().length);
     await page.evaluate(()=>{

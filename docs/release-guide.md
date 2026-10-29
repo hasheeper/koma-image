@@ -48,7 +48,7 @@ EDIT 的「高级编辑」按需加载官方 Photopea，静态站同样可用，
 
 源码仓库为 `hasheeper/koma-image`，生产分支 `main`；Pages 项目名为 `koma-image`，上传目录由 `wrangler.jsonc` 固定为 `dist/`。Git 推送和站点发布是两步独立操作，不存在 Git 自动部署。
 
-每次推送和部署前取得用户明确授权。在源码工程完成 `npm run check` 和相关浏览器验收，确认源码、提交历史与构建产物不含私有渠道标识或凭据后，推送生产分支，再执行 `npm run deploy:pages`。该命令使用固定版本 Wrangler 重新构建并上传静态目录；首次使用可执行 `npx --yes wrangler@4.151.1 login`。发布后核对生产域名实际加载的脚本及工作区导航。登录凭据保存在本机，不写入仓库。
+每次推送和部署前取得用户明确授权。在源码工程完成 `npm run check` 和相关浏览器验收，按[安全说明](https://github.com/hasheeper/koma-image/blob/main/SECURITY.md)检查工作树、全部将发布的 Git 引用与最终构建产物；不提交本机数据、凭据或私有渠道标识。历史作者邮箱应使用 GitHub noreply；需要匿名化既有历史时，先保留本机恢复副本并取得改写及强制推送授权。检查通过后推送生产分支，再执行 `npm run deploy:pages`。该命令使用固定版本 Wrangler 重新构建并上传静态目录；首次使用可执行 `npx --yes wrangler@4.151.1 login`。发布后核对生产域名实际加载的脚本及工作区导航。登录凭据保存在本机，不写入仓库。
 
 ## 数据、更新和回退
 
@@ -66,4 +66,4 @@ shasum -a 256 -c koma-image-0.1.0.tar.gz.sha256
 shasum -a 256 -c SHA256SUMS
 ```
 
-许可证尚未选定，当前为私有开发工程，`UNLICENSED` 不代表开源授权。第三方字体与图标许可已随 `dist/` 保留，见 `docs/third-party-assets.md`。
+源码公开不等于授予开源许可。当前许可证尚未选定，仍为 `UNLICENSED`；仓库可见性与许可选择单独管理。第三方字体与图标许可已随 `dist/` 保留，见 `docs/third-party-assets.md`。

@@ -1,6 +1,6 @@
 # NovelAI 基础编辑适配核验
 
-日期：2026-10-27。代码基线为 `codex/ask-chat-handoff`、HEAD `1fd1be3fc0edccce51ebf6bf4a861e62649ef4dd` 上的未提交工作区，延续前轮 Guidance／Rescale 与 EDIT 配置对齐修改。本记录使用合成图片与模拟服务，不代表官方生成、扣费或线上部署已通过。
+日期：2026-10-27。代码基线为 `codex/ask-chat-handoff`、HEAD `a537b5357272143dc4622d96b7e1a04d57ee8f9b` 上的未提交工作区，延续前轮 Guidance／Rescale 与 EDIT 配置对齐修改。本记录使用合成图片与模拟服务，不代表官方生成、扣费或线上部署已通过。
 
 ## 适配范围
 

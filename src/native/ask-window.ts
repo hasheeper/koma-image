@@ -1,6 +1,7 @@
 /** Vue owns the layers; this driver owns the surface's anchor and pointer work. */
 export function installAskWindow(root: HTMLElement, signal: AbortSignal) {
   let frame = 0;
+  let canvas: HTMLElement | null = null;
   const positions = new Map<string, { right: number; top: number }>();
   const workspace = () => root.dataset.workspace ?? '';
   function position(right: number, top: number, remember = false) {
@@ -17,6 +18,13 @@ export function installAskWindow(root: HTMLElement, signal: AbortSignal) {
   const ready = root.querySelector<HTMLElement>('.ask-ready');
   function layout() {
     frame = 0;
+    // EDIT owns its column widths locally; follow the actual canvas as its rail changes.
+    const nextCanvas = workspace() === 'edit' ? document.getElementById('editorCanvas') : null;
+    if (nextCanvas !== canvas) {
+      if (canvas) observer.unobserve(canvas);
+      canvas = nextCanvas;
+      if (canvas) observer.observe(canvas);
+    }
     root.style.setProperty('--ask-available-height', `${window.visualViewport?.height ?? innerHeight}px`);
     if (!root.getClientRects().length) return;
     if (root.dataset.mode === 'ready' && ready) root.style.setProperty('--ask-ready-height', `${ready.offsetHeight}px`);
@@ -26,6 +34,10 @@ export function installAskWindow(root: HTMLElement, signal: AbortSignal) {
     if (root.classList.contains('ask-inline')) return;
     const saved = positions.get(workspace());
     if (saved) position(saved.right, saved.top);
+    else if (canvas && innerWidth > 860 && canvas.getClientRects().length) {
+      const rect = canvas.getBoundingClientRect();
+      position(innerWidth - rect.right + 8, rect.top + 12);
+    }
     else {
       root.style.removeProperty('--ask-right');
       root.style.removeProperty('--ask-top');

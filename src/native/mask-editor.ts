@@ -1,3 +1,4 @@
+import { summarizeMask } from "../domain/mask-summary.ts";
 import { maskBitmapPixels } from "./edit-input.ts";
 import type { MaskBitmap } from "./edit-input.ts";
 export interface MaskPoint { x: number; y: number }
@@ -253,6 +254,7 @@ export function createMaskEditor(canvas: HTMLCanvasElement, onChange: () => void
     canUndo: () => position > 0,
     canRedo: () => position < strokes.length,
     isDrawing: () => stroke !== null,
+    geometry() { return summarizeMask(ctx.getImageData(0,0,mask.width,mask.height).data,mask.width,mask.height); },
     hasCoverage() {
       if (!mask.width || !mask.height) return false;
       const pixels = ctx.getImageData(0, 0, mask.width, mask.height).data;

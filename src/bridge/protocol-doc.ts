@@ -32,7 +32,7 @@ recipe/slate 冻结提议时的画板/任务快照，不是同稿应用后的结
 ## 提交
 
 外层字段为 schema、draft_id（1–120 位字母、数字、下划线、点或短横线）、可选 source_label。
-其余正文直接使用下方 propose_draft Schema。外部支持 IMAGE 的 prompt_patch、character_edit、restore_partial、params_patch 、slate_edit 与 save_ref；不能写 CHAT。
+其余正文直接使用下方 propose_draft Schema。外部支持 IMAGE 的 prompt_patch、character_edit、restore_partial、params_patch 、slate_edit 与 save_ref；不能写 CHAT 或 EDIT；edit.*、director_patch、edit_handoff 与编辑专用参数仅供站内 ASK 使用，外部提交返回 invalid。
 缺失 base_hash 时按收件当刻活动 IMAGE 画板的实时状态冻结；显式 base_hash 须匹配本页已导出的基底，过期请重新导出。
 新版外层带 picture_ref_version:2。引用 #h/#e 带 picture_scope_id；#f 带 favorites_scope_id；混合引用分别带回。
 EDIT 完整码 #e板号.版本[a-c]；本板简写 #e版本[a-c] 另带 edit_board_id 匹配 edit.active_board_id，外部推荐完整码。旧无标记投递继续保守校验 picture_scope_id。
@@ -79,7 +79,7 @@ strip_syntax 只剥离配对 {}、[]、数字::正文:: 和无属性的配对 XM
 
 ## 共享草稿 Schema
 
-此处直接由站内工具定义生成；CHAT 分支仅供站内 ASK 使用。
+此处直接由站内工具定义生成；CHAT 与 EDIT 分支仅供站内 ASK 使用，外部不开放。
 
 \`\`\`json
 ${JSON.stringify(draftSchema, null, 2)}

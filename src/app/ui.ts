@@ -10,10 +10,6 @@ export interface Confirmation {
 }
 export function createUi() {
   const confirmation = shallowRef<Confirmation | null>(null);
-  const credential = shallowRef<{
-    id: string;
-    action: "key" | "passphrase";
-  } | null>(null);
   const notices = shallowRef<
     {
       id: number;
@@ -45,7 +41,6 @@ export function createUi() {
   });
   return {
     confirmation,
-    credential,
     notices,
     answer,
     tagDelivery,
@@ -104,9 +99,6 @@ export function createUi() {
         timers.delete(timer);
       }, 240);
       timers.add(timer);
-    },
-    requestKey(id: string) {
-      credential.value = { id, action: "key" };
     },
   };
 }

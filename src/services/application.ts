@@ -102,6 +102,8 @@ export function createApplicationServices(deps: {
     const key = (event as StorageEvent).key;
     if (key === names.routing || key === names.localModels || key === null)
       connections.reload(false);
+    if (!connections.local && (key === names.credentials || key === null))
+      void vault.reload().catch(() => {});
     preferences.changed(key ?? undefined);
   }
   const priority = createSourcePriority(connections, client, (plan, model) => references.pendingCost(plan, model));

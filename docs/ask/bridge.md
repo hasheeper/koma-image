@@ -195,3 +195,7 @@ Diff、逐项勾选、参数冲突、应用到来源板／新板、Tab 确认与
 `state.live.json` 保持 live.v1，新增 `picture_ref_version:2`、`favorites_scope_id` 与 EDIT 只读目录。新版草稿引用 `#h/#e` 验证 `picture_scope_id`，引用固定 `#f` 验证收藏库作用域；混合时分别带回。EDIT 推荐完整 `#e板号.版本[a-c]`；若用本板简写，另带 `edit_board_id` 匹配活动编辑板。旧无标记投递维持保守校验，不能猜测旧 `#f` 含义。
 
 Slate 可直接绑定 EDIT 原图／衍生图，保存独立原图及来源实体、记录与引用；无需注册 IMAGE 历史。已交付资产不依赖页内版本继续存在。外部仍仅向 IMAGE 提草稿，EDIT 索引不增加预览或原图自动导出。精确规则见[图片身份](../image-identity.md)与生成的 `PROTOCOL.md`。
+
+## 内置 EDIT 与外部协议隔离
+
+内置 ASK 已有 EDIT 现场、参数草稿和 edit_handoff，但外部 Bridge 仍只写 IMAGE。edit.* 靶点、director_patch、edit_handoff 及内部 edit_config 在收件入口返回 invalid；state.live.json 不增加 EDIT 表单／蒙版几何／费用。#e 只读引用、部分恢复到 IMAGE 和 Slate 绑图继续可用。生成的 PROTOCOL 与公开 SKILL 明确此边界。

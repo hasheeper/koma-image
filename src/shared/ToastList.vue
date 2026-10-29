@@ -10,6 +10,14 @@ const glyph: Record<string, string> = {
   err: "i-alert",
 };
 const target = shallowRef<string | HTMLElement>("body");
+// A click anywhere on a notice closes it; its own buttons act first, and a drag that selected text (copying an error) leaves it open.
+function close(event: MouseEvent, id: number) {
+  const box = event.currentTarget as HTMLElement,
+    selection = getSelection();
+  if ((event.target as Element).closest("button")) return;
+  if (selection && !selection.isCollapsed && box.contains(selection.anchorNode)) return;
+  dismissNotice(id);
+}
 async function followDialog() {
   await nextTick();
   target.value =
@@ -44,6 +52,7 @@ onBeforeUnmount(() => {
           :data-tone="notice.tone"
           :aria-busy="notice.tone === 'load' ? true : undefined"
           :role="['warn', 'err'].includes(notice.tone) ? 'alert' : undefined"
+          @click="close($event, notice.id)"
         >
           <i
             v-if="notice.tone === 'load'"
@@ -72,7 +81,6 @@ onBeforeUnmount(() => {
           >
             {{ notice.action.label }}</button
           ><button
-            v-if="['warn', 'err'].includes(notice.tone)"
             class="toast-x"
             type="button"
             aria-label="关闭提示"
@@ -94,17 +102,22 @@ onBeforeUnmount(() => {
 <style scoped>
 /* ── Toasts ────────────────────────────────────────────────────
    One column of equal-width notices, newest on top, in the window's
-   top-right corner: the first sits inside the bar, centred on its height,
-   and the rest hang below it. The editor's own stack sits in the same place
-   over its dialog. A 2px line along the bottom drains with the time
-   left; toast.js dismisses the notice when that animation ends, so pausing
-   it on hover or focus pauses dismissal. */
+   top-right corner, hanging just below the bar so its controls stay
+   reachable. Every notice closes on its × or a click anywhere on it. The
+   editor's own stack sits in the same place over its dialog. A 2px line
+   along the bottom drains with the time left; toast.js dismisses the notice
+   when that animation ends, so pausing it on hover or focus pauses
+   dismissal. */
 .toasts, .editor-toasts {
   position: fixed; z-index: var(--z-toast);
-  top: max(4px, calc((var(--bar-h) - 48px) / 2)); right: 16px;
+  top: calc(var(--bar-h) + 12px); right: 16px;
   display: grid;
   width: min(380px, calc(100vw - 32px));
   pointer-events: none;
+}
+/* ASK's launcher, result pill and window share this corner; keep notices above them. */
+:global(body:has(#askIsland:not([data-workspace="home"])) .toasts) {
+  top: max(4px, calc((var(--bar-h) - 48px) / 2));
 }
 /* Each notice sits in a row that opens and closes its own height, so the
    rest of the stack glides rather than jumps. Clipped only while moving,
@@ -120,18 +133,18 @@ onBeforeUnmount(() => {
   position: relative; overflow: hidden;
   display: flex; align-items: center; gap: 12px;
   min-height: 48px;
-  margin-bottom: 8px; padding: 0 16px;
+  margin-bottom: 8px; padding: 0 8px 0 16px;
   font-size: 14px; line-height: 1.5;
   color: var(--fg);
   background: var(--raised);
   border-radius: var(--r2);
   box-shadow: inset 0 0 0 1px var(--line-2), var(--sh-2);
   pointer-events: auto;
+  cursor: pointer;
 }
 .toast[data-tone="ok"] { --tc: var(--ok); }
 .toast[data-tone="warn"] { --tc: var(--warn); }
 .toast[data-tone="err"] { --tc: var(--err); }
-.toast:has(.toast-action, .toast-x) { padding-right: 8px; }
 .toast-ico { --ico: var(--ico-lg); color: var(--tc); }
 .toast-spinner {
   flex: none; width: 18px; height: 18px;

@@ -31,7 +31,7 @@ export function createConnections(
   let routing = emptyRouting();
   let configurationEpoch = 0;
   // Credential material stays inside this service, never in Vue/configuration/cache keys.
-  // M3's vault will supply unlocked material here and clear it on lock.
+  // The credential service supplies saved or session-only material here.
   const keys = new Map<string, { value: string; revision: string }>();
   const managed: Connection[] = local ? [
     ...(local.image !== false ? [{ id: LOCAL_CONNECTION_ID, name: "本地网关", baseUrl: local.baseUrl, profileId: STANDARD_PROFILE_ID, credentialRef: "local-server", revision: "local-runtime-v1" }] : []),
@@ -160,17 +160,13 @@ export function createConnections(
     clearKey(credentialRef: string) {
       if (keys.delete(credentialRef)) emit();
     },
-    lock() {
-      keys.clear();
-      emit();
-    },
     context(id: string): ConnectionContext {
       const c = Object.hasOwn(routing.connections, id)
         ? routing.connections[id]
         : undefined;
       if (!c) throw new Error("请先配置连接 URL 与 Key");
       const credential = keys.get(c.credentialRef);
-      if (!credential && !local) throw new Error("请先配置或解锁 API Key");
+      if (!credential && !local) throw new Error("请先配置供应商的 API Key");
       const epoch = configurationEpoch;
       const connection = freeze(structuredClone(c)),
         snapshot = freeze(structuredClone(routing));

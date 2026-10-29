@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { shallowRef, onActivated, onDeactivated, onBeforeUnmount, watch } from 'vue';
+import { computed, shallowRef, onActivated, onDeactivated, onBeforeUnmount, watch } from 'vue';
 import WaveMark from '../shared/WaveMark.vue';
 import AppIcon from '../shared/AppIcon.vue';
 import DirectoryChip from '../bridge/DirectoryChip.vue';
@@ -20,6 +20,7 @@ import { useUi, message } from '../app/ui.ts';
 const { home } = useHome();
 const ask = useAsk(), { router } = useShell(), { drawing } = useDrawing(), { chat } = useChat(), { editor } = useEditor(), ui = useUi();
 const { shown, mode, note, summary, outcome, latest, compactDraft, dismiss } = useAskPresentation();
+const tone = computed(() => mode.value === 'run' || mode.value === 'done' ? mode.value : compactDraft.value ? 'draft' : latest.value?.status === 'failed' || latest.value?.status === 'stopped' ? latest.value.status : 'ok');
 const dropping = shallowRef(false);
 defineProps<{ empty: boolean }>();
 let dragDepth = 0;
@@ -76,23 +77,26 @@ function key(event: KeyboardEvent) {
       <div id="homeEntryDock" v-show="shown"></div>
       <div class="home-settings"><DirectoryChip v-if="!shown" home /><i v-if="!shown" aria-hidden="true"></i><button type="button" class="ibtn" aria-label="设置" title="设置" @click="router.openOverlay('settings')"><AppIcon name="i-settings" /></button></div>
     </div>
-    <form v-if="!shown" class="home-ask" aria-label="向 ASK 提问" @submit.prevent="send" @paste="paste" @dragenter="drag" @dragover="drag" @dragleave="drag" @drop="drag">
+    <div v-if="!shown" class="home-ask-stage">
+    <form class="home-ask" aria-label="向 ASK 提问" @submit.prevent="send" @paste="paste" @dragenter="drag" @dragover="drag" @dragleave="drag" @drop="drag">
       <button class="home-ask-mark" type="button" aria-label="打开 ASK" @click="ask.show()"><AskMark :thinking="ask.running.value" /></button>
       <textarea aria-label="HOME ASK 输入" rows="1" wrap="off" :value="ask.input.value" maxlength="4000" placeholder="问任一画板或会话，用 #f 引用定稿…" :disabled="ask.ready.value === 'local'" @input="ask.setInput(($event.target as HTMLTextAreaElement).value)" @keydown="key"></textarea>
       <span class="home-ask-end"><span class="home-model"><AskModelPicker /></span><AskSend home /></span>
       <span v-if="dropping" class="home-drop">松开即可添加到这条提问</span>
     </form>
-    <div v-if="!shown && note" class="home-note" role="status">
+    </div>
+    <div v-if="!shown && note" class="home-note" :data-tone="tone" role="status">
       <button class="home-note-open" type="button" @click="ask.show()">
-        <template v-if="mode === 'run'"><AskActivity /><AskActivity progress /></template>
-        <template v-else-if="mode === 'done'"><AppIcon name="i-check" /><span>已写入</span></template>
+        <template v-if="mode === 'run'"><i class="home-note-dot" aria-hidden="true"></i><AskActivity /><AskActivity progress /></template>
+        <template v-else-if="mode === 'done'"><AppIcon name="i-check" /><b class="home-note-state">已写入</b></template>
         <template v-else>
-          <span class="home-note-state">{{ compactDraft ? '草稿待确认' : outcome }}</span>
+          <i class="home-note-dot" aria-hidden="true"></i>
+          <b class="home-note-state">{{ compactDraft ? '草稿待确认' : outcome }}</b>
           <span class="home-note-sum">{{ compactDraft ? ask.draftPlan.value?.title : summary.map(p => p.v).join('') }}</span>
-          <span class="home-note-go">{{ compactDraft ? '核对草稿' : latest?.status === 'failed' || latest?.status === 'stopped' ? '查看详情与重试' : '继续对话' }} ↗</span>
+          <span class="home-note-go"><span>{{ compactDraft ? '核对草稿' : tone === 'ok' ? '继续对话' : '查看详情与重试' }}</span><AppIcon name="i-chevron" /></span>
         </template>
       </button>
-      <button v-if="mode === 'ready' && !compactDraft" class="home-note-x" type="button" aria-label="收起 ASK 结果" @click="dismiss"><AppIcon name="i-close" /></button>
+      <template v-if="mode === 'ready' && !compactDraft"><i class="home-note-rule" aria-hidden="true"></i><button class="home-note-x" type="button" aria-label="收起 ASK 结果" @click="dismiss"><AppIcon name="i-close" /></button></template>
     </div>
     <Teleport to="#homeEntryDock" :disabled="!shown" defer>
     <nav class="home-entries" aria-label="开始创作">
@@ -136,7 +140,8 @@ function key(event: KeyboardEvent) {
   .home-head:not(.is-row) .home-bar { display: grid; grid-template-columns: minmax(0, 1fr) auto minmax(0, 1fr); margin-bottom: var(--sp-5); }
   .home-head:not(.is-row) .home-brand { grid-column: 2; margin: 0; }
   .home-head:not(.is-row) .home-settings { grid-column: 3; justify-self: end; align-self: center; margin: 0; }
-  .home-head:not(.is-row) :is(.home-ask, .home-note) { width: min(100%, 720px); margin-inline: auto; }
+  .home-head:not(.is-row) .home-ask { width: min(100%, 720px); margin-inline: auto; }
+  .home-head:not(.is-row) .home-note { max-width: min(100%, 640px); margin-inline: auto; }
   .home-head:not(.is-row) .home-entries { justify-content: center; }
 }
 @media (max-width: 860px) {
@@ -164,26 +169,41 @@ function key(event: KeyboardEvent) {
 #homeEntryDock { margin-left: auto; }
 .is-row .home-entries { margin: 0; flex-wrap: wrap; }
 .is-row .home-settings { align-self: center; height: 34px; margin: 0; padding: 0 3px; border-radius: 17px; }
-.home-note { --ask-hover: var(--hover); display: flex; align-items: center; gap: 8px; min-width: 0; height: 20px; margin-top: 10px; padding-left: 53px; }
-.home-note-open { display: inline-flex; align-items: baseline; gap: 12px; min-width: 0; max-width: 100%; color: var(--fg-3); text-align: left; white-space: nowrap; }
-.home-note-state { flex: none; }
+/* One quiet pill under the question, read like the lead's draft pill: tone dot, state, first sentence, the way back in, then dismiss. */
+.home-note { --ask-hover: var(--hover); display: flex; align-items: center; width: fit-content; min-width: 0; max-width: 100%; height: 32px; margin-top: 12px; background: var(--raised); border-radius: 16px; }
+.home-note-open { display: flex; flex: 1; align-items: center; gap: 8px; min-width: 0; height: 100%; padding: 0 12px 0 14px; color: var(--fg-3); font-size: var(--fz-xs); line-height: 1; text-align: left; white-space: nowrap; }
+.home-note-dot { flex: none; width: 6px; height: 6px; background: var(--ok); border-radius: 50%; }
+[data-tone="run"] .home-note-dot { background: var(--a); }
+[data-tone="draft"] .home-note-dot { background: var(--warn); }
+[data-tone="failed"] .home-note-dot { background: var(--err); }
+[data-tone="stopped"] .home-note-dot { background: var(--fg-4); }
+.home-note-state { flex: none; color: var(--fg); font-weight: var(--fw-medium); }
 .home-note-sum { min-width: 0; overflow: hidden; color: var(--fg-2); text-overflow: ellipsis; }
-.home-note-go { display: inline-flex; flex: none; gap: 3px; font-size: 12.5px; transition: color var(--t1) var(--e); }
+.home-note-go { display: inline-flex; flex: none; align-items: center; gap: 2px; margin-left: 4px; transition: color var(--t1) var(--e); }
+.home-note-go .ico { --ico: var(--ico-xs); }
 .home-note-open:hover .home-note-go { color: var(--fg); }
 .home-note-open > .ico { --ico: var(--ico-sm); color: var(--ok); }
-.home-note-x { display: grid; flex: none; place-items: center; width: 22px; height: 22px; color: var(--fg-3); border-radius: 50%; }
+.home-note .ask-activity { font-size: var(--fz-xs); }
+.home-note .ask-progress.empty { display: none; }
+.home-note-rule { flex: none; width: 1px; height: 14px; background: var(--line-2); }
+.home-note-x { display: grid; flex: none; place-items: center; width: 24px; height: 24px; margin: 0 4px; color: var(--fg-3); border-radius: 50%; }
 .home-note-x .ico { --ico: var(--ico-sm); }
 .home-note-x:hover { color: var(--fg); background: var(--hover); }
 .home-drop { position: absolute; inset: 0; display: grid; place-items: center; color: var(--a); background: var(--raised); border: 1px dashed var(--a); border-radius: inherit; pointer-events: none; }
-@media (max-width: 860px) { .home-note { padding-left: 49px; } }
-@media (max-width: 560px) { .home-note-open { flex: 1; gap: 8px; } .home-note-go { font-size: 11px; } }
+@media (max-width: 560px) { .home-head:not(.is-empty) .home-note { width: auto; } }
+/* At the narrowest widths the chevron alone marks the way in, leaving the room to the reply. */
+@media (max-width: 360px) { .home-note-go > span { display: none; } }
 .home-head.is-empty { grid-row: 2; margin-bottom: 0; }
 .home-head.is-empty .home-bar { display: flex; justify-content: center; margin-bottom: 28px; }
 .home-head.is-empty .home-brand { margin: 0; }
 .home-head.is-empty .home-brand .wave-mark { width: 44px; height: 44px; }
 .home-head.is-empty .home-word .brand-title { font-size: 40px; }
 .home-head.is-empty .home-settings { position: absolute; top: 32px; right: 0; margin: 0; }
-.home-head.is-empty :is(.home-ask, .home-note) { width: min(100%, 720px); margin-inline: auto; }
+.home-head.is-empty .home-ask { width: min(100%, 720px); margin-inline: auto; }
+/* The empty page lights the question from just above its middle. The light hangs on the stage, not the form, so the view transition never snapshots it with the capsule; the shell clips its spill so neither light can add scroll. */
+.home-ask-stage { position: relative; }
+.home-head.is-empty .home-ask-stage::before { position: absolute; top: calc(50% - 12px); left: 50%; z-index: -1; width: min(1240px, 175vw); height: clamp(440px, 48vw, 640px); content: ''; background: radial-gradient(closest-side, rgb(179 161 255 / .081), rgb(179 161 255 / .05) 22%, rgb(179 161 255 / .025) 45%, rgb(179 161 255 / .009) 70%, transparent); transform: translate(-50%, -50%); pointer-events: none; }
+.home-head.is-empty .home-note { max-width: min(100%, 640px); margin-inline: auto; }
 .home-head.is-empty .home-entries { justify-content: center; }
 @media (max-width: 860px) {
   .home-head.is-empty .home-bar { margin-bottom: 24px; }

@@ -1,6 +1,6 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { createVault, PBKDF2_ITERATIONS } from "../src/services/vault.ts";
+import { createVault } from "../src/services/vault.ts";
 import { names } from "../src/storage/names.ts";
 import { createArchive, readArchive } from "../src/storage/backup-archive.ts";
 import { readBackup, hashImage } from "../src/services/backup.ts";
@@ -30,111 +30,88 @@ const vault = (local = memory(), session = memory(), extra = {}) => ({
   service: createVault({ local, session, write: async (f) => f(), ...extra }),
 });
 
-test("vault: encrypted multi-key persistence, wrong password, empty replacement, salt rotation and session resume", async () => {
+test("credentials: remember each supplier independently, preserve blank replacements and restore without a password", async () => {
   const a = vault();
-  await a.service.saveEncrypted("key-a", "synthetic-a", "pass-one");
-  await a.service.setKey("key-b", "synthetic-b");
+  await a.service.setKey("key-a", "synthetic-a");
+  await a.service.saveSession("key-b", "synthetic-b");
   await a.service.setKey("key-a", "  ");
-  const sealed = JSON.parse(a.local.getItem(names.vault));
-  assert.equal(sealed.iterations, PBKDF2_ITERATIONS);
-  assert.equal(sealed.kdf, "PBKDF2-SHA256");
-  assert.equal(a.local.getItem(names.vault).includes("synthetic"), false);
   assert.equal(a.service.key("key-a"), "synthetic-a");
-  assert.equal(a.session.getItem(names.sessionKeys), null);
-  const b = vault(a.local, a.session);
-  assert.equal(await b.service.resume(), true);
-  assert.equal(b.service.key("key-b"), "synthetic-b");
-  await b.service.lock();
-  await assert.rejects(b.service.unlock("wrong"), /口令/);
-  assert.equal(b.service.isUnlocked(), false);
-  await b.service.unlock("pass-one");
-  await b.service.changePassphrase("pass-two");
-  assert.notEqual(JSON.parse(a.local.getItem(names.vault)).salt, sealed.salt);
-  await b.service.lock();
-  await assert.rejects(b.service.unlock("pass-one"), /口令/);
-  await b.service.unlock("pass-two");
-  await b.service.forget();
-  assert.equal(a.local.getItem(names.vault), null);
-  assert.equal(b.service.isUnlocked(), false);
-  a.service.dispose();
-  b.service.dispose();
+  assert.equal(a.service.key("toString"), null);
+  assert.equal(a.service.remembered("key-a"), true);
+  assert.equal(a.service.remembered("key-b"), false);
+  assert.deepEqual(JSON.parse(a.local.getItem(names.credentials)).keys, { "key-a": "synthetic-a" });
+  const refresh = vault(a.local, a.session);
+  await refresh.service.resume();
+  assert.equal(refresh.service.key("key-b"), "synthetic-b");
+  const restart = vault(a.local);
+  await restart.service.resume();
+  assert.equal(restart.service.key("key-a"), "synthetic-a");
+  assert.equal(restart.service.key("key-b"), null);
+  await refresh.service.removeKey("key-a");
+  assert.deepEqual(refresh.service.ids(), ["key-b"]);
+  for (const x of [a, refresh, restart]) x.service.dispose();
 });
-test("vault: session mode avoids local secrets and disposal cannot revive an in-flight encryption", async () => {
+test("credentials: session mode stores no local secrets, mode changes and removal preserve other suppliers", async () => {
   const a = vault();
-  await a.service.saveSession("key-a", "synthetic-session");
+  await a.service.saveSession("key-a", "synthetic-a");
+  await a.service.saveSession("key-b", "synthetic-b");
   assert.equal(a.local.values.size, 0);
-  const b = vault(a.local, a.session);
-  await b.service.resume();
-  assert.equal(b.service.key("key-a"), "synthetic-session");
-  const fresh = vault();
-  const pending = fresh.service.saveEncrypted(
-    "key-a",
-    "synthetic",
-    "passphrase",
-  );
-  await new Promise((resolve) => setImmediate(resolve));
-  fresh.service.dispose();
-  await assert.rejects(pending, /关闭/);
-  assert.equal(fresh.service.isUnlocked(), false);
-  assert.equal(fresh.local.values.size, 0);
-  assert.equal(fresh.session.values.size, 0);
-  a.service.dispose();
-  b.service.dispose();
-});
-test("vault: removing one Key keeps the others, the save mode and the passphrase", async () => {
-  const a = vault();
-  await a.service.saveEncrypted("key-a", "synthetic-a", "pass-one");
-  await a.service.setKey("key-b", "synthetic-b");
+  await a.service.setKey("key-a", "synthetic-a");
+  assert.equal(a.service.mode(), "saved");
+  await a.service.setKey("key-a", "synthetic-a", false);
+  assert.deepEqual(JSON.parse(a.local.getItem(names.credentials)).keys, {});
   await a.service.removeKey("key-a");
-  await a.service.removeKey("key-missing");
-  assert.equal(a.service.key("key-a"), null);
-  assert.equal(a.service.mode(), "encrypted");
-  assert.equal(a.local.getItem(names.vault).includes("synthetic"), false);
-  await a.service.lock();
-  await assert.rejects(a.service.removeKey("key-b"), /解锁/);
-  await a.service.unlock("pass-one");
+  await a.service.removeKey("missing");
+  assert.equal(a.service.mode(), "session");
   assert.deepEqual(a.service.ids(), ["key-b"]);
-  const b = vault();
-  await b.service.saveSession("key-a", "synthetic-a");
-  await b.service.setKey("key-b", "synthetic-b");
-  await b.service.removeKey("key-b");
-  assert.deepEqual(JSON.parse(b.session.getItem(names.sessionKeys)), {
-    "key-a": "synthetic-a",
-  });
-  assert.equal(b.local.values.size, 0);
+  await assert.rejects(a.service.setKey("__proto__", "bad"), /标识/);
   a.service.dispose();
-  b.service.dispose();
 });
-test("vault: lock waits for task gate; late peer share cannot reopen the locked session", async () => {
-  let release, entered;
-  const ready = new Promise((r) => (entered = r)),
-    hold = new Promise((r) => (release = r));
-  const channel = new EventTarget();
-  channel.postMessage = () => {};
-  const a = vault(undefined, undefined, {
-    channel,
-    locks: {
-      request: async (_n, _o, fn) => {
-        entered();
-        await hold;
-        return fn();
-      },
-    },
-  });
-  await a.service.saveSession("key-a", "synthetic");
-  const pending = a.service.lock();
-  await ready;
-  assert.equal(a.service.isUnlocked(), true);
-  channel.dispatchEvent(
-    new MessageEvent("message", {
-      data: { type: "vault/share", mode: "session", keys: { "key-a": "late" } },
-    }),
-  );
-  release();
-  await pending;
-  await new Promise((r) => setImmediate(r));
-  assert.equal(a.service.isUnlocked(), false);
+test("credentials: failed local persistence keeps the original session and emits no changes; disposed writes cannot revive keys", async () => {
+  const a = vault();
+  await a.service.saveSession("key-a", "original");
+  let events = 0;
+  a.service.subscribe(() => events++);
+  const before = a.session.getItem(names.sessionKeys);
+  a.local.setItem = () => { throw new Error("storage full"); };
+  await assert.rejects(a.service.setKey("key-a", "new"), /storage full/);
+  assert.equal(a.service.key("key-a"), "original");
+  assert.equal(a.session.getItem(names.sessionKeys), before);
+  assert.equal(events, 0);
+  const pending = a.service.setKey("key-b", "new");
   a.service.dispose();
+  await assert.rejects(pending, /关闭/);
+  assert.deepEqual(a.service.ids(), []);
+});
+test("credentials: independent writers merge saved keys and clear waits for task completion; late shares cannot restore cleared keys", async () => {
+  const local = memory(), a = vault(local), b = vault(local);
+  await a.service.setKey("key-a", "synthetic-a");
+  await b.service.setKey("key-b", "synthetic-b");
+  await a.service.reload();
+  assert.deepEqual(a.service.ids().sort(), ["key-a", "key-b"]);
+  a.service.dispose(); b.service.dispose();
+  let release, entered;
+  const ready = new Promise(r => entered = r), hold = new Promise(r => release = r);
+  const channel = new EventTarget(); channel.postMessage = () => {};
+  const c = vault(undefined, undefined, { channel, locks: { request: async (name, _options, fn) => {
+    if (name === names.taskGate) { entered(); await hold; }
+    return fn();
+  } } });
+  await c.service.saveSession("key-a", "synthetic");
+  const staleSession = memory();
+  staleSession.setItem(names.sessionKeys, c.session.getItem(names.sessionKeys));
+  const pending = c.service.forget();
+  await ready;
+  assert.equal(c.service.key("key-a"), "synthetic");
+  release(); await pending;
+  channel.dispatchEvent(new MessageEvent("message", { data: { type: "credentials/change", epoch: "", id: "key-a", value: "late" } }));
+  await new Promise(r => setImmediate(r));
+  assert.equal(c.service.key("key-a"), null);
+  assert.deepEqual(JSON.parse(c.local.getItem(names.credentials)).keys, {});
+  const restored = vault(c.local, staleSession);
+  assert.equal(await restored.service.resume(), false);
+  restored.service.dispose();
+  c.service.dispose();
 });
 const envelope = (changes = {}) => ({
   app: "koma-image",

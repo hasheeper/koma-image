@@ -1,6 +1,6 @@
 # ASK 产品与架构
 
-更新：2026-10-28。现行决策以[ASK 维护入口](ask-implementation-plan.md)为准；本文负责定位和所有权，不保存阶段计划。
+更新：2026-10-29。现行决策以[ASK 维护入口](ask-implementation-plan.md)为准；本文负责定位和所有权，不保存阶段计划。
 
 ## 定位
 
@@ -10,7 +10,7 @@ ASK 是图片工作台的创作搭档：感知当前状态，按需读取图片�
 
 ## 外壳与状态
 
-`AskDrawer.vue` 在唯一 App Shell 中持续挂载；车间同一容器在圆形入口、运行胶囊、结果卡、写入胶囊和窗口间变形，不占工作区栏位。HOME 复用同一服务与窗口停靠呈现，头部承接收起状态，详见[HOME](../koma-home.md#7-ask-在-home)。收起保留会话和运行，EDIT 工作区中隐藏。
+`AskDrawer.vue` 在唯一 App Shell 中持续挂载；车间同一容器在圆形入口、运行胶囊、结果卡、写入胶囊和窗口间变形，不占工作区栏位。HOME 复用同一服务与窗口停靠呈现，头部承接收起状态，详见[HOME](../koma-home.md#7-ask-在-home)。收起保留会话和运行，EDIT 同样可用；Photopea 打开时收起并让出键盘。
 
 发送时冻结工作区与图片快照：活动画板完整基础／角色词文直接发送，其他画板仅目录；历史图片有锚点时提供相关上下文，无锚点时不预载历史原文。`get_state` 默认读取 initial，显式 latest 追加最新状态，不回改本轮草稿基底。当前状态和记忆的优先级见[检索](ask-retrieval-state.md)与[压缩](compaction.md)。
 
@@ -18,11 +18,12 @@ ASK 是图片工作台的创作搭档：感知当前状态，按需读取图片�
 
 ## 工具总览
 
-当前固定工具集共有十二项，Schema 与描述由实现提供，不随工作区或模型名字切换：
+当前固定工具集共有十三项，Schema 与描述由实现提供，不随工作区或模型名字切换：
 
 | 工具 | 责任 |
 | --- | --- |
-| `get_state` | 当前工作台、冻结或最新状态、指定画板 |
+| `get_state` | 当前工作台、冻结或最新状态、指定 IMAGE／EDIT 画板 |
+| `check_nai_input` | 本轮候选修改的能力、token／Text 与只读费用检查，不写入 |
 | `get_meta` | 图片完整参数，不发送像素 |
 | `diff_meta` | 参数与词文差异，不能代替视觉对比 |
 | `search_history` | 本轮历史、收藏、EDIT 版本与当前 CHAT 分支图片检索 |
@@ -45,8 +46,9 @@ ASK 是图片工作台的创作搭档：感知当前状态，按需读取图片�
 | `session.ts`、`runner.ts` | 轮次事务、稳定编号、上下文、工具循环与失败回滚 |
 | `provider.ts`、`adapters/` | 两协议转换、流式解析、编解码和实际请求捕获 |
 | `tools.ts` | 只读工具注册，仅接收只读端口 |
-| `digest/`、`library.ts`、`ids.ts`、`edit-context.ts` | 状态摘要、冻结图片索引、EDIT 只读目录、可公开编号与作用域 |
+| `digest/`、`library.ts`、`ids.ts`、`edit-context.ts` | 状态摘要、冻结图片索引、EDIT 现场与目录、可公开编号与作用域 |
 | `search-history.ts`、`search-tags.ts` | 本地历史与共享词典查询 |
+| `../services/nai-awareness.ts`、`edit-awareness.ts` | 共用 NAI 能力／有效输入／预算／费用的只读投影 |
 | `draft/` | 结构校验、字段 diff、确认写入、冲突与撤销栈 |
 | `attachments.ts`、`vision.ts` | 用户附件、像素处理、引用计数与视觉预算 |
 | `conversations.ts`、`favorites.ts` | 多会话、分支和显式收藏的持久快照 |

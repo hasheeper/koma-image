@@ -55,7 +55,7 @@ test('B1 capability and coupled model/size validation obey final selected steps'
   const snap=snapshot();
   const d=receiveDraft(envelope([params({model:medium,steps:14,cfgRescale:0})]),snap);
   assert.equal(plan(d).changes.find(c=>c.field==='model').after,medium);
-  assert.deepEqual(plan(d,snap.base,['0:steps']).changes,[],'disabled required medium step blocks incompatible model');
+  assert.equal(plan(d,snap.base,['0:steps']).changes.find(c=>c.field==='model').after,medium,'model-only switch retains dormant saved steps; effective Medium remains fixed');
   assert.equal(receiveDraft(envelope([params({seed:''})]),snap).steps[0].params.seed,'');
 });
 test('B1 omitted hash anchors live state; explicit stale hash and mismatched picture scope reject', () => {
@@ -100,4 +100,10 @@ test('B1 canonical dedup digest and generated protocol share the actual schema',
   assert.notEqual(await inboxDigest({a:1}),await inboxDigest({a:2}));
   const schema=JSON.parse([...protocolDocument().matchAll(/```json\n([\s\S]*?)\n```/g)].at(-1)[1]);
   assert.ok(schema.properties.steps.items.anyOf.some(s=>s.properties.kind.enum.includes('params_patch')));
+});
+
+test('EA3 external Bridge rejects every EDIT write but retains read-only editor image references',()=>{
+ for(const step of [{kind:'prompt_patch',target:'edit.prompt',mode:'rewrite',text:'x'},{kind:'director_patch',tool:'lineart'},{kind:'edit_handoff',image:'#h1'},{kind:'edit_config',params:{strength:.2}}])
+  assert.throws(()=>receiveDraft(envelope([step]),snapshot()),/EDIT/);
+ assert.throws(()=>receiveDraft(envelope([params({editMode:'inpaint'})]),snapshot()));
 });

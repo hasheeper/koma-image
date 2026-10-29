@@ -106,8 +106,7 @@
   pointer-events: none;
 }
 .editor-empty { position: absolute; inset: 0; margin: auto; height: max-content; }
-/* What is on screen and what to do with it, laid over the top of the mat and
-   fading into it, so it reads as part of the picture rather than a panel. */
+/* Picture identity stays above the mat; actions belong to the bottom toolbar. */
 .editor-info {
   position: absolute; top: 0; left: 0; right: 0; z-index: 3;
   display: flex; align-items: center; justify-content: space-between; gap: var(--sp-3);
@@ -124,12 +123,7 @@
 .editor-info-meta b { font-size: var(--fz-xs); font-weight: var(--fw-semibold); color: var(--fg); }
 .editor-info-meta .mono { color: var(--fg-3); overflow: hidden; text-overflow: ellipsis; }
 .editor-info[data-compare="on"] .editor-info-meta b { color: var(--a); }
-.editor-info-actions { display: flex; align-items: center; gap: 2px; flex: none; }
-.editor-info-actions .ibtn { width: 32px; height: 32px; --ico: var(--ico-md); color: var(--fg-2); }
-.editor-info-actions .ibtn:hover { color: var(--fg); background: var(--hover); }
-.editor-info-actions .ibtn:disabled { opacity: 0.45; pointer-events: none; }
-.editor-info-actions [data-tip]::after { left: auto; right: 0; transform: translate(0, -3px); }
-.editor-info-actions [data-tip]:hover::after { transform: translate(0, 0); }
+.editor-info-actions { display: flex; align-items: center; gap: 2px; flex: none; margin-left: auto; }
 .editor .stage[data-drop]::after {
   content: attr(data-drop);
   position: absolute; inset: var(--sp-3); z-index: 6;
@@ -142,11 +136,14 @@
 
 /* Canvas tools float over the mat, raised like the workspace's popovers. */
 .editor-toolbar {
+  --editor-toolbar-inset: 12px;
   position: absolute; left: 50%; bottom: var(--sp-4); z-index: 3;
   transform: translateX(-50%);
-  display: flex; align-items: center; justify-content: center; flex-wrap: wrap; gap: 2px;
+  display: flex; align-items: center; justify-content: center; gap: 2px;
   /* An absolutely placed box at left:50% would otherwise shrink to half the canvas. */
-  width: max-content; max-width: calc(100% - 24px);
+  width: max-content; max-width: calc(100% - 2 * var(--editor-toolbar-inset));
+}
+.editor-toolbar, .editor-toolbar[data-actions-detached] .editor-info-actions {
   padding: 4px;
   background: color-mix(in srgb, var(--raised) 94%, transparent);
   border: 1px solid var(--line-2);
@@ -156,6 +153,10 @@
 }
 .editor-mask-tools { display: flex; align-items: center; gap: 2px; flex: none; }
 .editor-picture-ops { display: flex; align-items: center; gap: 2px; flex: none; }
+.editor-tool-controls { display: flex; flex: 1; align-items: center; gap: 2px; min-width: 0; overflow-x: auto; scrollbar-width: none; }
+.editor-tool-controls > * { flex-shrink: 0; }
+.editor-toolbar[data-actions-detached] .editor-info-actions { position: absolute; left: 0; bottom: calc(100% + 8px); margin: 0; }
+.editor-toolbar[data-actions-detached] .editor-info-actions > .editor-sep { display: none; }
 /* Picture operations use compact icon flyouts; the tool picker keeps labels. */
 .editor-tool {
   display: inline-flex; align-items: center; gap: 6px; flex: none;
@@ -176,7 +177,8 @@
 .editor-toolbar .ibtn:hover { color: var(--fg); background: var(--hover); }
 .editor-toolbar .ibtn[aria-pressed="true"] { color: var(--a); background: var(--a-dim); }
 .editor-toolbar .ibtn:disabled { opacity: 0.35; pointer-events: none; }
-.editor-sep { width: 1px; height: 18px; margin: 0 5px; background: var(--line-2); }
+.editor-info-actions .ibtn[aria-pressed="true"] { color: var(--a); background: transparent; opacity: 1; }
+.editor-sep { flex: none; width: 1px; height: 18px; margin: 0 5px; background: var(--line-2); }
 .editor-size { position: relative; display: flex; align-items: center; gap: var(--sp-2); width: 136px; padding: 0 var(--sp-2); }
 .editor-size output { min-width: 24px; text-align: right; color: var(--fg-3); }
 .editor-zoom {
@@ -271,17 +273,17 @@
   .editor-mat { display: flex; flex-direction: column; height: clamp(320px, 58svh, 640px); }
   .editor-viewport { position: relative; inset: auto; flex: 1; min-height: 0; padding: 52px var(--sp-3) var(--sp-3); }
   .editor-info { height: 46px; padding: 0 var(--sp-1) 0 var(--sp-3); }
-  .editor-info-actions .ibtn { width: 40px; height: 40px; }
-  .editor-info-actions [data-tip]::after { display: none; }
   /* The toolbar docks under the picture instead of covering it. */
   .editor-toolbar {
-    position: static; transform: none;
-    justify-content: safe center; flex-wrap: nowrap;
+    --editor-toolbar-inset: 0px;
+    position: relative; left: auto; bottom: auto; transform: none;
+    justify-content: flex-start; flex-wrap: nowrap;
     width: auto; max-width: none; padding: 4px var(--sp-2);
-    overflow-x: auto; scrollbar-width: none;
+    overflow: visible;
     background: var(--chrome);
     border-width: 1px 0 0; border-radius: 0; box-shadow: none; backdrop-filter: none;
   }
+  .editor-toolbar[data-actions-detached] .editor-info-actions { left: var(--sp-2); }
   .editor-toolbar .ibtn, .editor-zoom { flex: none; width: 40px; height: 40px; }
   .editor-tool { height: 40px; }
   .editor-mini-row { min-height: 36px; }

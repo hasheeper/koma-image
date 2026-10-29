@@ -717,7 +717,7 @@ export function createChat(services: ApplicationServices, ui: Ui) {
       model: string;
       options: Readonly<Record<string, string>>;
       text: string;
-      images: readonly ({ asset: string } | { blob: Blob; name: string })[];
+      images: readonly ({ asset: string } | { blob: Blob; name: string; lineage?: import("../domain/image-identity.ts").ImageLineage })[];
     }) {
       const model = () => models.find((m) => m.id === draft.model),
         missing = () => draft.images.some((i) => "asset" in i && !assets.assets.has(i.asset));
@@ -735,7 +735,9 @@ export function createChat(services: ApplicationServices, ui: Ui) {
           if ("asset" in image) ids.push(image.asset);
           else {
             const fitted = await fitReference(image.blob, image.name);
-            ids.push((await assets.add(fitted.blob, fitted.name, undefined, "image")).id);
+            const asset=await assets.add(fitted.blob, fitted.name, undefined, "image");
+            if(image.lineage && !asset.lineage) asset.lineage={...image.lineage,...(asset.entity_key!==image.lineage.parent_entity_key?{tool_detail:'reference-fit'}:{})};
+            ids.push(asset.id);
           }
         }
       })();
@@ -962,7 +964,7 @@ export function createChat(services: ApplicationServices, ui: Ui) {
         size: { width: number; height: number };
       },
     ) {
-      if (!mutable() || !ready) throw new Error("请先连接或解锁 API Key");
+      if (!mutable() || !ready) throw new Error("请先配置供应商和 API Key");
       if (busy) throw new Error("请等待当前绘图任务完成");
       const c = conversations.find((v) => v.id === cId);
       if (!c) throw new Error("来源对话已删除");

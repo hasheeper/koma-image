@@ -34,7 +34,7 @@ fonts/index.css
 | `src/ask/AskModelPicker.vue`、`AskSend.vue`、`AskActivity.vue`、`src/bridge/DirectoryChip.vue` | ASK 与 HOME 共用的模型菜单、发送／停止、运行动作与工具计数、目录状态与菜单；目录的 HOME 尺寸通过 prop 区分，菜单 ID 保持唯一，停用时关闭 |
 | `src/shared/TagPicker.vue` | 选择器私有 scoped 规则、局部输入底色、加载动画与移动覆盖；通用 `.sheet` 外框仍由 ui 管理 |
 | `src/shared/HighlightInput.vue` | 高亮宿主与镜像指标采用普通样式块，自动补全采用 scoped 样式块；详见下文 |
-| `src/shared/ToastList.vue` | Toast 的 scoped 外观、动画、局部底色、移动布局及减少动效下的真实计时例外 |
+| `src/shared/ToastList.vue` | Toast 的 scoped 外观、动画、局部底色、移动布局及减少动效下的真实计时例外；车间通知避开 ASK 的启动图标、结果胶囊与窗口操作 |
 | `src/shared/ConfirmSheet.vue` | 确认内容与脚注的 scoped 规则；通用 modal 框架仍由 ui 管理 |
 | `src/workspaces/image/EmptyStage.vue` | 空白页的 scoped 布局与说明；品牌子组件的字形样式用明确的 `:deep()` 保留 |
 | `src/ask/AskDrawer.vue` | ASK 五态透明容器、共享磨砂材质变量、胶囊基线、窗口及响应式边界；图标整数网格与呼吸归 `AskMark.vue`，紧凑草稿归 `DraftCard.vue`，输入与消息的透明底归各自组件；车间不改变工作区布局，HOME 的半屏／全屏实色停靠规则仍归该组件 |
@@ -77,6 +77,8 @@ EDIT 已独立，版本栏由 `editor.css` 的 `--editor-rail` 管理，不再�
 
 Director 魔棒、工具条、强度分段与选项菜单的私有规则归 `DirectorTools.vue`；放大与 Director 共用 `editor.css` 的 `.editor-mini-*` 行和动作布局，定位归 `src/workspaces/edit/panels.ts`，面板位于工具栏上方 6px 并限制到视口内。NovelAI Upscale 与其他模型文字使用 `--sans`／`--fw-semibold`，不改共享菜单字重。
 
+EDIT 底部工具栏保持单行，宽度不足时将图片操作显示为上方左对齐的独立胶囊。布局材质归 `editor.css`，实际宽度测量与溢出标记归 `src/native/editor-toolbar.ts`；不搬移 Vue 节点，页面隐藏时暂停 Observer 与 rAF，恢复时重新测量，卸载时清理。
+
 版本栏使用 132px／中等宽度 112px 及原有窄屏断点；主动折叠用 `.editor[data-rail="off"]` 设置为 0，不读取其他工作区的 `--hist`。
 
 ## 角色、画板与命名
@@ -88,6 +90,8 @@ AI 命名的共用星光／停止按钮与状态动效由 `src/shared/AiNameButt
 绘图统一底栏、三段导航与抽屉动画归 `DrawingBottomPanel.vue`，参考缩略图及控件私有排布归 `NaiReferenceEditor.vue`，原参数宿主归 `DrawingParameters.vue`，底栏表面归 `ImageWorkspace.vue`；不改公共 scrub 的填充矩形样式。
 
 会话内紧凑 Todo 与高度展开动画归 `src/slate/AskTodos.vue`，280px 轻量总览归 `SlatePanel.vue`，必要的成果选图／查看归 `SlateDeliverable.vue`；复用共享 modal、控件和 tokens。没有大任务板、单项详情编辑或常驻关联行，不新增全局样式补丁。
+
+供应商配置复用共享 modal、输入控件与设置样式；原有 Koma Logo＋品牌名排布、字段间距、Key 内嵌显隐按钮和保存 Key 复选行归 `SettingsOverlay.vue` scoped 样式。原全屏 Key gate 组件、属性钩子和全局专用样式已删除。
 
 ## 样式检查
 

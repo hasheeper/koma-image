@@ -29,6 +29,7 @@ export function receiveDraft(input: Record<string, unknown>, snapshot: BridgeSna
   if (input.schema !== DRAFT_SCHEMA || !inboxId(input)) throw new Error("草稿版本或 draft_id 无效");
   if (input.source_label !== undefined && (typeof input.source_label !== "string" || !input.source_label.trim() || input.source_label.length > 80)) throw new Error("source_label 无效");
   const { schema: _schema, draft_id: _id, source_label: _source, picture_scope_id: scope, favorites_scope_id: favScope, picture_ref_version: refVersion, edit_board_id: editBoard, ...body } = input;
+  if(Array.isArray(body.steps)&&body.steps.some(raw=>{const s=inboxObject(raw);return ['director_patch','edit_handoff','edit_config'].includes(String(s.kind))||s.kind==='prompt_patch'&&String(s.target).startsWith('edit.');}))throw new Error('外部协同暂不支持 EDIT 草稿');
   const references = Array.isArray(body.steps) && body.steps.some(s => inboxObject(s).kind === "restore_partial" || inboxObject(s).kind === "slate_edit" && Array.isArray(inboxObject(s).todos) && (inboxObject(s).todos as unknown[]).some(t => !!inboxObject(t).bind));
   if (refVersion !== undefined && refVersion !== 2) throw new Error("图片引用版本不受支持");
   if (refVersion === 2) {

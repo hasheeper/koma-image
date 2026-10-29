@@ -59,7 +59,7 @@ test("digest: same workbench, same bytes; no binary data; base hash tracks only 
   assert.deepEqual(state.image.current, { id: "#h3" });
   assert.equal(state.image.form.seed, "random");
   assert.deepEqual(state.image.form.characters, []);
-  assert.equal(state.v, 6);
+  assert.equal(state.v, 7);
   assert.deepEqual(state.chat_model, { ready: false });
   assert.equal(state.image.form.text_included, true);
   assert.equal(state.image.form.prompt, form.prompt);

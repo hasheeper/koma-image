@@ -37,8 +37,8 @@ test("only the new Koma envelope is accepted, with logical allowlisted preferenc
     return key === names.preferences ? '{"historyLimit":25}' : key === names.routing ? '{"version":1,"connections":{},"links":{}}' : null;
   } });
   assert.deepEqual(Object.keys(preferences).sort(), ["drawing", "routing"]);
-  for (const key of [names.vault, names.sessionKeys, names.sessionDerivedKey, names.tagHandoff]) assert.ok(!read.includes(key));
-  const clean = validateBackupManifest({ ...manifest(), vault: "excluded", preferences: { ...preferences, sessionKeys: "excluded" } });
+  for (const key of [names.credentials, names.sessionKeys, names.tagHandoff]) assert.ok(!read.includes(key));
+  const clean = validateBackupManifest({ ...manifest(), credentials: "excluded", preferences: { ...preferences, sessionKeys: "excluded" } });
   assert.equal(JSON.stringify(clean).includes("excluded"), false);
   assert.equal(backupFormat.filename, "koma-image-backup.json");
   assert.equal(backupLimits.entries, 60000); assert.equal(backupLimits.archiveBytes, 0xffffffff);

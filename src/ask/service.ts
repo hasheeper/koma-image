@@ -1,6 +1,8 @@
+import { editAwareness } from "../services/edit-awareness.ts";
+import { naiAwareness,naiSourceKey,naiAccountSnapshot } from "../services/nai-awareness.ts";
 import { imageEntity } from "../domain/image-identity.ts";
 import type { Editor } from "../services/editor.ts";
-import { editPictures, editContext, withEditPictures, freezePictureRefs, bindPictures } from "./edit-context.ts";
+import { editPictures, editContext, editWorkspaceContext, withEditPictures, freezePictureRefs, bindPictures } from "./edit-context.ts";
 import type { PictureRefs } from "./edit-context.ts";
 import { homeContext } from "../home/ask-context.ts";
 import type { Home } from "../home/service.ts";
@@ -51,7 +53,7 @@ import { createCallLog } from "./debug.ts";
 import type { CallLogView } from "./debug.ts";
 import { createPacer, PACE } from "./pacer.ts";
 import { createDraftWriter } from "./draft/apply.ts";
-import { validateDraft } from "./draft/validate.ts";
+import { parseDraft, validateDraft } from "./draft/validate.ts";
 import { createDraftStack } from "./draft/stack.ts";
 import type { DraftRecord } from "./draft/stack.ts";
 import { draftView } from "./draft/view.ts";
@@ -82,6 +84,7 @@ export type AskItem =
   | { readonly kind: "pick"; readonly ids: readonly string[] };
 export interface CheckpointView {
   readonly id: number;
+  readonly editBoardId?: string;
   readonly title: string;
   readonly status: "applied" | "reverted";
   readonly added: number;
@@ -217,7 +220,7 @@ export function createAsk(deps: {
     libraryRevision = shallowRef(0),
     draftRevision = shallowRef(0),
     draft = shallowRef<DraftRecord | null>(null),
-    appliedDraft = shallowRef<{ id: number; workspace: "image" | "chat" } | null>(null),
+    appliedDraft = shallowRef<{ id: number; workspace: "image" | "chat" | "edit" } | null>(null),
     writingDraft = shallowRef(false);
   const tray = shallowRef<readonly string[]>([]), preparing = shallowRef(0);
   const compacting = shallowRef(false), dispatching = shallowRef(false);
@@ -297,7 +300,7 @@ export function createAsk(deps: {
     if (attachmentPreview.value?.id === id) attachmentPreview.value = null;
     setTray(tray.value.filter(value => value !== id)); attachments.release([id]);
   }
-  const editorOpen = computed(() => router.route.value.workspace === "edit"),
+  const editorOpen = computed(() => { void stateRevision.value; return !!deps.editor?.snapshot().externalId; }),
     visible = computed(() => open.value && !editorOpen.value),
     running = computed(() => live.value !== null || compacting.value || dispatching.value),
     connection = computed(
@@ -374,10 +377,10 @@ export function createAsk(deps: {
       void nextTick(placeInline);
     }
   });
-  function readDraftState(boardId?: string, slateId?: string): DraftState {
+  function readDraftState(boardId?: string, slateId?: string, editId?:string): DraftState {
     const d = drawing.snapshot(), c = chat.snapshot().current;
     const board = d.boards.find(b => b.id === (boardId ?? d.activeBoardId));
-    return { fileContext: filePort?.context(), slate: deps.slates?.get(slateId ?? conversations.current.slateId ?? "") ?? null, boardId: boardId ?? d.activeBoardId, boardName: board?.name, boardPresent: !!board, nextCharacterId: board?.nextCharacterId, form: structuredClone({ ...d.form, ...board?.form }), composer: c.prompt, conversationId: c.id, chat: chatSnapshot(chat.snapshot()), models: [...d.models], samplers: [...d.samplers], samplersByModel: Object.fromEntries(d.models.map((m) => [m.id, drawing.samplersFor(m.id)])),
+    return { edit: deps.editor?.askSnapshot(editId), editBoards:deps.editor?.boards().map(b=>deps.editor!.askSnapshot(b.id)!), fileContext: filePort?.context(), slate: deps.slates?.get(slateId ?? conversations.current.slateId ?? "") ?? null, boardId: boardId ?? d.activeBoardId, boardName: board?.name, boardPresent: !!board, nextCharacterId: board?.nextCharacterId, form: structuredClone({ ...d.form, ...board?.form }), composer: c.prompt, conversationId: c.id, chat: chatSnapshot(chat.snapshot()), models: [...d.models], samplers: [...d.samplers], samplersByModel: Object.fromEntries(d.models.map((m) => [m.id, drawing.samplersFor(m.id)])),
       workspace: router.route.value.workspace, chatModel: chatDraftModel(chat.snapshot()) };
   }
   /** Handoff images are checked live: IMAGE records by ID, CHAT pictures by asset. */
@@ -389,7 +392,7 @@ export function createAsk(deps: {
   }
   const draftPlan = computed(() => {
     void draftRevision.value;
-    return draft.value ? validateDraft(draft.value.draft, readDraftState(draft.value.draft.base.boardId, draft.value.draft.steps.find(s => s.kind === "slate_edit")?.change.before?.id), { off: draft.value.off, has: hasImage }) : null;
+    return draft.value ? validateDraft(draft.value.draft, readDraftState(draft.value.draft.base.boardId, draft.value.draft.steps.find(s => s.kind === "slate_edit")?.change.before?.id, draft.value.draft.base.edit?.id), { off: draft.value.off, has: hasImage }) : null;
   });
   const undoTarget = computed(() => {
     void draftRevision.value;
@@ -422,7 +425,7 @@ export function createAsk(deps: {
     }
     for (const file of record.plan.files ?? []) receipts.push({ id: file.id, name: 'save_ref', verb: file.context.id === null ? '准备下载' : '保存', object: file.title, stat: file.context.id === null ? '下载' : 'refs/', state: 'done' });
     if (receipts.length && record.plan.changes.length) receipts.push({ id: `${record.id}-board`, name: 'propose_draft', verb: '更新', object: '画板', stat: `${record.plan.changes.length} 项`, state: 'done' });
-    const view: CheckpointView = { id: record.id, title: record.plan.title, status: record.status, added, removed, ...(receipts.length ? { receipts } : {}) };
+    const view: CheckpointView = { id: record.id, editBoardId:record.plan.edit?.id, title: record.plan.title, status: record.status, added, removed, ...(receipts.length ? { receipts } : {}) };
     const next = (owner === conversations.current ? entries.value : owner.entries).map((e) =>
       e.id !== record.turnId ? e : e.type === "turn" ? { ...e, turn: { ...e.turn, checkpoint: view } } : { ...e, checkpoint: view });
     const turn = next.find(e => e.type === "turn" && e.id === record.turnId);
@@ -434,7 +437,7 @@ export function createAsk(deps: {
   const draftApplyLabel = computed(() => {
     const plan = draftPlan.value, workspace = plan?.workspace;
     const to = router.route.value.workspace === "home" ? "切到" : "切回";
-    if (plan?.files?.length) return "应用";
+    if (workspace === "edit" || plan?.files?.length) return "应用";
     if (plan?.slate && !plan.changes.length && !plan.newBoardName) return "应用到任务板";
     if (plan?.steps.some((s) => s.kind === "handoff")) return router.route.value.workspace === "chat" ? "新开对话并应用" : "切到对话并新开";
     if (workspace === "image" && plan?.newBoardName) return router.route.value.workspace === "image" ? "新建并应用" : `${to}绘图并新建`;
@@ -442,6 +445,7 @@ export function createAsk(deps: {
     return workspace && router.route.value.workspace !== workspace ? `${to}${workspace === "image" ? "绘图" : "对话"}并应用` : "应用";
   });
   async function focusWritten(plan: DraftPlan) {
+    if(plan.workspace === "edit") return;
     await nextTick();
     const field = plan.changes.some((c) => c.field === "prompt") ? "prompt" : plan.changes.some((c) => c.field === "negative") ? "negative" : plan.workspace === "chat" ? "chatPrompt" : null;
     if (!field && plan.workspace === "image") {
@@ -471,10 +475,10 @@ export function createAsk(deps: {
     writingDraft.value = true;
     try { await chat.warm(); } finally { writingDraft.value = false; }
     if (draft.value !== record || controller || disposed) return;
-    let plan = validateDraft(record.draft, readDraftState(record.draft.base.boardId, record.draft.steps.find(s => s.kind === "slate_edit")?.change.before?.id), { off: record.off, has: hasImage });
+    let plan = validateDraft(record.draft, readDraftState(record.draft.base.boardId, record.draft.steps.find(s => s.kind === "slate_edit")?.change.before?.id, record.draft.base.edit?.id), { off: record.off, has: hasImage });
     if (plan.fingerprint !== fingerprint) { draftRevision.value++; notice.value = "内容已变化，请核对更新后的草稿再应用"; return; }
-    if (!plan.changes.length && !plan.branch && !plan.handoff && !plan.slate && !plan.files?.length) return;
-    if (plan.files?.length && plan.steps.some(step => step.issue)) { notice.value = "草稿有冲突，请先核对"; return; }
+    if (!plan.edit && !plan.changes.length && !plan.branch && !plan.handoff && !plan.slate && !plan.files?.length) return;
+    if ((plan.workspace === "edit" || plan.files?.length) && plan.steps.some(step => step.issue)) { notice.value = "草稿有冲突，请先核对"; return; }
     writingDraft.value = true; notice.value = "";
     try {
       if ((!!plan.newBoardName || newBoard === true) && plan.workspace === "image" && plan.boardId) {
@@ -490,8 +494,8 @@ export function createAsk(deps: {
       externalStatus(record, "applied", notice.value || undefined);
       draft.value = null;
       appliedDraft.value = { id: record.id, workspace: plan.workspace };
-      const count = plan.handoff ? plan.steps.filter((s) => s.enabled && !s.issue && !s.locked).length : plan.changes.length + (plan.slate ? 1 : 0) + (plan.files?.length ?? 0);
-      say(`已应用草稿 ${plan.title} · ${count} 项 · ${plan.workspace === "image" ? "未生成" : "未发送"}`);
+      const count = plan.handoff ? plan.steps.filter((s) => s.enabled && !s.issue && !s.locked).length : (plan.edit ? 1:0) + plan.changes.length + (plan.slate ? 1 : 0) + (plan.files?.length ?? 0);
+      say(`已应用草稿 ${plan.title} · ${count} 项 · ${plan.workspace !== "chat" ? "未生成" : "未发送"}`);
       await focusWritten(plan);
     } catch (error) { notice.value = message(error); externalStatus(record, "pending", notice.value); }
     finally { saveFavorite(); await flushFavorites().catch(() => {}); writingDraft.value = false; draftRevision.value++; }
@@ -590,10 +594,11 @@ export function createAsk(deps: {
       chatModel: chatModelState(c),
       ids,
     }, { formText });
-    return { ...digest, json: JSON.stringify({ ...JSON.parse(digest.json),
+    return { ...digest, baseHash:stateHash(readDraftState()), json: JSON.stringify({ ...JSON.parse(digest.json), base_hash:stateHash(readDraftState()),
       ...(workspace === "home" && deps.home ? { home: homeContext(deps.home, ids, chat) } : {}),
+      image: { ...JSON.parse(digest.json).image, ...naiAwareness({form: d.form, models:d.models, samplers:d.samplers, quote:d.quote, quoteKey:d.quoteKey,quoteAt:d.quoteAt,account:d.quota?.media.subscription, accountAt:d.quotaAt,accountSource:naiSourceKey(d.model),referenceCosts:Object.fromEntries(d.models.map(m=>[m.id,services.references.cachedCost(d.form.naiReferences,m.id)]))}).snapshot },
       picture_ref_version: 2, picture_scope_id: pictureScope(), favorites_scope_id:drawing.favoritesScopeId,
-      edit: editContext(deps.editor, pictureLibrary()),
+      edit: (()=>{const directory=editWorkspaceContext(deps.editor,pictureLibrary()); const edit=deps.editor?.askSnapshot(); return workspace==='edit'&&edit?.ready ? {...directory,...editAwareness(edit).snapshot}:directory;})(),
       image_input: { enabled: !metadataOnly, mode: metadataOnly ? "metadata_only" : "on_demand",
         ...(metadataOnly ? { note: "本轮不发送任何图片，view_image、view_sheet 与 refs 图片读取不可用；请基于元数据回答，不要重复尝试看图。" } : {}) },
       active_slate: slateSummary(deps.slates?.get(conversations.current.slateId ?? "") ?? null),
@@ -617,7 +622,7 @@ export function createAsk(deps: {
   syncDrawing();
   const stops = [
     drawing.subscribe(syncDrawing),
-    ...(deps.editor ? [deps.editor.subscribe(() => { stateRevision.value++; libraryRevision.value++; draftRevision.value++; })] : []),
+    ...(deps.editor ? [deps.editor.subscribe(() => { if(deps.editor?.snapshot().externalId) open.value=false; stateRevision.value++; libraryRevision.value++; draftRevision.value++; })] : []),
     ...(deps.slates ? [deps.slates.subscribe(() => { stateRevision.value++; draftRevision.value++; })] : []),
     chat.subscribe(() => { draftRevision.value++; libraryRevision.value++; }),
     watch(open, (shown) => { if (shown) void chat.warm(); }, { immediate: true }),
@@ -932,6 +937,8 @@ export function createAsk(deps: {
       turnAnchor = options.anchor !== undefined ? options.anchor : [...question.matchAll(idPattern)][0]?.[0] ?? anchor.value,
       metadataOnly = !!options.metadataOnly || !config.images,
       codec = codecFor({ adult: adult.value, enabled: codecActive.value, words: config.words, replacements: config.replacements });
+    await deps.editor?.prepareAsk();
+    abort.signal.throwIfAborted();
     // The snapshot is fixed for the whole turn; get_state appends newer ones.
     const digest = digestNow(turnAnchor, false, metadataOnly), initialState = digestNow(turnAnchor, true, metadataOnly), snapshotTime = Date.now();
     const snapshot = drawing.snapshot(),
@@ -941,8 +948,21 @@ export function createAsk(deps: {
       known = owner.session.viewed(),
       turnViewed = new Set(known),
       draftBase = readDraftState();
+    const frozenReferenceCosts = new Map(frozenBoards.map(b=>[b.id,Object.fromEntries(snapshot.models.map(m=>[m.id,services.references.cachedCost(b.form.naiReferences,m.id)]))]));
+    const frozenEditContexts=new Map(deps.editor?.boards().map(b=>[b.id,editWorkspaceContext(deps.editor,library,b.id)])??[]);
+    const frozenEdits = new Map(deps.editor?.boards().map(b=>[b.id, deps.editor!.askSnapshot(b.id)!]) ?? []);
     const readBoards = new Set(draftBase.boardId ? [draftBase.boardId] : []);
     if (!metadataOnly) for (const a of attached) if (a.kind === "image") turnViewed.add(a.entity_key ?? a.id);
+    const frozenNai = structuredClone({ form: draftBase.form, models: draftBase.models, samplers: draftBase.samplers,
+      account:naiAccountSnapshot(snapshot.quota?.media.subscription), accountAt:snapshot.quotaAt,accountSource:naiSourceKey(snapshot.model), quoteKey:snapshot.quoteKey,quoteAt:snapshot.quoteAt,referenceCosts:Object.fromEntries(snapshot.models.map(m=>[m.id,services.references.cachedCost(draftBase.form.naiReferences,m.id)])), quote:snapshot.quote.status === 'error' ? undefined : snapshot.quote });
+    const awareness = await naiAwareness(frozenNai).counted();
+    abort.signal.throwIfAborted();
+    for (const value of [digest, initialState]) {
+      const state = JSON.parse(value.json); state.image = {...state.image,...awareness};
+      const edit=frozenEdits.get(draftBase.edit?.id??'');
+      if(state.workspace==='edit'&&edit?.ready) state.edit={...state.edit,...await editAwareness(edit).counted()};
+      Object.assign(value,{json:JSON.stringify(state)});
+    }
     const user: AskMessage = {
       role: "user",
       content: [
@@ -1025,6 +1045,25 @@ export function createAsk(deps: {
           vision,
           visual,
           readRef,
+          checkNaiInput: async input => {
+            if (input.base_hash !== stateHash(draftBase)) throw new Error('base_hash 与本轮快照不符');
+            let form = structuredClone(draftBase.form);
+            const steps = input.steps ?? [];
+            if (!Array.isArray(steps) || steps.some(s => !s || !['prompt_patch','params_patch','character_edit','restore_partial'].includes(s.kind))) throw new Error('只接受参数与词文候选步骤');
+            if (steps.length) {
+              const candidate = parseDraft({draft_title:'输入检查',base_hash:input.base_hash,steps},draftBase,library);
+              const plan = validateDraft(candidate,draftBase,{off:new Set()});
+              const issues = plan.steps.filter(s=>s.issue).map(s=>s.issue);
+              if (issues.length) return {valid:false,diagnostics:issues};
+              if(candidate.target==='edit' && draftBase.edit) return editAwareness({...draftBase.edit,config:plan.edit?.after??draftBase.edit.config}).counted();
+              for (const c of plan.changes) Object.assign(form,{[c.field]:c.after});
+            }
+            if(!steps.length && draftBase.workspace==='edit') {
+              const edit=frozenEdits.get(draftBase.edit?.id??''); if(!edit?.ready) return {ready:false,reason:'请先导入编辑底图'};
+              return editAwareness(edit).counted();
+            }
+            return naiAwareness({...frozenNai,form, ...(steps.length ? {quote:undefined}:{})}).counted();
+          },
           tags: services.tags.suggest,
           snapshotTime,
           chatContext: turnChatContext,
@@ -1032,13 +1071,21 @@ export function createAsk(deps: {
           readSlate: scope => scope === "latest" ? deps.slates?.get(conversations.current.slateId ?? "") ?? null : draftBase.slate ?? null,
           question,
           recall: input => owner.session.recall(input, id => owner.scope.attachments.get(id)),
-          state: (scope, boardId) => {
+          state: async (scope, boardId, editBoardId) => {
+            if(editBoardId) {
+              if(scope==='latest') await deps.editor?.prepareAsk();
+              const edit=scope==='initial'?frozenEdits.get(editBoardId):deps.editor?.askSnapshot(editBoardId);
+              if(!edit)throw new Error('编辑画板不在该状态快照中');
+              return {text:JSON.stringify({edit:{...(scope==='initial'?frozenEditContexts.get(editBoardId):editWorkspaceContext(deps.editor,pictureLibrary(),editBoardId)),...await editAwareness(edit).counted()},draft_base_hash:digest.baseHash}),images:0};
+            }
             if (boardId) {
               const boards = scope === "latest" ? drawing.snapshot().boards : frozenBoards;
               const board = boards.find(b => b.id === boardId);
               if (!board) throw new Error("画板不在该状态快照中");
               readBoards.add(board.id);
-              return { text: JSON.stringify({ board_id: board.id, name: board.name, form: { ...board.form, characters: board.form.characters.map(c => ({ ...characterSummary(c, board.form.placement, board.form.model), centers: c.centers })) }, character_capability: characterCapability(board.form.model), draft_base_hash: digest.baseHash }), images: snapshot.history.length };
+              const input=scope==='initial'?{...frozenNai,referenceCosts:frozenReferenceCosts.get(board.id)}:(()=>{const d=drawing.snapshot();return {models:d.models,samplers:d.samplers,account:d.quota?.media.subscription,accountAt:d.quotaAt,accountSource:naiSourceKey(d.model),referenceCosts:Object.fromEntries(d.models.map(m=>[m.id,services.references.cachedCost(board.form.naiReferences,m.id)]))};})();
+              const awareness=await naiAwareness({...input,form:{...frozenNai.form,...board.form},quote:undefined}).counted();
+              return { text: JSON.stringify({ ...awareness, board_id: board.id, name: board.name, form: { ...board.form, characters: board.form.characters.map(c => ({ ...characterSummary(c, board.form.placement, board.form.model), centers: c.centers })) }, character_capability: characterCapability(board.form.model), draft_base_hash: digest.baseHash }), images: snapshot.history.length };
             }
             return scope === "latest" ? {
             text: stateBlock(digestNow(turnAnchor, true, metadataOnly)),
@@ -1483,6 +1530,7 @@ export function createAsk(deps: {
     compactContext,
     compaction,
     memory,
+    goEdit(id:string) {deps.editor?.gotoAskBoard(id);},
     entries: entries as Readonly<ShallowRef<readonly AskEntry[]>>,
     live: live as Readonly<ShallowRef<AskTurnView | null>>,
     input: input as Readonly<ShallowRef<string>>,
@@ -1603,9 +1651,9 @@ export function createAsk(deps: {
       const library = withEditPictures(pictureLibrary(),chatPictures(chat.snapshot(),chat));
       const attached = attachmentPictures(attachments.read([...new Set([...entryAttachments(entries.value),...tray.value])]));
       const workspace=router.route.value.workspace;
-      const priority = (p: import("./library.ts").Picture) => workspace==="chat" ? p.origins.some(o=>o.source==="chat") ? 0 : 1 : /^#e/.test(anchor.value ?? "") ? p.origins.some(o=>o.source==="edit") ? 0 : 1 : p.origins.some(o=>o.source==="history") ? 0 : 1;
+      const priority = (p: import("./library.ts").Picture) => workspace==="edit" ? p.origins.some(o=>o.source==="edit"&&o.boardId===deps.editor?.session.id)?0:p.origins.some(o=>o.source==="edit")?1:p.origins.some(o=>o.source==="history")?2:3 : workspace==="chat" ? p.origins.some(o=>o.source==="chat") ? 0 : 1 : /^#e/.test(anchor.value ?? "") ? p.origins.some(o=>o.source==="edit") ? 0 : 1 : p.origins.some(o=>o.source==="history") ? 0 : 1;
       return [...library,...attached].sort((a,b)=>priority(a)-priority(b) || b.createdAt-a.createdAt).flatMap(p=>{
-        const label = workspace==="chat" ? p.origins.find(o=>o.source==="chat")?.label ?? p.label : p.aliases.find(tag=>/^#e\d+\./.test(tag)) && /^#e/.test(anchor.value ?? "") ? p.aliases.find(tag=>/^#e\d+[a-z]?$/.test(tag)) ?? p.label : p.label;
+        const label = workspace==="edit" ? p.aliases.find(tag=>/^#e\d+[a-z]?$/.test(tag))??p.label : workspace==="chat" ? p.origins.find(o=>o.source==="chat")?.label ?? p.label : p.aliases.find(tag=>/^#e\d+\./.test(tag)) && /^#e/.test(anchor.value ?? "") ? p.aliases.find(tag=>/^#e\d+[a-z]?$/.test(tag)) ?? p.label : p.label;
         if (!label.toLowerCase().startsWith(prefix.toLowerCase()) && !p.aliases.some(tag=>tag.toLowerCase().startsWith(prefix.toLowerCase()))) return [];
         const matched = label.toLowerCase().startsWith(prefix.toLowerCase()) ? label : p.aliases.find(tag=>tag.toLowerCase().startsWith(prefix.toLowerCase()))!;
         const r=[...drawing.snapshot().history,...drawing.snapshot().favorites].find(r=>r.id===p.id);

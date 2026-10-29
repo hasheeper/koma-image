@@ -1,3 +1,7 @@
+import { canonical } from "../ask/canonical.ts";
+import { naiAccountSnapshot, naiSourceKey } from "./nai-awareness.ts";
+import type { MaskSummary } from "../domain/mask-summary.ts";
+import type { EditDraftState, EditConfiguration } from "../domain/edit-draft.ts";
 import { imageEntity } from "../domain/image-identity.ts";
 import type { ImageLineage } from "../domain/image-identity.ts";
 import { editLabel, qualifiedEditLabel } from "../domain/edit-identity.ts";
@@ -206,6 +210,7 @@ export function createEditor(
   let models: CatalogModel[] = [],
     samplers = ["k_euler_ancestral"],
     quota: QuotaStatus | null = null,
+    quotaAt = 0,
     open = false,
     upscaleOpen = false,
     directorOpen = false,
@@ -227,12 +232,57 @@ export function createEditor(
     error: "",
     price: "",
     revision: 0,
+    quoteAt: 0,
+    configKey: "",
     timer: undefined as ReturnType<typeof setTimeout> | undefined,
     abort: undefined as AbortController | undefined,
   });
   const jobs = { edit: blank(), upscale: blank(), director: blank() };
   type Job = "edit" | "upscale";
   const maskCoverage = new WeakMap<EditorSession, { revision: number; value: boolean }>();
+  const maskSummaries = new WeakMap<EditorSession,{revision:number;value:MaskSummary}>();
+  const geometryJobs = new Map<EditorSession,{cancel:()=>void;done:Promise<void>}>();
+  const askPanels = new WeakMap<EditorSession,{upscaleOpen:boolean;directorOpen:boolean}>();
+  const draftPaused = new WeakSet<EditorSession>();
+  const photopeaUsed = new WeakSet<EditorSession>();
+  function maskSummary(s:EditorSession):MaskSummary {
+    const cached=maskSummaries.get(s); if(cached?.revision===s.maskRevision) return cached.value;
+    if(!s.mask) return {has_mask:false,status:'ready',coverage_ratio:0,region_count:0,regions:[]};
+    if(!geometryJobs.has(s)) {
+      let finish!:()=>void;
+      const done=new Promise<void>(resolve=>{finish=resolve;});
+      const compute=()=>{
+        geometryJobs.delete(s);
+        if(!sessions.has(s.id)||disposed){finish();return;}
+        const revision=s.maskRevision, renderer=createMaskEditor(document.createElement('canvas'),()=>{});
+        try { if(s.mask) {renderer.restore(s.mask);maskSummaries.set(s,{revision,value:renderer.geometry()});} }
+        catch {maskSummaries.set(s,{revision,value:{has_mask:false,status:'error'}});}
+        finally {renderer.dispose();finish();}
+        emit();
+      };
+      const idle=typeof requestIdleCallback==='function';
+      const timer=idle?requestIdleCallback(compute,{timeout:200}):setTimeout(compute,16);
+      geometryJobs.set(s,{done,cancel:()=>{if(idle)cancelIdleCallback(timer);else clearTimeout(timer);finish();}});
+    }
+    return {has_mask:false,status:'pending'};
+  }
+  function configuration(s:EditorSession):EditConfiguration {
+    const {mode,chosen,strength,noise,focus,enhance,fields,characters,placement,naiReferences,director,options}=s;
+    return structuredClone({mode,chosen,strength,noise,focus,enhance,fields,characters,placement,naiReferences,director,options,
+      upscaleOpen:s===current?upscaleOpen:askPanels.get(s)?.upscaleOpen??false,directorOpen:s===current?directorOpen:askPanels.get(s)?.directorOpen??false});
+  }
+  function askSnapshot(id=current.id):EditDraftState|undefined {
+    const s=sessions.get(id);if(!s)return;
+    const v=s.versions.find(v=>v.id===s.baseId), viewing=s.versions.find(v=>v.id===s.viewId), config=configuration(s);
+    const catalog=models.length?models:drawing.snapshot().models;
+    const m=catalog.find(m=>m.id===config.chosen[config.upscaleOpen?'upscale':config.mode]);
+    const j=s===current?jobs[config.upscaleOpen?'upscale':'edit']:undefined;
+    return {sourceKey:s.sourceKey,recordIds:s.versions.map(v=>v.recordId),id:s.id,name:s.name,boardSeq:s.boardSeq,present:true,ready:!!v,baseId:s.baseId,viewId:s.viewId,maskRevision:s.maskRevision,
+      source:v?{width:v.width,height:v.height,bytes:v.blob.size,recordId:v.recordId}:null,sourceTag:v?qualifiedEditLabel(s,v):undefined,viewing:viewing?{width:viewing.width,height:viewing.height,bytes:viewing.blob.size,recordId:viewing.recordId}:null,config,nextCharacterId:s.nextCharacterId,
+      pricing:{sourceKey:canonical(m?[m.id,naiSourceKey(m),m.upstreamId]:null),configKey:j?.configKey??"",quoteAt:j?.quoteAt,quote:j?.quote?{status:"ready",quote:structuredClone(j.quote)}:undefined,account:m===quotaModel?naiAccountSnapshot(quota?.media.subscription):undefined,accountAt:m===quotaModel?quotaAt:undefined,referenceCosts:Object.fromEntries(catalog.map(m=>[m.id,services.references.cachedCost(s.naiReferences,m.id)]))},
+      models:structuredClone(catalog),samplers:[...samplers],mask:maskSummary(s),photopeaUsed:photopeaUsed.has(s),
+      blocked:preparing&&taskOwner===s?'正在准备生成，请稍后应用':s===current&&external||s.externalPending?'请先完成高级编辑回传':s===current&&maskPort?.isDrawing()?'请完成当前蒙版笔画':''};
+  }
   const saves = new Map<EditorVersion, Promise<void>>();
   let external: {
     id: string; context: string; owner: EditorSession; source: EditorVersion;
@@ -368,10 +418,11 @@ export function createEditor(
     models = [source.model, ...models.filter(m => !(m.id === source.model.id && m.connection === source.model.connection))];
     if (quotaSelection() === source.model) {
       quotaModel = source.model;
-      quota = source.quota;
+      quota = source.quota;quotaAt=Date.now();
     }
   }
   async function refreshQuota() {
+    if(draftPaused.has(current)) return;
     const m = quotaSelection();
     if (quotaModel !== m) {
       quotaModel = m;
@@ -452,6 +503,7 @@ export function createEditor(
   }
 
   function scheduleQuote(key: Job = "edit", delay = 400) {
+    if(draftPaused.has(current)) return;
     cancelQuote(key);
     const j = jobs[key],
       m = selected(target(key)),
@@ -484,7 +536,7 @@ export function createEditor(
         const source = await services.selectSource(p.model, controller.signal, p.payload);
         if (rev !== j.revision || busy || !open) return;
         applySource(source);
-        j.quote = source.quote;
+        j.quote = source.quote;j.quoteAt=Date.now();j.configKey=canonical(configuration(current));
         j.price = source.quote ? "" : "费用未知";
         if (source.insufficient) throw new Error("所有可用来源的额度均不足");
       } catch (e) {
@@ -505,6 +557,7 @@ export function createEditor(
     return { model: model.id, tool: "director", directorTool: settings.tool, ...directorSize(v), ...options };
   }
   function scheduleDirectorQuote(delay = 400) {
+    if(draftPaused.has(current)) return;
     cancelQuote("director");
     const j = jobs.director, m = directorModel(), v = viewed(), rev = j.revision;
     if (!open || !directorOpen || busy || preparing || reading || external || !m || !v || directorWarning() || services.data.phase !== "ready") { emit(); return; }
@@ -515,7 +568,7 @@ export function createEditor(
         const source = await services.selectSource(m, controller.signal, request);
         if (rev !== j.revision || !open || !directorOpen || busy) return;
         applySource(source);
-        j.quote = source.quote;
+        j.quote = source.quote;j.quoteAt=Date.now();j.configKey=canonical(configuration(current));
         if (source.insufficient) j.error = source.insufficient;
       } catch (e) { if (rev === j.revision && !controller.signal.aborted) j.error = failure(e); }
       if (rev === j.revision) emit();
@@ -523,6 +576,7 @@ export function createEditor(
     emit();
   }
   function changed(delay = 400) {
+    draftPaused.delete(current);
     current.updatedAt = Date.now();
     current.error = "";
     if (quotaModel !== quotaSelection()) void refreshQuota();
@@ -623,6 +677,7 @@ export function createEditor(
     if (notify) { s.maskRevision++; changed(); }
   }
   function beginExternalEdit() {
+    photopeaUsed.add(current);
     const v = viewed();
     if (!open || !v || locked() || reading || maskPort?.isDrawing()) throw new Error("请先完成当前编辑操作");
     maskPort?.save();
@@ -1023,7 +1078,8 @@ export function createEditor(
     maskPort?.save();
     cancelQuote("edit"); cancelQuote("upscale"); cancelQuote("director");
     ++readSequence; ++openSequence;
-    current = next; upscaleOpen = false; directorOpen = false; quota = null;
+    askPanels.set(current,{upscaleOpen,directorOpen});
+    current = next; upscaleOpen = askPanels.get(next)?.upscaleOpen??false; directorOpen = askPanels.get(next)?.directorOpen??false; quota = null;
     normalize(); emit(); requote(0); if (open) void refreshQuota();
     return true;
   }
@@ -1068,9 +1124,37 @@ export function createEditor(
     if (key === "edit" && current.mode === "inpaint" &&
         (current.maskFor !== current.baseId || !maskPort || maskPort.isDrawing() || !maskPort.getMask())) return false;
     const profile = profileFor(m.profileId || STANDARD_PROFILE_ID);
-    return !!jobs[key].quote || !profile.quote.supported && !profile.costCeiling;
+    return draftPaused.has(current) || !!jobs[key].quote || !profile.quote.supported && !profile.costCeiling;
   }
   return {
+    askSnapshot,
+    async insertAskBoard(target:EditDraftState,record:ImageRecord,origin:'image'|'chat'|'edit') {
+      if(sessions.has(target.id))throw new Error('目标编辑画板已存在');
+      const size=await validateEditImage(record.blob);
+      const s=session(target.id,origin,typeof record.params.chatConversationId==='string'?record.params.chatConversationId:undefined,nextBoard++);
+      const {upscaleOpen:_up,directorOpen:_dt,...config}=structuredClone(target.config);
+      Object.assign(s,config);s.name=target.name;s.sourceKey=`record:${record.id}`;s.provenance=imageOrigin(record.params);s.initialized=true;
+      sessions.set(s.id,s);draftPaused.add(s);askPanels.set(s,{upscaleOpen:_up,directorOpen:_dt});
+      try {const v=await addVersion(s,{kind:'source',sourceRecord:record,blob:record.blob,name:s.name,...size,parentId:0,params:record.params,sourceId:`record:${record.id}`});s.baseId=s.viewId=v.id;emit();}
+      catch(error){sessions.delete(s.id);for(const v of s.versions)URL.revokeObjectURL(v.url);throw error;}
+    },
+    removeAskBoard(id:string) {
+      const s=sessions.get(id);if(!s||s.versions.length!==1||s.maskRevision||photopeaUsed.has(s)||s.externalPending||taskOwner===s)return false;
+      if(current===s){const next=[...sessions.values()].find(b=>b!==s)??session(crypto.randomUUID(),'edit',undefined,nextBoard++);sessions.set(next.id,next);draftPaused.add(next);current=next;upscaleOpen=false;directorOpen=false;for(const key of ['edit','upscale','director'] as const)cancelQuote(key);}
+      sessions.delete(id);for(const v of s.versions)URL.revokeObjectURL(v.url);emit();return true;
+    },
+    gotoAskBoard(id:string) { if(switchBoard(id))router.switchWorkspace('edit'); },
+    writeAskDraft(id:string,before:EditConfiguration,after:EditConfiguration) {
+      const s=sessions.get(id),snapshot=askSnapshot(id);
+      if(!s||!snapshot)throw new Error('编辑画板已关闭');
+      if(snapshot.blocked)throw new Error(snapshot.blocked);
+      if(canonical(configuration(s))!==canonical(before))throw new Error('编辑配置已变化');
+      const {upscaleOpen:up,directorOpen:dt,...values}=structuredClone(after);
+      draftPaused.add(s);askPanels.set(s,{upscaleOpen:up,directorOpen:dt});Object.assign(s,values);s.nextCharacterId=Math.max(s.nextCharacterId,nextCharacterId(s.characters));s.updatedAt=Date.now();
+      if(s===current){cancelQuote('edit');cancelQuote('upscale');cancelQuote('director');for(const job of Object.values(jobs)){job.quote=null;job.price='';}upscaleOpen=up;directorOpen=dt;}
+      emit();
+    },
+    async prepareAsk() { for(const s of sessions.values()) maskSummary(s); await Promise.all([...geometryJobs.values()].map(job=>job.done)); },
     /** Metadata for HOME; raster coverage is sampled only after a committed mask revision. */
     pendingEdits() {
       return [...sessions.values()].flatMap(s => {
@@ -1453,7 +1537,8 @@ export function createEditor(
       if (value) scheduleQuote("upscale", 0);
       else cancelQuote("upscale");
     },
-    retry(key: Job) {
+    retry(key: Job, explicit = false) {
+      if (explicit) draftPaused.delete(current);
       scheduleQuote(key, 0);
     },
     remove(id: number) {
@@ -1491,6 +1576,7 @@ export function createEditor(
       }
     },
     dispose() {
+      for(const job of geometryJobs.values()) job.cancel(); geometryJobs.clear();
       disposed = true;
       taskAbort?.abort();
       catalogAbort?.abort();

@@ -4,6 +4,7 @@ import HomeHead from './HomeHead.vue';
 import HomeEmpty from './HomeEmpty.vue';
 import HomeImage from './HomeImage.vue';
 import AppIcon from '../shared/AppIcon.vue';
+import RepoLink from '../shared/RepoLink.vue';
 import { draftView } from '../ask/draft/view.ts';
 import { enterWithPicture } from './transition.ts';
 import { useAskPresentation } from '../ask/presentation.ts';
@@ -79,7 +80,7 @@ const leadDraft = computed(() => {
 });
 const ratio = (picture: HomePicture | null) => picture ? picture.width / picture.height : .684;
 const height = computed(() => Math.min(370, Math.max(330, viewport.value.height - 530)));
-const stacked = computed(() => !!lead.value && ratio(lead.value.face) * (height.value - 2) + 382 > width.value);
+const stacked = computed(() => !!lead.value && ratio(lead.value.face) * (height.value - 2) + 394 > width.value);
 const leadHeight = computed(() => stacked.value ? Math.min(Math.min(320, Math.max(220, viewport.value.height - 520)), Math.floor((width.value - 2) / ratio(lead.value?.face ?? null))) : height.value - 2);
 // Without a picture the stacked lead keeps a short watermark panel instead of an empty portrait.
 const faceSize = computed(() => stacked.value && !lead.value?.face ? { width: '100%', height: '160px' }
@@ -90,7 +91,7 @@ const others = computed(() => view.value.lines.filter(l => l !== lead.value && l
 const bodyMax = computed(() => others.value.length || stacked.value ? 400 : Math.max(400, Math.floor(width.value - 3 - leadHeight.value * ratio(lead.value?.face ?? null))));
 const recent = computed(() => {
   let used = 0;
-  return (lead.value?.recent ?? []).filter(p => { used += ratio(p) * thumbHeight.value + (used ? 8 : 0); return used <= bodyMax.value - 28; });
+  return (lead.value?.recent ?? []).filter(p => { used += ratio(p) * thumbHeight.value + (used ? 8 : 0); return used <= bodyMax.value - 40; });
 });
 const alone = computed(() => !others.value.length && !view.value.finals.length);
 const activeSlate = computed(() => slates.list.value.find(s => s.id === slates.activeId.value));
@@ -105,7 +106,7 @@ watch(() => view.value.finals, finals => { if (selected.value && !finals.some(f 
 watch(dock, clearDrop);
 </script>
 <template>
-  <div class="home-shell" :class="{ 'is-empty': welcome }" :data-ask="dock" :inert="dock === 'full'" :style="{ paddingRight: `${reserve}px` }" @dragenter="drag" @dragover="drag" @dragleave="drag" @drop="drop">
+  <div class="home-shell" :class="{ 'is-empty': welcome }" :data-ask="dock" :inert="dock === 'full'" :style="{ paddingRight: `${reserve}px`, '--home-reserve': `${reserve}px` }" @dragenter="drag" @dragover="drag" @dragleave="drag" @drop="drop">
   <main ref="root" class="home-page" :class="{ 'is-empty': welcome }" data-workspace-root="home" tabindex="-1">
     <HomeHead :empty="welcome" />
     <HomeEmpty v-if="welcome" :dropping="dropping" />
@@ -146,22 +147,29 @@ watch(dock, clearDrop);
         </button>
       </div>
     </section>
+    <footer class="home-footer"><RepoLink><AppIcon name="i-github" />hasheeper/koma-image</RepoLink></footer>
     <HomeImage v-if="selected" :record-id="selected" @close="selected = null" />
   </main>
   </div>
 </template>
 <style scoped>
-.home-shell { position: relative; isolation: isolate; min-height: 100dvh; }
-.home-shell::before, .home-shell::after { position: fixed; inset: 0; z-index: -1; content: ''; opacity: 0; pointer-events: none; transition: opacity var(--t3) var(--e); }
-.home-shell::before { background: radial-gradient(ellipse 880px 560px at 50% 40%, rgb(179 161 255 / .04), rgb(179 161 255 / .016) 45%, transparent 75%); }
-.home-shell::after { background: url('./grain.svg') repeat; background-size: 160px 160px; }
-.home-shell.is-empty::before { opacity: 1; }
-.home-shell.is-empty::after { opacity: .03; }
+.home-shell { position: relative; isolation: isolate; min-height: 100dvh; overflow: clip; }
+.home-shell::before, .home-shell::after { z-index: -1; content: ''; pointer-events: none; }
+/* With pictures the light falls from the top centre of the content column and scrolls away with the first screen; the empty page lights its question instead (HomeHead). */
+.home-shell::before { position: absolute; top: 0; right: var(--home-reserve, 0); left: 0; height: min(1040px, 115vh); background: radial-gradient(ellipse 62% 78% at 50% -6%, rgb(179 161 255 / .094), rgb(179 161 255 / .055) 20%, rgb(179 161 255 / .029) 40%, rgb(179 161 255 / .01) 66%, transparent 90%); transition: opacity var(--t3) var(--e); }
+.home-shell.is-empty::before { opacity: 0; }
+.home-shell::after { position: fixed; inset: 0; opacity: .03; background: url('./grain.svg') repeat; background-size: 160px 160px; }
 .home-page.is-empty { position: relative; display: grid; grid-template-rows: minmax(48px, 2fr) auto 32px auto minmax(48px, 3fr); padding: 32px 0 36px; }
 .home-shell[data-ask="full"] { visibility: hidden; transition: visibility 0s .52s; }
 :global(body:has(.home-shell[data-ask="full"])) { overflow: hidden; }
 .home-page { width: min(84%, 1080px); min-height: 100dvh; margin: 0 auto; padding: var(--sp-6) 0 72px; outline: none; }
 .home-section + .home-section { margin-top: var(--sp-6); }
+/* One quiet line closing the page: the source repository. The empty page pins it to the bottom of its grid. */
+.home-footer { display: flex; justify-content: center; margin-top: 64px; }
+.home-footer a { display: inline-flex; align-items: center; gap: 6px; color: var(--fg-3); font-size: var(--fz-xs); text-decoration: none; transition: color var(--t1) var(--e); }
+.home-footer a:hover { color: var(--fg); }
+.home-footer .ico { --ico: var(--ico-sm); }
+.home-page.is-empty .home-footer { grid-row: 5; align-self: end; margin-top: 0; }
 .home-section-head { display: flex; align-items: center; justify-content: space-between; gap: 12px; margin-bottom: 16px; }
 .home-section-head h2 { display: inline-flex; flex: none; align-items: center; gap: 10px; margin: 0; font-size: 18px; font-weight: var(--fw-semibold); line-height: 32px; }
 .home-count { display: inline-flex; align-items: center; justify-content: center; height: 22px; min-width: 22px; padding: 0 7px; color: var(--fg-2); margin-top: 2px; font: var(--fw-medium) var(--fz-xs)/1 var(--mono); background: var(--raised); border-radius: 11px; }
@@ -186,7 +194,7 @@ watch(dock, clearDrop);
 .text-face { display: grid; place-items: center; color: var(--line-2); background: var(--chrome); border: 1px solid var(--line); border-radius: var(--r3); }
 .text-face > svg { width: 80px; height: 80px; fill: currentColor; }
 /* The column hugs its content (title, recent row, button), so a line without recent pictures leaves no empty band. */
-.home-lead-body { display: flex; flex-direction: column; justify-content: space-between; gap: 16px; width: max-content; min-width: 200px; max-width: var(--body-max, 400px); padding: 6px 0 0 28px; }
+.home-lead-body { display: flex; flex-direction: column; justify-content: space-between; gap: 16px; width: max-content; min-width: 200px; max-width: var(--body-max, 400px); padding: 6px 0 0 40px; }
 /* Without recent pictures the text and button sit together at the bottom, so nothing is left hanging in the middle. */
 .home-lead-body.is-short { justify-content: flex-end; gap: var(--sp-5); }
 .home-lead-title { min-width: 0; }
@@ -210,6 +218,8 @@ watch(dock, clearDrop);
 .home-continue kbd { display: inline-grid; place-items: center; width: 22px; height: 20px; padding: 0; border: 0; box-shadow: none; background: color-mix(in srgb, var(--a-ink) 12%, transparent); color: var(--a-ink); }
 .home-continue .ico { --ico: 12px; } /* stylelint-disable-line declaration-property-value-allowed-list -- The approved HOME keycap uses a 12px Enter glyph inside its 22×20px cap. */
 .home-other-lines { display: flex; flex: none; gap: 16px; }
+/* The lead's own text column sits 40px from its picture, so the next card stands a little further off to keep the lead one group. */
+.home-lead + .home-other-lines { margin-left: 16px; }
 .home-line { border: 1px solid transparent; display: flex; flex: none; flex-direction: column; scroll-snap-align: start; text-align: left; transition: transform var(--t1) var(--e); }
 .home-line > img { flex: none; }
 .home-line:hover { transform: translateY(-1px); }
@@ -246,10 +256,9 @@ watch(dock, clearDrop);
   .home-count { height: 20px; min-width: 20px; font-size: var(--fz-2xs); }
   .home-slate { height: 28px; padding: 0 10px; }
 }
-@media (max-width: 560px) { .home-shell::before { background: radial-gradient(ellipse 480px 440px at 50% 36%, rgb(179 161 255 / .04), rgb(179 161 255 / .016) 45%, transparent 75%); } }
 @media (max-height: 640px) { .home-page.is-empty { grid-template-rows: minmax(48px, 1fr) auto 24px auto minmax(24px, 2fr); padding-bottom: 24px; } }
 @media (max-width: 400px) { .home-slate > i { display: none; } .home-section-head { gap: 6px; } }
-@media (prefers-reduced-motion: reduce) { .home-shell[data-ask="full"], .home-shell::before, .home-shell::after { transition: none; } .home-line, .home-print-caption { transition: none; } }
+@media (prefers-reduced-motion: reduce) { .home-shell[data-ask="full"], .home-shell::before { transition: none; } .home-line, .home-print-caption { transition: none; } }
 </style>
 
 <!-- View Transition pseudo-elements belong to the document, never a component scope. -->

@@ -91,11 +91,6 @@ async function open(path = "/#/image", options = {}) {
   });
   await page.goto(origin + path);
   await page.waitForSelector("[data-workspace-root]");
-  if (!options.keepStartup && !options.connections && !path.includes("/settings/")) {
-    await page.waitForSelector("#settingsPanel[open]");
-    await page.locator("#settingsPanel .set-back").click();
-    await page.waitForSelector("#settingsPanel[open]", { state: "hidden" });
-  }
   return { context, page, errors, requests };
 }
 async function clean(t) {
@@ -114,27 +109,16 @@ async function connectionAction(page, name, card = page.locator("#settingsPanel 
   await card.getByRole("button", { name: "更多操作", exact: true }).click();
   await page.locator(".conn-menu:popover-open").getByRole("menuitem", { name, exact: true }).click();
 }
-async function addConnection(page, encrypted = false) {
+async function addConnection(page, remember = false) {
   await settings(page);
-  await page.getByRole("button", { name: "添加连接", exact: true }).click();
+  await page.getByRole("button", { name: "配置供应商", exact: true }).click();
   await page.locator("#connectionName").fill("测试连接");
   await page.locator("#connectionUrl").fill("https://gateway.example.test");
-  await page.getByRole("button", { name: "添加", exact: true }).click();
-  await page.waitForSelector("#gate[open]");
-  await page.locator("#setupKey").fill("synthetic-key-123");
-  if (encrypted) {
-    await page.locator("#setupPass").fill("test-passphrase");
-    await page.locator("#setupPass2").fill("test-passphrase");
-  } else
-    await page.locator("#gate label").filter({ hasText: "不保存" }).click();
-  await page
-    .locator("#gate")
-    .getByRole("button", { name: "保存", exact: true })
-    .click();
-  await page.waitForSelector("#gate[open]", { state: "hidden" });
-  await page.waitForFunction(
-    () => document.querySelector(".conn-card .st")?.dataset.s === "ok",
-  );
+  await page.locator("#connectionKey").fill("synthetic-key-123");
+  await page.getByRole("checkbox", { name: "在此浏览器保存 Key" }).setChecked(remember);
+  await page.locator("dialog[open]:has(#connectionTitle)").getByRole("button", { name: "保存", exact: true }).click();
+  await page.waitForSelector("dialog[open]:has(#connectionTitle)", { state: "hidden" });
+  await page.waitForFunction(() => document.querySelector(".conn-card .st")?.dataset.s === "ok");
 }
 
 const startupConnection = {
@@ -147,21 +131,26 @@ const startupConnection = {
 };
 const successNotice = '.toast[data-tone="ok"]:has-text("已连接")';
 
-test("startup: empty configuration opens connections once, with no requests or Key prompt", async () => {
-  const t = await open("/", { keepStartup: true });
+test("startup: empty configuration preserves the workspace without setup prompts or requests", async () => {
+  const t = await open("/#/home");
   try {
     const { page } = t;
-    await page.waitForSelector("#settingsPanel[open]");
-    assert.match(page.url(), /settings\/connections$/);
-    assert.equal(await page.locator("#gate[open]").count(), 0);
-    assert.equal(t.requests.length, 0);
-    await page.locator("#settingsPanel .set-back").click();
-    await page.waitForSelector("#settingsPanel[open]", { state: "hidden" });
-    for (const hash of ["#/chat", "#/tags", "#/image"])
+    assert.match(page.url(), /#\/home$/);
+    for (const width of [320, 390, 768, 1440]) {
+      await page.setViewportSize({ width, height: 900 });
+      assert.equal(await page.locator("dialog[open]").count(), 0);
+      assert.ok(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth + 1));
+    }
+    await page.reload();
+    await page.waitForSelector('[data-workspace-root="home"]');
+    for (const hash of ["#/chat", "#/tags", "#/edit", "#/image"])
       await route(page, hash);
     await page.waitForSelector("#prompt");
     assert.equal(await page.locator("dialog[open]").count(), 0);
     assert.equal(t.requests.length, 0);
+    await settings(page);
+    assert.match(page.url(), /settings\/connections$/);
+    assert.equal(await page.locator("dialog[open] #connectionKey").count(), 0);
     await clean(t);
   } finally { await t.context.close(); }
 });
@@ -195,7 +184,7 @@ test("startup: restored Key automatically connects, progress is replaced by the 
     assert.equal(t.requests.length, 2, "one automatic catalog request per document");
     // A rename changes the config revision but must not announce a new connection.
     await settings(page);
-    await connectionAction(page, "编辑连接…");
+    await connectionAction(page, "配置供应商");
     await page.locator("#connectionName").fill("新名称");
     await page.keyboard.press("Enter");
     await page.waitForFunction(() =>
@@ -241,16 +230,23 @@ test("startup: incompatible connection reports failure; manual test shows progre
   } finally { release?.(); await t.context.close(); }
 });
 
-test("startup: saved URL without Key prompts setup, partial connections are reported, and backup stays accessible", async () => {
+test("startup: missing Keys never force setup; partial connections are reported and backup stays accessible", async () => {
   const t = await open("/", {
     connections: { startup: startupConnection },
   });
   try {
     const { page } = t;
-    await page.waitForSelector("#gate[open] #setupKey");
+    assert.equal(await page.locator("dialog[open]").count(), 0);
     assert.equal(t.requests.length, 0);
-    await page.getByRole("button", { name: "返回设置", exact: true }).click();
-    await page.waitForSelector("#settingsPanel[open]");
+    await page.reload();
+    await page.waitForSelector("[data-workspace-root]");
+    assert.equal(await page.locator("dialog[open]").count(), 0);
+    assert.equal(t.requests.length, 0);
+    await settings(page);
+    assert.equal(await page.locator("dialog[open] #connectionKey").count(), 0);
+    await connectionAction(page, "配置供应商");
+    await page.locator("dialog[open] #connectionKey").waitFor();
+    await page.locator("dialog[open]:has(#connectionTitle)").getByRole("button", { name: "取消", exact: true }).click();
     await page.locator("#settingsPanel .set-back").click();
     await page.waitForSelector("#settingsPanel[open]", { state: "hidden" });
     await page.evaluate(() => {
@@ -263,37 +259,32 @@ test("startup: saved URL without Key prompts setup, partial connections are repo
     });
     await page.reload();
     await page.waitForSelector('.toast[data-tone="warn"]:has-text("1 个待配置 Key")');
-    assert.equal(await page.locator("#gate[open]").count(), 0);
+    assert.equal(await page.locator("dialog[open]").count(), 0);
     assert.equal(t.requests.length, 1, "missing Key never reaches the network");
     await route(page, "#/image/settings/backup");
     await page.evaluate(() => sessionStorage.clear());
     await page.reload();
     await page.waitForSelector('#settingsPanel[open] button[aria-label="导出备份"]');
-    assert.equal(await page.locator("#gate[open]").count(), 0);
+    assert.equal(await page.locator("dialog[open]").count(), 1);
+    assert.equal(await page.locator("dialog[open] #connectionKey").count(), 0);
     assert.equal(t.requests.length, 1);
     await clean(t);
   } finally { await t.context.close(); }
 });
 
-test("startup: locked vault makes no requests and connects immediately after unlock", async () => {
+test("startup: remembered supplier Key reconnects without any password dialog after session reset", async () => {
   const t = await open();
   try {
     const { page } = t;
     await addConnection(page, true);
-    assert.match(await page.locator(".conn-card .connection-avatar use").getAttribute("href"), /#i-image$/);
     await page.locator("#settingsPanel .set-back").click();
-    await page.waitForSelector("#settingsPanel[open]", { state: "hidden" });
     await page.evaluate(() => sessionStorage.clear());
     const before = t.requests.length;
     await page.reload();
-    await page.waitForSelector("#gate[open] #unlockPass");
-    assert.equal(t.requests.length, before);
-    await page.locator("#unlockPass").fill("test-passphrase");
-    await page.locator("#gate").getByRole("button", { name: "解锁", exact: true }).click();
     await page.waitForSelector(successNotice);
-    assert.equal(await page.locator("#gate[open]").count(), 0);
+    assert.equal(await page.locator("dialog[open]").count(), 0);
     assert.equal(t.requests.length, before + 1);
-    assert.ok(t.requests.every((r) => r.method === "GET"));
+    assert.ok(t.requests.every(r => r.method === "GET"));
     await clean(t);
   } finally { await t.context.close(); }
 });
@@ -334,7 +325,7 @@ test("startup: changing the address during a check suppresses the obsolete resul
   } finally { release?.(); await t.context.close(); }
 });
 
-test("settings: empty network default, connection/key input, model source controls, persistence and encryption lock", async () => {
+test("settings: empty network default, connection/key input, model source controls, persistence and credential clearing", async () => {
   const t = await open();
   try {
     const { page } = t;
@@ -344,9 +335,9 @@ test("settings: empty network default, connection/key input, model source contro
     assert.ok(t.requests.every((r) => r.method === "GET"));
     assert.equal(
       await page.evaluate(() =>
-        localStorage.getItem("koma.vault.v2").includes("synthetic-key"),
+        localStorage.getItem("koma.credentials.v1").includes("synthetic-key"),
       ),
-      false,
+      true,
     );
     await page.locator("#settingsPanel .conn-models").click();
     await page.waitForSelector("#modelListDialog[open]");
@@ -372,33 +363,15 @@ test("settings: empty network default, connection/key input, model source contro
       .getByRole("button", { name: "添加 测试连接 来源", exact: true })
       .click();
     await page.getByRole("button", { name: "安全与备份", exact: true }).click();
-    await page.getByRole("button", { name: "立即锁定", exact: true }).click();
-    await page.waitForFunction(() => !document.querySelector("#gate").open);
-    assert.equal(
-      await page
-        .getByRole("button", { name: "导出备份", exact: true })
-        .isVisible(),
-      true,
-    );
-    await page.getByRole("button", { name: "解锁", exact: true }).click();
-    await page.waitForSelector("#gate[open]");
-    await page.locator("#unlockPass").fill("wrong");
-    await page
-      .locator("#gate")
-      .getByRole("button", { name: "解锁", exact: true })
-      .click();
-    await page.waitForFunction(() =>
-      document.querySelector("#gate .note").textContent.includes("不正确"),
-    );
-    await page.locator("#unlockPass").fill("test-passphrase");
-    await page
-      .locator("#gate")
-      .getByRole("button", { name: "解锁", exact: true })
-      .click();
-    await page.waitForSelector("#gate[open]", { state: "hidden" });
+    assert.equal(await page.getByRole("button", { name: "导出备份", exact: true }).isVisible(), true);
+    assert.equal(await page.getByText("修改口令", { exact: true }).count(), 0);
+    await page.getByRole("button", { name: "清除", exact: true }).click();
+    await page.locator("#confirmSheet").getByRole("button", { name: "清除", exact: true }).click();
+    await page.waitForFunction(() => Object.keys(JSON.parse(localStorage.getItem("koma.credentials.v1")).keys).length === 0);
     await page.reload();
     await page.waitForSelector("#settingsPanel[open]");
-    assert.equal(await page.locator("#gate[open]").count(), 0);
+    assert.equal(await page.locator("dialog[open]").count(), 1);
+    assert.equal(await page.locator("dialog[open] #connectionKey").count(), 0);
     await clean(t);
   } catch (e) {
     await t.page.screenshot({ path: `${output}/failure-settings.png` });
@@ -461,15 +434,17 @@ test("settings: source edits and sorting preserve lists, focus and catalogs; ref
     assert.equal(catalogs().length, before + 1);
     assert.ok(catalogs().at(-1).url.includes('/first/'));
     await page.getByRole("button", { name: "关闭", exact: true }).click();
-    await connectionAction(page, "编辑连接…", first);
+    await connectionAction(page, "配置供应商", first);
     await page.locator('#connectionName').fill('改名连接');
     await page.keyboard.press('Enter');
     await page.waitForFunction(() => [...document.querySelectorAll('.conn-name b')].some(el => el.textContent === '改名连接'));
     await settle();
     assert.equal(catalogs().length, before + 1, "a name edit is local presentation state");
-    await connectionAction(page, "编辑连接…", page.locator('.conn-card', { hasText: '改名连接' }));
+    await connectionAction(page, "配置供应商", page.locator('.conn-card', { hasText: '改名连接' }));
     await page.locator('#connectionUrl').fill('https://gateway.example.test/first-new');
+    await page.locator('#connectionKey').fill('synthetic-first-new');
     await page.keyboard.press('Enter');
+    await page.waitForSelector('dialog[open]:has(#connectionTitle)', { state: 'hidden' });
     await page.waitForFunction(() => [...document.querySelectorAll('.conn-card')].find(el => el.textContent.includes('改名连接'))?.querySelector('.st')?.dataset.s === 'ok');
     assert.ok(catalogs().slice(before + 1).length > 0);
     assert.ok(catalogs().slice(before + 1).every(r => r.url.includes('/first-new/')), "only the changed endpoint reloads");
@@ -477,25 +452,7 @@ test("settings: source edits and sorting preserve lists, focus and catalogs; ref
   } finally { await t.context.close(); }
 });
 
-// Reads the sealed Key table with this session's derived key, as the vault does.
-const vaultIds = (page) =>
-  page.evaluate(async () => {
-    const bytes = (text) => Uint8Array.from(atob(text), (c) => c.charCodeAt(0));
-    const record = JSON.parse(localStorage.getItem("koma.vault.v2"));
-    const key = await crypto.subtle.importKey(
-      "raw",
-      bytes(sessionStorage.getItem("koma.session.dk")),
-      "AES-GCM",
-      false,
-      ["decrypt"],
-    );
-    const plain = await crypto.subtle.decrypt(
-      { name: "AES-GCM", iv: bytes(record.iv) },
-      key,
-      bytes(record.ct),
-    );
-    return Object.keys(JSON.parse(new TextDecoder().decode(plain))).sort();
-  });
+const vaultIds = page => page.evaluate(() => Object.keys(JSON.parse(localStorage.getItem("koma.credentials.v1"))?.keys ?? {}).sort());
 const savedConnections = (page) =>
   page.evaluate(() =>
     Object.values(
@@ -510,7 +467,7 @@ test("settings: generating without a connection offers settings; connections ren
     await page.keyboard.press("Control+Enter");
     await page
       .locator(".toast")
-      .filter({ hasText: "请先配置连接并解锁 Key" })
+      .filter({ hasText: "请先配置供应商和 API Key" })
       .getByRole("button", { name: "设置", exact: true })
       .click();
     await page.waitForSelector("#settingsPanel[open]");
@@ -519,17 +476,12 @@ test("settings: generating without a connection offers settings; connections ren
       /settings\/connections/,
     );
     await addConnection(page, true);
-    await page.getByRole("button", { name: "添加连接", exact: true }).click();
+    await page.getByRole("button", { name: "配置供应商", exact: true }).click();
     await page.locator("#connectionName").fill("备用连接");
     await page.locator("#connectionUrl").fill("https://gateway.example.test");
-    await page.getByRole("button", { name: "添加", exact: true }).click();
-    await page.waitForSelector("#gate[open]");
-    await page.locator("#setupKey").fill("synthetic-key-456");
-    await page
-      .locator("#gate")
-      .getByRole("button", { name: "保存", exact: true })
-      .click();
-    await page.waitForSelector("#gate[open]", { state: "hidden" });
+    await page.locator("#connectionKey").fill("synthetic-key-456");
+    await page.locator("dialog[open]:has(#connectionTitle)").getByRole("button", { name: "保存", exact: true }).click();
+    await page.waitForSelector("dialog[open]:has(#connectionTitle)", { state: "hidden" });
     const [first, second] = await savedConnections(page);
     assert.deepEqual(
       await vaultIds(page),
@@ -538,8 +490,8 @@ test("settings: generating without a connection offers settings; connections ren
     const groups = page.locator("#settingsPanel .conn-card");
     assert.equal(await groups.count(), 2);
 
-    await connectionAction(page, "编辑连接…", groups.first());
-    assert.equal(await page.locator("#connectionTitle").textContent(), "编辑连接");
+    await connectionAction(page, "配置供应商", groups.first());
+    assert.equal(await page.locator("#connectionTitle").textContent(), "Koma Image");
     assert.equal(await page.locator("#connectionUrl").inputValue(), "https://gateway.example.test");
     await page.locator("#connectionName").fill("主连接");
     await page.keyboard.press("Enter");
@@ -551,7 +503,7 @@ test("settings: generating without a connection offers settings; connections ren
     );
     await page.waitForSelector(".modal[open] #connectionName", { state: "hidden" });
     // Escape cancels the form only; the settings page stays open and nothing is saved.
-    await connectionAction(page, "编辑连接…", groups.first());
+    await connectionAction(page, "配置供应商", groups.first());
     await page.locator("#connectionName").fill("不保存的名称");
     await page.keyboard.press("Escape");
     await page.waitForSelector(".modal[open] #connectionName", { state: "hidden" });
@@ -561,7 +513,7 @@ test("settings: generating without a connection offers settings; connections ren
     );
     assert.equal(await page.locator("#settingsPanel[open]").count(), 1);
 
-    await connectionAction(page, "删除连接", groups.nth(1));
+    await connectionAction(page, "删除供应商", groups.nth(1));
     await page.waitForSelector("#confirmSheet[open]");
     await page
       .locator("#confirmSheet")
@@ -581,27 +533,7 @@ test("settings: generating without a connection offers settings; connections ren
       await page.waitForTimeout(50);
     assert.deepEqual(await vaultIds(page), [first.credentialRef]);
 
-    await page.getByRole("button", { name: "安全与备份", exact: true }).click();
-    await page.getByRole("button", { name: "立即锁定", exact: true }).click();
-    await page.waitForFunction(() => !document.querySelector("#gate").open);
-    await page.locator(".set-nav button").filter({ hasText: "连接" }).click();
-    await connectionAction(page, "删除连接", groups.first());
-    assert.equal(await page.locator("#confirmSheet[open]").count(), 0);
-    await page
-      .locator(".toast")
-      .filter({ hasText: "请先解锁 Key，再删除连接" })
-      .getByRole("button", { name: "解锁", exact: true })
-      .click();
-    await page.waitForSelector("#gate[open]");
-    // The dismissed notice fades out inside the gate before it leaves.
-    await page.locator(".toast-action").waitFor({ state: "detached" });
-    await page.locator("#unlockPass").fill("test-passphrase");
-    await page
-      .locator("#gate")
-      .getByRole("button", { name: "解锁", exact: true })
-      .click();
-    await page.waitForSelector("#gate[open]", { state: "hidden" });
-    await connectionAction(page, "删除连接", groups.first());
+    await connectionAction(page, "删除供应商", groups.first());
     await page
       .locator("#confirmSheet")
       .getByRole("button", { name: "删除", exact: true })
@@ -616,6 +548,97 @@ test("settings: generating without a connection offers settings; connections ren
     await t.context.close();
     throw e;
   }
+});
+
+test("supplier dialog: compact responsive fields, validation, blank preservation, destination isolation and failed-save rollback", async () => {
+  const t = await open();
+  try {
+    const { page } = t;
+    await settings(page);
+    await page.getByRole("button", { name: "配置供应商", exact: true }).click();
+    const form = page.locator("dialog[open]:has(#connectionTitle)");
+    assert.equal(await form.locator('input[type="password"]').count(), 1);
+    assert.equal(await form.locator(".supplier-brand .brand-title").textContent(), "Koma Image");
+    assert.equal(await form.locator(".hint").count(), 0);
+    assert.equal(await form.getByText("配置供应商", { exact: true }).count(), 0);
+    assert.equal(await page.locator("dialog[open]").count(), 2);
+    for (const width of [320, 390, 768, 1440]) {
+      await page.setViewportSize({ width, height: 900 });
+      assert.ok(await form.evaluate(el => {
+        const r = el.getBoundingClientRect();
+        return r.left >= 0 && r.right <= innerWidth && el.scrollWidth <= el.clientWidth + 1;
+      }));
+      assert.ok(await form.getByRole("button", { name: "保存", exact: true }).isVisible());
+      assert.ok(await form.locator(".connection-secret").evaluate(el => {
+        const field = el.getBoundingClientRect(), button = el.querySelector("button").getBoundingClientRect();
+        return button.left >= field.left && button.right <= field.right && button.top >= field.top && button.bottom <= field.bottom;
+      }));
+      await page.screenshot({ path: `${output}/supplier-${width}.png` });
+    }
+    await page.locator("#connectionName").fill("统一配置");
+    await page.locator("#connectionUrl").fill("https://gateway.example.test/original");
+    await form.getByRole("button", { name: "保存", exact: true }).click();
+    await page.waitForSelector('.modal-error:has-text("请填写 API Key")');
+    assert.equal(t.requests.length, 0);
+    assert.equal(await page.locator(".conn-card").count(), 0);
+    await page.locator("#connectionKey").fill("synthetic-old");
+    await form.getByRole("button", { name: "显示 API Key", exact: true }).click();
+    assert.equal(await page.locator("#connectionKey").getAttribute("type"), "text");
+    assert.equal(await page.locator("#connectionKey").inputValue(), "synthetic-old");
+    await form.getByRole("button", { name: "隐藏 API Key", exact: true }).click();
+    assert.equal(await page.locator("#connectionKey").getAttribute("type"), "password");
+    await form.getByRole("button", { name: "保存", exact: true }).click();
+    await form.waitFor({ state: "hidden" });
+    await page.waitForFunction(() => document.querySelector('.conn-card .st')?.dataset.s === "ok");
+    const original = (await savedConnections(page))[0];
+    await connectionAction(page, "配置供应商");
+    assert.equal(await page.locator("#connectionKey").getAttribute("type"), "password");
+    assert.equal(await page.locator("#connectionKey").inputValue(), "");
+    await form.getByRole("button", { name: "显示 API Key", exact: true }).click();
+    assert.equal(await page.locator("#connectionKey").inputValue(), "synthetic-old");
+    await form.getByRole("button", { name: "保存", exact: true }).click();
+    await form.waitFor({ state: "hidden" });
+    assert.equal((await savedConnections(page))[0].credentialRef, original.credentialRef);
+    await connectionAction(page, "配置供应商");
+    assert.equal(await page.locator("#connectionKey").inputValue(), "");
+    await form.getByRole("button", { name: "显示 API Key", exact: true }).click();
+    assert.equal(await page.locator("#connectionKey").inputValue(), "synthetic-old");
+    await page.locator("#connectionUrl").fill("https://gateway.example.test/new");
+    await form.getByRole("button", { name: "保存", exact: true }).click();
+    await page.waitForSelector('.modal-error:has-text("重新填写")');
+    assert.deepEqual((await savedConnections(page))[0], original);
+    assert.ok(t.requests.every(r => !r.url.includes("/new/")));
+    await page.locator("#connectionKey").fill("synthetic-new");
+    await page.evaluate(() => {
+      const set = Storage.prototype.setItem;
+      Storage.prototype.setItem = function(key, value) {
+        if (this === localStorage && key === "koma.routing.v1") {
+          Storage.prototype.setItem = set;
+          throw new Error("synthetic routing write failed");
+        }
+        return set.call(this, key, value);
+      };
+    });
+    await form.getByRole("button", { name: "保存", exact: true }).click();
+    await page.waitForSelector('.modal-error:has-text("synthetic routing write failed")');
+    assert.deepEqual((await savedConnections(page))[0], original);
+    assert.deepEqual(await vaultIds(page), [original.credentialRef]);
+    assert.ok(t.requests.every(r => r.auth !== "Bearer synthetic-new"));
+    await form.getByRole("button", { name: "保存", exact: true }).click();
+    await form.waitFor({ state: "hidden" });
+    await page.waitForFunction(() => document.querySelector('.conn-card .conn-meta')?.textContent.includes("/new"));
+    await page.waitForFunction(() => document.querySelector('.conn-card .st')?.dataset.s === "ok");
+    assert.ok(t.requests.some(r => r.url.includes("/new/") && r.auth === "Bearer synthetic-new"));
+    assert.ok(t.requests.every(r => !r.url.includes("/original/") || r.auth !== "Bearer synthetic-new"));
+    assert.equal(await page.locator("#connectionKey").inputValue(), "");
+    await connectionAction(page, "配置供应商");
+    await page.locator("#connectionName").fill("仅改名");
+    await form.getByRole("button", { name: "保存", exact: true }).click();
+    await form.waitFor({ state: "hidden" });
+    assert.equal((await savedConnections(page))[0].name, "仅改名");
+    assert.deepEqual(await vaultIds(page), [(await savedConnections(page))[0].credentialRef]);
+    await clean(t);
+  } finally { await t.context.close(); }
 });
 
 test("dictionary and prompt: weighted handoff once, picker toggle, highlight, autocomplete, IME and unload on disable", async () => {

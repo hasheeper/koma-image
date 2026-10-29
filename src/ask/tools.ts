@@ -1,3 +1,4 @@
+import { draftSchema } from "./draft/schema.ts";
 import { isPictureId } from "./ids.ts";
 import type { AskImage, AskText, AskTool } from "./messages.ts";
 import type { Picture } from "./library.ts";
@@ -32,7 +33,7 @@ export interface ToolContext {
   /** Set by「仅发元数据重试」: visual tools answer with an error this turn. */
   readonly metadataOnly: boolean;
   /** Full form text on demand; the initial snapshot is the draft base. */
-  readonly state: (scope: "initial" | "latest", boardId?: string) => { readonly text: string; readonly images: number };
+  readonly state: (scope: "initial" | "latest", boardId?: string, editBoardId?: string) => { readonly text: string; readonly images: number } | Promise<{ readonly text: string; readonly images: number }>;
   readonly library?: readonly Picture[];
   readonly vision?: Vision;
   readonly visual?: VisionContext;
@@ -43,6 +44,7 @@ export interface ToolContext {
   readonly chatContext?: unknown;
   readonly recall?: (input: Readonly<Record<string, unknown>>) => unknown;
   readonly readSlate?: (scope: "initial" | "latest") => unknown;
+  readonly checkNaiInput?: (input: Readonly<Record<string, unknown>>) => Promise<unknown>;
   readonly readRef?: (input: Readonly<Record<string, unknown>>) => Promise<ToolOutcome>;
 }
 export interface ToolEntry {
@@ -64,15 +66,16 @@ const getState: ToolEntry = {
     name: "get_state",
     description:
       "活动画板完整词文已随初始状态提供。按需读取其他画板（board_id）以对比；scope 默认 initial 为本轮冻结数据，仅确认外部最新改动用 latest。读取其他板不改变草稿基底。历史保持原索引，不扩张本轮可访问图片集合。",
-    schema: { type: "object", properties: { scope: { type: "string", enum: ["initial", "latest"] }, board_id: { type: "string" }, include_slate: { type: "boolean", description: "附带当前任务板的完整配方、描述、妥协记录及绑定元信息；默认只有摘要" } }, additionalProperties: false },
+    schema: { type: "object", properties: { scope: { type: "string", enum: ["initial", "latest"] }, board_id: { type: "string" }, edit_board_id: { type: "string", description: "读取 EDIT 画板，与 board_id 互斥" }, include_slate: { type: "boolean", description: "附带当前任务板的完整配方、描述、妥协记录及绑定元信息；默认只有摘要" } }, additionalProperties: false },
   },
   verb: "读取",
   object: () => "工作台",
-  run(input, context) {
+  async run(input, context) {
     const scope = input.scope ?? "initial";
     if (scope !== "initial" && scope !== "latest") throw new Error("scope 需为 initial 或 latest");
     if (input.board_id !== undefined && (typeof input.board_id !== "string" || !input.board_id.trim())) throw new Error("board_id 无效");
-    const state = context.state(scope, input.board_id as string | undefined);
+    if(input.edit_board_id!==undefined&&(typeof input.edit_board_id!=='string'||!input.edit_board_id.trim()||input.board_id))throw new Error('edit_board_id 无效或与 board_id 冲突');
+    const state = await context.state(scope, input.board_id as string | undefined,input.edit_board_id as string|undefined);
     return {
       content: [{ type: "text", text: state.text }, ...(input.include_slate === true ? [{ type: "text" as const, text: dataBlock(canonical({ active_slate: context.readSlate?.(scope) ?? context.draftBase?.slate ?? null })) }] : [])],
       stat: `${state.images} 张历史`,
@@ -221,7 +224,12 @@ const readRef: ToolEntry = {
     return context.readRef(input);
   },
 };
+const checkNaiInput: ToolEntry = {
+  tool:{ name:'check_nai_input',description:'用本轮冻结状态检查 NAI 候选修改：基础与启用角色按正负方向合计 token 与 Text 字符，返回能力、生效值和只读费用。不修改表单、不创建草稿、不请求报价或生成。steps 为空检查当前输入。',schema:schema({base_hash:{type:'string'},steps:{type:'array',maxItems:12,items:{anyOf:draftSchema.properties.steps.items.anyOf.filter(s=>s.properties.kind.enum.some(k=>['prompt_patch','params_patch','character_edit','restore_partial'].includes(k)))}}},['base_hash']) },
+  verb:'检查',object:()=> 'NAI 输入',
+  async run(input,context) { if (!context.checkNaiInput) throw new Error('本轮输入检查不可用'); return reply(await context.checkNaiInput(input),'预算与能力'); },
+};
 /** Only read ports enter these tools; no generating or form-writing service. */
 export function createTools(): ToolRegistry {
-  return new Map([getState, searchHistory, readMeta, diffMeta, viewImage, viewSheet, searchTags, readChat, readModelManual, proposeDraft, readTurn, readRef].map((entry) => [entry.tool.name, entry]));
+  return new Map([getState, checkNaiInput, searchHistory, readMeta, diffMeta, viewImage, viewSheet, searchTags, readChat, readModelManual, proposeDraft, readTurn, readRef].map((entry) => [entry.tool.name, entry]));
 }

@@ -56,7 +56,7 @@ test('EDIT boards isolate same-size masks, fields and versions; reopen restores 
   assert.equal(await page.locator('.home-continue').innerText().then(v=>v.includes('继续编辑')), true);
   await page.locator('.home-continue').click(); await page.waitForURL('**/#/edit');
   assert.equal(await page.evaluate(() => editor.session.id===boardA),true);
-  assert.equal(await page.locator('#askIsland').isVisible(),false);
+  assert.equal(await page.locator('#askIsland').isVisible(),true);
   for (const width of [320,390,768,1440]) {
     await page.setViewportSize({width,height:900});
     await page.evaluate(()=>new Promise(r=>requestAnimationFrame(()=>requestAnimationFrame(r))));

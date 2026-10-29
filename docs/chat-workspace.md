@@ -1,6 +1,6 @@
 # CHAT 对话工作区
 
-更新：2026-10-28。描述当前会话、上下文、版本与图片交接；编辑画板另见[EDIT 工作区](edit-workspace.md)，历史证据见[归档](archive/README.md)。费用、能力和可用工具按 Profile 判断，不能用标准网关规则推断原生协议行为。
+更新：2026-10-29。描述当前会话、上下文、版本与图片交接；编辑画板另见[EDIT 工作区](edit-workspace.md)，历史证据见[归档](archive/README.md)。费用、能力和可用工具按 Profile 判断，不能用标准网关规则推断原生协议行为。
 
 ## 会话与上下文
 
@@ -31,3 +31,7 @@ ASK 的 `get_chat_context` 只读取发送时冻结的当前分支；`#cN.M` 读
 标准网关和两种 ASK 推理协议可使用本地环境变量代理；OpenAI Images／Gemini 原生／NovelAI 官方目前为浏览器直连。原生协议不提供预报价时保留未知费用状态，生成按钮暂不显示费用标签，工具仍受模型和协议能力约束。见[发布说明](release-guide.md)及[图像协议](native-image-protocols.md)。
 
 ASK 对多图版本优先显示字母尾缀，如 `#c2.1a/#c2.1b`；旧数字尾缀仍可输入，无尾缀指第一张图。每轮冻结会话／轮次／版本／资产身份，切分支不重解旧回复；原图实体与收藏／EDIT 位置互通，参数仍归具体操作记录。见[图片身份](image-identity.md)。
+
+## ASK 的 EDIT 交接
+
+chat_handoff 可将本轮 #e 原图经既有 CHAT 资产管道持久保存，确认后定位新会话但不发送。原字节共享实体；fitReference 转换字节后生成新实体，并保留冻结父记录／实体／作用域和 reference-fit 来源。刷新不影响已保存参考，也不会重解旧编辑短码。反向 edit_handoff 可从 CHAT 图创建或复用编辑画板，不自动跳转、缩放或请求生成；详见 [ASK × EDIT](ask/ask-edit.md)。

@@ -1,3 +1,4 @@
+import type { EditDraftState, EditConfiguration } from "../../domain/edit-draft.ts";
 import type { FileContext, FileStep, DraftFile } from "./files.ts";
 import type { Slate, SlateChange } from "../../slate/model.ts";
 import type { SlateStep } from "../../slate/edit.ts";
@@ -8,8 +9,9 @@ import type { WorkspaceId } from "../../app/routes.ts";
 import type { ChatSelection } from "../../domain/conversation.ts";
 import type { DrawingBoard, DrawingForm } from "../../domain/drawing.ts";
 import type { CatalogModel } from "../../domain/catalog.ts";
+import type { Fields } from "../../storage/records.ts";
 
-export type TextTarget = "image.prompt" | "image.negative" | "chat.composer" | `image.char.c${number}.${"prompt" | "negative"}`;
+export type TextTarget = `edit.${"prompt"|"negative"}` | `edit.char.c${number}.${"prompt"|"negative"}` | "image.prompt" | "image.negative" | "chat.composer" | `image.char.c${number}.${"prompt" | "negative"}`;
 export type TextMode = "replace" | "before" | "after" | "append" | "rewrite";
 export const restoreKeys = ["prompt", "negative_prompt", "model", "width", "height", "steps", "scale", "cfg", "cfgRescale", "noiseSchedule", "varietyPlus", "naiMode", "complexity", "qualityPreset", "negativePreset", "transparentBg", "sampler", "seed", "batchCount", "characters"] as const;
 export type RestoreKey = typeof restoreKeys[number];
@@ -36,6 +38,7 @@ export interface BranchStep {
 }
 /** A serializable reference; the Blob is read from IMAGE or CHAT only when writing. */
 export interface HandoffImage {
+  readonly binding?: import("../../domain/image-identity.ts").ImageTagBinding;
   readonly label: string;
   readonly source: "history" | "favorites" | "chat" | "edit";
   /** Drawing record ID for `#h`/`#f`, CHAT asset ID for `#c`. */
@@ -68,6 +71,8 @@ export interface CharacterStep {
   readonly placement?: "auto" | "manual";
 }
 export interface DraftState {
+  readonly edit?: EditDraftState;
+  readonly editBoards?: readonly EditDraftState[];
   readonly fileContext?: FileContext;
   readonly slate?: Slate | null;
   readonly boardId?: string;
@@ -85,7 +90,13 @@ export interface DraftState {
   readonly samplers: string[];
   readonly samplersByModel?: Readonly<Record<string, readonly string[]>>;
 }
+export interface EditConfigStep {readonly kind:"edit_config";readonly params:Readonly<Record<string,unknown>>}
+export interface DirectorStep {readonly kind:"director_patch";readonly tool:string;readonly emotion?:string;readonly defry?:number;readonly prompt?:string}
+export interface EditHandoff { readonly image:HandoffImage; readonly target:EditDraftState; readonly created:boolean; readonly proposal:Draft; readonly params:Readonly<Fields>; readonly origin:"image"|"chat"|"edit" }
 export interface Draft {
+  readonly editHandoff?: EditHandoff;
+  readonly target?: "edit";
+  readonly synthetic?: boolean;
   readonly external?: ExternalOrigin;
   readonly title: string;
   /** Present only when this proposal targets a named new IMAGE board. */
@@ -93,7 +104,7 @@ export interface Draft {
   readonly baseHash: string;
   /** Original request, reused by the explicit “重新提议” action. */
   readonly question: string;
-  readonly steps: readonly (FileStep | SlateStep | ParameterStep | TextStep | RestoreStep | BranchStep | CharacterStep | HandoffStep)[];
+  readonly steps: readonly (EditConfigStep | DirectorStep | FileStep | SlateStep | ParameterStep | TextStep | RestoreStep | BranchStep | CharacterStep | HandoffStep)[];
   readonly base: DraftState;
 }
 export type Field = "composer" | keyof DrawingForm;
@@ -116,6 +127,9 @@ export interface CheckedStep {
   readonly suffix?: string;
 }
 export interface DraftPlan {
+  readonly editSourceTag?:string;
+  readonly editHandoff?: EditHandoff;
+  readonly edit?: {id:string;before:EditConfiguration;after:EditConfiguration;baseId:number;maskRevision:number};
   readonly files?: readonly DraftFile[];
   readonly slate?: SlateChange;
   readonly boardId?: string;
@@ -126,7 +140,7 @@ export interface DraftPlan {
   /** Enabled handoff content; writing always opens a new CHAT conversation. */
   readonly handoff?: { readonly model: string; readonly options: Readonly<Record<string, string>>; readonly text: string; readonly images: readonly HandoffImage[] };
   readonly title: string;
-  readonly workspace: "image" | "chat";
+  readonly workspace: "image" | "chat" | "edit";
   readonly conversationId: string;
   readonly steps: readonly CheckedStep[];
   readonly changes: readonly Change[];
@@ -134,6 +148,8 @@ export interface DraftPlan {
   readonly fingerprint: string;
 }
 export interface ValidateOptions {
+  /** Internal adapter: EDIT source geometry is validated by its own rules. */
+  readonly editing?: boolean;
   readonly off: ReadonlySet<string>;
   /** Live availability of a handoff image; unknown counts as available. */
   readonly has?: (image: HandoffImage) => boolean;

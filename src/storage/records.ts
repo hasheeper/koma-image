@@ -62,6 +62,7 @@ export interface ConversationRecord {
   updatedAt: number;
 }
 export interface AssetRecord {
+  lineage?: import("../domain/image-identity.ts").ImageLineage;
   entity_key?: string;
   id: string;
   name: string;

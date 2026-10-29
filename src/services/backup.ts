@@ -236,6 +236,7 @@ export function createBackupService({
           assets: stored.assets.map((r, i) => ({
             id: r.id,
             name: r.name,
+            lineage:r.lineage,
             origin: r.origin,
             width: r.width,
             height: r.height,

@@ -34,6 +34,9 @@ export interface DigestForm {
   readonly scale: number;
   readonly cfg: number | null;
   readonly cfgRescale?: number;
+  readonly varietyPlus?: boolean;
+  readonly noiseSchedule?: string;
+  readonly transparentBg?: boolean;
   readonly naiMode?: string;
   readonly complexity?: string;
   readonly qualityPreset?: string;
@@ -157,7 +160,7 @@ export function buildDigest(input: DigestInput, _options: { readonly formText?: 
   if (input.generation.error) generation.error = input.generation.error;
   const base = workspaceHash(form, input.composer, input.boardId);
   const state: Record<string, unknown> = {
-    v: 6,
+    v: 7,
     ...(input.askTurnId ? { ask_turn_id: input.askTurnId } : {}),
     workspace: input.workspace,
     anchor: input.anchor,
@@ -174,6 +177,7 @@ export function buildDigest(input: DigestInput, _options: { readonly formText?: 
         steps: form.steps,
         scale: form.scale,
         cfgRescale: form.cfgRescale ?? 0,
+        varietyPlus: form.varietyPlus ?? false, noiseSchedule: form.noiseSchedule ?? "auto", transparentBg: form.transparentBg ?? false,
         naiMode: form.naiMode ?? "anime",
         complexity: form.complexity ?? "none",
         qualityPreset: form.qualityPreset ?? "none",

@@ -130,7 +130,7 @@
   --fz-md:  15px;  /* prompt, primary action */
   --fz-lg:  18px;  /* section titles */
   --fz-xl:  22px;  /* modal titles */
-  --fz-2xl: 28px;  /* key gate brand */
+  --fz-2xl: 28px;
 
   /* Four named weights; the rounded UI family uses static 400/500/700.
      Its 600 role maps to Bold, as declared in config/fonts.json. */

@@ -1,6 +1,6 @@
 # HOME HM1 数据基础核验
 
-日期：2026-10-28。基于 `codex/ask-chat-handoff` 的本地工作区，HEAD 为 `1fd1be3`，本轮未提交、推送或发布。工作区还包含此前的 NAI／EDIT／Photopea 改动，本记录仅说明 HM1 范围。
+日期：2026-10-28。基于 `codex/ask-chat-handoff` 的本地工作区，HEAD 为 `a537b53`，本轮未提交、推送或发布。工作区还包含此前的 NAI／EDIT／Photopea 改动，本记录仅说明 HM1 范围。
 
 ## 范围与确认
 

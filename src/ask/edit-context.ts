@@ -49,7 +49,7 @@ export function editContext(editor: Editor | undefined, pictures: readonly Pictu
         id: qualifiedEditLabel(b,v), local_id: editLabel(v), record_id: v.recordId, entity_key:v.entity_key,
         parent: b.versions.find(p => p.id===v.parentId) ? qualifiedEditLabel(b,b.versions.find(p=>p.id===v.parentId)!) : null,
         lineage: v.lineage ?? null, origin: p?.origins.find(o=>o.source==="edit" && o.boardId===b.id)?.origin ?? null, origin_id: b.versions[0]?.sourceId ?? null,
-        width:v.width,height:v.height,tool:v.params?.tool ?? v.mode ?? "source",variant:v.director?.variant ?? null,
+        width:v.width,height:v.height,via:v.lineage?.tool_detail??v.lineage?.via??v.mode??"init",tool:v.params?.tool ?? v.mode ?? "source",variant:v.director?.variant ?? null,
         ...(typeof v.params?.seed === "number" ? {seed:v.params.seed} : {}),
       }; }) })) };
 }
@@ -57,4 +57,22 @@ export function editContext(editor: Editor | undefined, pictures: readonly Pictu
 export function bindPictures(pictures: readonly Picture[], scopes: PictureScopes): Picture[] {
   const refs=freezePictureRefs(pictures,scopes);
   return pictures.map(p=>({...p, bindings:Object.fromEntries(p.aliases.map(tag=>[tag,refs[tag]]))}));
+}
+
+/** Internal ASK projection. The external bridge keeps its existing read-only index. */
+export function editWorkspaceContext(editor: Editor | undefined, pictures: readonly Picture[], fullBoardId?:string) {
+  const all=editContext(editor,pictures);
+  if(!all||!editor)return null;
+  const selected=all.boards.find(b=>b.id===(fullBoardId??all.active_board_id));
+  const versions=selected?.versions??[];
+  const keep=new Set(versions.slice(-12).map(v=>v.id));
+  for(const id of [versions[0]?.id,selected?.base,selected?.selected])if(id)keep.add(id);
+  const groups=new Set(versions.filter(v=>keep.has(v.id)).map(v=>v.id.replace(/[a-z]$/,'')));
+  const visible=fullBoardId?versions:versions.filter(v=>keep.has(v.id)||groups.has(v.id.replace(/[a-z]$/,'')));
+  const byActivity=new Map(editor.boards().map(b=>[b.id,b.updatedAt]));
+  const boards=[...all.boards].sort((a,b)=>(byActivity.get(b.id)??0)-(byActivity.get(a.id)??0)).slice(0,8);
+  return {active_board_id:selected?.id??all.active_board_id,board_seq:selected?.board_seq??all.board_seq,board_name:selected?.name,
+    ready:!!versions.length,source_version:versions.find(v=>v.id===selected?.base),viewing_version:versions.find(v=>v.id===selected?.selected),
+    versions:visible,versions_truncated:visible.length<versions.length,
+    boards:boards.map(b=>({board_id:b.id,board_seq:b.board_seq,name:b.name,latest_id:b.versions.at(-1)?.id,version_count:b.versions.length,origin:b.versions[0]?.origin})),boards_truncated:boards.length<all.boards.length};
 }

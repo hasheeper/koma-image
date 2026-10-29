@@ -1,5 +1,5 @@
 import type { PngVibes, ReferenceAsset, VibeEncoding, NaiReference, ReferenceKind, ReferencePlan, PreparedReferences } from "../domain/nai-references.ts";
-import { encodingKey, encodingGroup, referenceModel, referenceStrengths } from "../domain/nai-references.ts";
+import { encodingKey, encodingGroup, referenceModel, referenceStrengths, referencePlan, referenceSurcharge } from "../domain/nai-references.ts";
 import { blobBase64, base64Blob, sha256, referenceBitmap, preciseImage, imageBase64 } from "../native/reference-images.ts";
 import { object } from "../domain/value.ts";
 import { makeThumb } from "./image-response.ts";
@@ -59,6 +59,23 @@ export function createNaiReferences(databases: () => Databases, data: DataLease)
     } },
     original: (id: string) => !!assets.get(id)?.blob,
     pending: (r: NaiReference, model: string) => !encodings.has(encodingKey(model,r.assetId,r.information)),
+    /** Synchronous cache read for ASK. Never loads storage or starts encoding. */
+    cachedCost(config: import("../domain/nai-references.ts").NaiReferences, model: string): number | undefined {
+      let plan: ReferencePlan | undefined;
+      try { plan = referencePlan(config); } catch { return; }
+      if (!plan) return 0;
+      if (!loaded) return;
+      const missing = new Set<string>();
+      for (const r of plan.items) {
+        const a = assets.get(r.assetId), key = encodingKey(model, r.assetId, r.information);
+        if (!a || (plan.kind === "precise" && !a.blob)) return;
+        if (plan.kind === "vibe" && !encodings.has(key)) {
+          if (!a.blob) return;
+          missing.add(key);
+        }
+      }
+      return referenceSurcharge(plan) + missing.size * 2;
+    },
     async pendingCost(plan: ReferencePlan, model: string) {
       await ready(); if(plan.kind!=="vibe")return 0;
       const tx=databases().transaction(names.databases.favorites,"vibeEncodings");

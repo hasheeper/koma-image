@@ -313,6 +313,7 @@ export function validateBackupManifest(value: unknown): BackupManifest {
       width: row.width,
       height: row.height,
       image: imageReference(row.image, "assets"),
+      ...(row.lineage ? {lineage:checkedLineage(row.lineage)} : {}),
     } as AssetManifest);
   }
   const conversations = m.conversations.map(validateConversation),

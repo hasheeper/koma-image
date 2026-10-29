@@ -1,6 +1,6 @@
 # ASK 检索与状态
 
-更新：2026-10-28。R1–R4 已完成本地模拟收口。本文维护当前快照、历史检索、词典查询与消歧；勘探差异、原修订补丁与阶段证据见[归档](../archive/2026-10-25/README.md)。现行决策以[ASK 维护入口](ask-implementation-plan.md)为准。
+更新：2026-10-29。R1–R4 已完成本地模拟收口。本文维护当前快照、历史检索、词典查询与消歧；勘探差异、原修订补丁与阶段证据见[归档](../archive/2026-10-25/README.md)。现行决策以[ASK 维护入口](ask-implementation-plan.md)为准。
 
 ## 1. 状态与展示边界
 
@@ -14,16 +14,20 @@
 
 “提示词 L0”指静态宪章；“状态摘要 L0”指每轮 user 消息中的 `<workspace_state>`。六维指导属于前者，原始表单属于后者。不得为了瘦身把动态表单移进 System。
 
-当前摘要版本为 `v:6`，契约如下：
+当前摘要版本为 `v:7`，契约如下：
 
 - 删除 `image.prompt_sections`，不换名输出 `segments` 或另一份全文切片。
 - 活动画板始终 `image.form.text_included=true`，直接包含完整 prompt/negative 和每角色 id/on/prompt/negative/position；其他画板只给目录。无锚点时 `image.current` 仅含 ID，history 仅 mode/count/latest_id，favorites 仅 count，不预载历史文本、差异或聚类。显式历史／收藏锚点保留模式 A；附件或 CHAT ID 不隐式展开 IMAGE 历史。
-- 根层 `base_hash` 覆盖源画板 ID、完整生成表单与 CHAT composer；不另加 form 内 hash。草稿继续绑定发送时的源板与快照。
+- 根层 `base_hash` 在 IMAGE 覆盖源画板 ID、完整生成表单与 CHAT composer，在 EDIT 覆盖编辑板 ID、底图、配置与蒙版修订；不另加 form 内 hash。草稿继续绑定发送时的源板与快照。
 - 根层 `image_input` 包含本轮冻结的图片输入许可 `enabled` 和模式 `on_demand`／`metadata_only`。仅元数据模式明确视觉工具与资料图片读取不可用；`get_state({scope:"latest"})` 仍保留本轮限制，不随全局开关变化。该字段不进入 `base_hash`，不改变静态工具定义。
 - 根层 `refs_index` 只包含挂载资料的可用性、文件相对路径／大小和截断信息；不含正文或图片，不进入画板 `base_hash`。`read_ref({path, offset?})` 在本轮冻结目录清单内按需读取，完整相对路径用于同名消歧，文本按 `next_offset` 续读。同轮固定首次读取版本，后续轮次可重新读取；具体预算和生命周期见[共享资料](bridge.md#共享资料与按需读取)。
 - 每个工作区都附 `chat_model`：目录就绪时为当前 CHAT 模型的显示名、`max_images`、可写尺寸项 `writable`（`size`／`aspect_ratio`／`image_size` 中模型声明者的当前值与可选值）与只读项 `read_only`（`quality`）；未就绪为 `{ready:false}`。不含连接、上游模型 ID 或其他设置，不进入 `base_hash`；草稿本地另存模型 ID，用于发现模型已切换。`get_chat_context` 同样返回 `chat_model`，并附 `available_models` 名称列表与各轮版本的图片 ID。
-- `characters` 已接通真实角色组，`vibes` 仍为空预留；六维是模型理解方式，不新增六类 JSON 字段。
+- `characters` 已接通真实角色组，`image.form.references` 提供 Vibe／Precise 的启用与数值配置摘要，不含图片或编码；六维是模型理解方式，不新增六类 JSON 字段。
 - 初始快照在整轮冻结。`get_state` 默认 scope=initial，可通过 board_id 读取本轮其他画板完整表单；scope=latest 才读取外部新改动。结果只追加在队尾，历史索引仍不展开；不能使新图进入本轮 library，也不能替换草稿使用的初始 hash。
+
+初始状态已包含 Variety+、noiseSchedule、transparentBg，以及 capabilities／effective／input_budget／cost；角色分段计数后按方向合计，费用只读或纯本地估算，详见 [NAI 基础感知](ask-nai-awareness.md)。get_meta 补齐实际存在的 Variety+、Director 和来源配方，旧记录不补造。
+
+EDIT 活动现场包含表单、底图与查看图、能力、蒙版几何修订和聚焦框；初始版本目录有界截断，get_state 的 edit_board_id 可读取指定板完整状态。check_nai_input 检查冻结候选，不创建卡片或写入。权限、冻结与交接见 [ASK × EDIT](ask-edit.md)。
 
 ### 2.2 画师判断交给提示词与用户
 
@@ -168,8 +172,8 @@ rankTags 默认按收录量优先，精确词可能被高热度近似词挤出�
 
 `workspace: "home"` 时仍携带活动画板的完整基础／角色词文、CHAT 及模型状态；另有 `home.lines`（线 ID、类型、标题、可读取脸编号或 null、状态）和 `home.finals`（数量、最近最多 12 个 `#f` 与来源链）。活动任务板仍使用 `active_slate`。其他会话没有本轮可读取编号时脸编号为空；暂存 WebP 永不分配 `#h`／`#f`。此索引不预载历史词文和像素，读取继续使用现有工具。
 
-## 图片身份与 EDIT 只读感知
+## 图片身份与 EDIT 现场
 
-[图片身份](../image-identity.md)统一原图实体、参数记录与冻结展示绑定。`picture_ref_version=2` 的状态同时给出页面与收藏库作用域；EDIT 目录包含板号、完整／本板编号、版本、尺寸、工具、出处和实体。`search_history(scope="edit")`、元数据、Diff、看图与 Slate 交付可访问本轮编辑图，仍不写 EDIT 参数。
+[图片身份](../image-identity.md)统一原图实体、参数记录与冻结展示绑定。`picture_ref_version=2` 的状态同时给出页面与收藏库作用域；EDIT 目录包含板号、完整／本板编号、版本、尺寸、工具、出处和实体。`search_history(scope="edit")`、元数据、Diff、看图与 Slate 交付可访问本轮编辑图；内置编辑配置经草稿确认写入，外部目录保持只读编辑索引。
 
 回复、草稿、账本与压缩归档保留具体绑定，切编辑板或 CHAT 分支不重解旧短码。视觉按实体共享资格与派生编码；同轮同规格重复请求不重发，新的规格／区域与跨轮重看按实际发送计预算。元数据按具体记录读取，不能因同字节覆盖另一份配方。附件原图身份与发送编码分离，拼图仍不授予单图裁切资格。

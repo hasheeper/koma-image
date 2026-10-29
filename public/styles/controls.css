@@ -190,6 +190,7 @@ select option { background: var(--raised); }
   display: inline-flex; align-items: center; justify-content: center; gap: var(--sp-2);
   padding: 7px 12px;
   font-size: var(--fz-sm); font-weight: var(--fw-medium);
+  text-decoration: none;
   border-radius: var(--r2);
   white-space: nowrap;
   transition: background var(--t1) var(--e), color var(--t1) var(--e),

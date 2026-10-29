@@ -1,6 +1,6 @@
 # 图片身份与 HOME 空状态发布核验
 
-日期：2026-10-29。用户明确授权将本会话确认的图片身份重构与 HOME 空状态提交至 Git 并更新 Cloudflare Pages；授权仅适用于本次发布。基线为 `62f8fed`，现行契约见[图片身份](../image-identity.md)及[HOME](../koma-home.md)。
+日期：2026-10-29。用户明确授权将本会话确认的图片身份重构与 HOME 空状态提交至 Git 并更新 Cloudflare Pages；授权仅适用于本次发布。基线为 `611e1d8`，现行契约见[图片身份](../image-identity.md)及[HOME](../koma-home.md)。
 
 ## 发布范围
 
@@ -25,7 +25,7 @@
 
 ## Git 与 Pages
 
-- 应用及文档提交：[bdf1a07](https://github.com/hasheeper/koma-image/commit/bdf1a0775900dfb1f970acfb3a28658038517755)，正常快进推送至 `main` 与 `codex/ask-chat-handoff`，没有强推。
+- 应用及文档提交：[daaa438](https://github.com/hasheeper/koma-image/commit/daaa438c26f05a3434fa4e2866a4614444576435)，正常快进推送至 `main` 与 `codex/ask-chat-handoff`，没有强推。
 - 执行 `npm run deploy:pages`，Wrangler 4.151.1 重新构建后仅上传 `dist/` 至既有 `koma-image` 项目，生产分支 `main`。部署地址：[3a52ddc9.koma-image.pages.dev](https://3a52ddc9.koma-image.pages.dev/)，生产域名：[koma-image.pages.dev](https://koma-image.pages.dev/)。Git 推送与 Direct Upload 分别完成。
 - 生产首页引用 `index-DMpua3Gq.js` 与 `index-Cq1tMrah.css`，实际下载的字节 SHA-256 与本地构建一致；分词器 Worker、T5／Qwen 词表及三份许可／来源说明同样一致。
 - [公开 Skill](https://koma-image.pages.dev/skills/koma-bridge/SKILL.md) 返回 200、`text/plain; charset=utf-8` 与 `Content-Disposition: inline`，字节与本地发布文件一致。

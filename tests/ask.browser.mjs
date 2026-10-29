@@ -17,7 +17,7 @@ before(async () => {
   await mkdir(".local/ask/a2", { recursive: true });
   await mkdir(".local/ask/a1", { recursive: true });
   await mkdir(".local/ask/h4", { recursive: true });
-  server = await createServer({ server: { host: "127.0.0.1", port: 0, open: false } });
+  server = await createServer({ server: { host: "127.0.0.1", port: 0, open: false, hmr: false } });
   await server.listen();
   origin = `http://127.0.0.1:${server.httpServer.address().port}`;
   browser = await chromium.launch({ headless: true });
@@ -593,10 +593,13 @@ test("ASK settings: free creation off by default, empty vocabulary and replaceme
       await page.setViewportSize({ width, height: 900 });
       await page.waitForTimeout(80);
       const general = await rows("通用");
-      assert.equal(general.length, 2);
+      assert.equal(general.length, 3);
       assert.ok(general.every((row) => Math.abs(row.right - 12) <= 1 && !row.wrapped), JSON.stringify(general));
       const [limit, toggle] = await Promise.all(["#historyLimit", 'label[title="保留历史"]'].map((s) => page.locator(s).boundingBox()));
       assert.ok(Math.abs((limit.y + limit.height / 2) - (toggle.y + toggle.height / 2)) <= 1, `history row at ${width}`);
+      const repository = page.getByRole("link", { name: "GitHub", exact: true });
+      assert.equal(await repository.getAttribute("href"), "https://github.com/hasheeper/koma-image");
+      assert.equal(await repository.getAttribute("rel"), "noopener noreferrer");
     }
     assert.deepEqual(errors, []);
     assert.ok(requests.every((r) => r.method === "GET" && r.path.endsWith("/v1/models")));
@@ -654,7 +657,7 @@ test("ASK compatibility: catalog and manual model IDs keep spaces/suffixes throu
       for (const call of calls.slice(start)) {
         assert.equal(call.path, "/v1/chat/completions");
         assert.equal(call.body.model, id);
-        assert.equal(call.body.tools.length, 12);
+        assert.equal(call.body.tools.length, 13);
         assert.equal(/"uniqueItems"\s*:/.test(JSON.stringify(call.body.tools)), false);
       }
       assert.equal(calls.at(-1).body.messages.at(-1).role, "tool");
@@ -771,7 +774,7 @@ test("ASK settings leave image work alone: cards, model sources and the protocol
     await page.locator(".sm-lines .sm-conn").first().waitFor();
     assert.deepEqual([...new Set(await page.locator(".sm-lines .sm-conn").allTextContents())], ["图像连接"]);
     await route(page, "#/image/settings/connections");
-    await page.getByRole("button", { name: "添加连接", exact: true }).click();
+    await page.getByRole("button", { name: "配置供应商", exact: true }).click();
     const labels = await page.locator("#connectionProtocol option").allTextContents();
     assert.ok(labels.includes("OpenAI Chat 兼容 · ASK") && labels.includes("Anthropic Messages · ASK"));
     await page.keyboard.press("Escape");
@@ -917,7 +920,7 @@ test("ASK drawer: Ctrl+J toggles, a scripted tool turn streams and is announced 
     const [first, second] = calls;
     assert.equal(first.headers.authorization, "Bearer synthetic-chat");
     assert.equal(first.body.model, "reasoning-a");
-    assert.deepEqual(first.body.tools.map((t) => t.function.name), ["get_state", "search_history", "get_meta", "diff_meta", "view_image", "view_sheet", "search_tags", "get_chat_context", "get_model_manual", "propose_draft", "get_turn", "read_ref"]);
+    assert.deepEqual(first.body.tools.map((t) => t.function.name), ["get_state", "check_nai_input", "search_history", "get_meta", "diff_meta", "view_image", "view_sheet", "search_tags", "get_chat_context", "get_model_manual", "propose_draft", "get_turn", "read_ref"]);
     assert.match(first.body.messages[0].content, /你是 Koma ASK[\s\S]*<user_preferences>\n先说结论\n<\/user_preferences>/);
     const question = first.body.messages.at(-1).content;
     // Text-only user turns flatten to one string: the locked state, then the question.
@@ -1051,7 +1054,7 @@ test("ASK drawer: Esc closes the popover, then stops the turn, then the drawer; 
   }
 });
 
-test("ASK drawer layering: settings above it, hidden with the editor, Anthropic turns, floating bounds on four screens", async () => {
+test("ASK drawer layering: settings above it, available in EDIT and hidden during Photopea, Anthropic turns, floating bounds on four screens", async () => {
   const { page, context, requests, errors, llm, calls } = await open("/#/image", { ready: ".switcher", ask: askSettings({ connectionId: "claude", images: false }) });
   try {
     await bind(page);
@@ -1078,11 +1081,13 @@ test("ASK drawer layering: settings above it, hidden with the editor, Anthropic 
       await editor.open("image", await canvas.convertToBlob({ type: "image/png" }), "synthetic.png", { mode: "img2img" });
     });
     await page.waitForSelector("#imageEditor[data-active=true]");
+    await drawer(page).waitFor();
+    await page.evaluate(() => { window.photopeaTest = editor.beginExternalEdit(); });
     await drawer(page).waitFor({ state: "hidden" });
     await page.keyboard.press("Control+j");
     await page.waitForTimeout(150);
     assert.equal(await drawer(page).isVisible(), false);
-    await page.evaluate(() => { location.hash = "#/image"; });
+    await page.evaluate(() => { editor.cancelExternalEdit(window.photopeaTest.id); ask.show(); location.hash = "#/image"; });
     await page.waitForSelector("#imageEditor", { state: "hidden" });
     await drawer(page).waitFor();
 

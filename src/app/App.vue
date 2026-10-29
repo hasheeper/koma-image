@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { provide, shallowRef, onMounted, onScopeDispose, watch } from "vue";
+import { provide, shallowRef, onScopeDispose, watch } from "vue";
 import { createRouter } from "./router";
 import { createShell, shellKey } from "./shell";
 import { usePresentation } from "./presentation";
@@ -11,7 +11,6 @@ import ChatWorkspace from "../workspaces/chat/ChatWorkspace.vue";
 import TagsWorkspace from "../workspaces/tags/TagsWorkspace.vue";
 import SettingsOverlay from "../overlays/SettingsOverlay.vue";
 import EditWorkspace from "../workspaces/edit/EditWorkspace.vue";
-import KeyDialog from "../overlays/KeyDialog.vue";
 import ConfirmSheet from "../shared/ConfirmSheet.vue";
 import ToastList from "../shared/ToastList.vue";
 import ModelLogos from "../shared/ModelLogos.vue";
@@ -81,15 +80,6 @@ const bridge = createBridge({ services, ask, drawing, router, ui, slates });
 provide(bridgeKey, bridge);
 onScopeDispose(() => { void bridge.dispose(); });
 usePresentation(shell, ui);
-onMounted(() => {
-  if (
-    services.data.phase === "ready" &&
-    !services.connections.local &&
-    !Object.keys(services.connections.configuration.connections).length &&
-    !router.route.value.overlay
-  )
-    router.openOverlay("settings", "connections");
-});
 const editCreated = shallowRef(router.route.value.workspace === "edit");
 watch(() => router.route.value.workspace, w => { if (w === "edit") editCreated.value = true; });
 // Stable workspace keys, regardless of overlay or query ticket. Components stay non-reactive.
@@ -113,7 +103,6 @@ const workspaces = {
   <SettingsOverlay />
   <!-- Keep the iframe in place: KeepAlive DOM moves would reload Photopea. -->
   <EditWorkspace v-if="editCreated" v-show="router.route.value.workspace === 'edit'" />
-  <KeyDialog />
   <ConfirmSheet />
   <ToastList />
   <ModelLogos />

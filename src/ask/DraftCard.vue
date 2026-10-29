@@ -22,7 +22,7 @@ watch(() => !!plan.value, () => { fulls.value = new Set(); });
 const view = computed(() => plan.value ? draftView(plan.value) : null);
 const issues = computed(() => plan.value?.steps.some((s) => !!s.issue));
 const toggles = computed(() => (plan.value?.steps.length ?? 0) > 1);
-const blocked = computed(() => !plan.value || (!plan.value.changes.length && !plan.value.branch && !plan.value.handoff && !plan.value.slate && !plan.value.files?.length) || (!!(plan.value.slate || plan.value.files?.length) && issues.value) || ask.writingDraft.value || ask.running.value);
+const blocked = computed(() => !plan.value || (!plan.value.edit && !plan.value.changes.length && !plan.value.branch && !plan.value.handoff && !plan.value.slate && !plan.value.files?.length) || (!!(plan.value.edit || plan.value.slate || plan.value.files?.length) && issues.value) || ask.writingDraft.value || ask.running.value);
 const menuId = `draftApply-${useId()}`;
 const menu = shallowRef<HTMLElement | null>(null), menuTrigger = shallowRef<HTMLButtonElement | null>(null), menuOpen = shallowRef(false);
 const hasApplyMenu = computed(() => plan.value?.workspace === "image" && !plan.value.newBoardName && !props.compact);
@@ -31,7 +31,7 @@ const destinations = [
   { newBoard: false, label: "应用到来源画板" },
   { newBoard: true, label: "应用到新画板" },
 ];
-const applyTitle = computed(() => plan.value?.slate && !plan.value.changes.length && !plan.value.newBoardName ? "写入任务板，不会生成 · Tab" : plan.value?.newBoardName ? `新建画板「${plan.value.newBoardName}」并应用，不会生成 · Tab`
+const applyTitle = computed(() => plan.value?.workspace === "edit" ? "写入编辑画板，不会生成 · Tab" : plan.value?.slate && !plan.value.changes.length && !plan.value.newBoardName ? "写入任务板，不会生成 · Tab" : plan.value?.newBoardName ? `新建画板「${plan.value.newBoardName}」并应用，不会生成 · Tab`
   : view.value?.destination ? "新开对话写入参考图、画幅和输入框，不会发送 · Tab"
   : `${plan.value?.workspace === 'image' ? '写入来源画板，不会生成' : '写入输入框，不会发送'} · Tab`);
 const applyIcon = computed(() => plan.value?.newBoardName ? "i-copy" : view.value?.destination ? "i-compose" : "i-check");

@@ -1,6 +1,6 @@
 # EDIT 与 NAI 控件对齐核验
 
-日期：2026-10-27。基于 `codex/ask-chat-handoff`、HEAD `1fd1be3` 上的本地未提交工作区，包含前一轮 Guidance／Rescale 统一修改。以下均为合成图片和模拟供应商验证，不代表线上已发布或真实生成、扣费成功。
+日期：2026-10-27。基于 `codex/ask-chat-handoff`、HEAD `a537b53` 上的本地未提交工作区，包含前一轮 Guidance／Rescale 统一修改。以下均为合成图片和模拟供应商验证，不代表线上已发布或真实生成、扣费成功。
 
 ## 本轮范围
 

@@ -20,7 +20,6 @@ export function usePresentation(shell: AppShell, ui: Ui) {
       body.classList.toggle("chat-page", workspace === "chat");
       body.classList.toggle("tags-body", workspace === "tags");
       body.dataset.workspace = workspace;
-      body.dataset.gate = ui.credential.value ? "open" : "closed";
       body.dataset.picker = ui.pickerOpen.value ? "open" : "closed";
       const attrs: Record<string, string | undefined> = {
         state: workspace === "image" ? shell.image.state : undefined,
@@ -80,7 +79,6 @@ export function usePresentation(shell: AppShell, ui: Ui) {
       "rail",
       "tagCart",
       "context",
-      "gate",
       "picker",
     ])
       delete body.dataset[key];

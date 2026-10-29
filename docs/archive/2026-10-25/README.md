@@ -1,8 +1,8 @@
 # 文档历史归档
 
-2026-10-25 整理前的完整文档快照，源码基线为 `219463c`。已完成阶段、旧设计、历史测试数量和当时的授权保留在这里；维护和新工作以[现行文档](../../README.md)及根目录工程约定为准。历史授权不延续为新的推送或发布授权。
+2026-10-25 整理前的完整文档快照，源码基线为 `f7a9c16`。已完成阶段、旧设计、历史测试数量和当时的授权保留在这里；维护和新工作以[现行文档](../../README.md)及根目录工程约定为准。历史授权不延续为新的推送或发布授权。
 
-根目录 README 保存为 `project-readme.md`，原工程约定保存为 `engineering-instructions.md`，避免历史约定成为目录级指令。原 `docs/` 结构保持在本目录的 `docs/` 下，内部文档链接已调整。旧 ASK 动画 v2 原型仅供设计回溯，不作为 B v5 界面依据。
+根目录 README 保存为 `project-readme.md`，原工程约定保存为 `engineering-instructions.md`，避免历史约定成为目录级指令。原 `docs/` 结构保持在本目录的 `docs/` 下，内部文档链接已调整。旧 ASK 动画 v2 HTML 原型已在 2026-10-29 公开前整理时移除；当前界面以现行规范为准，早期过程仍可从 Git 历史回溯。
 
 ## 本次整理
 
@@ -27,7 +27,6 @@
 - [docs/ask/ask-retrieval-state.md](docs/ask/ask-retrieval-state.md)
 - [docs/ask/ask-ui-spec.md](docs/ask/ask-ui-spec.md)
 - [docs/ask/ask-window-v5.md](docs/ask/ask-window-v5.md)
-- [docs/ask/实际参考前端UI.txt](docs/ask/实际参考前端UI.txt)
 - [docs/business-contracts.md](docs/business-contracts.md)
 - [docs/chat-editor-workspaces.md](docs/chat-editor-workspaces.md)
 - [docs/compaction-plan.md](docs/compaction-plan.md)

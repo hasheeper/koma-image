@@ -95,7 +95,7 @@ export function chatPictures(state: ReturnType<Chat["snapshot"]>, chat: Chat): P
   let order = 0;
   return chatImages(state).flatMap((p) => {
     const asset = chat.assets.assets.get(p.assetId);
-    return asset ? [{ id: chatImageId(state.current.id, p.turn.id, p.version.id, p.assetId), entity_key: `sha256:${asset.id}`, lineage: { via: "chat" as const },
+    return asset ? [{ id: chatImageId(state.current.id, p.turn.id, p.version.id, p.assetId), entity_key: `sha256:${asset.id}`, lineage: asset.lineage ?? { via: "chat" as const },
       scope: { kind: "chat", id: state.current.id, turn_id: p.turn.id, version_id: p.version.id, asset_id: asset.id }, label: p.label, aliases: p.aliases, createdAt: 0,
       origins: [{ source: "chat" as const, label: p.label, order: ++order }],
       params: { ...chatImageOrigin(state.current,p.turn,p.version,p.assetId), basePrompt: p.turn.prompt, ...turnParams(p.turn.settings, state.models), version: p.number + 1, image_index: p.index + 1, selected: p.selected },

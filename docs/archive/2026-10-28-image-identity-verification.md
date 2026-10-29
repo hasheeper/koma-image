@@ -1,6 +1,6 @@
 # 全局图片身份 ID1–ID4 本地验收
 
-日期：2026-10-28。基线为 `codex/ask-chat-handoff` 的 `62f8fed` 及本轮已有未提交修改。用户授权实施 ID1–ID4；现行规则见[图片身份与引用](../image-identity.md)，设计背景见[已批准规划](2026-10-28-image-identity-plan.md)。未推送或部署，未使用真实 Key 或执行收费生成。
+日期：2026-10-28。基线为 `codex/ask-chat-handoff` 的 `611e1d8` 及本轮已有未提交修改。用户授权实施 ID1–ID4；现行规则见[图片身份与引用](../image-identity.md)，设计背景见[已批准规划](2026-10-28-image-identity-plan.md)。未推送或部署，未使用真实 Key 或执行收费生成。
 
 ## 实现范围
 

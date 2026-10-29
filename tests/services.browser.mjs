@@ -422,66 +422,38 @@ test("application execution stays inside the slot through response consumption a
   }
 });
 
-test("vault unlock shares across tabs; rotation persists, locking waits for tasks and clears every session", async () => {
-  const context = await browser.newContext(),
-    a = await start(context);
+test("credentials share remembered and session keys across tabs; clearing waits for tasks and persists", async () => {
+  const context = await browser.newContext(), a = await start(context);
   try {
-    await a.evaluate(() =>
-      app.vault.saveEncrypted("key-a", "synthetic-a", "pass-one"),
-    );
+    await a.evaluate(async () => {
+      await app.vault.setKey("key-a", "synthetic-a");
+      await app.vault.saveSession("key-b", "synthetic-b");
+    });
     const b = await start(context);
     assert.equal(await b.evaluate(() => app.vault.key("key-a")), "synthetic-a");
-    await a.evaluate(() => app.vault.setKey("key-b", "synthetic-b"));
-    await b.waitForFunction(() => app.vault.key("key-b") === "synthetic-b");
-    await a.evaluate(() => app.vault.changePassphrase("pass-two"));
-    await b.waitForFunction(() =>
-      sessionStorage.getItem(names.sessionDerivedKey),
-    );
-    await b.evaluate(() => {
-      window.running = app.runTask(
-        { id: "hold", workspace: "image", snapshot: {} },
-        async () => {
-          window.entered = true;
-          await new Promise((r) => (window.finish = r));
-        },
-      );
-    });
-    await b.waitForFunction(() => window.entered);
-    await a.evaluate(() => {
-      window.locking = app.vault.lock();
-    });
-    assert.equal(await a.evaluate(() => app.vault.isUnlocked()), true);
-    await b.evaluate(async () => {
-      finish();
-      await running;
-    });
-    await a.evaluate(() => locking);
-    await b.waitForFunction(() => !app.vault.isUnlocked());
-    assert.equal(await b.evaluate(() => Object.keys(sessionStorage).length), 0);
-    await a.evaluate(() => app.vault.unlock("pass-two"));
-    await b.waitForFunction(() => app.vault.isUnlocked());
+    assert.equal(await b.evaluate(() => app.vault.key("key-b")), "synthetic-b");
+    await a.evaluate(() => app.vault.setKey("key-a", "synthetic-new"));
+    await b.waitForFunction(() => app.vault.key("key-a") === "synthetic-new");
     await b.reload();
     await b.evaluate(async () => {
-      const { createApplicationServices } =
-        await import("/src/services/application.ts");
-      window.app = createApplicationServices({
-        storage: localStorage,
-        indexedDB,
-        locks: navigator.locks,
-        channel: new BroadcastChannel("koma-sync"),
-      });
+      const { createApplicationServices } = await import("/src/services/application.ts");
+      window.app = createApplicationServices({ storage: localStorage, indexedDB, locks: navigator.locks, channel: new BroadcastChannel("koma-sync") });
       await app.start();
     });
     assert.equal(await b.evaluate(() => app.vault.key("key-b")), "synthetic-b");
-    await a.evaluate(() => app.vault.forget());
-    await b.waitForFunction(() => !app.vault.isUnlocked());
-    assert.equal(
-      await b.evaluate(() => localStorage.getItem("koma.vault.v2")),
-      null,
-    );
-  } finally {
-    await context.close();
-  }
+    await b.evaluate(() => { window.running = app.runTask({ id: "hold", workspace: "image", snapshot: {} }, async () => {
+      window.entered = true; await new Promise(r => window.finish = r);
+    }); });
+    await b.waitForFunction(() => window.entered);
+    await a.evaluate(() => { window.clearing = app.vault.forget(); });
+    assert.equal(await a.evaluate(() => app.vault.key("key-a")), "synthetic-new");
+    await b.evaluate(async () => { finish(); await running; });
+    await a.evaluate(() => clearing);
+    await b.waitForFunction(() => app.vault.ids().length === 0);
+    assert.deepEqual(await b.evaluate(() => JSON.parse(localStorage.getItem("koma.credentials.v1")).keys), {});
+    await a.evaluate(() => app.vault.saveSession("key-c", "after-clear"));
+    await b.waitForFunction(() => app.vault.key("key-c") === "after-clear");
+  } finally { await context.close(); }
 });
 
 test("backup roundtrip merges conflicts, remaps turn links, preserves bytes and resumes safely after partial failure", async () => {

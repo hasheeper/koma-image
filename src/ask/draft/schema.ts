@@ -1,3 +1,4 @@
+import { editParameterProperties,directorSchema,focusSchema } from "./edit-schema.ts";
 import { fileSchema } from "./file-schema.ts";
 import { slateEditSchema } from "../../slate/edit.ts";
 import { restoreKeys } from "./types.ts";
@@ -12,10 +13,11 @@ export const draftSchema = {
         base_hash: { type: "string" }, draft_title: { type: "string", description: "草稿标题", minLength: 1, maxLength: 120 },
         new_board_name: { type: "string", description: "仅 IMAGE：填写即锁定目标为此名称的新画板，确认时复制来源画板并写入草稿；不会提供写回来源画板的选项。由本次回复直接给出简短场景／主题名，建议 4–12 字；与 draft_title 的改动摘要分开。省略则默认应用到来源画板，用户可在应用菜单选择新画板。", minLength: 1, maxLength: 80 },
         steps: { type: "array", minItems: 1, maxItems: 12, items: { anyOf: [
-          slateEditSchema, fileSchema,
-          { type: "object", additionalProperties: false, required: ["kind", "params"], properties: { kind: { type: "string", enum: ["params_patch"] }, params: parameterSchema } },
+          slateEditSchema, fileSchema, directorSchema,
+          {type:'object',additionalProperties:false,required:['kind','image'],properties:{kind:{type:'string',enum:['edit_handoff']},image:{type:'string',description:'#h/#f/#c/#e，不能使用附件'},mode:{type:'string',enum:['img2img','inpaint','upscale']},inpaint_kind:{type:'string',enum:['normal','focused']},prompt:{type:'string',maxLength:24000},negative:{type:'string',maxLength:24000},params:{type:'object',additionalProperties:false,properties:Object.fromEntries(Object.entries({...parameterSchema.properties,...editParameterProperties}).filter(([key])=>!['width','height','batchCount','editMode','inpaintKind','focusRect'].includes(key)))},focus_rect:focusSchema,director_tool:{...directorSchema,required:['tool'],properties:Object.fromEntries(Object.entries(directorSchema.properties).filter(([key])=>key!=='kind'))}}},
+          { type: "object", additionalProperties: false, required: ["kind", "params"], properties: { kind: { type: "string", enum: ["params_patch"] }, params: {...parameterSchema,properties:{...parameterSchema.properties,...editParameterProperties}} } },
           { type: "object", additionalProperties: false, required: ["kind", "target", "mode", "text"], properties: {
-            kind: { type: "string", enum: ["prompt_patch"] }, target: { type: "string", description: "image.prompt、image.negative、chat.composer（仅在 CHAT 提问时）；角色文本如 image.char.c2.prompt 或 image.char.c2.negative，c2 替换为状态中的稳定角色 ID，目标不存在时作废" },
+            kind: { type: "string", enum: ["prompt_patch"] }, target: { type: "string", description: "edit.prompt、edit.negative、edit.char.c2.prompt（仅 EDIT）；image.prompt、image.negative、chat.composer（仅在 CHAT 提问时）；角色文本如 image.char.c2.prompt 或 image.char.c2.negative，c2 替换为状态中的稳定角色 ID，目标不存在时作废" },
             mode: { type: "string", enum: ["replace", "before", "after", "append", "rewrite"] }, anchor: { type: "string", maxLength: 24000 }, text: { type: "string", maxLength: 24000 },
           } },
           { type: "object", additionalProperties: false, required: ["kind", "source", "fields"], properties: {

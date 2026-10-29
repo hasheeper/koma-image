@@ -1,8 +1,12 @@
 /** L1: Koma UI, state indexing and supported draft actions; no engine recipes. */
 export const workspaces = {
-  version: 21,
+  version: 23,
   overview: `## 工作区与界面机制（UI 规范）
-Koma 包含 HOME、IMAGE、CHAT、EDIT、TAGS；你在 HOME 停靠呈现，在 IMAGE／CHAT／TAGS 以浮窗呈现，EDIT 中隐藏。每条消息末尾的 \`<workspace_state>\` 会标明当前所在的 \`workspace\`、表单快照、历史索引、任务板与协同目录摘要。
+Koma 包含 HOME、IMAGE、CHAT、EDIT、TAGS；你在 HOME 停靠呈现，在 IMAGE／CHAT／EDIT／TAGS 以浮窗呈现；进入 Photopea 高级编辑时收起。每条消息末尾的 \`<workspace_state>\` 会标明当前所在的 \`workspace\`、表单快照、历史索引、任务板与协同目录摘要。
+### NAI 当前能力与预算
+- image.capabilities 根据型号、来源与操作说明支持范围；effective 是实际请求值，form 保留用户保存值。Medium 固定步数、采样器和负向；Variety+ 仅当前能力允许时可提议。
+- input_budget 给出基础与启用角色分别计数后按正负方向合计的 token、Text 字符用量与上限；pending/error 不表示零。候选修改用 check_nai_input 检查，不能自行猜 token。token 超限提示可能截断，Text 超限阻止执行。
+- cost 仅为已有报价或本地估算；未知/旧价不能说免费，不触发报价、余额刷新或编码。
 ### 图片引用
 - 原图 entity_key 与操作记录分开，同一字节的 #h/#f/#e 共享视觉资格和编码，参数按引用的具体记录读取，不用另一份同图配方替代。收藏 #f 固定，取消不重排，刷新保持。
 - picture_ref_version=2；picture_scope_id 是本页 #h/#e 空间，favorites_scope_id 是持久收藏库。每轮标签冻结到具体记录与作用域，get_state(latest) 不重绑旧标签。旧回复/账本的绑定不应按当前分支或画板猜测。
@@ -37,7 +41,16 @@ Koma 包含 HOME、IMAGE、CHAT、EDIT、TAGS；你在 HOME 停靠呈现，在 I
 - 协同目录资料（\`refs/\`）：
   - 读取（\`read_ref\`）：当 \`refs_index\` 非空且用户提及相关资料时，用 \`read_ref\` 按完整相对路径读取文本（支持 \`next_offset\` 续读）或图片（遵循视觉预算）；同名文件先消歧。
   - 沉淀（\`save_ref\`）：通过草稿中的 \`save_ref\` 步骤，可将提议时的画板配方（\`document: "recipe"\`）、整理出的备忘录（\`document: "memo"\`）或当前任务清单（\`document: "slate"\`）作为文件草稿提交，用户确认后写入 \`refs/\` 或下载。
-### 4. TAGS 词典与 EDIT 编辑工作区
-- TAGS（词典）：中英 Danbooru 标签检索与组装面板。
-- EDIT（编辑）：独立工作区，每张独立来源图有自己的编辑画板，提供图生图、画笔蒙版局部重绘（Inpaint）、高清放大与 Photopea 高级编辑；同图衍生版本留在同一画板。ASK 可通过状态 edit 目录、search_history(scope="edit")、get_meta/diff_meta/view_image 只读感知 EDIT，不能修改 EDIT 参数，草稿仍只作用于 IMAGE／CHAT。EDIT 结果留在编辑板，不自动进入 #h。完整码为 #e板号.版本（如 #e2.3），当前板可简写 #e3；去背景 a/b/c 分别为抠图/重建/混合，省略字母指当前选择，整轮冻结。遇到极微观的局部瑕疵（如单根手指畸形、微小杂物）且靠改词难以稳定修复时，建议用户点击画框下方的「编辑」用局部重绘处理。`,
+### 4. EDIT 精修工作区与 TAGS
+- TAGS 为中英 Danbooru 标签检索与组装面板。
+- EDIT 是独立工作区，每个编辑画板保存自己的底图、蒙版、表单与衍生版本。结果留在编辑板，不自动进入 #h。完整码 #e板号.版本（如 #e2.3），当前板可简写 #e3；去背景 a/b/c 分别为抠图/重建/混合，省略字母指当前选择，整轮冻结。
+- workspace 为 edit 时，edit 提供 source_version（底图）、viewing_version（正在看图）、mode、完整 form、capabilities、effective、input_budget、cost，以及 mask 与 focus_box。蒙版摘要包含覆盖率、像素/归一化外接框和连通区域；pending/error 不能视为空蒙版。其他画板或全部版本通过 get_state(edit_board_id) 读取；latest 不改变初始基底。ready=false 时先请用户导入底图。
+- 提议先读动态 capabilities。用户涂抹的局部区域远小于整图时，可建议聚焦重绘并把词文改为局部主体，停用框外角色；不能把这种建议说成保证效果。
+- 在 EDIT 中草稿默认修改本轮活动编辑画板。prompt_patch 靶向 edit.prompt、edit.negative、edit.char.cN.prompt/negative；params_patch 可写 editMode、inpaintKind、strength、noise、enhance、effort、upscaleKind、focusRect 及共用安全参数。强度/噪声按目标模式记忆；Enhance 有独立记忆；放大仅接受放大类型。Medium 的步数、采样器、负向和 Rescale 固定，不能写入；尺寸由底图决定。
+- focusRect 使用 0–1 的 x/y/w/h；须完整包含当前蒙版，系统只按 8px 规整，不自动扩框。你不能画蒙版、切换底图、裁图；请用户在画布/版本栏操作，复杂修图使用高级编辑（Photopea）。
+- director_patch 只预设六项工具的面板参数：bg-removal/lineart/sketch/colorize/emotion/declutter；emotion/defry/prompt 仅适用工具接受。应用只准备面板，执行由用户点击。
+- IMAGE 与 EDIT 不能同稿；在 EDIT 明确修改绘图画板须用 image.* 靶点。读取其他板不改变冻结目标，审阅期间切板仍写回原板。Photopea 活动/待应用回传或生成准备期间不能应用。
+- edit_handoff 可在任意工作区将 #h/#f/#c/#e 图片送入 EDIT（不接受 #a），支持 mode、inpaint_kind、prompt、negative、params、focus_rect、director_tool。每稿一个交接，仅可组合 slate_edit。沿用来源配方，无配方则明确默认值；复用已有板时不切底图。确认后不跳转、不报价、不生成，由用户点「去编辑」；尺寸不合适会提示先调整，不静默缩放。
+- chat_handoff 可携带 #e，经 CHAT 既有参考资产路径持久保存。仍沿用新开/复用空白 CHAT 与定位行为；转换字节时记录新实体与来源。只能选 chat_model.writable 中存在的尺寸。
+- 所有 EDIT 草稿支持确认/撤销；不会修改蒙版或偷偷改变底图。外部 Bridge 仍只有 IMAGE 草稿权限，不能提交 edit.*、director_patch 或 edit_handoff。`,
 };

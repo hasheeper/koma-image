@@ -73,6 +73,22 @@ test('draft sequential patch, insertion/deletion and toggles recalculate anchors
   const inserted = plan(draft(base, [patch('before', 'red eyes', 'bright ')]));
   assert.match(inserted.changes[0].after, /bright red eyes/);
 });
+test('draft role validation follows the selected model, including unchecked or conflicting model steps', () => {
+  const v4 = 'nai-diffusion-4-5-full', v5 = 'nai-diffusion-5-full';
+  const base = state(); base.models.push(model(v4), model(v5));
+  const add = { kind: 'character_edit', op: 'add', prompt: 'girl', cell: 'C3' };
+  for (const step of [{ kind: 'params_patch', params: { model: v4 } }, restore(['model'])]) {
+    const d = draft(base, [add, step], library({ model: v4 }));
+    assert.equal(plan(d).steps[0].issue, '');
+    assert.match(plan(d, base, ['1:model']).steps[0].issue, /位置格式|角色上限/);
+    assert.equal(plan(d, base, ['1:model']).changes.some(c => c.field === 'characters'), false);
+    assert.match(plan(d, { ...base, form: { ...base.form, model: v5 } }).steps[0].issue, /位置格式/);
+  }
+  base.form.model = v4;
+  const d = draft(base, [add, { kind: 'params_patch', params: { model: 'm' } }]);
+  assert.equal(plan(d, base, ['1:model']).steps[0].issue, '');
+  assert.equal(plan(d, base, ['1:model']).changes.find(c => c.field === 'characters').after.length, 1);
+});
 test('draft concurrency: unique anchors realign, stale rewrites and append disabled, independent fields remain valid', () => {
   const base = state(), d = draft(base, [patch('replace', 'red eyes', 'blue eyes'), patch('rewrite', '', 'bad quality', 'image.negative')]);
   const now = state({ prompt: base.form.prompt + ', user addition' }), p = plan(d, now);

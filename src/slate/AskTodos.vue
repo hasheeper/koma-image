@@ -32,7 +32,7 @@ function discuss(todo: Todo) { ask.setInput(`关于「${todo.title}」，`); doc
 </script>
 <template>
   <section v-if="slate" class="ask-todos" aria-label="会话待办">
-    <button class="todos-bar" type="button" :aria-expanded="expanded" aria-controls="askTodoDrawer" @click="expanded = !expanded"><AppIcon name="i-chevron" :class="{ expanded }" /><span>待办</span><span class="todos-meter" aria-hidden="true"><i :style="{ transform: `scaleX(${slate.todos.length ? done / slate.todos.length : 0})` }"></i></span><small>{{ done }}/{{ slate.todos.length }}</small><span v-if="!expanded" class="todos-current" :data-status="current?.status">{{ current?.title || (slate.todos.length ? '全部完成' : '') }}</span></button>
+    <button class="todos-bar" type="button" :aria-expanded="expanded" aria-controls="askTodoDrawer" @click="expanded = !expanded"><AppIcon name="i-chevron" :class="{ expanded }" /><b>待办</b><span v-if="!expanded" class="todos-current">{{ current?.title || (slate.todos.length ? '全部完成' : '') }}</span><span class="todos-progress"><span class="todos-meter" aria-hidden="true"><i :style="{ transform: `scaleX(${slate.todos.length ? done / slate.todos.length : 0})` }"></i></span><small>{{ done }}/{{ slate.todos.length }}</small></span></button>
     <Transition name="todo-drawer"><div v-if="expanded" id="askTodoDrawer" class="todo-drawer"><div class="todo-drawer-inner"><div class="todos-list">
       <div v-for="todo in rows" :key="todo.id" class="todo-row" :class="todo.status">
         <button class="todo-status" type="button" role="checkbox" :aria-checked="todo.status === 'done' ? 'true' : todo.status === 'in_progress' ? 'mixed' : 'false'" :aria-label="`${todo.title} · ${statusNames[todo.status]}`" :title="todo.status === 'done' ? '重新打开任务' : '标记完成'" :disabled="frozen" @click="toggle(todo)"><span class="todo-circle"><AppIcon v-if="todo.status === 'done'" name="i-check" /><i v-else-if="todo.status === 'in_progress'"></i></span></button>
@@ -47,16 +47,16 @@ function discuss(todo: Todo) { ask.setInput(`关于「${todo.title}」，`); doc
 </template>
 <style scoped>
 .ask-todos { flex: 0 1 auto; min-height: 0; margin-bottom: 8px; overflow: hidden; }
-/* The chevron is centred on the 20px status column so the bar, the glyphs and the titles share one grid. */
-.todos-bar { display: flex; align-items: center; gap: 7px; width: 100%; min-height: 28px; text-align: left; color: var(--fg-2); font-size: 12px; white-space: nowrap; }
+/* The chevron is centred on the 20px status column so the bar, the glyphs and the titles share one grid; progress keeps to the right edge. */
+.todos-bar { display: flex; align-items: center; gap: 7px; width: 100%; min-height: 28px; padding-right: 4px; text-align: left; color: var(--fg-3); font-size: 12px; white-space: nowrap; }
+.todos-bar b { flex: none; color: var(--fg-2); font-weight: var(--fw-medium); }
 .todos-bar > .ico { flex: none; --ico: var(--ico-xs); margin-inline: calc((20px - var(--ico-xs)) / 2); color: var(--fg-3); transition: transform var(--t2) var(--e); }
 .todos-bar > .ico.expanded { transform: rotate(90deg); }
-.todos-meter { flex: none; width: 24px; height: 3px; overflow: hidden; background: var(--line-2); border-radius: 2px; }
+.todos-progress { display: inline-flex; flex: none; align-items: center; gap: 8px; margin-left: auto; padding-left: 12px; }
+.todos-meter { width: 32px; height: 3px; overflow: hidden; background: var(--line-2); border-radius: 2px; }
 .todos-meter i { display: block; height: 100%; background: var(--a); border-radius: inherit; transform-origin: left; transition: transform var(--t2) var(--e); }
-.todos-bar small { margin-left: -2px; color: var(--fg-3); font: 11px var(--mono); }
-.todos-current { min-width: 0; margin-left: 5px; overflow: hidden; color: var(--fg-3); text-overflow: ellipsis; }
-.todos-current[data-status]::before { content: ''; display: inline-block; width: 5px; height: 5px; margin: 0 6px 1px 0; vertical-align: middle; border: 1px solid var(--fg-3); border-radius: 50%; }
-.todos-current[data-status="in_progress"]::before { background: var(--a); border-color: var(--a); }
+.todos-progress small { font: 11px/1 var(--mono); font-variant-numeric: tabular-nums; }
+.todos-current { min-width: 0; margin-left: 3px; overflow: hidden; text-overflow: ellipsis; }
 .todo-drawer { display: grid; grid-template-rows: 1fr; overflow: hidden; }
 .todo-drawer-inner { min-height: 0; overflow: hidden; }
 .todos-list { max-height: min(184px, 23dvh); overflow: auto; padding-bottom: 2px; overscroll-behavior: contain; scrollbar-width: thin; }
