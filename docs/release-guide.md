@@ -66,4 +66,4 @@ shasum -a 256 -c koma-image-0.1.0.tar.gz.sha256
 shasum -a 256 -c SHA256SUMS
 ```
 
-源码公开不等于授予开源许可。当前许可证尚未选定，仍为 `UNLICENSED`；仓库可见性与许可选择单独管理。第三方字体与图标许可已随 `dist/` 保留，见 `docs/third-party-assets.md`。
+项目自有内容采用 [Koma 署名—非商业使用许可 1.0](https://github.com/hasheeper/koma-image/blob/main/LICENSE)，允许非商业使用、修改与分享，分发须保留署名和仓库链接，商业使用须另获书面授权。这是源码可用许可，不是 OSI 开源许可证。构建将唯一源文件 `LICENSE` 原样写入 `dist/LICENSE`，独立发布包根目录也附带同一许可；第三方资源继续适用各自许可，见 `docs/third-party-assets.md`。

@@ -159,10 +159,18 @@ function place(pop: HTMLElement | null, button: HTMLElement) {
     return;
   }
   const box = button.getBoundingClientRect();
+  const viewport = window.visualViewport,
+    top = viewport?.offsetTop ?? 0,
+    bottom = top + (viewport?.height ?? innerHeight),
+    above = Math.max(0, box.top - top - 12),
+    below = Math.max(0, bottom - box.bottom - 12);
+  pop.style.maxHeight = `${Math.max(above, below)}px`;
+  const up = pop.offsetHeight <= above || above >= below;
+  pop.style.maxHeight = `${up ? above : below}px`;
+  const height = pop.getBoundingClientRect().height;
   pop.style.right = `${Math.round(Math.max(8, document.documentElement.clientWidth - box.right))}px`;
-  pop.style.top = `${Math.round(box.top - 4)}px`;
-  pop.style.maxHeight = `${Math.floor(box.top - 12)}px`;
-  pop.dataset.placement = "top";
+  pop.style.top = `${Math.round(Math.max(top + 8, Math.min(bottom - height - 8, up ? box.top - 4 - height : box.bottom + 4)))}px`;
+  pop.dataset.placement = up ? "top" : "bottom";
 }
 function panelToggled(panel: "model" | "param", e: ToggleEvent) {
   if (e.newState === "open") openPanel.value = panel;
@@ -259,6 +267,8 @@ life.whileActive((signal) => {
         `${window.visualViewport?.offsetTop || 0}px`,
       );
       resizePrompt();
+      modelPop.value?.hidePopover();
+      paramPop.value?.hidePopover();
     };
   window.visualViewport?.addEventListener("resize", viewport, { signal });
   window.visualViewport?.addEventListener("scroll", viewport, { signal });

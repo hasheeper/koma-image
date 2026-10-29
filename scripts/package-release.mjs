@@ -45,6 +45,7 @@ export async function packageRelease(output = join(root, ".local/releases")) {
   const temporary = await mkdtemp(join(tmpdir(), "koma-release-"));
   const stage = join(temporary, name);
   const runtimeFiles = [
+    "LICENSE",
     "server.mjs",
     "src/config/connections.ts",
     "src/gateway/profile.ts",

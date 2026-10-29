@@ -8,7 +8,7 @@ ASK 模型列表补充的 Claude、DeepSeek、Kimi、MiniMax（color 变体）�
 
 原有字体资源各自保留随包附带的许可文件，发布包位于 `dist/fonts/<字体名>/LICENSE`。品牌字「Koma」使用 Fredoka（@fontsource-variable/fredoka 5.3.0，OFL-1.1），只带拉丁子集、只用于品牌字，许可同样位于 `dist/fonts/fredoka/LICENSE`。界面中英文使用资源圆体（Resource Han Rounded CN 0.990，CyanoHao/Resource-Han-Rounded，OFL-1.1），自托管为 `fonts/koma-rounded`，只含 400／500／700 三个字重，半粗用 Bold。它由 `scripts/build-rounded-font.py` 用 fontTools 4.60.1 生成：按原思源黑体的 unicode-range 切成 woff2 分片按需加载，并为 U+00B7「·」和 U+00D7「×」补上比例宽度字形（原 CN 版为全角，分别由句点和加号生成）。因修改版不得使用思源部分的保留字体名「Source」，字体内部改名为 Koma Rounded，保留原版权与许可，许可位于 `dist/fonts/koma-rounded/LICENSE`。
 
-本工程的 `UNLICENSED` 不替代这些第三方许可。
+本工程自有内容采用 [Koma 署名—非商业使用许可 1.0](https://github.com/hasheeper/koma-image/blob/main/LICENSE)，不替代或收紧这些第三方许可，也不主张第三方商标权。
 
 高级编辑按用户操作加载 [Photopea 官方免费嵌入](https://www.photopea.com/api/)，通过官方 Live Messaging 与 Scripting API 交换当前图片和选区。其应用代码不复制、自托管或打入 Koma 发布包。宿主展示完整编辑视口，不扩宽裁剪品牌／广告或改写第三方 DOM／CSS。未购买 Distributor／白标服务，详见[官方授权说明](https://www.photopea.com/api/accounts)。
 
@@ -19,3 +19,7 @@ HOME 页脚与设置「关于」的 GitHub 标志取自 GitHub Primer Octicons �
 字体配置现集中于 `config/fonts.json` 与 `config/font-ranges/koma-rounded.json`，浏览器只加载由 Node 生成的 `public/fonts/index.css`。普通构建复用现有 WOFF2；上述 Python 脚本只用于主动离线重建，并继续保留原字形修改和许可。维护命令见[样式与字体维护](https://github.com/hasheeper/koma-image/blob/main/docs/engineering/ui-maintenance.md#字体配置与重建)，G0／G1 阶段验证见[早期归档](https://github.com/hasheeper/koma-image/blob/main/docs/archive/2026-10-25/README.md)。
 
 NAI token 计数使用 `@huggingface/tokenizers` 0.2.0（Apache-2.0）与自托管的 [google-t5/t5-small](https://huggingface.co/google-t5/t5-small)／[Qwen/Qwen3.5-0.8B](https://huggingface.co/Qwen/Qwen3.5-0.8B) 公开 tokenizer 词表（Apache-2.0）。只分发词表和计数所需配置，不含模型权重或 NovelAI 应用代码；根据公开客户端核对的预处理规则配置 T5／Qwen 计数。调整及来源清单在 `public/tokenizers/NOTICE.txt`，许可在同目录 `LICENSE` 和 `tokenizers-LICENSE.txt`，构建原样复制至 `dist/tokenizers/`。首次按需加载词表约 1.1MB／9.1MB；提示词仅在本机 Worker 内处理。
+
+NAI 提示词组织、漫画与服装构思的方法参考 [Miint-Sunny/nai5-prompting](https://github.com/Miint-Sunny/nai5-prompting)。该上游技能包采用 GPL-3.0，未作为完整技能包随本项目分发；ASK 内置的是结合本应用工具和能力边界整理的简要指引，不含用户个人 OC 资料。上游原始文件仍受其自身许可约束，本项目的非商业许可不改变它们的授权。
+
+README 的产品拼图位于 `docs/assets/screenshots/workspaces.jpg`，由 Pages 中已有真实创作案例的 IMAGE／CHAT 截图，以及用户提供的 EDIT／ASK 完整界面截图组成。裁去浏览器栏与窗口边框，保留余额等界面信息，以 2×2 排列；不含 API Key 或私有连接地址。截图中的作品不因被收录而改变其原有权利归属。该文件仅作产品介绍，不作为浏览器测试的截图基线，也不放入静态应用构建。

@@ -305,11 +305,12 @@
    short checked menu grouped by provider; settings as rows of chips. Each is
    as wide as its content needs. */
 .chat-pop { width: max-content; max-width: calc(100vw - 16px); }
-.model-panel { min-width: 200px; }
+.model-panel { min-width: 200px; overflow: hidden; }
 .editor-pop.model-panel:popover-open { gap: 0; }
+.model-panel > .editor-pop-list { min-height: 0; overflow-x: hidden; overflow-y: auto; overscroll-behavior: contain; }
 .model-group-head { display: flex; align-items: center; gap: 6px; }
 .model-group-head .ico, .model-group-head .vl { width: var(--ico-xs); height: var(--ico-xs); }
-.model-panel-foot { margin: 4px -4px 0; padding: 4px 4px 0; border-top: 1px solid var(--line-2); }
+.model-panel-foot { flex: none; margin: 4px -4px 0; padding: 4px 4px 0; border-top: 1px solid var(--line-2); }
 /* The radio covers its whole label, so the label is the click target and the
    radio still takes keyboard focus and arrow keys natively. */
 .chat-pop input[type="radio"] { position: absolute; inset: 0; width: 100%; height: 100%; margin: 0; opacity: 0; cursor: pointer; }

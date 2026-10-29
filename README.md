@@ -1,120 +1,140 @@
-# Koma Image
 
-以图片为中心的 AI 创作工作台，使用 Vue 3、TypeScript 和 Vite。HOME、绘图、对话、编辑和词典在同一外壳中切换并保持状态；EDIT 按来源图管理独立编辑画板，设置为弹窗。Koma ASK 提供可审阅的创作建议，会话内 Todo 管理多图进度，外部 Agent 可通过用户选择的目录协同。支持静态托管和可选本地 Node 代理。
+<p align="center">
+  <img src="docs/assets/koma-logo.svg" width="340" height="112" alt="Koma Image">
+</p>
 
-站点：[Koma Image](https://koma-image.pages.dev/)。源码：[hasheeper/koma-image](https://github.com/hasheeper/koma-image)。本文说明仓库当前功能；线上部署版本需单独核对。
+<p align="center">
+  <strong>纯前端 AI 插画与多图企划工作台</strong><br>
+  在同一个浏览器标签页里完成 NovelAI 抽卡、多轮对话改图、局部重绘与 Photopea 分层精修。
+</p>
 
-产品定位、功能与整体框架从[产品总览](docs/product/overview.md)开始；技术实现见[架构](docs/architecture.md#核心技术)，视觉与交互原则见[设计语言](docs/product/design-language.md)。
+<p align="center">
+  <a href="https://koma-image.pages.dev/">在线体验</a> ·
+  <a href="#工作区">工作区</a> ·
+  <a href="#快速开始">快速开始</a> ·
+  <a href="docs/README.md">文档</a> ·
+  <a href="LICENSE">使用许可</a>
+</p>
 
-## 功能
+![Koma 工作区一览：左上 IMAGE、右上 CHAT、左下 EDIT、右下 ASK](docs/assets/screenshots/workspaces.jpg)
 
-- **HOME**：默认创作桌面，继续上次车间、查看进行中与定稿；行对齐／列对齐／拼图三种排列。大图复用绘图参数、CHAT 交接、EDIT、Slate 交付和封面操作；头部与同一 ASK 共用输入，支持右侧停靠／全屏、收起状态行与连续过渡。
-- **IMAGE**：正负提示词、画幅与参数、批量生成、普通历史、独立收藏、图片参数导入、多角色和独立画板。
-- **CHAT**：对话生图和参考图修改、附件、上下文选择、分支、多版本和会话管理。
-- **EDIT**：每张来源图拥有独立编辑画板，支持图生图、普通／聚焦蒙版重绘、Enhance／Max、原生／外部放大与六项 Director Tools；去背景的抠图／重建／混合结果可直接切换。Photopea 保留各板分层文档、自动回传图像／蒙版，同尺寸沿用区域。纯修图保留为 EDIT 版本，可直接收藏和任务交付；编辑现场仅本页保留，生成工具取决于连接和模型能力。
-- **TAGS**：Tag 搜索、分类、组合和输入补全，Anime／Furry 使用对应词库。
-- **ASK**：工作台诊断、NAI 能力／token／只读费用、按需看图与候选检查、IMAGE／EDIT 修改草稿与图片交接、多会话和附件、检查点与撤销、上下文压缩及归档召回。写入前由用户确认，不自动生图或发送 CHAT 消息。
-- **待办**：默认浏览器本地任务与持久成果，HTTPS 在线站与本地运行均可用；会话输入框上方是紧凑 Todo，顶栏提供轻量总览，无需目录或 ASK Key。ASK 通过草稿推进任务与配方，可与提示词／参数／文件一并确认；需交图的任务绑图后才能完成，挂载后同步选定任务与成果。
-- **外部协同**：在 HOME 头部或 ASK 输入框附件旁挂载目录，手动 JSON 兜底位于现有「设置 → ASK → 外部协同」。外部 Agent 可提交 IMAGE 提示词、角色和参数草稿，无需 ASK 文本 Key；用户确认后应用。共享 `refs/` 由 ASK 按需读取，手动文件走原生附件入口；配方、备忘录与任务资料统一在草稿卡确认后保存或下载。详见[使用说明](docs/integrations/bridge.md)。
-- **数据**：画板、图片收藏、CHAT 与偏好保存在当前站点的浏览器中，支持新版 Koma ZIP 备份；域名与浏览器之间不自动同步。ASK 收藏会话及附件、Slate 任务与成果独立持久保存，不进入普通备份；未收藏 ASK、普通绘图历史和撤销栈刷新清空。
+## ✨ 简介
 
-## 连接与验证边界
+**Koma Image** 是一个纯前端静态工作台，将表单生图、对话改图、局部精修、标签词典与 AI 辅助收拢在同一个浏览器标签页中：
 
-在「设置 → 连接」显式选择协议，不按连接名称或域名推断，不自动回退。
+- **五个工作区**：`HOME`（创作线与定稿墙）、`IMAGE`（NovelAI 多画板与多角色）、`CHAT`（多轮对话改图与分支）、`EDIT`（局部重绘、Director Tools 与内嵌 Photopea）、`TAGS`（中英标签词典）。切页保留现场，图片跨区流转自动记录来源与参数血统。
+- **Koma ASK**：跨工作区常驻的辅助侧栏。按需看图、查词、比对参数、预检 Token 预算；改词、调参、配角色与跨区送修统一生成 **Diff 草稿卡**，确认后写入，可随时撤销。
+- **任务板与外部协同**：内置 `Slate` 待办清单管理多图进度与绑图交付；支持挂载本地目录（`.koma-bridge`），供 Claude Code、Codex 等外部 Agent 读写状态、共享 `refs/` 资料与投递草稿。
+- **纯本地存储**：无云端账号与业务后台，画板、收藏定稿与会话均保存在浏览器 IndexedDB 中，支持 ZIP 完整备份。
 
-| 协议 | 用途 | 本地环境变量代理 |
-| --- | --- | --- |
-| Koma 标准网关 | 绘图、对话、编辑、报价与余额检查 | 支持 |
-| OpenAI Images | CHAT 生图与参考图修改 | 浏览器直连 |
-| Gemini 原生 | CHAT 生图与参考图修改 | 浏览器直连 |
-| NovelAI 官方 | V4.5／V5 绘图、五型号图生图／Enhance、V5 Max、四型号普通／聚焦重绘、4× 放大、六项 Director Tools、账户额度、多角色与 V4.5 Vibe／Precise | 浏览器直连 |
-| OpenAI Chat 兼容 | ASK 推理、命名与压缩 | 支持 |
-| Anthropic Messages | ASK 推理、命名与压缩 | 支持 |
+<a id="工作区"></a>
 
-初始连接为空，启动不弹出配置窗；在设置中统一填写供应商名称、协议、地址与 Key，未配置 URL／Key 不请求上游。未知费用不显示为免费。上述接线已通过本地模拟检查，真实型号、效果、扣费、权限与 CORS 仍需按供应商核验；具体边界见 [NAI 专题](docs/integrations/novelai.md)与[当前待办](docs/status.md)。
+## 🧩 工作区
 
-## 开发与检查
+### 🏠 HOME · 桌面与定稿
 
-使用 Node 26（`.nvmrc` 为 26.8.2）、npm 11.19.1，依赖精确锁定。
+按画板、对话和编辑现场归拢当前正在推进的创作线，按回车直接回到上次停下的画布。收藏的定稿（`#f`）集中陈列，支持**行对齐、列对齐、拼图**三种原画幅排版；定稿编号单调递增，删除旧图不会导致后续编号错位。
+
+### 🎨 IMAGE · 多画板抽卡
+
+多画板独立保存各自的提示词与参数方案，共用本页历史池（`#h`）；拖入 PNG / JPEG 可直接解析并勾选导入参数（含隐写元数据与内嵌 Vibe 编码）。
+
+- **NovelAI V4.5 / V5**：完整接入 Anime / Furry 模式、Effort（High / Medium）、Complexity、质量与负向预设、透明底、Guidance Rescale，以及 V4.5 的 Variety+、Vibe Transfer 与 Precise Reference。
+- **多角色控制**：支持稳定角色槽位、独立正负词、V4.5 网格定位与 V5 自由坐标定位。
+- **本地分词与估算**：内置 T5 / Qwen3.5 分词 Worker，按正负方向实时合计基础词与启用角色的共享 Token 及 `Text:` 字符上限，并提供单次消耗本地估算。
+
+### 💬 CHAT · 多轮对话改图
+
+接入 OpenAI Images 与 Gemini 原生接口，通过自然语言与多参考图生成或修改画面。右侧上下文面板可自由勾选参与当前分支的历史轮次与锁定底图，支持在任意轮次分叉对比多个版本，或一键将多轮叠改提纯为新分支。
+
+### 🛠️ EDIT · 局部重绘与 Photopea
+
+每张来源图拥有独立的编辑画板（`#e板.版`），所有衍生版本留在板内对比：
+
+- **NAI 编辑工具链**：支持图生图、Enhance（1× / 1.5× / 2×）与 V5 Max Enhance、普通蒙版重绘、**聚焦重绘（Focused Inpainting，手动框选参考范围 + 自动裁切放大至约 1MP 重绘后缩回贴合原图）**、官方 4× 放大，以及 6 项 **Director Tools**（去背景三结果同组切换、线稿、草图、上色、24 种表情、去杂物）。同尺寸切换衍生版本时默认保留画布蒙版。
+- **内嵌 Photopea 工作栈**：页内一键打开保活的 Photopea 实例，自动建立 **「原图 + 涂鸦与修补 + Koma 蒙版」** 三层结构；应用返回时自动分离干净底图与重绘蒙版，并保留各画板独立分层现场。纯手动修图结果无需再跑生成，即可直接收藏或绑入任务交付。
+
+### 🏷️ TAGS · 标签词典
+
+提供 Anime / Furry 双词库标签检索、分类筛选、组合权重调整与输入自动补全。
+
+### 🤝 ASK · 旁路搭档与外部协同
+
+- **诊断与起草**：按需调用拼图预览、单图审视与局部裁切查看画面细节，对比历史参数差异，并在递交草稿前用本地工具预检候选词段的 Token 用量；支持在 `IMAGE`、`CHAT`、`EDIT` 之间一键带图与预设交接。
+- **Slate 任务板与 `.koma-bridge`**：在会话内拆解多图待办、锁定画风基底、绑图结单；挂载本地目录后，外部 Agent 可在无需配置站内 ASK Key 的情况下读取画板状态与 `refs/` 资料、投递修改草稿并接收 `assets/` 交付原图（详见 [SKILL.md](https://koma-image.pages.dev/skills/koma-bridge/SKILL.md)）。
+
+## 🔌 协议与连接
+
+在「设置 → 连接」中选择接口协议并填写地址与 API Key（支持配置多个图像来源并调整优先级）：
+
+| 协议 | 用途 |
+| --- | --- |
+| NovelAI 官方 | `IMAGE` 绘图、`EDIT` 编辑、放大、参考编码与 Director Tools |
+| OpenAI Images | `CHAT` 图像生成与多参考图修改 |
+| Gemini 原生 | `CHAT` 多模态图文生成与参考图修改 |
+| Koma 标准网关 | `IMAGE` / `CHAT` / `EDIT` 统一目录、预报价与生成路由 |
+| OpenAI Chat / Anthropic | `ASK` 流式推理、工具调用、自动命名与上下文压缩 |
+
+详情见[图像协议说明](docs/integrations/image-protocols.md)与[当前状态](docs/status.md)。
+
+## 🔒 本地存储与隐私
+
+Koma 是纯前端静态应用，没有云端账号或业务后台：
+
+- 画板、收藏定稿（`#f`）、对话会话、任务板（`Slate`）与已收藏的 ASK 会话保存在当前浏览器的 IndexedDB 中；API Key 可选仅本次会话有效或保存在浏览器本地，不进入备份文件。
+- 普通绘图历史（`#h`）、EDIT 临时画板/蒙版/Photopea 分层和未收藏的 ASK 对话仅在当前页面存活，刷新后清空。
+- 支持通过「设置 → 备份与恢复」导出或合并导入 Koma ZIP 备份包。
+
+<a id="快速开始"></a>
+
+## 🚀 快速开始
+
+直接访问 **[koma-image.pages.dev](https://koma-image.pages.dev/)**，在右上角「设置 → 连接」中填入模型地址与 Key 即可使用。
+
+本地开发与构建需要 Node.js **26**（[.nvmrc](.nvmrc)）：
 
 ```sh
+# 安装依赖并启动开发服 (http://127.0.0.1:3216)
 npm ci
 npm run dev
-```
 
-开发地址为 http://127.0.0.1:3216，端口占用直接报错。检查和预览：
-
-```sh
+# 类型检查、单元测试与生产构建
 npm run check
-npm run preview
-```
 
-`check` 只运行严格类型、纯逻辑 Node 单元测试和生产构建，不启动浏览器。预览为 http://127.0.0.1:3217。
-
-| 命令 | 使用时机 |
-| --- | --- |
-| `npm run check` | 类型、逻辑和构建检查；CI 使用同一入口 |
-| `node scripts/test-browser.mjs` | 使用已有 `dist/` 运行少量 `[core]` 业务冒烟；CI 仅额外执行这些用例 |
-| `npm run test:browser` | 先构建，再运行上述核心冒烟 |
-| `node scripts/test-browser.mjs --list` | 只查看默认选中的文件，不启动浏览器 |
-| `npm run test:ask`、`test:native`、`test:home`、`test:edit` | 对相关功能改动手动运行专题测试，使用已有构建 |
-| `node scripts/test-browser.mjs shell ask-vision` | 按文件名前缀组合专题；也可传完整 `.browser.mjs` 文件名 |
-| `npm run test:browser:all` | 显式运行全部浏览器测试，日常修改不默认执行 |
-| `npm run test:release` | 修改打包／本地服务器时单独检查发布包 |
-| `npm run styles:check`、`npm run fonts:check` | 修改相关样式规范／字体配置时按需检查 |
-
-核心冒烟复用现有测试，以标题中的 `[core]` 标记为唯一清单：
-
-| 链路 | 保护的实际结果 |
-| --- | --- |
-| IMAGE 生成 → 历史 → 收藏 | 请求载荷、原图和参数、收藏持久化与撤销 |
-| CHAT 发送 → 多版本 | 发送上下文、附件消费、版本／分支和草稿保存 |
-| EDIT 编辑 → 蒙版 → 衍生图 | 编辑请求、蒙版像素、撤销／重做与结果归属 |
-| ASK 提议 → 确认 → 撤销 | 未确认不写入，确认和撤销操作正确，不触发生图 |
-| 图片身份 | 收藏删除／撤销／重收藏／刷新后的稳定编号 |
-
-协议型号组合、参考编码、压缩归档、Bridge／Slate、备份失败恢复与 Photopea 具体分层行为保留为按需专题；新增业务才补必要用例。纯样式改动目视确认涉及页面，不因布局变化运行所有专题。
-
-浏览器断言只覆盖业务操作、载荷、状态、IndexedDB 和图片／蒙版结果。**不锁死字号、圆角、阴影、动画、控件尺寸或间距，不做四档视口几何巡检。** 画笔／框选操作可以读取元素坐标，但验证的是实际蒙版和聚焦范围，不是 CSS。
-
-测试使用合成图片和模拟接口，不执行真实收费生成。各测试服务器使用系统临时 Vite 缓存并在关闭时清理，不自动保存截图。`.local/` 仅保留轻量原型源稿及唯一历史恢复备份；旧截图、录屏、审计代码树和重复环境已清除，文字验收记录仍在[归档](docs/archive/README.md)。测试文件通过 `.gitattributes` 排除出 GitHub 语言占比，仍正常展示差异。
-
-真实 Photopea 往返仍需显式运行 `KOMA_PHOTOPEA_LIVE=1 node --test tests/photopea-live.browser.mjs`；静态包核验先构建，再运行 `KOMA_PHOTOPEA_LIVE=1 KOMA_PHOTOPEA_ENGINES=chromium,edge node --test tests/photopea-compat.browser.mjs`。这些核验使用合成图片，默认不联网；Edge 须已安装，Playwright WebKit 不等同实际 Safari。
-
-## 本地运行与发布
-
-```sh
+# 构建并启动本地静态/代理服务 (http://127.0.0.1:3218)
 npm run build
 npm start
 ```
 
-打开 http://127.0.0.1:3218。可在浏览器配置连接，也可由独立可选的 `KOMA_GATEWAY_*`、`KOMA_ASK_OPENAI_*`、`KOMA_ASK_ANTHROPIC_*` 提供本地代理配置；Key 留在服务端。代理只监听回环地址。
+如需通过本地 `server.mjs` 代理标准网关或 ASK 推理接口（将 Key 留在服务端环境变量中），可配置 `KOMA_GATEWAY_*`、`KOMA_ASK_OPENAI_*` 或 `KOMA_ASK_ANTHROPIC_*`；执行 `npm run package` 可打包独立发布产物。详见[发布与运行说明](docs/release-guide.md)。
 
-`npm run package` 生成可解压运行的发布包。`dist/` 可独立静态托管；构建和 Git 推送均不会自动发布 Pages。推送仓库和部署 Pages 每次须用户明确授权，并先脱敏复查。使用、备份、更新、回退和发布步骤见[发布说明](docs/release-guide.md)。
+<a id="开发与检查"></a>
 
-## 文档与目录
+| 常用命令 | 说明 |
+| --- | --- |
+| `npm run check` | 严格类型检查、Node 单元测试与生产构建 |
+| `npm run test:browser` | 构建并运行 `[core]` 核心业务链路浏览器冒烟测试 |
+| `npm run test:ask` / `test:native` / `test:home` / `test:edit` | 按需运行对应模块的浏览器测试 |
+| `npm run test:release` | 检查发布包构建与本地服务 |
+| `npm run styles:check` / `npm run fonts:check` | 检查样式归属规范与字体配置 |
 
-从[产品总览](docs/product/overview.md)了解产品，从[文档索引](docs/README.md)按任务进入现行规范；[工程约定](AGENTS.md)保存稳定边界，[架构](docs/architecture.md)说明核心技术与模块，[设计语言](docs/product/design-language.md)说明界面取舍。旧阶段记录已退出必读入口，归档保留。
+## 📚 文档导航
 
-```text
-src/app/         单页外壳、路由和工作区生命周期
-src/workspaces/  IMAGE、CHAT、EDIT、TAGS
-src/home/        HOME 创作线、定稿布局与 ASK 停靠
-src/ask/         ASK 会话、工具、草稿、提示词与压缩
-src/slate/       默认本地任务、成果、复合提交与目录交付
-src/bridge/      外部目录、状态预览、草稿收件与回执、共享资料读取与导出
-src/overlays/    设置、备份、Photopea 高级编辑及编辑参数
-src/shared/      共用控件
-src/domain/     纯业务与模型参数
-src/gateway/    协议、鉴权、请求转换和连接诊断
-src/services/   数据租约、调度、连接与工作区服务
-src/storage/    Koma 数据库与备份
-src/native/     Canvas、指针、元数据和图片处理
-public/         本地静态资源、字体和样式
-server.mjs      可选本地服务与固定路径代理
-scripts/        字体构建、测试入口与发布打包
-tests/          单元、浏览器与发布包验证
-docs/           产品／工作区／集成／工程／ASK 规范与主题归档
-```
+- **总览与设计**：[产品总览](docs/product/overview.md) · [设计语言](docs/product/design-language.md) · [当前状态](docs/status.md)
+- **架构与契约**：[文档索引](docs/README.md) · [系统架构](docs/architecture.md) · [业务契约](docs/business-contracts.md)
+- **专题说明**：[NovelAI 适配](docs/integrations/novelai.md) · [Photopea 工作栈](docs/integrations/photopea.md) · [ASK 架构](docs/ask/README.md) · [外部协同与任务板](docs/integrations/bridge.md)
 
-源码公开与使用授权分开：当前许可证为 `UNLICENSED`，尚未授予开源许可。字体与图标各自保留[第三方许可](docs/third-party-assets.md)。公开前检查与凭据报告方式见[安全说明](SECURITY.md)。
+## 💜 致谢
+
+- [Miint-Sunny/nai5-prompting](https://github.com/Miint-Sunny/nai5-prompting)：NovelAI V4.5 / V5 提示词结构与实战经验参考。
+- Danbooru 与中文标签翻译社区：标签分类与中英对照词库基础。
+- Vue、Vite、Resource Han Rounded（资源圆体）、Fredoka、JetBrains Mono，以及本地分词词表与图标等开源项目（详见[第三方资源与许可](docs/third-party-assets.md)）。
+
+## ⚖️ 许可与安全
+
+本项目自有源码、界面设计、品牌美术资源与系统提示词采用 **[Koma 署名—非商业使用许可 1.0](LICENSE)**：
+
+- **允许**：个人自用、学习研究、社区交流，以及非商业性质的二次修改与分享；公开分发或二改时须显著保留原作者署名、本仓库链接与许可证文本。
+- **禁止商业化与去署名套壳**：严禁将本项目或其衍生版本用于任何商业用途，严禁抹除原作者署名后包装为原创产品发布或引流。
+
+内置第三方资源继续适用其各自许可。安全说明见 [SECURITY.md](SECURITY.md)。

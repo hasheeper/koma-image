@@ -19,6 +19,9 @@ test("M7 release: allowlisted archive, checksums, dependency-free extracted serv
     execFileSync("tar", ["-xzf", archive, "-C", directory]);
     const pkg = JSON.parse(await readFile("package.json", "utf8"));
     const root = join(directory, `koma-image-${pkg.version}`);
+    const license = await readFile("LICENSE", "utf8");
+    assert.equal(await readFile(join(root, "LICENSE"), "utf8"), license);
+    assert.equal(await readFile(join(root, "dist/LICENSE"), "utf8"), license);
     const entries = (await readFile(join(root, "SHA256SUMS"), "utf8"))
       .trim()
       .split("\n");
