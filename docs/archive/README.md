@@ -29,6 +29,7 @@
 
 - [EA0 获批规划](2026-10-29-ask-nai-awareness-plan.md)、[EA1–EA3 获批规划](2026-10-29-ask-edit-plan.md)：实施前的完整方案与验收矩阵。
 - [本地实施验收](2026-10-29-ask-edit-verification.md)：只读预算／费用、编辑草稿与交接、模拟请求边界和待真实核验项。
+- [发布与公开前核验](2026-10-29-ask-edit-public-release-verification.md)：最终回归、凭据与历史邮箱检查、单一 main 分支、Git 推送和 Pages 线上证据。
 
 ## 图片身份与引用
 

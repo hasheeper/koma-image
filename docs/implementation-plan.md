@@ -1,6 +1,6 @@
 # 当前状态与待办
 
-更新：2026-10-29。本文保留稳定路径，集中说明仓库现状与剩余工作。产品介绍见[产品总览](product-overview.md)，行为细节由各专题维护；阶段过程与验收数字见[历史索引](archive/README.md)。图片身份重构与 HOME 空状态已推送并发布至 Pages，[本轮提交与线上静态核验](archive/2026-10-29-image-identity-home-release-verification.md)单独留档。本地完成和静态发布均不代表真实供应商联调。
+更新：2026-10-29。本文保留稳定路径，集中说明仓库现状与剩余工作。产品介绍见[产品总览](product-overview.md)，行为细节由各专题维护；阶段过程与验收数字见[历史索引](archive/README.md)。ASK NAI 基础感知、EDIT 协作、供应商配置与本轮界面整理已推送并发布至 Pages；[发布与公开前核验](archive/2026-10-29-ask-edit-public-release-verification.md)记录脱敏、历史邮箱匿名化及单一 main 分支整理。本地完成和静态发布均不代表真实供应商联调。
 
 ## 已实现范围
 
@@ -29,7 +29,7 @@
 - **ASK 质量**：真实图片黄金样例、诊断／提纯／命名、用户提示词效果、交接备忘录质量、CHAT 尺寸项效果与真实缓存命中。
 - **目录兼容**：Chromium OPFS 已验证文件写入、句柄保存和跨页锁；macOS Edge 已实测本地选择器、授权、刷新恢复与外部文件闭环。浏览器重启、撤权恢复、其他浏览器与跨进程竞争仍待验。
 - **编辑兼容**：实际 Safari、移动真机、Photopea 复杂分层长时使用及 Pages 发布后体验仍待独立核验。Playwright WebKit 不等于实际 Safari。
-- **持续发布验证**：本轮图片身份与 HOME 空状态发布已核对静态产物、工作区导航与四档页面宽度；每次发布须按具体提交检查，线上静态检查不能代替 CI 与真实供应商生成验证。
+- **持续发布验证**：本轮 ASK／EDIT 与供应商配置发布已核对静态产物、五个工作区及四档页面宽度；每次发布须按具体提交检查，线上静态检查不能代替 CI 与真实供应商生成验证。
 
 真实收费生成、推送和部署按工程约定取得对应授权。
 
@@ -50,7 +50,7 @@
 
 [EA0 基础感知](ask/ask-nai-awareness.md)与 [EA1–EA3 编辑接入](ask/ask-edit.md)已按顺序实现。IMAGE 与 EDIT 共用能力／生效值、分段 token／Text 和费用读取；内置 EDIT 草稿使用独立无报价写入路径，支持模式、Enhance、聚焦框、Director 预设与撤销。edit_handoff 留在原页，#e → CHAT 保留原图／转换后的实体与来源。
 
-本轮代码与本地模拟验证记录在[验收归档](archive/2026-10-29-ask-edit-verification.md)，本轮尚未推送或部署。真实模型对动态状态的理解、编辑建议质量、实际 token 采用与计费仍按本文真实待验边界核验。
+代码与本地模拟验证记录在[验收归档](archive/2026-10-29-ask-edit-verification.md)，[最终发布核验](archive/2026-10-29-ask-edit-public-release-verification.md)记录已完成的 Git／Pages 交付。真实模型对动态状态的理解、编辑建议质量、实际 token 采用与计费仍按本文真实待验边界核验。
 
 ## 图片身份
 
