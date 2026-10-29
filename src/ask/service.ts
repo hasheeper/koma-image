@@ -45,10 +45,11 @@ import { run } from "./runner.ts";
 import { createTools } from "./tools.ts";
 import { chatLabel, createIds, idPattern } from "./ids.ts";
 import { snapshotPictures } from "./library.ts";
+import type { Picture } from "./library.ts";
 import { createVision } from "./vision.ts";
 import { buildDigest, stateBlock } from "./digest/index.ts";
 import type { Digest } from "./digest/index.ts";
-import { promptVersion, systemCore, systemPreferences } from "./prompts/index.ts";
+import { dataBlock, promptVersion, systemCore, systemPreferences } from "./prompts/index.ts";
 import { createCallLog } from "./debug.ts";
 import type { CallLogView } from "./debug.ts";
 import { createPacer, PACE } from "./pacer.ts";
@@ -93,6 +94,8 @@ export interface CheckpointView {
 }
 export interface AskTurnView {
   readonly pictureRefs?: PictureRefs;
+  /** Unapplied proposal carried into an ordinary follow-up, including retries. */
+  readonly draftFeedback?: string;
   readonly id: number;
   readonly question: string;
   readonly anchor: string | null;
@@ -394,6 +397,11 @@ export function createAsk(deps: {
     void draftRevision.value;
     return draft.value ? validateDraft(draft.value.draft, readDraftState(draft.value.draft.base.boardId, draft.value.draft.steps.find(s => s.kind === "slate_edit")?.change.before?.id, draft.value.draft.base.edit?.id), { off: draft.value.off, has: hasImage }) : null;
   });
+  const canReviseDraft = computed(() => {
+    const record = draft.value;
+    return !!record && !record.draft.external && !record.draft.synthetic && entries.value.some(e =>
+      e.type === "turn" && e.id === record.turnId && e.turn.turnId !== null);
+  });
   const undoTarget = computed(() => {
     void draftRevision.value;
     return history.top?.conversationId === conversationId.value ? history.top : null;
@@ -519,12 +527,13 @@ export function createAsk(deps: {
   }
   const undoDraft = (id = undoTarget.value?.id) => id === undefined ? Promise.resolve() : moveDraft(id, false);
   const restoreDraft = (id: number) => moveDraft(id, true);
-  function ignoreDraft() {
+  function ignoreDraft(quiet = false) {
     if (!draft.value || writingDraft.value || controller || disposed) return;
     const entry = entries.value.find(e => e.type === "turn" && e.id === draft.value?.turnId);
     if (entry?.type === "turn" && entry.turn.turnId) conversations.current.session.updateDraft(entry.turn.turnId, "dismissed");
     externalStatus(draft.value, "dismissed");
-    draft.value = null; notice.value = ""; say("已忽略草稿，内容未修改");
+    draft.value = null; notice.value = "";
+    if (!quiet) say("已放弃草稿，内容未修改");
   }
 
   function pictureLibrary() {
@@ -551,6 +560,21 @@ export function createAsk(deps: {
     // Original persisted record is readable across refresh; no label is resolved anew.
     if (exact && (scopeValid || exact.origins.some(o=>o.source==="favorites"))) return exact;
     return ref.entity_key ? all.find(p=>p.entity_key===ref.entity_key && p.origins.some(o=>o.source==="favorites")) ?? null : null;
+  }
+  /** Borrow URLs from the resource owner; a lookup must never replace another view's preview. */
+  function pictureUrl(item: Picture): string | null {
+    const same = (record: { blob: Blob; entity_key?: string }) => record.blob === item.blob || !!item.entity_key && record.entity_key === item.entity_key;
+    if (item.scope?.kind === "chat" && item.scope.asset_id) {
+      const asset = chat.assets.assets.get(item.scope.asset_id);
+      if (asset && same(asset)) return asset.url;
+    }
+    const d = drawing.snapshot();
+    const record = [...d.history, ...d.favorites].find(r => r.id === item.id && same(r));
+    if (record) return drawing.url(record, true);
+    const version = deps.editor?.boards().flatMap(b => b.versions).find(v => v.recordId === item.id && same(v));
+    if (version) return version.url;
+    const attachment = attachments.get(item.id);
+    return attachment?.kind === "image" && same(attachment) ? attachment.url : null;
   }
   function digestNow(anchorLabel: string | null, formText = false, metadataOnly = !settings.value.images): Digest {
     const d = drawing.snapshot(),
@@ -818,12 +842,24 @@ export function createAsk(deps: {
       return;
     }
   }
-  type SendOptions = { metadataOnly?: boolean; anchor?: string | null; preserveInput?: boolean; attachments?: readonly string[]; replaceId?: number };
+  type SendOptions = { metadataOnly?: boolean; anchor?: string | null; preserveInput?: boolean; attachments?: readonly string[]; replaceId?: number; draftFeedback?: string };
   async function send(text = input.value, options: SendOptions = {}) {
     if ((!text.trim() && !(options.attachments ?? tray.value).length) || !manageable() || preparing.value) return;
-    if (draft.value) { notice.value = "请先应用或忽略当前草稿"; return; }
+    if (draft.value && !canReviseDraft.value) { notice.value = "请先应用或放弃当前草稿"; return; }
     const provider = providerForSend();
-    if (provider) await dispatch(text, options, provider);
+    if (!provider) return;
+    if (draft.value) {
+      const previous = draft.value.draft, plan = draftPlan.value;
+      const feedback = dataBlock(canonical({
+        original_request: previous.question,
+        proposal: { title: previous.title, steps: previous.steps, new_board_name: previous.newBoardName },
+        target: { workspace: plan?.workspace ?? previous.base.workspace, board_id: previous.base.boardId, edit_board_id: previous.base.edit?.id, chat_id: previous.base.conversationId },
+        withdrawn_steps: plan?.steps.filter(s => !s.enabled).map(s => ({ label: s.label, before: s.before, after: s.after })) ?? [],
+      }));
+      options = { ...options, draftFeedback: `用户正在补充上一份内置草稿。下面的旧稿已忽略、尚未应用，不能当作已写入状态；请结合原需求与本次补充，依据本轮真实工作区状态重新整理完整草稿。用户已撤回的步骤不要默认加回。\n${feedback}` };
+      ignoreDraft(true);
+    }
+    await dispatch(text, options, provider);
   }
   /** One controller covers pre-send compaction, persistence and the following answer. */
   async function dispatch(text: string, options: SendOptions, provider: ReturnType<typeof createProvider>) {
@@ -967,6 +1003,7 @@ export function createAsk(deps: {
       role: "user",
       content: [
         { type: "text", text: stateBlock(digest), source: { kind: "workspace_state" } },
+        ...(options.draftFeedback ? [{ type: "text" as const, text: options.draftFeedback }] : []),
         ...attachmentBlocks(attached, metadataOnly),
         { type: "text", text: question },
       ],
@@ -978,6 +1015,7 @@ export function createAsk(deps: {
     const working: WorkingTurn = {
       id: ++sequence,
       question,
+      ...(options.draftFeedback ? { draftFeedback: options.draftFeedback } : {}),
       anchor: turnAnchor,
       pictureRefs: freezePictureRefs(library, pictureScopes()),
       items: [],
@@ -1331,6 +1369,7 @@ export function createAsk(deps: {
       if (order.length) deps.ui.toast(`已撤回 ${order.length} 份草稿`);
       writingDraft.value = false;
       void dispatch(text, { anchor: entry.turn.anchor, metadataOnly: entry.turn.metadataOnly, preserveInput: true,
+        draftFeedback: entry.turn.draftFeedback,
         attachments: originalAttachments, replaceId: entry.id }, provider);
       return true;
     } catch (error) {
@@ -1370,14 +1409,14 @@ export function createAsk(deps: {
     const provider = providerForSend();
     if (!provider) return;
     void dispatch(entry.turn.question, { metadataOnly: mode === "metadata" || mode !== "images" && entry.turn.metadataOnly, anchor: entry.turn.anchor,
+      draftFeedback: entry.turn.draftFeedback,
       preserveInput: true, attachments: entry.turn.attachments.filter(a => !a.toolRead).map(a => a.id), replaceId: entry.id }, provider);
   }
-  /** Esc: popovers, then the draft (A2), then the running turn, then the drawer. */
+  /** Esc closes popovers, stops an active turn, or hides the window without discarding a draft. */
   function escape() {
     for (const layer of [...layers].reverse()) if (layer()) return;
     if (writingDraft.value) return;
     if (controller) stop();
-    else if (draft.value) ignoreDraft();
     else { open.value = false; dismissCompact(); }
   }
   function onKey(event: KeyboardEvent) {
@@ -1391,7 +1430,7 @@ export function createAsk(deps: {
     if ((event.metaKey || event.ctrlKey) && !event.shiftKey && !event.altKey && event.key.toLowerCase() === "k") {
       if (!(active instanceof HTMLTextAreaElement) || !["prompt", "negative", "chatPrompt"].includes(active.id) || controller || writingDraft.value) return;
       event.preventDefault();
-      if (draft.value) { inline.value = null; open.value = true; notice.value = "请先应用或忽略当前草稿"; return; }
+      if (draft.value) { inline.value = null; open.value = true; notice.value = canReviseDraft.value ? "可在输入框补充修改意见" : "请先应用或放弃当前草稿"; return; }
       inlineElement = active;
       inline.value = { target: active.id === "chatPrompt" ? "chat.composer" : active.id === "negative" ? "image.negative" : "image.prompt", text: (active.value.slice(active.selectionStart, active.selectionEnd) || active.value).slice(0, 24000) };
       open.value = true;
@@ -1400,6 +1439,7 @@ export function createAsk(deps: {
     }
     const compact = !editorOpen.value && !!root && root.dataset.mode !== "idle";
     if (event.key === "Tab" && !event.shiftKey && !event.altKey && !event.metaKey && !event.ctrlKey && (visible.value || compact) && (inside || body) && !typing && window.getSelection()?.isCollapsed !== false) {
+      if (canReviseDraft.value && (input.value.trim() || tray.value.length)) return;
       const button = root?.querySelector<HTMLButtonElement>(".ask-draft-apply");
       if (button && !button.disabled && button.getClientRects().length && !button.closest('[inert]')) { event.preventDefault(); void applyDraft(button.dataset.fingerprint ?? ""); }
       return;
@@ -1594,6 +1634,7 @@ export function createAsk(deps: {
     preferencePaused: preferencePaused as Readonly<ShallowRef<boolean>>,
     ready,
     draftPlan,
+    canReviseDraft,
     appliedDraft,
     undoId: computed(() => undoTarget.value?.id ?? null),
     redoId: computed(() => redoTarget.value?.id ?? null),
@@ -1656,13 +1697,14 @@ export function createAsk(deps: {
         const label = workspace==="edit" ? p.aliases.find(tag=>/^#e\d+[a-z]?$/.test(tag))??p.label : workspace==="chat" ? p.origins.find(o=>o.source==="chat")?.label ?? p.label : p.aliases.find(tag=>/^#e\d+\./.test(tag)) && /^#e/.test(anchor.value ?? "") ? p.aliases.find(tag=>/^#e\d+[a-z]?$/.test(tag)) ?? p.label : p.label;
         if (!label.toLowerCase().startsWith(prefix.toLowerCase()) && !p.aliases.some(tag=>tag.toLowerCase().startsWith(prefix.toLowerCase()))) return [];
         const matched = label.toLowerCase().startsWith(prefix.toLowerCase()) ? label : p.aliases.find(tag=>tag.toLowerCase().startsWith(prefix.toLowerCase()))!;
-        const r=[...drawing.snapshot().history,...drawing.snapshot().favorites].find(r=>r.id===p.id);
-        return [{label:matched,url:drawing.url(r ?? {...p,thumbBlob:null},true),size:`${p.size.width}×${p.size.height}`}];
+        const url = pictureUrl(p);
+        return url ? [{label:matched,url,size:`${p.size.width}×${p.size.height}`}] : [];
       }).slice(0,7);
     },
     pictureInfo(label: string, refs?: PictureRefs) {
       const item = boundPicture(label, refs);
-      return item ? { label, url: drawing.url({ ...item, thumbBlob:null },true), width:item.size.width,height:item.size.height,
+      const url = item && pictureUrl(item);
+      return item && url ? { label, url, width:item.size.width,height:item.size.height,
         expired: !!refs?.[label] && refs[label].scope.kind==="page" && refs[label].scope.id!==pageScope,
         parametersUnavailable:!!refs?.[label] && refs[label].record_id!==item.id } : null;
     },

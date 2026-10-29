@@ -1,9 +1,96 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 
-import { useAskFixture, submitAsk, open, anthropic, askSettings, generation, bind, drawer, addScene, toolReply, textReply, imageBlocks, scripted } from "./helpers/ask-fixture.mjs";
+import { useAskFixture, submitAsk, open, anthropic, askSettings, generation, bind, drawer, addScene, toolReply, textReply, imageBlocks, scripted, seedAskChat } from "./helpers/ask-fixture.mjs";
 
 useAskFixture();
+
+test('ASK and IMAGE previews remain decodable across lookup, favorite reload and removal', async () => {
+  const { page, context, errors, requests, llm } = await open('/#/image', { ready: '.switcher', ask: askSettings() });
+  try {
+    await bind(page);
+    const id = await addScene(page);
+    const preview = await page.evaluate(async () => {
+      const record = drawing.snapshot().history[0];
+      await drawing.toggleFavorite(record);
+      const history = drawing.url(record, true);
+      const askPreview = ask.pictureInfo('#h1').url;
+      drawing.url(record, true);
+      const decode = async url => { const img = new Image(); img.src = url; try { await img.decode(); return true; } catch { return false; } };
+      return { history: await decode(history), ask: await decode(askPreview) };
+    });
+    assert.deepEqual(preview, { history: true, ask: true }, 'reading ASK must not revoke the history thumbnail, or vice versa');
+
+    await addScene(page, 1);
+    llm.push(toolReply('find', 'search_history', { query: 'landscape' }), textReply('找到 #h1。'));
+    await page.evaluate(() => ask.show());
+    await page.locator('#askPrompt').fill('查找 landscape');
+    await submitAsk(page);
+    await drawer(page).locator('.ask-turn[data-status="done"]').waitFor();
+    const candidates = drawer(page).getByRole('group', { name: '选择要分析的图片' });
+    await candidates.locator('img').first().waitFor();
+    await page.evaluate(async id => {
+      window.thumbnailUrls = [document.querySelector(`#tray .tile[data-id="${id}"] img`).src, document.querySelector('.ask-pick button[aria-label="选择 #h1 继续提问"] img').src];
+      drawing.show(drawing.snapshot().history.find(r => r.id === id), true);
+      ask.pictureCandidates('#');
+      drawing.remove(id);
+      await drawing.reloadFavorites();
+    }, id);
+    const retained = await page.evaluate(async () => Promise.all(thumbnailUrls.map(async url => {
+      const img = new Image(); img.src = url; try { await img.decode(); return true; } catch { return false; }
+    })));
+    assert.deepEqual(retained, [true, true], 'reloading unchanged favorites must not invalidate displayed URLs');
+    await page.waitForFunction(() => [...document.querySelectorAll('#tray .tile img, .ask-pick img')].every(img => img.complete && img.naturalWidth > 0));
+
+    await page.evaluate(id => drawing.remove(id), id);
+    assert.equal(await page.evaluate(() => !!ask.pictureInfo('#f1')), true);
+    await page.evaluate(async () => drawing.toggleFavorite(drawing.snapshot().favorites[0]));
+    assert.equal(await page.evaluate(() => ask.pictureInfo('#f1')), null);
+    await page.evaluate(id => drawing.remove(id), id);
+    const released = await page.evaluate(async () => Promise.all(thumbnailUrls.map(async url => {
+      try { await fetch(url); return false; } catch { return true; }
+    })));
+    assert.deepEqual(released, [true, true], 'the last owner removing the image still releases its preview');
+    assert.deepEqual(generation(requests), []);
+    assert.deepEqual(errors, []);
+  } finally { await context.close(); }
+});
+
+test('ASK EDIT, CHAT and attachment previews survive IMAGE pruning and release with their owners', async () => {
+  const { page, context, errors, requests } = await open('/#/image', { ready: '.switcher', ask: askSettings() });
+  try {
+    await bind(page);
+    await page.evaluate(() => chat.warm());
+    await seedAskChat(page);
+    await page.evaluate(async () => {
+      const canvas = new OffscreenCanvas(128, 192), g = canvas.getContext('2d');
+      g.fillStyle = '#675390'; g.fillRect(0, 0, 128, 192);
+      const blob = await canvas.convertToBlob({ type: 'image/png' });
+      await editor.open('edit', blob, '合成编辑图.png');
+      window.previewBoard = editor.session.id;
+      await ask.addFiles([new File([blob], '合成附件.png', { type: 'image/png' })]);
+      window.previewUrls = ['#e1', '#c1.1', '#a1'].map(label => ask.pictureInfo(label).url);
+      ask.pictureCandidates('#');
+      await drawing.patch({ prompt: 'only updates IMAGE' });
+    });
+    await addScene(page);
+    const loaded = await page.evaluate(async () => Promise.all(previewUrls.map(async url => {
+      const image = new Image(); image.src = url;
+      try { await image.decode(); return true; } catch { return false; }
+    })));
+    assert.deepEqual(loaded, [true, true, true]);
+    const removed = await page.evaluate(async () => {
+      editor.removeBoard(previewBoard);
+      ask.removeAttachment('#a1');
+      return Promise.all([previewUrls[0], previewUrls[2]].map(async url => {
+        try { await fetch(url); return false; } catch { return true; }
+      }));
+    });
+    assert.deepEqual(removed, [true, true], 'removing EDIT/attachment resources releases their preview URLs');
+    assert.deepEqual(generation(requests), []);
+    assert.deepEqual(errors, []);
+  } finally { await context.close(); }
+});
 
 // S1's pictures and model replies are synthetic; this verifies plumbing, not visual reasoning quality.
 test('ASK A1 S1: metadata, full image, padded crop, stable snapshot, privacy retry and no generation', async () => {

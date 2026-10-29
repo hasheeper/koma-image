@@ -552,7 +552,7 @@ test('ASK CP3: ledger follows archived undo without rewriting memory; pending dr
     llm.push({ ...cp2Reply('chat', '<memo>停止的手动压缩</memo>'), wait: new Promise(done => { release = done; }) });
     const dispatched = page.waitForRequest(r => reasoning.test(new URL(r.url()).pathname));
     await (await openMore(page)).getByRole('menuitem', { name: '压缩上下文', exact: true }).click(); await dispatched;
-    assert.equal(await drawer(page).getByRole('button', { name: '忽略', exact: true }).isDisabled(), true);
+    assert.equal(await drawer(page).getByRole('button', { name: '选择应用方式', exact: true }).isDisabled(), true);
     await page.evaluate(() => ask.hide());
     assert.match(await page.locator('.ask-run .ask-activity').textContent(), /正在压缩上下文/);
     assert.ok(await page.locator('.ask-run .ask-progress').evaluate(el => el.classList.contains('empty')));

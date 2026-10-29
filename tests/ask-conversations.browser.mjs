@@ -250,7 +250,7 @@ test('ASK W3: a later reply replaces the write pill, undo conflicts report from 
     // Ignoring another pending draft dismisses its compact result, keeps A's undo.
     await askDraft(page,llm,[patchStep('append','',', sunlight')]);
     await drawer(page).getByRole('button',{name:'收起 ASK',exact:true}).click(); await islandMode(page,'ready');
-    await page.locator('#askCompactDraft').getByRole('button',{name:'忽略',exact:true}).click(); await islandMode(page,'idle');
+    await page.locator('#askCompactDraft').getByRole('button',{name:'放弃草稿',exact:true}).click(); await islandMode(page,'idle');
     assert.notEqual(await page.evaluate(()=>ask.undoId.value),null);
     await page.locator('#askLauncher').click();
     await undoCheckpoint(page); assert.equal((await form(page)).prompt,'red eyes');

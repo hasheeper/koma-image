@@ -28,6 +28,7 @@ const drawingService = useDrawing().drawing, chatService = useChat().chat;
 const { router, image, chat } = useShell();
 const presentation = useAskPresentation();
 const { shown, mode, home, mobile, fullscreen, dock, canDock, latest, tools, compactDraft, completed, summary, outcome, dismiss } = presentation;
+const joinedDraft = computed(() => !!ask.draftPlan.value && (home.value || mode.value !== 'ready'));
 const inlineWindow = computed(() => !home.value && !mobile.value && !!ask.inline.value);
 const movable = computed(() => !home.value && !mobile.value && !ask.inline.value);
 const root = shallowRef<HTMLElement | null>(null),
@@ -156,12 +157,17 @@ onBeforeUnmount(() => { controller.abort(); ask.attach(null); });
       </header>
       <AskStream @start="start" @focus="composer?.focus(true)" />
       <div class="ask-bottom">
-        <AskTodos /><div id="askFullDraft" class="ask-full-draft"></div><AskComposer ref="composer" /></div>
+        <AskTodos />
+        <div class="ask-compose-panel" :class="{ 'has-draft': joinedDraft }">
+          <div id="askFullDraft" class="ask-full-draft"></div>
+          <AskComposer ref="composer" :joined="joinedDraft" />
+        </div>
+      </div>
       <AskAttachmentPreview v-if="ask.attachmentPreview.value && !ask.attachmentPreview.value.inline" :key="ask.attachmentPreview.value.id" />
 
       <div v-if="dropping" class="ask-drop" aria-hidden="true"><span>松开即可添加到这条提问</span></div>
     </div>
-    <Teleport :to="!home && mode === 'ready' && compactDraft ? '#askCompactDraft' : '#askFullDraft'" defer><DraftCard :compact="!home && mode === 'ready'" @review="ask.show()" /></Teleport>
+    <Teleport :to="!home && mode === 'ready' && compactDraft ? '#askCompactDraft' : '#askFullDraft'" defer><DraftCard :compact="!home && mode === 'ready'" :joined="joinedDraft" @review="ask.show()" /></Teleport>
     <div class="sr-only" role="status" aria-live="polite"><span :key="ask.announce.value.id">{{ ask.announce.value.text }}</span></div>
     <span v-if="!home && !mobile" id="askMoveHint" class="sr-only">拖动图标或标题栏移动；Alt 加方向键移动，Alt 加 Home 归位。⌘J 或 Ctrl+J 展开或收起。</span>
   </aside>
@@ -234,6 +240,8 @@ onBeforeUnmount(() => { controller.abort(); ask.attach(null); });
 /* The title is a button, so the empty head after it is a second grip. */
 .ask-fill { flex: 1; align-self: stretch; min-width: 8px; }
 .ask-bottom { display: flex; flex: 0 1 auto; flex-direction: column; min-height: 0; max-height: calc(100% - 104px); padding: 0 16px 14px; }
+.ask-compose-panel { display: flex; flex: 0 1 auto; flex-direction: column; min-height: 0; }
+.ask-compose-panel.has-draft { background: var(--ask-layer, var(--raised)); border: 1px solid var(--line-2); border-radius: 14px; }
 .ask-full-draft { display: flex; flex: 0 1 auto; flex-direction: column; min-height: 0; }
 .ask-bottom :deep(.ask-dock) { flex: none; }
 .ask-island.ask-inline { top: var(--ask-inline-top, 80px); right: auto; left: var(--ask-inline-left, 8px); width: min(480px, calc(100vw - 16px)); height: min(560px, calc(100dvh - 96px)); }

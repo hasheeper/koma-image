@@ -10,7 +10,7 @@ import { draftView } from "./draft/view.ts";
 import type { FieldKey } from "./draft/view.ts";
 import { menuKeys, placeMenu } from "../shared/popover";
 
-const props = defineProps<{ compact?: boolean }>();
+const props = defineProps<{ compact?: boolean; joined?: boolean }>();
 const emit = defineEmits<{ review: [] }>();
 const ask = useAsk(), plan = ask.draftPlan;
 // The body stays as the user last left it, across drafts.
@@ -25,8 +25,11 @@ const toggles = computed(() => (plan.value?.steps.length ?? 0) > 1);
 const blocked = computed(() => !plan.value || (!plan.value.edit && !plan.value.changes.length && !plan.value.branch && !plan.value.handoff && !plan.value.slate && !plan.value.files?.length) || (!!(plan.value.edit || plan.value.slate || plan.value.files?.length) && issues.value) || ask.writingDraft.value || ask.running.value);
 const menuId = `draftApply-${useId()}`;
 const menu = shallowRef<HTMLElement | null>(null), menuTrigger = shallowRef<HTMLButtonElement | null>(null), menuOpen = shallowRef(false);
-const hasApplyMenu = computed(() => plan.value?.workspace === "image" && !plan.value.newBoardName && !props.compact);
-const canChooseBoard = computed(() => !!plan.value?.changes.length);
+const hasApplyMenu = computed(() => !props.compact);
+const hasImageOptions = computed(() => plan.value?.workspace === "image" && !plan.value.newBoardName && !props.compact);
+const canChooseBoard = computed(() => hasImageOptions.value && !!plan.value?.changes.length);
+const revising = computed(() => ask.canReviseDraft.value && (!!ask.input.value.trim() || !!ask.tray.value.length));
+const applyLabel = computed(() => revising.value ? ask.draftApplyLabel.value.replace('应用', '应用原稿') : ask.draftApplyLabel.value);
 const destinations = [
   { newBoard: false, label: "应用到来源画板" },
   { newBoard: true, label: "应用到新画板" },
@@ -94,9 +97,10 @@ function apply(event: MouseEvent) {
   const target = button.dataset.newBoard;
   void ask.applyDraft(button.dataset.fingerprint ?? "", target === undefined ? undefined : target === "true");
 }
+function discard() { closeMenu(); ask.ignoreDraft(); }
 </script>
 <template>
-  <section v-if="plan && view" class="ask-draft" :class="{ compact, open: open && !compact, 'has-destination': !!view.destination }" aria-label="待确认草稿" data-status="pending" :aria-busy="ask.writingDraft.value">
+  <section v-if="plan && view" class="ask-draft" :class="{ compact, joined, open: open && !compact, 'has-destination': !!view.destination }" aria-label="待确认草稿" data-status="pending" :aria-busy="ask.writingDraft.value">
       <header class="draft-head">
         <button v-if="compact" class="draft-toggle draft-review" type="button" aria-label="查看草稿修改" :title="plan.title" @click="review">
           <AppIcon name="i-edit" class="draft-lead" />
@@ -107,10 +111,10 @@ function apply(event: MouseEvent) {
           <span class="draft-heading"><span class="draft-title"><strong>{{ plan.title }}</strong><span v-if="!fileRows.length" class="draft-stat" :title="`新增 ${view.added} 项 · 删除 ${view.removed} 项`"><span v-if="view.added" class="i">+{{ view.added }}</span><span v-if="view.removed" class="d">−{{ view.removed }}</span></span></span><span v-if="view.destination" class="draft-destination" :title="`${view.destination.label} · ${view.destination.name}`"><span>{{ view.destination.label }}</span><span aria-hidden="true">·</span><span class="draft-board-name">{{ view.destination.name }}</span></span></span>
         </button>
         <div class="draft-actions">
-          <button class="btn btn-sm draft-ignore" type="button" title="忽略 · Esc" :disabled="ask.writingDraft.value || ask.running.value" @click="ask.ignoreDraft()">忽略</button>
+          <button v-if="compact" class="btn btn-sm draft-discard" type="button" aria-label="放弃草稿" title="放弃草稿" :disabled="ask.writingDraft.value || ask.running.value" @click="discard"><AppIcon name="i-close" /></button>
           <div class="draft-apply-group" :class="{ split: hasApplyMenu }">
-            <button class="btn btn-primary btn-sm ask-draft-apply" type="button" :title="applyTitle" :data-fingerprint="plan.fingerprint" :disabled="blocked" :aria-disabled="blocked" @click="apply"><AppIcon :name="applyIcon" /><span>{{ ask.writingDraft.value ? '写入中…' : ask.draftApplyLabel.value }}</span></button>
-            <button v-if="hasApplyMenu" ref="menuTrigger" class="btn btn-primary btn-sm draft-apply-more" type="button" aria-label="选择应用方式" title="选择应用方式" :popovertarget="menuId" aria-haspopup="menu" :aria-expanded="menuOpen" :disabled="blocked" @click.prevent="toggleMenu"><AppIcon name="i-chevron" /></button>
+            <button class="btn btn-primary btn-sm ask-draft-apply" type="button" :title="revising ? `应用原稿，补充意见尚未发送 · ${applyTitle}` : applyTitle" :data-fingerprint="plan.fingerprint" :disabled="blocked" :aria-disabled="blocked" @click="apply"><AppIcon :name="applyIcon" /><span>{{ ask.writingDraft.value ? '写入中…' : applyLabel }}</span></button>
+            <button v-if="hasApplyMenu" ref="menuTrigger" class="btn btn-primary btn-sm draft-apply-more" type="button" aria-label="选择应用方式" title="选择应用方式" :popovertarget="menuId" aria-haspopup="menu" :aria-expanded="menuOpen" :disabled="ask.writingDraft.value || ask.running.value" @click.prevent="toggleMenu"><AppIcon name="i-chevron" /></button>
           </div>
         </div>
       </header>
@@ -119,9 +123,13 @@ function apply(event: MouseEvent) {
           <AppIcon :name="destination.newBoard ? 'i-copy' : 'i-check'" /><span>{{ destination.label }}</span>
         </button>
         <hr v-if="canChooseBoard" />
-        <button class="menu-item" type="button" role="menuitem" @click="closeMenu(); ask.proposeFile('recipe')"><AppIcon name="i-parameters" /><span>附加画板配方</span></button>
-        <button class="menu-item" type="button" role="menuitem" @click="closeMenu(); ask.proposeFile('memo')"><AppIcon name="i-file" /><span>附加创作备忘录</span></button>
-        <button v-if="ask.activeSlate.value" class="menu-item" type="button" role="menuitem" @click="closeMenu(); ask.proposeFile('slate')"><AppIcon name="i-tasks" /><span>附加任务交接资料</span></button>
+        <template v-if="hasImageOptions">
+          <button class="menu-item" type="button" role="menuitem" @click="closeMenu(); ask.proposeFile('recipe')"><AppIcon name="i-parameters" /><span>附加画板配方</span></button>
+          <button class="menu-item" type="button" role="menuitem" @click="closeMenu(); ask.proposeFile('memo')"><AppIcon name="i-file" /><span>附加创作备忘录</span></button>
+          <button v-if="ask.activeSlate.value" class="menu-item" type="button" role="menuitem" @click="closeMenu(); ask.proposeFile('slate')"><AppIcon name="i-tasks" /><span>附加任务交接资料</span></button>
+          <hr />
+        </template>
+        <button class="menu-item" type="button" role="menuitem" :disabled="ask.writingDraft.value || ask.running.value" @click="discard"><AppIcon name="i-close" /><span>放弃草稿</span></button>
       </div>
       <p v-if="plan.aligned" class="draft-aligned">已按当前内容对齐，请核对后应用</p>
       <div v-show="open && !compact" id="askDraftBody" ref="body" class="draft-body" :class="{ more }" @scroll.passive="fade">
@@ -185,9 +193,8 @@ function apply(event: MouseEvent) {
 .draft-stat .d { color: var(--err); }
 .draft-actions { display: flex; flex: 0 1 auto; align-items: center; gap: 4px; max-width: 100%; margin-left: auto; padding-left: 8px; }
 .draft-actions .btn { min-height: 30px; padding: 0 9px; font-size: 13px; font-weight: var(--fw-medium); border: 0; border-radius: 8px; box-shadow: none; }
-.draft-ignore { flex: none; color: var(--fg-3); }
-.draft-ignore:hover:not(:disabled) { color: var(--fg); background: var(--ask-hover, var(--hover)); }
-.draft-ignore:disabled { opacity: .4; cursor: default; }
+.draft-discard { flex: none; color: var(--fg-3); }
+.draft-discard:hover:not(:disabled) { color: var(--fg); background: var(--ask-hover, var(--hover)); }
 .draft-apply-group { display: flex; align-items: stretch; min-width: 0; border-radius: 8px; background: var(--a); }
 .draft-actions .ask-draft-apply { gap: 4px; padding-inline: 10px; white-space: normal; overflow-wrap: anywhere; }
 .draft-apply-group .ico { --ico: var(--ico-sm); }
@@ -198,13 +205,14 @@ function apply(event: MouseEvent) {
 .draft-actions .draft-apply-more:hover:not(:disabled), .draft-apply-more[aria-expanded="true"] { background: rgb(255 255 255 / 18%); }
 .draft-apply-more::before { content: ""; position: absolute; left: 0; top: 7px; bottom: 7px; width: 1px; background: rgb(23 19 42 / 16%); }
 .draft-apply-more .ico { transform: rotate(90deg); }
+.joined { margin-bottom: 0; background: transparent; border: 0; border-radius: 14px 14px 0 0; }
 /* Measured coordinates must not transition, including under the global reduced-motion duration. */
 .draft-apply-menu { width: min(184px, calc(100vw - 16px)); transition-property: none; }
 .draft-aligned { flex: none; padding: 0 var(--draft-r) 8px var(--draft-b); color: var(--warn); font-size: var(--fz-xs); }
-.draft-body { display: grid; flex: 0 1 auto; grid-auto-rows: max-content; min-height: 0; max-height: min(44dvh, 340px); padding: 4px 0 10px; overflow-y: auto; overscroll-behavior: contain; border-top: 1px solid var(--line); }
+.draft-body { display: grid; flex: 0 1 auto; grid-auto-rows: max-content; min-height: 0; max-height: min(44dvh, 340px); padding: 6px 0 10px; overflow-y: auto; overscroll-behavior: contain; border-top: 1px solid var(--line); }
 .draft-body.more { -webkit-mask-image: linear-gradient(to bottom, #000 calc(100% - 28px), transparent); mask-image: linear-gradient(to bottom, #000 calc(100% - 28px), transparent); }
 .draft-field + .draft-field { margin-top: 6px; }
-.draft-field-head { display: flex; align-items: center; justify-content: space-between; gap: 8px; height: 30px; padding: 0 var(--draft-r) 0 var(--draft-a); }
+.draft-field-head { display: flex; align-items: center; justify-content: space-between; gap: 8px; min-height: 30px; padding: 4px var(--draft-r) 4px var(--draft-a); }
 .draft-name { display: flex; align-items: center; gap: calc(var(--draft-b) - var(--draft-a) - 14px); min-width: 0; color: var(--fg); font-size: 13px; font-weight: var(--fw-medium); }
 .draft-name .ico, .draft-kv > .ico { flex: none; --ico: var(--ico-sm); color: var(--fg-3); }
 /* The site's .seg language: a well with one raised pill. */

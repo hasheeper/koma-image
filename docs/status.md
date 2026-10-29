@@ -1,10 +1,12 @@
 # 当前状态与待办
 
-更新：2026-10-29。本文集中说明仓库现状与剩余工作。产品介绍见[产品总览](product/overview.md)，行为细节由各专题维护；阶段过程与验收数字见[历史索引](archive/README.md)。ASK NAI 基础感知、EDIT 协作、供应商配置与本轮界面整理已推送并发布至 Pages；[发布与公开前核验](archive/releases/2026-10-29-ask-edit-public-release-verification.md)记录脱敏、历史邮箱匿名化及单一 main 分支整理。本地完成和静态发布均不代表真实供应商联调。
+更新：2026-10-30。本文集中说明仓库现状与剩余工作。产品介绍见[产品总览](product/overview.md)，行为细节由各专题维护；阶段过程与验收数字见[历史索引](archive/README.md)。ASK NAI 基础感知、EDIT 协作、供应商配置与本轮界面整理已推送并发布至 Pages；[发布与公开前核验](archive/releases/2026-10-29-ask-edit-public-release-verification.md)记录脱敏、历史邮箱匿名化及单一 main 分支整理。本地完成和静态发布均不代表真实供应商联调。
 
 其后的[测试组织与按需加载整理](archive/engineering/2026-10-29-test-maintenance.md)已完成本地检查；文档已按产品、工作区、集成、工程与 ASK 重整，见[整理记录](archive/engineering/documentation-maintenance.md#2026-10-29-目录与职责整理)。通用设置已补齐绘图历史与 EDIT 每板图片数量，两项默认均为 35 张并可独立调整，直接输入数量，不另设历史保留开关；手机端 ASK 已统一为与 HOME 一致的全屏布局，跟随可视视口并保留原会话与输入。Pages 的发布状态独立于 Git 更新。
 
 测试检查已收拢为类型／逻辑／构建和少量核心冒烟；专题浏览器测试按需运行。样式与像素几何断言、批量成功截图已移除，Vite 测试缓存用后清理；`.local/` 保留轻量原型与唯一历史恢复备份。检查范围与命令以[开发与检查](../README.md#开发与检查)为准。
+
+2026-10-30 修复 ASK 与历史栏缩略图互相覆盖、提前释放地址的问题；预览复用各来源的资源，收藏重新读取保持同实体地址稳定，见[图片身份与引用](engineering/image-identity.md#实体与记录)。
 
 ## 已实现范围
 
@@ -55,6 +57,10 @@
 [EA0 基础感知](ask/nai-awareness.md)与 [EA1–EA3 编辑接入](ask/edit.md)已按顺序实现。IMAGE 与 EDIT 共用能力／生效值、分段 token／Text 和费用读取；内置 EDIT 草稿使用独立无报价写入路径，支持模式、Enhance、聚焦框、Director 预设与撤销。edit_handoff 留在原页，#e → CHAT 保留原图／转换后的实体与来源。
 
 代码与本地模拟验证记录在[验收归档](archive/ask/2026-10-29-ask-edit-verification.md)，[最终发布核验](archive/releases/2026-10-29-ask-edit-public-release-verification.md)记录已完成的 Git／Pages 交付。真实模型对动态状态的理解、编辑建议质量、实际 token 采用与计费仍按本文真实待验边界核验。
+
+## ASK 草稿补充
+
+已接入[内置草稿直接补充](ask/runtime.md#草稿补充)及一体面板：草稿审阅、应用与底部修改输入共用外框，移除独立「忽略」，放弃收进菜单；输入时适用文案显示「应用原稿」，保持原有紫色。字段标题行按控件高度撑开，应用栏、查看方式与差异正文之间的留白已按确认案例微调。发送将旧稿内部记为 `dismissed`，方案与撤回范围随补充进入普通新轮次，新稿仍需确认。失败重试保留补充上下文；Esc 收起保留草稿和输入。外部与手动草稿维持原处理方式，不增加问卷工具或挂起调用。
 
 ## 图片身份
 

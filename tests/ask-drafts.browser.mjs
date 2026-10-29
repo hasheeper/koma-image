@@ -1,9 +1,70 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 
-import { useAskFixture, submitAsk, hosts, open, openai, text, tool, end, askSettings, generation, bind, addImage, drawer, openDraft, openApplyMenu, route, patchStep, proposal, askDraft, form, applyDraft, reverted, undoCheckpoint, restoreCheckpoint, billing, handoffStep, seedAskChat, islandMode, scripted, wireStates } from "./helpers/ask-fixture.mjs";
+import { useAskFixture, submitAsk, hosts, open, openai, text, tool, end, askSettings, generation, bind, addImage, drawer, openDraft, openApplyMenu, route, patchStep, proposal, askDraft, form, applyDraft, reverted, undoCheckpoint, restoreCheckpoint, billing, handoffStep, seedAskChat, islandMode, scripted, wireStates, savedAsk } from "./helpers/ask-fixture.mjs";
 
 useAskFixture();
+
+for (const connectionId of ['chat', 'claude']) test(`ASK draft feedback: ${connectionId} ordinary follow-up replaces an unapplied draft and retries with its context`, async () => {
+  const { page, context, llm, calls, requests, errors } = await open('/#/image', { ready: '.switcher', ask: askSettings({ connectionId, images: false }) });
+  const reply = steps => llm.push({ body: body => scripted(connectionId, 'propose_draft', {
+    base_hash: wireStates(body).at(-1).base_hash, draft_title: '调整眼睛', steps,
+  }) }, { body: scripted(connectionId) });
+  try {
+    await bind(page);
+    await page.evaluate(() => { drawing.patch({ prompt: 'red eyes' }); ask.show(); });
+    reply([patchStep('replace', 'red eyes', 'blue eyes'), patchStep('append', '', ', soft lighting')]);
+    await page.locator('#askPrompt').fill('调整眼睛并添加柔光'); await submitAsk(page);
+    await page.waitForFunction(() => !ask.running.value && !!ask.draftPlan.value);
+    assert.equal(await page.locator('.ask-compose-panel #askPrompt').count(), 1);
+    assert.equal(await drawer(page).getByRole('button', { name: '忽略', exact: true }).count(), 0);
+    await page.evaluate(() => ask.toggleDraftStep(ask.draftPlan.value.steps[1].id));
+    assert.equal((await form(page)).prompt, 'red eyes');
+
+    const before = calls.length;
+    llm.push({ status: 503, type: 'application/json', body: JSON.stringify({ error: { message: 'synthetic failure' } }) });
+    await page.locator('.ask-compose-panel #askPrompt').fill('改成绿眼睛，撤回柔光');
+    assert.equal(await page.locator('.ask-draft-apply').textContent(), '应用原稿');
+    await submitAsk(page);
+    await page.waitForFunction(() => !ask.running.value && ask.entries.value.at(-1)?.turn?.status === 'failed');
+    assert.equal(calls.length, before + 1, 'a follow-up starts one ordinary request and never retries itself');
+    assert.equal(await page.evaluate(() => ask.draftPlan.value), null, 'the superseded draft cannot still be applied');
+    assert.equal(await page.evaluate(() => ask.undoId.value), null);
+    assert.equal((await form(page)).prompt, 'red eyes');
+    const wireText = content => typeof content === 'string' ? content : content.filter(b => b.type === 'text').map(b => b.text).join('\n');
+    const feedback = wireText(calls.at(-1).body.messages.at(-1).content);
+    assert.match(feedback, /尚未应用/);
+    assert.match(feedback, /调整眼睛并添加柔光/);
+    assert.match(feedback, /blue eyes/);
+    assert.match(feedback, /withdrawn_steps[\s\S]*soft lighting/);
+    assert.match(feedback, /改成绿眼睛，撤回柔光/);
+    await page.evaluate(() => ask.toggleFavorite());
+    const saved = (await savedAsk(page))[0];
+    assert.equal(saved.session.turns[0].draft.status, 'dismissed');
+    assert.equal(saved.draft, null);
+    assert.match(saved.entries.at(-1).turn.draftFeedback, /blue eyes/);
+
+    await page.evaluate(() => drawing.patch({ prompt: 'red eyes, manual detail' }));
+    reply([patchStep('replace', 'red eyes', 'green eyes')]);
+    await page.evaluate(() => ask.retry(ask.entries.value.at(-1).id, 'plain'));
+    await page.waitForFunction(() => !ask.running.value && !!ask.draftPlan.value);
+    assert.equal(wireText(calls[before + 1].body.messages.at(-1).content).includes(feedback.slice(feedback.indexOf('用户正在补充上一份内置草稿'))), true);
+    assert.equal(wireStates(calls[before + 1].body).at(-1).image.form.prompt, 'red eyes, manual detail');
+    assert.equal((await form(page)).prompt, 'red eyes, manual detail');
+    assert.equal(await page.locator('.ask-draft[data-status="pending"]').count(), 1);
+    await applyDraft(page);
+    assert.equal((await form(page)).prompt, 'green eyes, manual detail');
+    await undoCheckpoint(page);
+    assert.equal((await form(page)).prompt, 'red eyes, manual detail');
+    await page.evaluate(() => bridge.importFile(new File([JSON.stringify({ schema: 'koma.bridge.draft.v1', draft_id: 'external-feedback', draft_title: '外部草稿', steps: [{ kind: 'prompt_patch', target: 'image.prompt', mode: 'append', text: ', external detail' }] })], 'draft.inbox.json', { type: 'application/json' })));
+    await page.waitForFunction(() => ask.draftPlan.value?.title === '外部草稿');
+    const count = calls.length;
+    await page.evaluate(() => { ask.setInput('补充外部草稿'); return ask.send(); });
+    assert.equal(calls.length, count, 'external drafts never silently launch an internal model');
+    assert.equal(await page.evaluate(() => ask.draftPlan.value.title), '外部草稿');
+    assert.deepEqual(generation(requests), []); assert.deepEqual(errors, []);
+  } finally { await context.close(); }
+});
 
 test('ASK text replacements: actual wire uses B; streamed reply, confirmed draft, form and undo keep A', async () => {
   const {page,context,llm,calls,requests,errors}=await open('/#/image',{ready:'.switcher',ask:askSettings({replacements:[{from:'red coat',to:'azure dress'}]})});
@@ -139,7 +200,7 @@ test('ASK A2: changes while thinking realign unique anchors; stale preview finge
   }finally{await context.close();}
 });
 
-test('ASK A2: Tab focus/selection/IME guards, Esc draft layer and stopped pacing never publish a draft',async()=>{
+test('ASK A2: Tab focus/selection/IME guards, Esc preserves draft and stopped pacing never publishes a draft',async()=>{
   const {page,context,llm,requests,errors}=await open('/#/image',{ready:'.switcher',ask:askSettings()});
   try {
     await bind(page);await page.evaluate(()=>drawing.patch({prompt:'red eyes'}));
@@ -154,7 +215,13 @@ test('ASK A2: Tab focus/selection/IME guards, Esc draft layer and stopped pacing
     await page.locator('.ask-checkpoint[data-state="applied"]').waitFor();assert.equal((await form(page)).prompt,'blue eyes');
     await page.keyboard.press('Control+z');await reverted(page);
     await askDraft(page,llm,[patchStep('append','',', pending detail')]);
-    await page.locator('#askPrompt').focus();await page.keyboard.press('Escape');await page.locator('.ask-draft').waitFor({state:'hidden'});assert.equal(await drawer(page).isVisible(),true);
+    await page.locator('#askPrompt').fill('追加细节');
+    await page.evaluate(()=>document.activeElement.blur());await page.keyboard.press('Tab');
+    assert.equal((await form(page)).prompt,'red eyes','pending feedback cannot be bypassed by the apply shortcut');
+    await page.locator('#askPrompt').focus();await page.keyboard.press('Escape');await drawer(page).waitFor({state:'hidden'});
+    assert.notEqual(await page.evaluate(()=>ask.draftPlan.value),null);
+    await page.evaluate(()=>ask.show());await drawer(page).waitFor({state:'visible'});
+    assert.equal(await page.locator('#askPrompt').inputValue(),'追加细节');
     llm.push(proposal([patchStep('append','',', new detail')]));await page.locator('#askPrompt').fill('追加细节');await submitAsk(page);
     await page.waitForFunction(()=>ask.live.value?.items.some(i=>i.kind==='tools'));
     await page.keyboard.press('Escape');await page.waitForFunction(()=>!ask.running.value);
@@ -553,7 +620,7 @@ for (const connectionId of ['chat', 'claude']) test(`ASK named board: ${connecti
     {
       const width = 1440;
       await page.setViewportSize({ width, height: 900 });
-      assert.equal(await page.locator('.draft-apply-more, .draft-apply-menu').count(), 0, 'named destination has no alternative write target');
+      assert.equal(await page.locator('.draft-apply-menu [data-new-board]').count(), 0, 'named destination has no alternative write target');
       assert.equal(await page.evaluate(() => drawing.snapshot().boards.length), 2);
     }
     await page.evaluate(() => {
@@ -588,7 +655,7 @@ for (const connectionId of ['chat', 'claude']) test(`ASK named board: ${connecti
     await propose('第二个试验', 'append', ', moonlight');
     await route(page, '/chat');
     await page.waitForFunction(() => ask.draftApplyLabel.value === '切回绘图并新建');
-    assert.equal(await page.locator('.draft-apply-more, .draft-apply-menu').count(), 0);
+    assert.equal(await page.locator('.draft-apply-menu [data-new-board]').count(), 0);
     await page.evaluate(() => ask.applyDraft(ask.draftPlan.value.fingerprint, false));
     await page.waitForFunction(() => !ask.writingDraft.value && !ask.draftPlan.value);
     assert.equal(await page.evaluate(() => drawing.snapshot().boards.length), 4, 'legacy false argument cannot redirect a named new-board draft to its source');

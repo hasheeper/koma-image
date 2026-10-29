@@ -9,6 +9,7 @@ import AskAttachments from "./AskAttachments.vue";
 import DirectoryChip from "../bridge/DirectoryChip.vue";
 import { attachmentAccept } from "./attachments.ts";
 
+defineProps<{ joined?: boolean }>();
 const ask = useAsk(), ui = useUi();
 const field = shallowRef<HTMLTextAreaElement | null>(null);
 const fileInput = shallowRef<HTMLInputElement | null>(null);
@@ -101,7 +102,7 @@ defineExpose({
 <template>
   <div class="ask-dock">
     <p v-if="ask.inline.value" class="ask-inline-target">{{ ask.inline.value.target === 'chat.composer' ? '对话输入框' : ask.inline.value.target === 'image.negative' ? 'Negative' : 'Prompt' }} · {{ ask.inline.value.text.length }} 字</p>
-    <form class="ask-composer" :aria-busy="ask.running.value" @submit.prevent="ask.send()">
+    <form class="ask-composer" :class="{ joined }" :aria-busy="ask.running.value" @submit.prevent="ask.send()">
       <label class="sr-only" for="askPrompt">向 ASK 提问</label>
       <AskAttachments :items="ask.tray.value" :dim="limited" />
       <div v-if="references.length && referenceQuery" id="askPictureSuggestions" class="ask-references" role="listbox" aria-label="图片引用">
@@ -115,7 +116,7 @@ defineExpose({
         :value="ask.input.value"
         rows="1"
         maxlength="4000"
-        placeholder="问这张图，或用 # 引用图片…"
+        :placeholder="ask.canReviseDraft.value ? '补充修改意见…' : '问这张图，或用 # 引用图片…'"
         :aria-controls="references.length ? 'askPictureSuggestions' : undefined"
         :aria-expanded="references.length>0"
         :aria-activedescendant="references.length ? `askRefOption${referenceIndex}` : undefined"
@@ -181,6 +182,7 @@ defineExpose({
 .ask-inline-target { padding: 0 10px 6px; color: var(--fg-3); font-size: var(--fz-xs); }
 .ask-dock { position: relative; display: flex; flex-direction: column; gap: var(--sp-2); }
 .ask-composer { padding: 14px 6px 10px 12px; background: var(--ask-layer, var(--raised)); border: 1px solid var(--line-2); border-radius: 14px; }
+.ask-composer.joined { padding-top: 12px; background: transparent; border: 0; border-top: 1px solid var(--line); border-radius: 0 0 14px 14px; }
 .ask-composer textarea { display: block; width: 100%; min-height: 26px; max-height: 30dvh; padding: 0 2px 2px; color: var(--fg); font: var(--fw-regular) 13px/1.6 var(--sans); background: transparent; border: 0; box-shadow: none; resize: none; }
 .ask-composer textarea:focus { outline: none; box-shadow: none; }
 .ask-composer textarea::placeholder { color: var(--fg-3); }

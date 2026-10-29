@@ -49,7 +49,7 @@ export function createDrawing(
   router: Pick<AppRouter, "openOverlay">,
 ) {
   const listeners = new Set<() => void>(),
-    urls = new Map<string, { blob: Blob; url: string }>();
+    urls = new Map<string, { blob: Blob; entityKey?: string; url: string }>();
   const imageListeners = new Set<(record: ImageRecord) => void>();
   let boards = readBoards(services.preferences.get(names.preferences, {}));
   const activeBoard = () => boards.items.find(b => b.id === boards.activeId)!;
@@ -139,12 +139,14 @@ export function createDrawing(
     // original for those records; keep stored images and thumbnails untouched.
     const preview = item.thumbBlob?.type === "image/jpeg" && item.blob.type !== "image/jpeg" ? item.blob : item.thumbBlob;
     const blob = thumb ? preview || item.blob : item.blob,
-      key = item.id + (thumb ? ":thumb" : ":full"),
+      key = item.id + (thumb && blob !== item.blob ? ":thumb" : ":full"),
       old = urls.get(key);
-    if (old?.blob === blob) return old.url;
+    // IndexedDB reloads clone Blobs. An unchanged entity still owns the same
+    // preview; revoking it here would break other mounted consumers.
+    if (old && (old.blob === blob || (item.entity_key && old.entityKey === item.entity_key))) return old.url;
     if (old) URL.revokeObjectURL(old.url);
     const next = URL.createObjectURL(blob);
-    urls.set(key, { blob, url: next });
+    urls.set(key, { blob, entityKey: item.entity_key, url: next });
     return next;
   };
   function prune() {
