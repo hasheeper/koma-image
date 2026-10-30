@@ -4,7 +4,7 @@
 
 2026-10-30 外观主题、顶栏切换、手机侧栏与全屏画布、ASK 任务管理／上下文统计及专项手册已推送 `main` 并发布 Pages；本轮检查与线上产物核对见[发布记录](archive/releases/2026-10-30-appearance-workspace-release.md)。
 
-浅色主题已微调：缩略图留白处改为极淡的同图模糊衬底，HOME／CHAT 阅读区略微提亮；暗色与图片内容保持不变。
+浅色主题已微调并推送、发布 Pages：缩略图留白处改为极淡的同图模糊衬底，HOME／CHAT 阅读区略微提亮；暗色与图片内容保持不变。核验见[同日后续发布记录](archive/releases/2026-10-30-appearance-workspace-release.md#浅色缩略图与页面底板后续发布)。
 
 其后的[测试组织与按需加载整理](archive/engineering/2026-10-29-test-maintenance.md)已完成本地检查；文档已按产品、工作区、集成、工程与 ASK 重整，见[整理记录](archive/engineering/documentation-maintenance.md#2026-10-29-目录与职责整理)。通用设置已补齐绘图历史与 EDIT 每板图片数量，两项默认均为 35 张并可独立调整，直接输入数量，不另设历史保留开关；手机端 ASK 已统一为与 HOME 一致的全屏布局，跟随可视视口并保留原会话与输入。Pages 的发布状态独立于 Git 更新。
 
