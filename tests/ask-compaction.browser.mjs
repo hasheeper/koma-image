@@ -11,7 +11,7 @@ for (const connectionId of ['chat', 'claude']) test(`ASK CP4: ${connectionId} se
     await cp2History(page, llm, connectionId); await cp3Manual(page, llm, connectionId, '第一份边界备忘录。');
     const first = (await savedAsk(page))[0].session.memory;
     for (let i = 7; i <= 10; i++) {
-      llm.push(cp2Reply(connectionId, `新增回答 ${i}。`, 64_001)); await cp2Send(page, `新增提问 ${i}`);
+      llm.push(cp2Reply(connectionId, `新增回答 ${i}。`, 200_001)); await cp2Send(page, `新增提问 ${i}`);
       assert.equal((await savedAsk(page))[0].session.memory.text, first.text);
     }
     assert.equal(calls.length, 11, 'four new successful turns are required even above the high water');
@@ -176,8 +176,9 @@ for (const connectionId of ['chat', 'claude']) test(`ASK CP2: ${connectionId} du
     const log = await page.evaluate(() => ask.debugCall(ask.debug.value.calls.at(-1).id));
     assert.equal(log.purpose, 'compaction'); assert.equal(log.body, compaction.raw); assert.equal(log.usage.input, 9000);
     assert.equal(JSON.parse(await page.evaluate(id => ask.exportDebug(id), log.id)).calls[0].body, compaction.raw);
-    await openDebug(page); assert.equal(await page.locator('#askDebug option').filter({ hasText: '· 压缩 ·' }).count(), 1);
-    await page.getByRole('button', { name: '关闭调用上下文', exact: true }).click();
+    await openDebug(page); await page.locator('#askDebugCall').click();
+    assert.equal(await page.locator('#askDebugCalls [role="menuitemradio"]').filter({ hasText: '压缩上下文' }).count(), 1);
+    await page.keyboard.press('Escape'); await page.getByRole('button', { name: '关闭调用上下文', exact: true }).click();
 
     llm.push({ body: scripted(connectionId, 'get_turn', { turns: ['T1'], include: 'full', attachments: ['text-1'], offset: 48_000 }) },
       { body: scripted(connectionId, null) });
@@ -193,8 +194,9 @@ for (const connectionId of ['chat', 'claude']) test(`ASK CP2: ${connectionId} du
     const logs = await page.evaluate(() => ask.debug.value.calls);
     assert.equal(logs.filter(c => c.afterCompaction).length, 1); assert.equal(logs[7].afterCompaction, true);
     assert.equal(logs[8].afterCompaction, undefined);
-    await openDebug(page); assert.equal(await page.locator('#askDebug option').filter({ hasText: '· 压缩后首次 ·' }).count(), 1);
-    await page.getByRole('button', { name: '关闭调用上下文', exact: true }).click();
+    await openDebug(page); await page.locator('#askDebugCall').click();
+    assert.equal(await page.locator('#askDebugCalls [role="menuitemradio"]').filter({ hasText: '压缩后首次 ·' }).count(), 1);
+    await page.keyboard.press('Escape'); await page.getByRole('button', { name: '关闭调用上下文', exact: true }).click();
     const after = (await savedAsk(page))[0];
     assert.equal(after.session.lastInputTokens, connectionId === 'chat' ? 1800 : 50);
     assert.doesNotMatch(JSON.stringify(after), /synthetic-chat|synthetic-claude|cache_control|purpose/);
@@ -299,7 +301,7 @@ test("ASK CP3: threshold settings, invalid input, restore default, reload", asyn
   try {
      await bind(page);
     const section = page.getByRole('region', { name: '上下文与附件', exact: true }), field = page.locator('#askCompactionTokens');
-    assert.equal(await field.inputValue(), '64000');
+    assert.equal(await field.inputValue(), '220000');
     await field.fill('96000'); await field.press('Enter');
     await page.waitForFunction(() => ask.settings.value.compaction.highWaterTokens === 96000);
     for (const invalid of ['0', '-1', '1.5', '']) {
@@ -311,7 +313,7 @@ test("ASK CP3: threshold settings, invalid input, restore default, reload", asyn
     }
     await page.reload(); await page.waitForSelector('#askCompactionTokens'); assert.equal(await field.inputValue(), '96000');
     await section.getByRole('button', { name: '恢复默认', exact: true }).click();
-    await page.waitForFunction(() => JSON.parse(localStorage.getItem('koma.ask.v1')).compaction.highWaterTokens === 64000);
+    await page.waitForFunction(() => JSON.parse(localStorage.getItem('koma.ask.v1')).compaction.highWaterTokens === 220000);
     assert.equal(await page.locator('#askTextChars').inputValue(), '50000'); assert.deepEqual(calls, []); assert.deepEqual(errors, []);
   } finally { await context.close(); }
 });
@@ -326,13 +328,14 @@ for (const connectionId of ['chat', 'claude']) test(`ASK CP3: ${connectionId} ma
     await cp2History(page, llm, connectionId);
     const beforeEstimate = await page.evaluate(() => ask.estimate.value);
     const meter = drawer(page).getByRole('meter', { name: '上下文占用（按压缩阈值估算）', exact: true });
-    assert.match(await meter.getAttribute('aria-valuetext'), /上下文约 .* tokens\n压缩阈值 64,000 tokens/);
+    assert.match(await meter.getAttribute('aria-valuetext'), /上下文约 .* tokens\n压缩阈值 220,000 tokens/);
     const contextTip = drawer(page).getByRole('tooltip');
     await meter.hover(); await contextTip.waitFor();
-    assert.match(await contextTip.getAttribute('aria-label'), /上下文约 .* tokens\n压缩阈值 64,000 tokens · \d+%/);
-    assert.equal(await contextTip.locator('.ask-context-label').textContent(), '上下文 · 估算');
-    assert.match(await contextTip.locator('.ask-context-percent').textContent(), /^\d+%$/);
-    assert.match(await contextTip.locator('.ask-context-numbers').textContent(), /^[\d,]+ \/ 64,000$/);
+    assert.match(await contextTip.getAttribute('aria-label'), /上下文约 .* tokens\n压缩阈值 220,000 tokens · \d+%/);
+    const parts = await page.evaluate(() => ask.contextTokens.value);
+    assert.equal(parts.total, parts.system + parts.tools + parts.messages);
+    assert.equal(parts.total, beforeEstimate);
+    assert.equal(await contextTip.locator('.ask-context-row').count(), 3);
     await page.mouse.move(0, 0); await contextTip.waitFor({ state: 'hidden' });
     await meter.focus(); await contextTip.waitFor(); await page.keyboard.press('Escape');
     await contextTip.waitFor({ state: 'hidden' });
@@ -340,6 +343,9 @@ for (const connectionId of ['chat', 'claude']) test(`ASK CP3: ${connectionId} ma
     await page.locator('#askPrompt').focus();
     await page.evaluate(() => ask.setInput('待发的新设定。'.repeat(100)));
     assert.ok(await page.evaluate(() => ask.estimate.value) > beforeEstimate, 'pending text is included in context estimate');
+    const changed = await page.evaluate(() => ask.contextTokens.value);
+    assert.equal(changed.system, parts.system); assert.equal(changed.tools, parts.tools);
+    assert.ok(changed.messages > parts.messages, 'pending input changes only message tokens');
     await page.evaluate(() => ask.setInput(''));
     await cp3Manual(page, llm, connectionId,
       '## 夜色与街灯\n主角是一位夜班邮差，穿深蓝雨衣。\n\n' + '画面以青灰为主，暖黄只用于灯光，背景保留电车轨道。\n'.repeat(12));

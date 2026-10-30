@@ -13,6 +13,7 @@ import { names } from "../../storage/names";
 import { quoteLabel } from "../../domain/quote";
 import WorkspaceSwitch from "../../shared/WorkspaceSwitch.vue";
 import WalletDisplay from "../../shared/WalletDisplay.vue";
+import ThemeMenu from "../../shared/ThemeMenu.vue";
 import AppIcon from "../../shared/AppIcon.vue";
 import ModelIcon from "../../shared/ModelIcon.vue";
 import WaveMark from "../../shared/WaveMark.vue";
@@ -89,10 +90,6 @@ let active = false,
 function closeSidebar() {
   shell.chat.sidebarOpen = false;
   menu.value?.focus();
-}
-function security() {
-  shell.chat.sidebarOpen = false;
-  router.openOverlay("settings", "security");
 }
 function newConversation() {
   chat.addConversation();
@@ -407,16 +404,7 @@ onDeactivated(() => {
         </button>
       </div>
       <div class="topbar-account">
-        <WalletDisplay :quota="view.quota" :model="view.model" /><button
-          v-if="!narrow"
-          class="ibtn topbar-lock"
-          type="button"
-          aria-label="API Key"
-          data-tip="API Key"
-          @click="security"
-        >
-          <AppIcon name="i-lock" />
-        </button>
+        <WalletDisplay :quota="view.quota" :model="view.model" /><ThemeMenu v-if="!narrow" />
       </div>
     </header>
     <div class="chat-layout">
@@ -466,9 +454,7 @@ onDeactivated(() => {
         </div>
         <ConversationList :query="query" />
         <div v-if="narrow" class="sidebar-foot">
-          <button class="sidebar-row" type="button" @click="security">
-            <AppIcon name="i-lock" /><span>API Key</span>
-          </button>
+          <ThemeMenu sidebar />
         </div>
       </aside>
       <main

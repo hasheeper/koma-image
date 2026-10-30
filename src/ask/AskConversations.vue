@@ -106,7 +106,7 @@ function blurred(event: FocusEvent) {
 .ask-conv-row:is(:hover, :focus-within) .ask-conv-del, .ask-conv-del:focus-visible { opacity: 1; }
 .ask-conv-del:hover:not(:disabled) { color: var(--fg); background: var(--ask-hover); }
 .ask-conv-del:disabled { display: none; }
-.ask-conv-row.confirming .ask-conv-del { padding: 0 8px; color: #fff; font-weight: var(--fw-semibold); background: var(--err); opacity: 1; }
+.ask-conv-row.confirming .ask-conv-del { padding: 0 8px; color: var(--on-err); font-weight: var(--fw-semibold); background: var(--err); opacity: 1; }
 .ask-conv-row.confirming > .menu-item { padding-right: 60px; }
 .ask-conv-note { flex: none; margin-top: 4px; padding: 7px 10px 4px; color: var(--fg-3); font-size: var(--fz-xs); border-top: 1px solid var(--line); }
 /* Touch keeps both the selected check and an explicit delete target. */

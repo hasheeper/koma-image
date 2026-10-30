@@ -3,7 +3,16 @@
   <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
-    <meta name="color-scheme" content="dark">
+    <meta name="color-scheme" content="dark light">
+    <script>
+      // Paint the saved appearance before the first frame; src/app/theme.ts owns later changes.
+      {
+        let theme;
+        try { theme = JSON.parse(localStorage.getItem("koma.theme.v1") || "null"); } catch {}
+        document.documentElement.dataset.theme = theme === "light" ? "light"
+          : theme === "system" && matchMedia("(prefers-color-scheme: light)").matches ? "light" : "dark";
+      }
+    </script>
     <meta name="robots" content="noindex">
     <title>Koma Image</title>
     <link rel="icon" id="workspaceIcon" type="image/svg+xml" href="/assets/favicon-image.svg">

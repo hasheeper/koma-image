@@ -37,7 +37,7 @@ ASK 不选源、不刷新额度、不请求报价、不编码参考、不生成�
 
 上限直接读取 `naiInputLimits`：V4.5 为 T5／512 tokens／118 Text 字符，V5 Curated 为 Qwen3.5／703／374，V5 Full High 与 Medium 为 Qwen3.5／1471／750。每个方向独立使用 token 上限；Text 将基础与启用角色正向中的 `Text:` 后正文按 Unicode 字符合计，含空白和换行。Koma 不自动把双引号内容转换成 Text 块。
 
-Token 超限为警告，说明上游可能截断，不自动删词；Text 超限是既有执行阻断。`pending/unavailable/error` 不填假零、不沿用旧输入计数；Upscale／Director 不套用生成词文预算。以上与 ASK 自身 64,000 tokens 的压缩阈值独立。
+Token 超限为警告，说明上游可能截断，不自动删词；Text 超限是既有执行阻断。`pending/unavailable/error` 不填假零、不沿用旧输入计数；Upscale／Director 不套用生成词文预算。以上与 ASK 自身 220,000 tokens 的压缩阈值独立。
 
 ## 冻结与费用
 

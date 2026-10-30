@@ -237,7 +237,7 @@ test('CP2 favorites: cancellation before queued data.write never opens a transac
 
 test('CP3 settings: fixed high water, positive safe integers, independent attachment limits and round trip', () => {
   for (const value of [undefined, null, '', '96000', 0, -1, 1.5, Infinity, NaN, Number.MAX_SAFE_INTEGER + 1])
-    assert.equal(readAskSettings({ compaction: { highWaterTokens: value } }).compaction.highWaterTokens, 64000);
+    assert.equal(readAskSettings({ compaction: { highWaterTokens: value } }).compaction.highWaterTokens, 220000);
   const s = readAskSettings({ compaction: { highWaterTokens: 96000 }, textAttachments: { chars: 4000, totalChars: 8000 } });
   assert.equal(s.compaction.highWaterTokens, 96000);
   assert.deepEqual(readAskSettings(JSON.parse(JSON.stringify(s))), s);

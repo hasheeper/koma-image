@@ -31,6 +31,7 @@ const { shown, mode, home, mobile, fullscreen, dock, canDock, latest, tools, com
 const joinedDraft = computed(() => !!ask.draftPlan.value && (home.value || mode.value !== 'ready'));
 const inlineWindow = computed(() => !home.value && !mobile.value && !!ask.inline.value);
 const movable = computed(() => !home.value && !mobile.value && !ask.inline.value);
+const behindImageMenu = computed(() => mobile.value && router.route.value.workspace === 'image' && image.menuOpen && !shown.value);
 const root = shallowRef<HTMLElement | null>(null),
   expanded = shallowRef(false),
   composer = shallowRef<InstanceType<typeof AskComposer> | null>(null);
@@ -85,7 +86,7 @@ onMounted(() => {
     place = installAskWindow(root.value, controller.signal);
   }
 });
-watch([mode, dock, fullscreen, ask.inline, expanded, () => router.route.value.workspace, () => image.historyOpen, () => chat.contextOpen], () => void nextTick(place), { flush: "post" });
+watch([mode, dock, fullscreen, ask.inline, expanded, behindImageMenu, () => router.route.value.workspace, () => image.historyOpen, () => chat.contextOpen], () => void nextTick(place), { flush: "post" });
 watch(ask.conversationId, clearDrop);
 watch(() => router.route.value.overlay, clearDrop);
 watch(ask.visible, visible => { if (!visible) { clearDrop(); ask.closeAttachment(); } });
@@ -125,7 +126,7 @@ watch(mode, async () => {
 onBeforeUnmount(() => { controller.abort(); ask.attach(null); });
 </script>
 <template>
-  <aside v-show="(!home || shown)" id="askIsland" ref="root" class="ask-island" :class="{ 'ask-inline': inlineWindow && shown }" :data-mode="mode" :data-home="home && shown ? dock : undefined" :data-fullscreen="fullscreen || undefined" :data-workspace="router.route.value.workspace" :data-context-open="chat.contextOpen || undefined" :data-quiet="router.route.value.workspace === 'image' && image.state === 'busy' || undefined" :style="{ ...dimensions, '--ask-dock-w': `${presentation.dockWidth.value}px` }" aria-label="Koma ASK" :aria-describedby="home || mobile ? undefined : 'askMoveHint'">
+  <aside v-show="(!home || shown) && !behindImageMenu" id="askIsland" ref="root" class="ask-island" :class="{ 'ask-inline': inlineWindow && shown }" :data-mode="mode" :data-home="home && shown ? dock : undefined" :data-fullscreen="fullscreen || undefined" :data-workspace="router.route.value.workspace" :data-context-open="chat.contextOpen || undefined" :data-quiet="router.route.value.workspace === 'image' && image.state === 'busy' || undefined" :style="{ ...dimensions, '--ask-dock-w': `${presentation.dockWidth.value}px` }" aria-label="Koma ASK" :aria-describedby="home || mobile ? undefined : 'askMoveHint'">
     <button v-show="mode === 'idle'" id="askLauncher" class="ask-layer ask-launcher ask-open" :inert="mode !== 'idle'" data-ask-grip type="button" aria-label="打开 Koma ASK" aria-controls="askDrawer" aria-expanded="false" title="Koma ASK · 可拖动 · ⌘J / Ctrl+J" @click="ask.show()"><AskMark interactive /></button>
     <div v-show="mode === 'run'" class="ask-layer ask-run" :inert="mode !== 'run'">
       <button class="ask-open ask-run-grip" data-ask-grip type="button" aria-label="展开 ASK 对话" @click="ask.show()"><AskMark thinking /><AskActivity /></button>
@@ -176,14 +177,14 @@ onBeforeUnmount(() => { controller.abort(); ask.attach(null); });
 <style scoped>
 .ask-drop { position: absolute; inset: 6px; z-index: 6; display: grid; place-items: center; color: var(--a); font-size: 13px; background: color-mix(in srgb, var(--a) 8%, color-mix(in srgb, var(--raised) 90%, transparent)); border: 1.5px dashed color-mix(in srgb, var(--a) 60%, transparent); border-radius: 18px; pointer-events: none; }
 /* One glass material for every state; the child surfaces add only a light tint. */
-.ask-island { --ask-glass: rgba(22, 22, 25, .88); --ask-layer: rgba(255, 255, 255, .035); --ask-field: rgba(0, 0, 0, .16); --ask-hover: rgba(255, 255, 255, .055); position: fixed; top: var(--ask-top, calc(var(--bar-h) + 12px)); right: var(--ask-right, 20px); z-index: var(--z-drawer); width: min(var(--ask-width), calc(100vw - 16px)); height: min(var(--ask-height), calc(var(--ask-available-height, 100dvh) - 16px)); overflow: hidden; color: var(--fg); background: var(--ask-glass); border-radius: 20px; box-shadow: inset 0 1px 0 rgba(255, 255, 255, .06), 0 0 0 1px var(--line-2), 0 10px 32px rgba(0, 0, 0, .45); backdrop-filter: blur(20px) saturate(1.4); transition-property: width, height, border-radius, box-shadow, transform; transition-duration: .52s, .52s, .52s, .3s, .25s; transition-timing-function: cubic-bezier(.32, .72, 0, 1); }
+.ask-island { --ask-glass: var(--glass-bg); --ask-layer: var(--glass-layer); --ask-field: var(--glass-field); --ask-hover: var(--glass-hover); position: fixed; top: var(--ask-top, calc(var(--bar-h) + 12px)); right: var(--ask-right, 20px); z-index: var(--z-drawer); width: min(var(--ask-width), calc(100vw - 16px)); height: min(var(--ask-height), calc(var(--ask-available-height, 100dvh) - 16px)); overflow: hidden; color: var(--fg); background: var(--ask-glass); border-radius: 20px; box-shadow: inset 0 1px 0 var(--glass-edge), 0 0 0 1px var(--line-2), 0 10px 32px rgb(var(--shadow-rgb) / calc(0.45 * var(--shadow-strength))); backdrop-filter: blur(var(--glass-blur)) saturate(var(--glass-saturation)); transition-property: width, height, border-radius, box-shadow, transform; transition-duration: .52s, .52s, .52s, .3s, .25s; transition-timing-function: cubic-bezier(.32, .72, 0, 1); }
 @media (min-width: 861px) { .ask-island[data-workspace="image"] { right: var(--ask-right, calc(var(--hist) + 8px)); } }
 @media (min-width: 861px) { .ask-island[data-workspace="chat"][data-context-open] { right: var(--ask-right, calc(var(--context-w) + 8px)); } }
 .ask-island { --ask-idle-k: 1; --ask-idle-amp: 1; --ask-idle-ease: cubic-bezier(.45, .05, .55, .95); --ask-idle-beat-ease: cubic-bezier(.4, 0, .2, 1); }
 .ask-island[data-quiet] { --ask-idle-k: 1.8; --ask-idle-amp: .35; }
-.ask-island[data-mode="idle"]:hover { box-shadow: inset 0 1px 0 rgba(255, 255, 255, .08), 0 0 0 1px color-mix(in srgb, var(--a) 40%, transparent), 0 0 20px color-mix(in srgb, var(--a) 14%, transparent), 0 10px 32px rgba(0, 0, 0, .45); }
+.ask-island[data-mode="idle"]:hover { box-shadow: inset 0 1px 0 var(--glass-edge-hover), 0 0 0 1px color-mix(in srgb, var(--a) 40%, transparent), 0 0 20px color-mix(in srgb, var(--a) 14%, transparent), 0 10px 32px rgb(var(--shadow-rgb) / calc(0.45 * var(--shadow-strength))); }
 .ask-island[data-mode="idle"]:has(.ask-launcher:active):not([data-dragging]) { transform: scale(.94); }
-.ask-island[data-mode="run"] { box-shadow: inset 0 1px 0 rgba(255, 255, 255, .06), 0 0 0 1px color-mix(in srgb, var(--a) 24%, transparent), 0 10px 32px rgba(0, 0, 0, .45); }
+.ask-island[data-mode="run"] { box-shadow: inset 0 1px 0 var(--glass-edge), 0 0 0 1px color-mix(in srgb, var(--a) 24%, transparent), 0 10px 32px rgb(var(--shadow-rgb) / calc(0.45 * var(--shadow-strength))); }
 .ask-island[data-mode="ready"] { animation: ask-ready-ping .9s var(--e) both; }
 .ask-island[data-mode="exp"] { border-radius: 18px; }
 .ask-island:not([data-mode="idle"]) { transition-property: width, height, border-radius, box-shadow; }
@@ -221,7 +222,7 @@ onBeforeUnmount(() => { controller.abort(); ask.attach(null); });
 .ask-result-grip b { color: var(--fg-2); font-weight: var(--fw-semibold); }
 .ask-result-grip > span { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .ask-summary { display: -webkit-box; overflow: hidden; padding-left: 30px; font-size: 14px; font-weight: var(--fw-semibold); line-height: 1.55; overflow-wrap: anywhere; -webkit-line-clamp: 3; -webkit-box-orient: vertical; }
-.ask-summary code { padding: 1px 5px; font: var(--fw-regular) 12.5px/1.55 var(--mono); background: rgba(255, 255, 255, .07); border-radius: 5px; }
+.ask-summary code { padding: 1px 5px; font: var(--fw-regular) 12.5px/1.55 var(--mono); background: color-mix(in srgb, var(--surface-tint) 7%, transparent); border-radius: 5px; }
 .ask-summary-id { color: var(--a); font-family: var(--mono); }
 .ask-compact-draft:not(:empty) { display: flex; flex-direction: column; margin-top: 12px; }
 .ask-details { display: flex; align-items: center; justify-content: space-between; width: 100%; margin-top: 12px; padding: 8px 10px; color: var(--fg-3); background: var(--ask-layer); border-radius: 10px; font-size: 12.5px; }
@@ -241,7 +242,7 @@ onBeforeUnmount(() => { controller.abort(); ask.attach(null); });
 .ask-fill { flex: 1; align-self: stretch; min-width: 8px; }
 .ask-bottom { display: flex; flex: 0 1 auto; flex-direction: column; min-height: 0; max-height: calc(100% - 104px); padding: 0 16px 14px; }
 .ask-compose-panel { display: flex; flex: 0 1 auto; flex-direction: column; min-height: 0; }
-.ask-compose-panel.has-draft { background: var(--ask-layer, var(--raised)); border: 1px solid var(--line-2); border-radius: 14px; }
+.ask-compose-panel.has-draft { background: var(--ask-layer, var(--raised)); border: 1px solid var(--line-2); border-radius: 14px; box-shadow: var(--card-shadow); }
 .ask-full-draft { display: flex; flex: 0 1 auto; flex-direction: column; min-height: 0; }
 .ask-bottom :deep(.ask-dock) { flex: none; }
 .ask-island.ask-inline { top: var(--ask-inline-top, 80px); right: auto; left: var(--ask-inline-left, 8px); width: min(480px, calc(100vw - 16px)); height: min(560px, calc(100dvh - 96px)); }
@@ -257,7 +258,7 @@ onBeforeUnmount(() => { controller.abort(); ask.attach(null); });
 @keyframes ask-idle-corner { 0%, 100% { opacity: .24; } 3% { opacity: calc(.24 + .5 * var(--ask-idle-amp)); } 10% { opacity: .24; } }
 @keyframes ask-idle-awake { 0%, 100% { opacity: .9; } 50% { opacity: 1; } }
 
-@keyframes ask-ready-ping { from { box-shadow: 0 0 0 1px var(--a), 0 0 0 0 color-mix(in srgb, var(--a) 35%, transparent), 0 10px 32px rgba(0, 0, 0, .45); } to { box-shadow: 0 0 0 1px var(--line-2), 0 0 0 14px transparent, 0 10px 32px rgba(0, 0, 0, .45); } }
+@keyframes ask-ready-ping { from { box-shadow: 0 0 0 1px var(--a), 0 0 0 0 color-mix(in srgb, var(--a) 35%, transparent), 0 10px 32px rgb(var(--shadow-rgb) / calc(0.45 * var(--shadow-strength))); } to { box-shadow: 0 0 0 1px var(--line-2), 0 0 0 14px transparent, 0 10px 32px rgb(var(--shadow-rgb) / calc(0.45 * var(--shadow-strength))); } }
 @media (prefers-reduced-motion: reduce) {
   .ask-island[data-mode] { transition-property: none; animation: none; }
   .ask-layer { animation: none; }

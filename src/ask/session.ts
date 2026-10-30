@@ -254,16 +254,18 @@ export function approxTokens(text: string) {
 }
 const IMAGE_TOKENS = 1000;
 const imageTokens = (image: AskImage) => image.size ? Math.ceil(image.size.width * image.size.height / 750) : IMAGE_TOKENS;
-export function estimateRequest(request: Omit<AskRequest, "maxTokens" | "model">) {
-  let total = approxTokens(JSON.stringify(request.tools)) + approxTokens(request.system.join("\n"));
+export function estimateRequestBreakdown(request: Omit<AskRequest, "maxTokens" | "model">) {
+  const system = approxTokens(request.system.join("\n")), tools = approxTokens(JSON.stringify(request.tools));
+  let messages = 0;
   for (const message of request.messages)
     for (const block of message.content) {
-      if (block.type === "text") total += approxTokens(block.text);
-      else if (block.type === "image") total += imageTokens(block);
-      else if (block.type === "call") total += approxTokens(JSON.stringify(block.input)) + 8;
+      if (block.type === "text") messages += approxTokens(block.text);
+      else if (block.type === "image") messages += imageTokens(block);
+      else if (block.type === "call") messages += approxTokens(JSON.stringify(block.input)) + 8;
       else
         for (const part of block.content)
-          total += part.type === "text" ? approxTokens(part.text) : imageTokens(part);
+          messages += part.type === "text" ? approxTokens(part.text) : imageTokens(part);
     }
-  return total;
+  return { system, tools, messages, total: system + tools + messages };
 }
+export const estimateRequest = (request: Omit<AskRequest, "maxTokens" | "model">) => estimateRequestBreakdown(request).total;

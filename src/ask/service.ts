@@ -10,6 +10,7 @@ import { canonical } from "./canonical.ts";
 import { parseFile } from "./draft/files.ts";
 import type { FilePort } from "./draft/files.ts";
 import type { Slates } from "../slate/service.ts";
+import { parseSlateEdit } from "../slate/edit.ts";
 import { summary as slateSummary } from "../slate/model.ts";
 import type { ExternalOrigin, ExternalNote, InboxReceipt } from "../bridge/protocol.ts";
 import { characterCapability, characterSummary, nextCharacterId } from "../domain/characters.ts";
@@ -31,7 +32,7 @@ import { codecFor } from "./codec.ts";
 import { readAskSettings, withModel } from "./settings.ts";
 import { createProvider, ProviderError } from "./provider.ts";
 import type { AskMessage, AskUsage, AskRequest, AskEvent, ProviderErrorKind } from "./provider.ts";
-import { approxTokens, createSession, estimateRequest } from "./session.ts";
+import { approxTokens, createSession, estimateRequest, estimateRequestBreakdown } from "./session.ts";
 import type { Session } from "./session.ts";
 import type { SessionData } from "./session.ts";
 import { runCompaction } from "./compact/run.ts";
@@ -241,8 +242,32 @@ export function createAsk(deps: {
   const conversations = createConversations<Conversation>({
     make: (id) => ({ id, slateId: null, title: UNTITLED, named: false, favorite: false, createdAt: Date.now(), scope: scope(), origin: null, session: createSession(addUsage), entries: [], input: "", anchor: null, draft: null, externalQueue: [], tray: [], preparing: 0 }),
     // Callers stash the refs first, so the records are current.
-    empty: (c) => !c.favorite && !c.entries.length,
+    empty: (c) => !c.favorite && !c.entries.length && !c.slateId,
   });
+  const slateLinkRevisions = new WeakMap<Conversation, number>();
+  const removedSlateLinks = new WeakMap<DraftPlan, readonly { owner: Conversation; revision: number }[]>();
+  function setSlateLink(owner: Conversation, id: string | null) {
+    if (owner.slateId === id) return;
+    owner.slateId = id;
+    slateLinkRevisions.set(owner, (slateLinkRevisions.get(owner) ?? 0) + 1);
+    stateRevision.value++; draftRevision.value++; saveFavorite(owner);
+  }
+  function pruneSlateLinks() {
+    if (!deps.slates?.ready.value) return;
+    for (const owner of conversations.list()) if (owner.slateId && !deps.slates.get(owner.slateId)) setSlateLink(owner, null);
+  }
+  function rememberSlateLinks(plan: DraftPlan, undo = false) {
+    if (!plan.slate || (undo ? plan.slate.before : plan.slate.after)) return;
+    removedSlateLinks.set(plan, conversations.list().filter(c => c.slateId === plan.slate!.id)
+      .map(owner => ({ owner, revision: (slateLinkRevisions.get(owner) ?? 0) + 1 })));
+  }
+  function restoreSlateLinks(plan: DraftPlan) {
+    if (!plan.slate || !deps.slates?.get(plan.slate.id)) return;
+    for (const { owner, revision } of removedSlateLinks.get(plan) ?? []) {
+      // Undo restores only links cleared by this deletion, never a later user choice.
+      if (conversations.get(owner.id) === owner && !owner.slateId && slateLinkRevisions.get(owner) === revision) setSlateLink(owner, plan.slate.id);
+    }
+  }
   activeScope=conversations.current.scope; attachments=activeScope.attachments;
   conversationId.value = conversations.current.id;
   function stash() {
@@ -418,6 +443,7 @@ export function createAsk(deps: {
   function checkpoint(record: DraftRecord) {
     const owner = conversations.get(record.conversationId);
     if (!owner || !record.plan || record.status === "pending") return;
+    restoreSlateLinks(record.plan);
     const { added, removed } = draftView(record.plan);
     const receipts: ToolRow[] = [];
     const change = record.plan.slate;
@@ -495,8 +521,9 @@ export function createAsk(deps: {
         const form = boardForm({ ...drawing.snapshot().form, ...structuredClone(source.form), ...Object.fromEntries(plan.changes.map(c => [c.field, c.after])) });
         plan = { ...plan, createdBoard: { ...structuredClone(source), id: crypto.randomUUID(), name: plan.newBoardName ?? `${source.name} 副本`.slice(0, 80), color: boardColors[drawing.snapshot().boards.length % boardColors.length], nextCharacterId: Math.max(source.nextCharacterId, nextCharacterId(form.characters)), form } };
       }
+      rememberSlateLinks(plan);
       await history.apply(record, plan);
-      if (plan.slate?.after) conversations.current.slateId = plan.slate.id;
+      if (plan.slate?.after) setSlateLink(conversations.current, plan.slate.id);
       checkpoint(record);
       if (plan.slate) notice.value = deps.slates?.error.value ?? "";
       externalStatus(record, "applied", notice.value || undefined);
@@ -514,6 +541,7 @@ export function createAsk(deps: {
     writingDraft.value = true; notice.value = "";
     try {
       await chat.warm();
+      if (record.plan) rememberSlateLinks(record.plan, !restore);
       await (restore ? history.restore(id) : history.undo(id));
       checkpoint(record);
       if (record.plan?.slate) notice.value = deps.slates?.error.value ?? "";
@@ -654,7 +682,7 @@ export function createAsk(deps: {
   const stops = [
     drawing.subscribe(syncDrawing),
     ...(deps.editor ? [deps.editor.subscribe(() => { if(deps.editor?.snapshot().externalId) open.value=false; stateRevision.value++; libraryRevision.value++; draftRevision.value++; })] : []),
-    ...(deps.slates ? [deps.slates.subscribe(() => { stateRevision.value++; draftRevision.value++; })] : []),
+    ...(deps.slates ? [deps.slates.subscribe(() => { pruneSlateLinks(); stateRevision.value++; draftRevision.value++; })] : []),
     chat.subscribe(() => { draftRevision.value++; libraryRevision.value++; }),
     watch(open, (shown) => { if (shown) void chat.warm(); }, { immediate: true }),
     preferences.subscribe((key) => {
@@ -754,7 +782,7 @@ export function createAsk(deps: {
       conversations.restore(restored);
       if (restored.length) load();
     } catch (error) { if (!disposed) deps.ui.toast(`收藏读取失败：${message(error)}`, "err"); }
-    finally { favoritesReady.value = true; }
+    finally { favoritesReady.value = true; pruneSlateLinks(); }
   }
   const stopFavoriteSave = watch([entries, input, anchor, tray, draft, () => !!live.value, () => {
     void draftRevision.value;
@@ -772,27 +800,30 @@ export function createAsk(deps: {
   window.addEventListener("pagehide", flushOnLeave);
 
   const staticTokens = computed(
-    () => approxTokens(JSON.stringify(toolList)) + approxTokens(system.value.join("\n")),
+    () => estimateRequestBreakdown({ tools: toolList, system: system.value, messages: [] }),
   );
   const stateTokens = computed(() => {
     void stateRevision.value;
     void entries.value;
     void conversationId.value;
     return visible.value && ready.value === "ok"
-      ? estimateRequest({
+      ? estimateRequestBreakdown({
           tools: [],
           system: ["", ""],
           messages: [
             ...conversations.current.session.requestHistory(!settings.value.images),
             { role: "user", content: [{ type: "text", text: stateBlock(digestNow(anchor.value)) }, ...attachmentBlocks(attachments.read(tray.value), !settings.value.images)] },
           ],
-        })
+        }).messages
       : 0;
   });
-  /** Rough input tokens for the next send, shown with「约」. */
-  const estimate = computed(() =>
-    stateTokens.value ? staticTokens.value + stateTokens.value + approxTokens(input.value) : 0,
-  );
+  /** All categories describe the same next-send estimate, never cumulative usage. */
+  const contextTokens = computed(() => {
+    if (!stateTokens.value) return null;
+    const { system, tools } = staticTokens.value, messages = stateTokens.value + approxTokens(input.value);
+    return { system, tools, messages, total: system + tools + messages };
+  });
+  const estimate = computed(() => contextTokens.value?.total ?? 0);
   const memory = computed(() => {
     void stateRevision.value; void entries.value; void draftRevision.value; void conversationId.value;
     const owner = conversations.current, session = owner.session, value = session.memory;
@@ -1350,6 +1381,8 @@ export function createAsk(deps: {
       await chat.warm();
       const order = history.preflight(applied);
       for (const recordId of order) {
+        const record = history.records.find(r => r.id === recordId);
+        if (record?.plan) rememberSlateLinks(record.plan, true);
         checkpoint(await history.undo(recordId));
         appliedDraft.value = null;
       }
@@ -1498,6 +1531,29 @@ export function createAsk(deps: {
       draftRevision.value++; saveFavorite();
     } catch (error) { notice.value = message(error); }
   }
+  const canManageTasks = computed(() => !running.value && manageable() && !preparing.value && !draft.value && !!deps.slates?.ready.value && !deps.slates.busy.value && !deps.slates.recovery.value);
+  function detachSlate() {
+    if (!canManageTasks.value) return;
+    setSlateLink(conversations.current, null);
+  }
+  function proposeSlateAction(id: string, action: 'delete' | 'remove' | 'abandon' | 'reopen', todoId?: string) {
+    if (!canManageTasks.value) return false;
+    try {
+      const base = readDraftState(undefined, id), slate = base.slate;
+      if (!slate) throw new Error('任务清单已不存在');
+      const todo = slate.todos.find(t => t.id === todoId);
+      if (action !== 'delete' && !todo) throw new Error('待办已不存在');
+      const title = `${action === 'delete' ? '删除清单' : action === 'remove' ? '删除待办' : action === 'abandon' ? '放弃任务' : '重新打开任务'} · ${todo?.title ?? slate.title}`;
+      const step = parseSlateEdit({ kind: 'slate_edit', op: action === 'delete' ? 'delete' : 'update', slate_id: slate.id, expected_version: slate.version,
+        ...(action === 'delete' ? {} : { todos: [{ op: action === 'remove' ? 'remove' : 'update', id: todo!.id,
+          ...(action === 'remove' ? {} : { status: action === 'abandon' ? 'abandoned' : 'todo' }) }] }) }, slate, base.form, []);
+      const entryId = ++sequence;
+      entries.value = [...entries.value, { type: 'note', id: entryId, text: title }];
+      draft.value = history.create({ title, baseHash: stateHash(base), question: '', base, steps: [step] }, conversations.current.id, entryId);
+      draftRevision.value++; saveFavorite(); open.value = true;
+      return true;
+    } catch (error) { notice.value = message(error); return false; }
+  }
   async function openSlate(id: string, fresh = false) {
     if (!manageable() || !deps.slates?.get(id)) return false;
     try { await deps.slates.select(id); }
@@ -1505,7 +1561,7 @@ export function createAsk(deps: {
     if (!manageable()) return false;
     const owner = conversations.list().find(c => c.slateId === id);
     if (owner && !fresh) selectConversation(owner.id);
-    else { if (newConversation() !== true) { notice.value = '会话已达上限，请先关闭一个会话'; return false; } conversations.current.slateId = id; const slate = deps.slates.get(id); if (slate) conversations.current.title = slate.title; listRevision.value++; }
+    else { if (newConversation() !== true) { notice.value = '会话已达上限，请先关闭一个会话'; return false; } setSlateLink(conversations.current, id); const slate = deps.slates.get(id); if (slate) conversations.current.title = slate.title; listRevision.value++; }
     draftRevision.value++;
     open.value = true; deps.slates.visible.value = false; saveFavorite();
     return true;
@@ -1513,7 +1569,7 @@ export function createAsk(deps: {
   const restored = Promise.resolve(deps.slates?.restored).then(() => restoreFavorites());
 
   return {
-    proposeFile, openSlate,
+    proposeFile, openSlate, canManageTasks, detachSlate, proposeSlateAction,
     activeSlate: computed(() => { void conversationId.value; void draftRevision.value; return deps.slates?.get(conversations.current.slateId ?? "") ?? null; }),
     connectFileExports(port: FilePort) { filePort = port; draftRevision.value++; return () => { if (filePort === port) filePort = null; }; },
     connectReferences(source: RefSource) { referenceSource = source; stateRevision.value++; return () => { if (referenceSource === source) { referenceSource = null; stateRevision.value++; } }; },
@@ -1668,6 +1724,7 @@ export function createAsk(deps: {
     },
     libraryRevision: libraryRevision as Readonly<ShallowRef<number>>,
     codecActive,
+    contextTokens,
     estimate,
     setInput(text: string) {
       input.value = text;

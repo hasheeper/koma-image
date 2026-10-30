@@ -1,6 +1,6 @@
 # 界面工程：样式与字体维护
 
-更新：2026-10-29。维护现行级联、组件责任与字体配置／重建；G0–G4 过程、大小对比和验收见[归档](../archive/2026-10-25/README.md)。视觉标准见[设计语言](../product/design-language.md)，检查规则集中在本文[样式检查](#样式检查)。
+更新：2026-10-30。维护现行级联、主题材质、组件责任与字体配置／重建；G0–G4 过程、大小对比和验收见[归档](../archive/2026-10-25/README.md)。视觉标准见[设计语言](../product/design-language.md)，检查规则集中在本文[样式检查](#样式检查)。
 
 ## 基础入口与级联
 
@@ -17,6 +17,36 @@ fonts/index.css
 `styles.css` 首行的重复 `@import "./ui.css"` 已删除；没有新增运行时导入链、级联层、预处理器或依赖。字体入口继续由 `config/fonts.json` 生成，字体资源与映射不变。
 
 `presentation.ts` 及三个工作区 stylesheet 的 ID／media 开关保持不变：绘图启用 image，对话启用 chat，词典启用 image＋tags。HOME 不启用这三个工作区样式，仅使用公共 tokens／控件和 `src/home/*.vue` 的 scoped 样式。词典仍需绘图样式中的原有顶栏与移动布局；这些工作区依赖仍然保留。
+
+## 主题与材质变量
+
+颜色的唯一维护入口是 `public/styles/tokens.css`：`:root` 保留暗色基线，`:root[data-theme="light"]` 提供柔白背景、白色浮起表面与紫色强调的亮色基底。两种主题使用同一套语义变量，组件不按主题分支、不复制整份 CSS。用户从顶栏外观菜单或通用设置选择外观，默认暗色；行为与持久化边界见[外观](../workspaces/settings-and-tags.md#外观)。
+
+| 调整目标 | 变量入口 |
+| --- | --- |
+| 表面、文字、分隔、状态 | `--canvas/chrome/sunken/raised/hover`、`--fg*`、`--line*`、`--a*`、`--ok/warn/err` |
+| 图片舞台与环境柔光 | `--stage`、`--stage-wash`、`--ambient-ink`；舞台底色独立于页面 `--canvas`，亮色不保留大面积紫色柔光 |
+| 输入与分段控件 | `--well*`、`--field-line/hover`、`--field-shadow` 管输入，弹窗、导入卡、小编辑器和尺寸面板内的输入用 `--panel-well`；分段内槽用 `--seg-bg/line/shadow`（`.seg`、图片分类和底部标签共用），未选中字色 `--seg-ink`，选中用 `--seg-active-*`（含 `--seg-active-weight`）／`--seg-quiet-shadow`；画幅方向、比例及尺寸分组分别用 `--choice-*`（含 `--choice-active-shadow`）、`--ratio-*`（含 `--ratio-active-shadow`）、`--size-panel-bg`。亮色为浅灰内槽加白色滑块，方向与比例为淡紫底加 1.5px 紫边；`--seg-hover-bg` 管灰色悬停 |
+| 导航状态与悬停 | `--nav-active-bg/ink/shadow` 管导航选中，亮色为白色凸起、紫字；`--hover`、`--ghost-hover`、`--tab-hover-bg` 管灰色悬停，选中态不由悬停覆盖 |
+| 外观选择器 | `--appearance-bg/selected-bg/selected-shadow`；紧凑三等分、浅色白色浮片、深色亮一级浮片，中性选中文字；专用材质不改变其他分段控件 |
+| IMAGE 结果信息栏 | `--result-*`；亮色与右侧栏共用 `--chrome` 底板、不加顶部投影，参数名／数值分层，ID 浅紫、可复制 Seed 白色、只读参数极浅灰；下载实心紫白字、ASK 保留紫色图形配中性文字。暗色保留原材质，布局与尺寸归 `styles.css` 和 `ImageStage.vue` |
+| 卡片与分组 | `--card-bg/shadow`、`--group-bg/line`、历史栏空槽 `--ghost-tile-bg/ring`；亮色按明度分层，`--canvas` 最低、`--chrome` 高一级，白色只给控件与浮起表面 |
+| 共享菜单 | `--menu-*` 管表面、边界、磨砂与交互状态；暗色保持实底，亮色用接近实色的白色玻璃与浅紫选中底 |
+| ASK 玻璃、输入、悬停及高光边缘 | `--glass-*`；`AskDrawer.vue` 保留 `--ask-*` 别名和 HOME／手机实色覆盖 |
+| 遮罩、阴影及表面叠色 | `--scrim*`、`--lightbox-bg`、`--shadow-rgb/strength`、`--surface-tint`、`--specular` |
+| 品牌字标、主按钮与加载效果 | `--brand-fill` 可为纯色或渐变，其他材质取 `--brand-*`、`--action-*`（含各状态阴影）、`--bar-ink`、`--sheen-ink`、`--a-shine`；HOME 五格空状态图形使用 `--empty-mark-back/front` |
+| 草稿差异、Tag 分类、权重高亮 | `--diff-*`、`--tag-*`、`--weight-*` |
+| 透明图棋盘底 | `--checker-a/b`，由 `--image-checker` 组合 |
+
+组件继续负责布局、局部阴影几何、渐变方向与透明度；共享颜色取变量，需要半透明时用 `color-mix()`，不在组件中重复色值。`--surface-tint` 是随主题变化的表面叠色，`--specular` 是固定白色高光，二者不能混用。提示词权重解析只计算强度，生成的高亮样式引用 `--weight-*`，换配色不重算词文。
+
+亮色强调色与玻璃材质参考 [AgIzT/NovelAI-Tag 的 tokens.css](https://github.com/AgIzT/NovelAI-Tag/blob/569ed7199e1df2e78d69085000ffff2644db4f9a/site/assets/tokens.css)及[控件状态](https://github.com/AgIzT/NovelAI-Tag/blob/569ed7199e1df2e78d69085000ffff2644db4f9a/site/assets/ui-kit.css)，以已核对的提交 `569ed71` 为准。底板按用户给定的明度层级并按反馈提亮：页面与图片舞台 `#f4f4f8`，侧栏、顶栏与历史栏 `#f9f9fb`，控件、卡片、额度条、输入和浮窗为白色；悬停 `#efeff4`；分隔与边界为半透明冷灰 `rgb(30 32 72 / .05)`、`.07`，在灰底和白底上读数一致；分段内槽 `#e9eaf2`。主文及操作标签用 `#232a3c`，分段未选中 `#6b7184`，弱色 `#878da3` 只给占位、附注或装饰；强调色 `#6f5cf2`、浅选中底 `#ece9fe`。中性底板和画幅填充状态是 Koma 的适配，不宣称来自参考仓库；不引入该项目依赖、字体、布局或业务脚本。
+
+Koma 字标在亮色中为纯墨蓝，方块保留品牌紫，形状与字体不变。HOME 五格图形使用内联 SVG 消费主题变量，亮色为淡紫后层、白色前层，暗色保持原值。生成主按钮为紫底白字及淡紫投影；结果栏下载用实心紫白字，不加光晕。分段（含角色自动／手动与草稿分段）为浅灰内槽加白色凸起滑块，选中深色中粗字、未选中弱灰字；画幅方向卡与比例选中为 7% 淡紫底、1.5px 紫边和紫字，比例不用下划线；菜单选中为浅紫底。尺寸输入与所在分组均为白色；ASK 建议卡、输入框和设置卡片沿用同一层次。边界保持极淡，卡片与输入投影向下柔和扩散，不形成硬底边，键盘焦点仍有清晰提示。设置导航、图片历史／收藏、底部标签及 HOME 排列选中为白色凸起、紫字；历史栏空槽为半透明白；未选中控件保留灰度悬停反馈。共享表面阴影收敛为低透明度中性双层投影，避免边缘出现厚重灰晕。ASK 浮窗与菜单采用参考菜单的 93% 白色和 18px 磨砂，ASK 不增饱和；HOME 停靠和手机全屏仍用实色。Koma 常驻面板为 `--chrome` 浅灰实色，不移植参考站点 74% 白色的悬浮侧栏布局。环境紫色柔光关闭，亮色不反转原图，也不靠整体滤镜转换暗色。
+
+以下颜色有意独立：图片内的操作、编号和关闭按钮用固定的 `--media-*`，保持深底、浅字与浅紫强调；CSS mask、画笔光标黑白描边、聚焦范围遮罩属于功能性颜色；原图、导出图片、黑白蒙版字节及供应商品牌原色不进入主题。Photopea 内部主题由官方环境配置控制，首次创建随当前外观使用 White（`6`）或 Dark Blue（`3`）。保活实例沿用内部主题，Koma 外观切换不重建分层文档。
+
+`index.html` 在首屏样式加载前解析保存值和系统偏好，避免主题闪烁；App Shell 的 `src/app/theme.ts` 接管根元素 `data-theme`，两套 tokens 各自声明 `color-scheme`。同一服务监听系统与跨页偏好变化，销毁时释放订阅。Canvas 加载方块与 EDIT 蒙版预览通过 `src/native/theme-watch.ts` 重新读取 `--a` 并重绘，实例销毁时断开观察；只改变展示色，不改变原图、蒙版字节与编辑历史。
 
 ## 维护责任
 
@@ -37,7 +67,7 @@ fonts/index.css
 | `src/shared/ToastList.vue` | Toast 的 scoped 外观、动画、局部底色、移动布局及减少动效下的真实计时例外；车间通知避开 ASK 的启动图标、结果胶囊与窗口操作 |
 | `src/shared/ConfirmSheet.vue` | 确认内容与脚注的 scoped 规则；通用 modal 框架仍由 ui 管理 |
 | `src/workspaces/image/EmptyStage.vue` | 空白页的 scoped 布局与说明；品牌子组件的字形样式用明确的 `:deep()` 保留 |
-| `src/ask/AskDrawer.vue` | ASK 五态透明容器、共享磨砂材质变量、胶囊基线、窗口及响应式边界；图标整数网格与呼吸归 `AskMark.vue`，紧凑草稿归 `DraftCard.vue`，输入与消息的透明底归各自组件；车间不挤压工作区布局，HOME 停靠与手机端全屏共用该组件的实色表面，背景交互由工作区模板随全屏状态隔离 |
+| `src/ask/AskDrawer.vue` | ASK 五态透明容器、磨砂材质的局部别名、胶囊基线、窗口及响应式边界；材质颜色由 tokens 管理，图标整数网格与呼吸归 `AskMark.vue`，紧凑草稿归 `DraftCard.vue`，输入与消息的透明底归各自组件；车间不挤压工作区布局，HOME 停靠与手机端全屏共用该组件的实色表面，背景交互由工作区模板随全屏状态隔离 |
 | `src/ask/AskStream.vue` | 提问气泡与右对齐、消息间距、正文对比度和行高、复制／编辑／分支操作及候选图片；工具摘要与明细的私有样式归 `AskToolGroup.vue`，抽取工具组件时保留消息布局规则 |
 | `src/ask/AskMarkdown.vue` | ASK 回复与提问的 Markdown 内容排版，标题层级、嵌套列表、引用、表格与代码块滚动；解析树到 Vue 节点的映射，不接管窗口和消息操作布局 |
 
@@ -45,7 +75,9 @@ fonts/index.css
 
 `GuidanceControl.vue` 共用 Guidance 滑杆、手输值与同行 Variety+ 小按钮；开关消费共享按钮材质，按官方 V4.5 能力显示，不增加参数面板行高或公共样式补丁。
 
-Photopea 高级编辑宿主、固定紧凑顶栏与加载／错误反馈归 `PhotopeaPanel.vue` 的 scoped 样式，覆盖现有 EDIT 的全部可用空间。顶栏无展开／折叠功能。回传下拉复用共享菜单；跨域 iframe 内部只用官方 Environment API 设置 Dark Blue、中文、面板折叠以及菜单／工具白名单，配置归 `photopea-scripts.ts`，不覆写第三方 DOM／CSS。
+`src/shared/ThemeMenu.vue` 维护 IMAGE／CHAT 共用的外观菜单，复用共享菜单、定位和键盘行为；月亮／显示器／太阳取本地图标精灵。`src/app/theme.ts` 同时提供菜单和通用设置的选项，首屏脚本与服务均以暗色为缺省，仅显式 `system` 跟随系统。
+
+Photopea 高级编辑宿主、固定紧凑顶栏与加载／错误反馈归 `PhotopeaPanel.vue` 的 scoped 样式，覆盖现有 EDIT 的全部可用空间。顶栏无展开／折叠功能。回传下拉复用共享菜单；跨域 iframe 内部只用官方 Environment API 设置首次创建时的 White／Dark Blue、中文、面板折叠以及菜单／工具白名单，配置归 `photopea-scripts.ts`，不覆写第三方 DOM／CSS。
 
 宿主容器为相对定位的 block，使用 `overflow: clip` 阻止 iframe 内部聚焦导致宿主自动滚动；iframe 绝对固定 `top: 0; left: 0; margin: 0`，宽高均为 100%。不使用固定 gutter 扩宽，避免裁掉右侧工具。
 

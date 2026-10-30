@@ -169,27 +169,28 @@ test('CP1 layout: boundary limits ledger, original last three user messages and 
 });
 
 test('CP1 triggers: real normalized input, fixed threshold and the archive-rebuild-only estimation exception', () => {
-  assert.equal(highWater(), 64_000); assert.equal(highWater(1234), 1234); assert.equal(highWater(-1), 64_000);
+  assert.equal(highWater(), 220_000); assert.equal(highWater(1234), 1234); assert.equal(highWater(-1), 220_000);
   for (const usage of [null, { input: 0, cacheRead: 80 }, { input: NaN }, { input: Infinity }]) assert.equal(validInputTokens(usage), null);
   assert.equal(validInputTokens({ input: 100, output: 4, cacheRead: 80, cacheWrite: 10 }), 100);
-  const normal = { totalTurns: 4, turnsSinceCompaction: 4, archiveCount: 1, lastInputTokens: 64_000 };
+  const normal = { totalTurns: 4, turnsSinceCompaction: 4, archiveCount: 1, lastInputTokens: 220_000 };
   assert.equal(shouldCompact(normal), true);
-  for (const extra of [{ lastInputTokens: null }, { lastInputTokens: 63_999 }, { turnsSinceCompaction: 3 }, { totalTurns: 3 }, { archiveCount: 0 }])
+  for (const extra of [{ lastInputTokens: null }, { lastInputTokens: 219_999 }, { turnsSinceCompaction: 3 }, { totalTurns: 3 }, { archiveCount: 0 }])
     assert.equal(shouldCompact({ ...normal, ...extra }), false);
   assert.equal(shouldCompact({ ...normal, lastInputTokens: null, manual: true }), true);
   assert.equal(shouldCompact({ ...normal, lastInputTokens: null, estimatedTokens: 90_000 }), false, 'ordinary estimates never trigger');
-  const restoredMessages = Array.from({ length: 2 }, () => message('字'.repeat(40_000)));
+  const restoredMessages = Array.from({ length: 2 }, () => message('字'.repeat(110_000)));
   const estimatedTokens = estimateRequest({ messages: restoredMessages, tools: [], system: ['', ''] });
   assert.equal(shouldCompact({ ...normal, totalTurns: 2, turnsSinceCompaction: 0, lastInputTokens: null, archiveRebuild: { estimatedTokens } }), true);
-  assert.equal(shouldCompact({ ...normal, lastInputTokens: null, archiveRebuild: { estimatedTokens: 64_000 } }), false);
+  assert.equal(shouldCompact({ ...normal, lastInputTokens: null, archiveRebuild: { estimatedTokens: 220_000 } }), false);
   assert.equal(shouldCompact({ ...normal, archiveCount: 0, archiveRebuild: { estimatedTokens } }), false);
 });
 
 test('CP1 retention: complete suffix shrinks 3→2→1 and pending drafts protect their entire suffix', () => {
   const sized = values => values.map((n, i) => ({ turnId: `T${i + 1}`, messages: [message('字'.repeat(n))] }));
   assert.equal(archiveCount(sized([1, 1, 1, 1, 1, 1])), 3);
-  assert.equal(archiveCount(sized([1, 1, 1, 10_000, 10_000, 10_000])), 4);
-  assert.equal(archiveCount(sized([1, 1, 1, 1, 20_000, 20_000])), 5);
+  assert.equal(archiveCount(sized([1, 1, 1, 10_000, 10_000, 10_000])), 3);
+  assert.equal(archiveCount(sized([1, 1, 1, 10_000, 10_000, 10_000]), 64_000), 4);
+  assert.equal(archiveCount(sized([1, 1, 1, 1, 20_000, 20_000]), 64_000), 5);
   assert.equal(archiveCount(sized([1, 1, 1, 1, 20_000, 20_000]), 64_000, ['T2']), 1);
   assert.equal(archiveCount(sized([1, 1, 1, 1]), 64_000, ['T1']), 0);
   assert.equal(archiveCount(sized([90_000])), 0);

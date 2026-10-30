@@ -3,7 +3,15 @@ defineProps<{ dropping: boolean }>();
 </script>
 <template>
   <section class="home-welcome" :class="{ 'is-over': dropping }" aria-label="开始创作">
-    <img class="home-welcome-art" src="./empty-mark.svg" width="80" height="80" alt="" aria-hidden="true" />
+    <svg class="home-welcome-art" viewBox="0 0 64 64" width="80" height="80" aria-hidden="true">
+      <g fill="var(--empty-mark-back)">
+        <rect x="8" y="8" width="22" height="22" rx="6" />
+        <rect x="34" y="8" width="22" height="22" rx="6" />
+        <rect x="8" y="34" width="22" height="22" rx="6" />
+        <rect x="34" y="34" width="22" height="22" rx="6" />
+      </g>
+      <rect x="18.75" y="18.75" width="26.5" height="26.5" rx="7.25" fill="var(--empty-mark-front)" stroke="var(--a)" stroke-opacity=".75" stroke-width="1.5" />
+    </svg>
     <h2>{{ dropping ? '松手，在 EDIT 中打开' : '这里还空着呢' }}</h2>
     <p>有个想法？快去试试吧<span class="welcome-stop">。</span></p>
   </section>

@@ -202,7 +202,7 @@ function key(event: KeyboardEvent) {
 .home-head.is-empty .home-ask { width: min(100%, 720px); margin-inline: auto; }
 /* The empty page lights the question from just above its middle. The light hangs on the stage, not the form, so the view transition never snapshots it with the capsule; the shell clips its spill so neither light can add scroll. */
 .home-ask-stage { position: relative; }
-.home-head.is-empty .home-ask-stage::before { position: absolute; top: calc(50% - 12px); left: 50%; z-index: -1; width: min(1240px, 175vw); height: clamp(440px, 48vw, 640px); content: ''; background: radial-gradient(closest-side, rgb(179 161 255 / .081), rgb(179 161 255 / .05) 22%, rgb(179 161 255 / .025) 45%, rgb(179 161 255 / .009) 70%, transparent); transform: translate(-50%, -50%); pointer-events: none; }
+.home-head.is-empty .home-ask-stage::before { position: absolute; top: calc(50% - 12px); left: 50%; z-index: -1; width: min(1240px, 175vw); height: clamp(440px, 48vw, 640px); content: ''; background: radial-gradient(closest-side, color-mix(in srgb, var(--ambient-ink) 8.1%, transparent), color-mix(in srgb, var(--ambient-ink) 5%, transparent) 22%, color-mix(in srgb, var(--ambient-ink) 2.5%, transparent) 45%, color-mix(in srgb, var(--ambient-ink) 0.9%, transparent) 70%, transparent); transform: translate(-50%, -50%); pointer-events: none; }
 .home-head.is-empty .home-note { max-width: min(100%, 640px); margin-inline: auto; }
 .home-head.is-empty .home-entries { justify-content: center; }
 @media (max-width: 860px) {

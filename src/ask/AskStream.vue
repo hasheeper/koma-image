@@ -253,7 +253,7 @@ onBeforeUnmount(() => { resized.disconnect(); cancelAnimationFrame(frame); clear
 .ask-start-word { display: inline-flex; align-items: baseline; gap: 7px; line-height: 1; }
 .ask-start-word .brand-title { font-size: 28px; }
 .ask-start-word .brand-subtitle { font-size: 11px; letter-spacing: .14em; }
-.ask-starters { display: grid; width: min(100%, 300px); overflow: hidden; background: var(--ask-field, var(--well)); border: 1px solid var(--line); border-radius: 12px; }
+.ask-starters { display: grid; width: min(100%, 300px); overflow: hidden; background: var(--ask-field, var(--well)); border: 1px solid var(--line); border-radius: 12px; box-shadow: var(--card-shadow); }
 .ask-starter { display: flex; align-items: center; gap: 10px; min-height: 40px; padding: 0 12px; color: var(--fg-2); font-size: 13px; line-height: 1.4; text-align: left; }
 .ask-starter + .ask-starter { border-top: 1px solid var(--line); }
 .ask-starter .ico { flex: none; --ico: var(--ico-md); color: var(--fg-3); }

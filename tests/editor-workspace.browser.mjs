@@ -83,6 +83,30 @@ test('independent route, settings return and viewport survive workspace navigati
   assert.deepEqual(errors,[]);
 });
 
+test('mobile fullscreen keeps the editing canvas and mask, then restores the default workspace', async t => {
+  const {page,errors}=await setup(t);
+  await page.setViewportSize({width:390,height:844});
+  await page.evaluate(()=>editor.setMode('inpaint'));
+  const image=await page.locator('#editorImage').getAttribute('src');
+  assert.equal(await page.locator('#editorForm').isVisible(),true);
+  await page.getByRole('button',{name:'全屏画布',exact:true}).click();
+  assert.equal(await page.locator('#editorForm').isVisible(),false);
+  const mask=page.locator('#editorMask'); await mask.waitFor({state:'visible'});
+  const box=await mask.boundingBox();
+  await page.mouse.move(box.x+box.width*.3,box.y+box.height*.4);
+  await page.mouse.down(); await page.mouse.move(box.x+box.width*.6,box.y+box.height*.6,{steps:8}); await page.mouse.up();
+  await page.waitForFunction(()=>editor.session.mask.position>0);
+  const painted=await page.evaluate(()=>JSON.stringify(editor.session.mask));
+  await page.getByRole('button',{name:'退出全屏画布',exact:true}).click();
+  assert.equal(await page.locator('#editorForm').isVisible(),true);
+  assert.equal(await page.locator('#editorImage').getAttribute('src'),image);
+  assert.equal(await page.evaluate(()=>JSON.stringify(editor.session.mask)),painted);
+  await page.getByRole('button',{name:'全屏画布',exact:true}).click();
+  await page.keyboard.press('Escape');
+  assert.equal(await page.locator('#editorForm').isVisible(),true);
+  assert.deepEqual(errors,[]);
+});
+
 test('EDIT identities survive board switches, trimming, removed versions and direct Slate delivery without #h', {timeout:60000}, async t => {
   const {page, errors} = await setup(t);
   const result = await page.evaluate(async () => {

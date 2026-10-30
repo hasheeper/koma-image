@@ -221,7 +221,7 @@ onBeforeUnmount(pause);
   border-radius: var(--r2);
   background: var(--thumb) center / cover no-repeat, var(--image-checker);
   opacity: 0.9;
-  box-shadow: 0 0 0 1px rgba(255, 255, 255, 0.05), 0 10px 24px -14px rgba(0, 0, 0, 0.9);
+  box-shadow: 0 0 0 1px color-mix(in srgb, var(--specular) 5%, transparent), 0 10px 24px -14px rgb(var(--shadow-rgb) / calc(0.9 * var(--shadow-strength)));
   transition: opacity var(--t1) var(--e), transform var(--t1) var(--e);
 }
 .home-fav:hover { opacity: 1; transform: translateY(-2px); }

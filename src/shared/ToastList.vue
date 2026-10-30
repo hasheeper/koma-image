@@ -127,8 +127,8 @@ onBeforeUnmount(() => {
 .toast-slot.out { overflow: clip; animation: toastRow 240ms var(--e) reverse forwards; }
 @keyframes toastRow { from { grid-template-rows: 0fr; } }
 .toast {
-  --well: #19191c;
-  --well-focus: #17171a;
+  --well: var(--well-raised);
+  --well-focus: var(--well-raised-focus);
   --tc: var(--a);
   position: relative; overflow: hidden;
   display: flex; align-items: center; gap: 12px;

@@ -132,7 +132,7 @@ onDeactivated(cleanup); onBeforeUnmount(cleanup);
 </template>
 <style scoped>
 .bd { display: block; flex: none; container-type: inline-size; margin: calc(var(--sp-1) * -1) 0 calc(var(--sp-3) - var(--section)); }
-.bd-pill { display: flex; align-items: stretch; width: 100%; height: 40px; overflow: hidden; color: var(--fg); background: var(--raised); border: 1px solid var(--line-2); border-radius: 999px; box-shadow: var(--sh-lip), 0 1px 2px rgb(0 0 0 / 30%), 0 6px 16px -8px rgb(0 0 0 / 50%); transition: border-color var(--t1) var(--e), box-shadow var(--t1) var(--e); }
+.bd-pill { display: flex; align-items: stretch; width: 100%; height: 40px; overflow: hidden; color: var(--fg); background: var(--raised); border: 1px solid var(--line-2); border-radius: 999px; box-shadow: var(--sh-lip), 0 1px 2px rgb(var(--shadow-rgb) / calc(.3 * var(--shadow-strength))), 0 6px 16px -8px rgb(var(--shadow-rgb) / calc(.5 * var(--shadow-strength))); transition: border-color var(--t1) var(--e), box-shadow var(--t1) var(--e); }
 .bd-pill:hover { border-color: color-mix(in srgb, var(--fg-3) 30%, var(--line-2)); }
 .bd-pill button { transition: background var(--t1) var(--e), color var(--t1) var(--e); }
 .bd-pill button:focus-visible { outline: none; box-shadow: inset 0 0 0 2px var(--a-line); }

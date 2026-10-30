@@ -17,11 +17,11 @@ const ask = useAsk();
 .ask-send-slot > .btn[hidden] { display: inline-flex; visibility: hidden; pointer-events: none; opacity: 0; transform: scale(.72); transition: opacity var(--t1) var(--e), transform var(--t1) var(--e), visibility 0s linear var(--t1); }
 .ask-send .ico, .ask-stop .ico { --ico: var(--ico-sm); }
 .ask-send .ico { stroke-width: var(--ico-stroke-strong); }
-.ask-send:disabled { color: var(--fg-4); background: rgba(255, 255, 255, .07); }
+.ask-send:disabled { color: var(--fg-4); background: color-mix(in srgb, var(--surface-tint) 7%, transparent); }
 .ask-send-slot > .ask-stop { color: var(--fg); background: var(--ask-hover, var(--hover)); border-radius: 8px; }
 .ask-stop .ico { fill: currentColor; stroke: none; }
 @media (hover: hover) {
-  .ask-stop:hover { color: var(--err); background: rgba(232, 135, 135, .12); }
+  .ask-stop:hover { color: var(--err); background: color-mix(in srgb, var(--err) 12%, transparent); }
 }
 .home-send > .btn { width: 36px; height: 36px; }
 .home-send :is(.ask-send, .ask-stop) .ico { --ico: var(--ico-md); }

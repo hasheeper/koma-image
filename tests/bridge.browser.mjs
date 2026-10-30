@@ -383,6 +383,89 @@ test('B3 local tasks use an inline Todo list and a small overview, with native p
   }finally{await context.close();}
 });
 
+test('B3 task menus detach persistently and propose reversible Todo changes without replacing pending drafts',async()=>{
+  const {page,context,requests,errors,release,started}=await setup({directory:false,llm:true});
+  try {
+    const id=await page.evaluate(async()=>{
+      const {parseSlateEdit}=await import('/src/slate/edit.ts');
+      const change=parseSlateEdit({kind:'slate_edit',op:'create',slate_title:'菜单测试',todos:[{op:'add',todo_title:'整理构图',image_required:false}]},null,drawing.snapshot().form,[]).change;
+      await slate.commit(change);await ask.openSlate(change.id);return change.id;
+    });
+    const owner=await page.evaluate(()=>ask.conversationId.value);
+    await page.evaluate(()=>ask.newConversation());
+    assert.notEqual(await page.evaluate(()=>ask.conversationId.value),owner,'an unspoken task conversation is not an empty conversation');
+    assert.equal(await page.evaluate(()=>ask.activeSlate.value),null);
+    await page.evaluate(async owner=>{ask.selectConversation(owner);await ask.toggleFavorite();},owner);
+    await page.getByRole('button',{name:'待办清单选项',exact:true}).click();
+    await page.getByRole('menuitem',{name:'从当前会话移除',exact:true}).click();
+    assert.equal(await page.locator('.ask-todos').count(),0);
+    assert.ok(await page.evaluate(id=>slate.get(id),id));
+    await page.evaluate(()=>ask.flushFavorites());await page.reload();await bind(page);
+    assert.equal(await page.evaluate(()=>ask.activeSlate.value),null,'the detached favorite remains detached after reload');
+    await page.getByRole('button',{name:'打开任务总览',exact:true}).click();
+    await page.locator('.overview-item').filter({hasText:'菜单测试'}).click();
+    await page.locator('.todos-bar').click();
+    const menu=page.getByRole('button',{name:'整理构图 · 任务选项',exact:true});
+    await menu.click();await page.getByRole('menuitem',{name:'放弃任务',exact:true}).click();
+    assert.equal(await page.evaluate(()=>ask.activeSlate.value.todos[0].status),'todo','menu choices wait for Apply');
+    const pending=await page.evaluate(()=>ask.draftPlan.value.fingerprint);
+    assert.equal(await page.evaluate(id=>ask.proposeSlateAction(id,'delete'),id),false);
+    await page.evaluate(()=>ask.detachSlate());
+    assert.equal(await page.evaluate(()=>ask.draftPlan.value.fingerprint),pending);
+    assert.equal(await page.evaluate(()=>ask.activeSlate.value.id),id);
+    await apply(page);assert.equal(await page.evaluate(()=>ask.activeSlate.value.todos[0].status),'abandoned');
+    await menu.click();await page.getByRole('menuitem',{name:'重新打开任务',exact:true}).click();await apply(page);
+    assert.equal(await page.evaluate(()=>ask.activeSlate.value.todos[0].status),'todo');
+    await menu.click();await page.getByRole('menuitem',{name:'删除待办',exact:true}).click();await apply(page);
+    assert.equal(await page.evaluate(()=>ask.activeSlate.value.todos.length),0);
+    await page.evaluate(()=>ask.undoDraft());assert.equal(await page.evaluate(()=>ask.activeSlate.value.todos[0].title),'整理构图');
+    await menu.click();await page.getByRole('menuitem',{name:'删除待办',exact:true}).click();
+    await page.evaluate(async()=>{const s=slate.snapshot();await slate.commit({...ask.draftPlan.value.slate,before:s,after:{...s,title:'后来更新'}});});
+    await apply(page);assert.equal(await page.evaluate(()=>ask.activeSlate.value.todos.length),1,'a stale deletion cannot remove updated tasks');
+    assert.ok(await page.evaluate(()=>ask.draftPlan.value.steps.some(s=>s.issue)));
+    await page.evaluate(()=>ask.ignoreDraft());
+    assert.ok(!requests.some(p=>/generate|completions/.test(p)));
+    await page.evaluate(()=>{ask.setInput('整理当前任务');void ask.send();});await started;
+    assert.equal(await page.evaluate(()=>ask.canManageTasks.value),false);
+    assert.equal(await page.evaluate(id=>ask.proposeSlateAction(id,'delete'),id),false);
+    release();await page.waitForFunction(()=>!ask.running.value);
+    assert.equal(await page.evaluate(()=>ask.canManageTasks.value),true,'task actions become available again after ASK finishes');
+    assert.deepEqual(errors,[]);
+  }finally{release();await context.close();}
+});
+
+test('B3 deleting a task list clears shared conversation links, undo restores them and exported images survive',async()=>{
+  const {page,context,requests,errors}=await setup();
+  try {
+    await page.evaluate(()=>bridge.mount());let s=await createSlate(page,'可删除清单');
+    const image=await addSlateImage(page);
+    await receive(page,draft('delete-bound-task',[editSlate(s,[{op:'update',id:s.todos[0].id,status:'done',bind:{source:image.label,caption_source:'base',caption_mode:'full'}}])],{picture_scope_id:image.scope}));await apply(page);
+    s=await page.evaluate(()=>slate.snapshot());const owner=await page.evaluate(()=>ask.conversationId.value);
+    await page.evaluate(async id=>{await ask.toggleFavorite();await ask.openSlate(id,true);await ask.toggleFavorite();},s.id);
+    const second=await page.evaluate(()=>ask.conversationId.value);assert.notEqual(owner,second);
+    await page.getByRole('button',{name:'打开任务总览',exact:true}).click();
+    await page.getByRole('button',{name:'可删除清单 · 清单选项',exact:true}).click();
+    await page.getByRole('menuitem',{name:'删除清单',exact:true}).click();
+    assert.ok(await page.evaluate(id=>slate.get(id),s.id));
+    await apply(page);
+    assert.equal(await page.evaluate(id=>slate.get(id),s.id),null);
+    assert.equal(await page.evaluate(()=>ask.activeSlate.value),null);
+    await page.evaluate(id=>ask.selectConversation(id),owner);assert.equal(await page.evaluate(()=>ask.activeSlate.value),null);
+    await page.evaluate(id=>ask.selectConversation(id),second);await page.evaluate(()=>ask.undoDraft());
+    assert.equal(await page.evaluate(()=>ask.activeSlate.value.id),s.id);
+    const redo=await page.evaluate(()=>ask.redoId.value);
+    await page.evaluate(id=>ask.selectConversation(id),owner);assert.equal(await page.evaluate(()=>ask.activeSlate.value.id),s.id);
+    await page.evaluate(id=>ask.selectConversation(id),second);await page.evaluate(id=>ask.restoreDraft(id),redo);
+    assert.equal(JSON.parse(await page.evaluate(id=>directoryFile(`slates/${id}.slate.json`),s.id)).deleted,true);
+    assert.ok(await page.evaluate(async binding=>!!await slate.asset(binding.assetId),s.todos[0].binding),'undo history retains the local asset');
+    assert.ok(await page.evaluate(path=>directoryFile(path),s.todos[0].binding.target_path),'deleting a list preserves the exported original');
+    await page.reload();await bind(page);
+    for(const id of [owner,second]){await page.evaluate(id=>ask.selectConversation(id),id);assert.equal(await page.evaluate(()=>ask.activeSlate.value),null);}
+    assert.equal(await page.locator('.ask-todos').count(),0);
+    assert.ok(!requests.some(p=>/generate|completions/.test(p)));assert.deepEqual(errors,[]);
+  }finally{await context.close();}
+});
+
 test('B3 inline image delivery requires an explicit caption source and persists the chosen image',async()=>{
   const {page,context,errors,requests}=await setup({directory:false});
   try {

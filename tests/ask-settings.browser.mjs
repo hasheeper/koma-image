@@ -72,7 +72,7 @@ test("ASK settings: free creation off by default, empty vocabulary and replaceme
     await page.locator("#askPreference").fill("先说结论");
     await page.locator("#askPreference").blur();
     await page.waitForFunction(() => JSON.parse(localStorage.getItem("koma.ask.v1"))?.preference === "先说结论");
-    assert.deepEqual(await stored(page, "koma.ask.v1"), { version: 1, connectionId: "claude", model: "reasoning-a", models: { claude: ["reasoning-a", "Manual Model (Thinking)"] }, images: false, textAttachments: { chars: 50_000, totalChars: 100_000 }, compaction: { highWaterTokens: 64_000 }, preference: "先说结论", words: [], replacements: [], alwaysCodec: false });
+    assert.deepEqual(await stored(page, "koma.ask.v1"), { version: 1, connectionId: "claude", model: "reasoning-a", models: { claude: ["reasoning-a", "Manual Model (Thinking)"] }, images: false, textAttachments: { chars: 50_000, totalChars: 100_000 }, compaction: { highWaterTokens: 220_000 }, preference: "先说结论", words: [], replacements: [], alwaysCodec: false });
 
     await page.locator('label[for="askAdult"]').click();
     await page.waitForFunction(() => localStorage.getItem("koma.ask.adult.v1") === "true");

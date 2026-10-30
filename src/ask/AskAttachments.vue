@@ -26,7 +26,7 @@ const props = defineProps<{ items: readonly AttachmentView[]; sent?: boolean; di
 .ask-att-img img { display: block; width: 100%; height: 100%; object-fit: cover; border-radius: inherit; }
 .ask-att-img.ask-att-dim { border-style: dashed; }
 .ask-att-dim img { opacity: .4; filter: grayscale(1); }
-.ask-att-id { position: absolute; left: 4px; bottom: 4px; padding: 0 4px; color: #fff; font: var(--fw-medium) 11px/16px var(--mono); background: rgba(0, 0, 0, .58); border-radius: 4px; }
+.ask-att-id { position: absolute; left: 4px; bottom: 4px; padding: 0 4px; color: var(--media-ink); font: var(--fw-medium) 11px/16px var(--mono); background: color-mix(in srgb, var(--media-shade) 58%, transparent); border-radius: 4px; }
 .ask-att-open { display: flex; align-items: center; gap: 10px; height: 100%; max-width: 196px; padding: 0 14px 0 9px; text-align: left; border-radius: inherit; }
 .ask-att-open:hover { background: var(--ask-hover); }
 .ask-att-glyph { display: grid; flex: none; place-items: center; width: 32px; height: 32px; color: var(--fg-2); background: var(--ask-hover); border-radius: 8px; }
@@ -34,7 +34,7 @@ const props = defineProps<{ items: readonly AttachmentView[]; sent?: boolean; di
 .ask-att-words { display: grid; min-width: 0; line-height: 1.35; }
 .ask-att-name { overflow: hidden; color: var(--fg); font-size: 13px; text-overflow: ellipsis; white-space: nowrap; }
 .ask-att-meta { color: var(--fg-3); font-size: 12px; white-space: nowrap; }
-.ask-att-x { position: absolute; top: -7px; right: -7px; display: grid; place-items: center; width: 20px; height: 20px; color: var(--raised); background: var(--fg); border-radius: 50%; box-shadow: 0 1px 4px rgba(0, 0, 0, .3); opacity: 0; transition: opacity var(--t1) var(--e); }
+.ask-att-x { position: absolute; top: -7px; right: -7px; display: grid; place-items: center; width: 20px; height: 20px; color: var(--raised); background: var(--fg); border-radius: 50%; box-shadow: 0 1px 4px rgb(var(--shadow-rgb) / calc(0.3 * var(--shadow-strength))); opacity: 0; transition: opacity var(--t1) var(--e); }
 .ask-att-x .ico { --ico: var(--ico-xs); }
 .ask-att:is(:hover, :focus-within) .ask-att-x { opacity: 1; }
 .ask-sent-att { display: flex; flex-wrap: wrap; align-items: flex-end; justify-content: flex-end; gap: 6px; margin-bottom: 6px; }

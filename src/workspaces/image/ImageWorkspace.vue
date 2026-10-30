@@ -9,6 +9,7 @@ import { useWorkspaceLifecycle } from "../../app/workspace-lifecycle";
 import AppIcon from "../../shared/AppIcon.vue";
 import WorkspaceSwitch from "../../shared/WorkspaceSwitch.vue";
 import WalletDisplay from "../../shared/WalletDisplay.vue";
+import ThemeMenu from "../../shared/ThemeMenu.vue";
 import ImageLibrary from "./ImageLibrary.vue";
 import BoardSwitcher from "./BoardSwitcher.vue";
 import CharactersEditor from "./CharactersEditor.vue";
@@ -31,7 +32,7 @@ const importSheet = shallowRef<InstanceType<typeof ImportSheet> | null>(null);
 const splitter = shallowRef<HTMLElement | null>(null);
 const bottomPanel = shallowRef<InstanceType<typeof DrawingBottomPanel>>();
 const foot = shallowRef<HTMLElement | null>(null);
-const { image, narrow, router } = useShell();
+const { image, narrow } = useShell();
 const main = shallowRef<HTMLElement | null>(null);
 
 const mobileLibrary = shallowRef<HTMLElement | null>(null);
@@ -126,10 +127,6 @@ lifecycle.whileActive((signal) => {
     { signal },
   );
 });
-function security() {
-  image.menuOpen = false;
-  router.openOverlay("settings", "security");
-}
 </script>
 <template>
   <header class="topbar" :inert="askFullscreen">
@@ -156,7 +153,6 @@ function security() {
         @click="image.menuOpen = false"
       ></button>
       <div
-        ref="actions"
         id="topbarActions"
         class="topbar-end"
         role="group"
@@ -167,6 +163,7 @@ function security() {
           class="topbar-history-slot"
           id="topbarHistorySlot"
         ></div>
+        <div ref="actions" class="topbar-tools"></div>
       </div>
     </div>
     <div ref="account" class="topbar-account">
@@ -258,23 +255,15 @@ function security() {
       class="ibtn topbar-lock"
       type="button"
       aria-label="打开任务总览"
-      data-tip="任务总览"
+      :data-tip="narrow ? undefined : '任务总览'"
       @click="image.menuOpen = false; slates.visible.value = true"
     >
       <AppIcon name="i-tasks" /><span class="topbar-action-label">任务总览</span>
     </button>
-    <button
-      class="ibtn topbar-lock"
-      type="button"
-      aria-label="API Key"
-      data-tip="API Key"
-      @click="security"
-    >
-      <AppIcon name="i-lock" /><span class="topbar-action-label">API Key</span>
-    </button>
+    <ThemeMenu />
   </Teleport>
 </template>
 
 <style scoped>
-.composer-foot.drawing-footer { padding-top: 10px; gap: 0; background: color-mix(in srgb,var(--chrome) 65%,var(--raised)); border-radius: var(--r3) var(--r3) 0 0; border-top: 1px solid var(--line-2); box-shadow: 0 -5px 16px -12px #000b; backdrop-filter: none; }
+.composer-foot.drawing-footer { padding-top: 10px; gap: 0; background: color-mix(in srgb,var(--chrome) 65%,var(--raised)); border-radius: var(--r3) var(--r3) 0 0; border-top: 1px solid var(--line-2); box-shadow: 0 -5px 16px -12px rgb(var(--shadow-rgb) / calc(.7333 * var(--shadow-strength))); backdrop-filter: none; }
 </style>

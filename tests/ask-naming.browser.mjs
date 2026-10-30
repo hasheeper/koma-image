@@ -68,9 +68,11 @@ for(const protocol of ['chat','claude']) test(`AI naming: ${protocol} scoped req
     const logs=await page.evaluate(()=>ask.debug.value.calls.filter(c=>c.promptVersion==='naming-1').map(c=>({raw:ask.debugCall(c.id).body,cache:c.cache,status:c.status})));
     assert.deepEqual(logs.map(c=>c.raw),calls.map(c=>c.raw));assert.ok(logs.every(c=>c.status==='done'&&c.cache.read>0));
     await openDebug(page);const debug=page.locator('#askDebug');
-    const boardOption=debug.locator('option').filter({hasText:'AI 命名 · 画板'});assert.equal(await boardOption.count(),1);
-    await debug.locator('select').selectOption(await boardOption.getAttribute('value'));
-    assert.equal(await debug.locator('.debug-question').textContent(),'AI 命名 · 画板');
+    await debug.locator('#askDebugCall').click();
+    const boardItem=debug.locator('#askDebugCalls [role="menuitemradio"]').filter({hasText:'AI 命名 · 画板'});assert.equal(await boardItem.count(),1);
+    await boardItem.click();
+    assert.equal(await debug.locator('.debug-q').textContent(),'AI 命名 · 画板');
+    assert.match(await debug.locator('.debug-facts').textContent(),/naming-1/);
     await debug.getByRole('button',{name:'关闭调用上下文'}).click();
     await openConversations(page);await page.getByRole('menuitem',{name:'重命名',exact:true}).click();await page.getByRole('textbox',{name:'对话名称',exact:true}).fill('手动命名的雨夜车站');await page.locator('#askConvMenu').getByRole('button',{name:'保存',exact:true}).click();
     assert.equal(await page.evaluate(()=>ask.heading.value.title),'手动命名的雨夜车站');

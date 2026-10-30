@@ -1,6 +1,6 @@
 # EDIT 独立工作区
 
-更新：2026-10-29。EDIT 与 IMAGE、CHAT 同级，主路由为 `#/edit`；设置使用 `#/edit/settings/<section>`。旧的 `#/<workspace>/editor` 地址规范化到独立 EDIT。
+更新：2026-10-30。EDIT 与 IMAGE、CHAT 同级，主路由为 `#/edit`；设置使用 `#/edit/settings/<section>`。旧的 `#/<workspace>/editor` 地址规范化到独立 EDIT。
 
 ## 画板与版本
 
@@ -42,6 +42,8 @@
 编辑操作仍受[图像协议](../integrations/image-protocols.md)与[NAI 型号能力](../integrations/novelai.md)约束；参数控件复用不扩大供应商能力。
 
 ## 页面与任务生命周期
+
+手机端默认保留画布、版本条与参数上下排列的布局。载入图片后，画布信息行左侧提供「全屏画布」图标按钮，与图片编号居中对齐；进入与退出保持同一尺寸，只切换图标。全屏临时隐藏工作区顶栏、参数与版本条，让画布占满浏览器可用视口；画笔、橡皮、框选、缩放和图片操作工具继续可用。再次点击同一按钮恢复原布局，Esc 在关闭当前工具弹层后可退出。只改变展示，不重建画板、图片、蒙版或 Photopea 实例；切离 EDIT、进入高级编辑或切回桌面宽度时结束全屏状态。
 
 应用服务持有画板，页面只订阅浅快照。EDIT 页面首次访问才创建，之后在外壳中隐藏保留，避免 KeepAlive 移动 iframe DOM 导致 Photopea 重载。隐藏时保存蒙版与视图，暂停原生 Canvas、Observer、计时和活动监听，关闭菜单；返回时恢复。
 

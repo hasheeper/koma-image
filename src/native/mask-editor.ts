@@ -52,8 +52,9 @@ export function createMaskEditor(canvas: HTMLCanvasElement, onChange: () => void
   if (!context || !previewContext) throw new Error("当前浏览器不支持 Canvas 蒙版");
   const ctx = context, preview = previewContext;
   // Paint in the accent token so the mask follows the theme rather than a copy of it.
-  const tint =
+  const accent = () =>
     getComputedStyle(canvas).getPropertyValue("--a").trim() || "#b3a1ff";
+  let tint = accent();
   let strokes: MaskEntry[] = [], stroke: MaskStroke | null = null, baseline: MaskBitmap | undefined;
   let position = 0, diameter = 64,
     erase = false,
@@ -91,6 +92,9 @@ export function createMaskEditor(canvas: HTMLCanvasElement, onChange: () => void
   }
   function display() {
     encoded = undefined;
+    show();
+  }
+  function show() {
     preview.clearRect(0, 0, canvas.width, canvas.height);
     preview.drawImage(mask, 0, 0);
     preview.globalCompositeOperation = "source-in";
@@ -182,6 +186,8 @@ export function createMaskEditor(canvas: HTMLCanvasElement, onChange: () => void
   return {
     pause,
     resume,
+    // The owner calls this after a theme switch; the mask itself is unchanged.
+    retint() { tint = accent(); show(); },
     dispose() { pause(); strokes = []; baseline = undefined; canvas.width = canvas.height = mask.width = mask.height = 1; encoded = undefined; },
     snapshot(): MaskState {
       return copyMaskState({

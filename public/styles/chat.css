@@ -23,7 +23,7 @@
   transition: color var(--t1) var(--e), background var(--t1) var(--e);
 }
 .sidebar-row .ico { --ico: var(--ico-md); flex: none; color: var(--fg-3); }
-.sidebar-row:hover { color: var(--fg); background: var(--raised); }
+.sidebar-row:hover { color: var(--fg); background: var(--ghost-hover); }
 .sidebar-row:focus-visible { outline: 2px solid var(--a); outline-offset: -2px; }
 /* An unsent conversation is not listed; this row stands for it instead,
    lit in text only so the sidebar has no standing block of grey. */
@@ -46,7 +46,7 @@
   -webkit-touch-callout: none; -webkit-user-select: none; user-select: none;
   transition: color var(--t1) var(--e), background var(--t1) var(--e);
 }
-.conversation-item:hover { color: var(--fg); background: var(--raised); }
+.conversation-item:hover { color: var(--fg); background: var(--ghost-hover); }
 .conversation-item[data-current] { color: var(--fg); background: var(--hover); }
 /* The row a menu belongs to stays lit while the menu is open. */
 .conversation-item:has(.conversation-more[aria-expanded="true"]):not([data-current]) { color: var(--fg); background: var(--raised); }
@@ -57,7 +57,7 @@
   color: var(--fg-4); background: var(--raised); border-radius: 6px;
   pointer-events: none;
 }
-.conversation-thumb::after { content: ""; position: absolute; inset: 0; border-radius: inherit; box-shadow: inset 0 0 0 1px rgba(255,255,255,.06); }
+.conversation-thumb::after { content: ""; position: absolute; inset: 0; border-radius: inherit; box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--specular) 6%, transparent); }
 .conversation-thumb img { width: 100%; height: 100%; object-fit: cover; }
 .conversation-thumb .ico { --ico: var(--ico-sm); }
 .conversation-open {
@@ -124,7 +124,7 @@
 .chat-starter .ico { --ico: var(--ico-sm); color: var(--fg-3); }
 .chat-starter:first-child { color: var(--fg); }
 .chat-starter:first-child .ico { color: var(--a); }
-.chat-starter:hover { color: var(--fg); background: var(--raised); }
+.chat-starter:hover { color: var(--fg); background: var(--ghost-hover); }
 .chat-starter:focus-visible { outline: 2px solid var(--a); outline-offset: 2px; }
 /* H1: prompts on the right; numbered results follow one continuous rail.
    The rail uses grid cells, so no oversized lines clip controls or focus rings. */
@@ -168,7 +168,7 @@
 .chat-turn[data-older] .chat-print { border-radius: 10px; }
 .chat-page .chat-print[data-new="true"] { animation: printIn var(--t3) var(--e-out); }
 .chat-page .chat-print img { width: 100%; height: auto; max-width: 100%; max-height: var(--img-h); object-fit: contain; }
-.chat-page .chat-print[data-base] { box-shadow: 0 0 0 2px var(--a), 0 14px 36px -12px rgba(0,0,0,.6); }
+.chat-page .chat-print[data-base] { box-shadow: 0 0 0 2px var(--a), 0 14px 36px -12px rgb(var(--shadow-rgb) / calc(0.6 * var(--shadow-strength))); }
 .chat-base-badge { position: absolute; top: 10px; left: 10px; display: grid; place-items: center; width: 28px; height: 28px; line-height: 1; color: var(--a-ink); background: var(--a); border-radius: 9px; }
 .chat-base-badge .ico { --ico: var(--ico-lg); }
 /* The native wave alone owns its empty host; the badge/tools remain Vue DOM. */
@@ -197,18 +197,18 @@
 .chat-version > .ico { --ico: var(--ico-md); }
 .chat-version[aria-pressed="true"] { opacity: 1; box-shadow: 0 0 0 2px var(--a); }
 .chat-version:hover, .chat-version:focus-visible { opacity: 1; }
-.chat-version span { position: absolute; left: 3px; bottom: 3px; min-width: 14px; padding: 0 3px; font-size: 10px; line-height: 14px; color: #fff; text-align: center; background: rgba(0,0,0,.6); border-radius: 4px; }
+.chat-version span { position: absolute; left: 3px; bottom: 3px; min-width: 14px; padding: 0 3px; font-size: 10px; line-height: 14px; color: var(--media-ink); text-align: center; background: color-mix(in srgb, var(--media-shade) 60%, transparent); border-radius: 4px; }
 .chat-turn[data-older] .chat-version { width: 30px; }
 /* Tool surfaces live inside the print, with popovers in the browser top layer.
    Narrow prints use a menu; the full bar never overflows or forces art to grow. */
-.chat-page .result-actions { gap: 2px; padding: 4px; color: #fff; background: rgba(14,14,18,.72); backdrop-filter: blur(16px) saturate(1.4); border: 1px solid rgba(255,255,255,.08); border-radius: 12px; line-height: 1; }
+.chat-page .result-actions { gap: 2px; padding: 4px; color: var(--media-ink); background: color-mix(in srgb, var(--media-surface) 72%, transparent); backdrop-filter: blur(16px) saturate(1.4); border: 1px solid color-mix(in srgb, var(--media-ink) 8%, transparent); border-radius: 12px; line-height: 1; }
 .chat-page .result-actions-overlay { position: absolute; left: 50%; bottom: 12px; transform: translateX(-50%); display: flex; transition: opacity var(--t1) var(--e); }
 .chat-page .result-actions-menu { display: none; position: fixed; inset: auto; margin: 0; width: max-content; }
 .chat-page .result-actions-menu:popover-open { display: flex; }
-.chat-page .result-actions .ibtn { flex: none; width: 32px; height: 32px; --ico: var(--ico-md); color: rgba(255,255,255,.88); background: transparent; border-color: transparent; box-shadow: none; border-radius: 8px; }
-.chat-page .result-actions .ibtn:hover { color: #fff; background: rgba(255,255,255,.12); }
-.chat-page .result-actions .ibtn-accent, .chat-page .result-actions .ibtn-accent:hover { color: var(--a); }
-.chat-page .result-menu-trigger { position: absolute; right: 6px; bottom: 6px; display: none; width: 32px; height: 32px; color: #fff; background: rgba(14,14,18,.72); backdrop-filter: blur(12px); border: 1px solid rgba(255,255,255,.1); border-radius: 9px; }
+.chat-page .result-actions .ibtn { flex: none; width: 32px; height: 32px; --ico: var(--ico-md); color: color-mix(in srgb, var(--media-ink) 88%, transparent); background: transparent; border-color: transparent; box-shadow: none; border-radius: 8px; }
+.chat-page .result-actions .ibtn:hover { color: var(--media-ink); background: color-mix(in srgb, var(--media-ink) 12%, transparent); }
+.chat-page .result-actions .ibtn-accent, .chat-page .result-actions .ibtn-accent:hover { color: var(--media-accent); }
+.chat-page .result-menu-trigger { position: absolute; right: 6px; bottom: 6px; display: none; width: 32px; height: 32px; color: var(--media-ink); background: color-mix(in srgb, var(--media-surface) 72%, transparent); backdrop-filter: blur(12px); border: 1px solid color-mix(in srgb, var(--media-ink) 10%, transparent); border-radius: 9px; }
 @container chat-art (max-width: 271px) {
   .chat-page .result-actions-overlay { display: none; }
   .chat-page .result-menu-trigger { display: grid; }
@@ -233,7 +233,7 @@
    it: the text, then the model, then everything else. One 12px frame holds
    the 32px controls, so the attachments' corners are the frame's less the
    frame (24 − 12 = 12). */
-.chat-composer { position: relative; flex: none; width: calc(100% - 48px); max-width: var(--column); align-self: center; margin: 0 24px 20px; padding: 12px 12px 10px; background: var(--raised); border: 1px solid var(--line-2); border-radius: 24px; box-shadow: var(--sh-lip), 0 10px 32px -18px rgba(0,0,0,.7); transition: border-color var(--t1) var(--e), background var(--t1) var(--e); }
+.chat-composer { position: relative; flex: none; width: calc(100% - 48px); max-width: var(--column); align-self: center; margin: 0 24px 20px; padding: 12px 12px 10px; background: var(--raised); border: 1px solid var(--line-2); border-radius: 24px; box-shadow: var(--sh-lip), 0 10px 32px -18px rgb(var(--shadow-rgb) / calc(0.7 * var(--shadow-strength))); transition: border-color var(--t1) var(--e), background var(--t1) var(--e); }
 .chat-page #chatPrompt { display: block; resize: none; min-height: 56px; max-height: 26dvh; background: transparent; border-color: transparent; box-shadow: none; padding: 6px 11px 4px; font-size: var(--fz-md); line-height: 1.6; }
 .chat-page #chatPrompt::placeholder { color: var(--fg-3); }
 .chat-composer-bottom { display: flex; flex-wrap: wrap; align-items: center; gap: 0 2px; margin-top: 4px; }
@@ -273,7 +273,7 @@
 .chat-send .ico { --ico: var(--ico-lg); stroke-width: var(--ico-stroke-strong); }
 /* A flat accent disc once there is something to send; until then a faint
    disc, not a lit button. */
-.chat-send:disabled { color: var(--fg-4); background: rgba(255,255,255,.07); }
+.chat-send:disabled { color: var(--fg-4); background: color-mix(in srgb, var(--surface-tint) 7%, transparent); }
 /* Stop: a ring that turns while the turn runs, around the square that ends
    it. Neutral at rest; the error hue only on hover, when it means "cancel". */
 .chat-stop { position: relative; color: var(--fg); background: var(--hover); }
@@ -283,8 +283,8 @@
    touch screens, and the stop that just appeared under the finger would sit
    there red. */
 @media (hover: hover) {
-  .chat-stop:hover { color: var(--err); background: rgba(232,135,135,.12); }
-  .chat-stop:hover::before { border-color: rgba(232,135,135,.16); border-top-color: var(--err); }
+  .chat-stop:hover { color: var(--err); background: color-mix(in srgb, var(--err) 12%, transparent); }
+  .chat-stop:hover::before { border-color: color-mix(in srgb, var(--err) 16%, transparent); border-top-color: var(--err); }
 }
 .chat-inline-error { color: var(--err); font-size: var(--fz-xs); overflow-wrap: anywhere; }
 .chat-inline-error:not(:empty) { margin: 0 11px 6px; }
@@ -295,9 +295,9 @@
 .attachment img { display: block; width: 100%; height: 100%; object-fit: cover; }
 .attachment-loading { overflow: hidden; border-color: var(--line); }
 .chat-page .attachment-remove { position: absolute; top: -2px; right: -2px; width: 28px; height: 28px; border: 0; border-radius: 50%; color: var(--canvas); background: transparent; }
-.attachment-remove::before { content: ""; position: absolute; width: 18px; height: 18px; border-radius: 50%; background: var(--fg); box-shadow: 0 1px 4px rgba(0,0,0,.2); }
+.attachment-remove::before { content: ""; position: absolute; width: 18px; height: 18px; border-radius: 50%; background: var(--fg); box-shadow: 0 1px 4px rgb(var(--shadow-rgb) / calc(0.2 * var(--shadow-strength))); }
 .attachment-remove .ico { position: relative; --ico: var(--ico-xs); }
-.attachment-remove:hover::before { background: #fff; }
+.attachment-remove:hover::before { background: var(--media-ink); }
 /* Files dragged anywhere over the page land here; say so while they hover. */
 .chat-composer[data-drop] { border-color: var(--a); border-style: dashed; }
 .chat-composer[data-drop]::after { content: "松开添加图片"; position: absolute; inset: 0; display: grid; place-items: center; border-radius: inherit; color: var(--a); font-size: var(--fz-sm); font-weight: var(--fw-medium); background: color-mix(in srgb, var(--raised) 92%, var(--a)); pointer-events: none; }
@@ -343,7 +343,7 @@
 .context-stat .ico { --ico: var(--ico-sm); color: var(--fg-4); }
 .context-stat .mono { color: var(--fg); font-variant-numeric: tabular-nums; }
 .context-stat[data-over] .mono { color: var(--warn); }
-.context-minus { padding: 1px 5px; font-size: 10px; font-weight: var(--fw-semibold); color: var(--warn); background: rgba(224,171,104,.14); border-radius: 999px; }
+.context-minus { padding: 1px 5px; font-size: 10px; font-weight: var(--fw-semibold); color: var(--warn); background: color-mix(in srgb, var(--warn) 14%, transparent); border-radius: 999px; }
 .context-body { flex: 1; min-height: 0; overflow-y: auto; overscroll-behavior: contain; padding: 12px 16px 24px; }
 .context-floors { margin: 0; padding: 0; list-style: none; }
 /* One floor per turn: its text box is the node on the rail at the left, and
@@ -352,7 +352,7 @@
    card padding 12. A floor whose text is left out keeps only the card's
    outline; the turn being written is the raised card at the end. */
 .context-floor { position: relative; isolation: isolate; display: grid; grid-template-columns: 16px minmax(0, 1fr); column-gap: 24px; row-gap: 10px; margin-bottom: 10px; padding: 12px 12px 12px 0; }
-.context-floor::after { content: ""; position: absolute; inset: 0 0 0 28px; z-index: -1; background: var(--raised); border-radius: 12px; box-shadow: inset 0 1px 0 rgba(255,255,255,.035), 0 1px 2px rgba(0,0,0,.35); }
+.context-floor::after { content: ""; position: absolute; inset: 0 0 0 28px; z-index: -1; background: var(--raised); border-radius: 12px; box-shadow: inset 0 1px 0 color-mix(in srgb, var(--specular) 3.5%, transparent), 0 1px 2px rgb(var(--shadow-rgb) / calc(0.35 * var(--shadow-strength))); }
 .context-floor::before { content: ""; position: absolute; top: 34px; bottom: -6px; left: 7.5px; width: 1px; background: var(--line-2); }
 .context-floor[data-off]::after { background: none; box-shadow: inset 0 0 0 1px var(--line-2); }
 .context-floor.context-now { margin: 6px 0 0; }
@@ -376,13 +376,13 @@
 .context-tile:is([data-state="dropped"], [data-state="pool"]) img { opacity: .35; filter: grayscale(1); }
 .context-tile[data-state="pool"]:is(:hover, :focus-visible) img { opacity: .7; }
 /* One badge, always the top-left corner: base, reference order, past the cap, or + to bring it back. */
-.context-badge { position: absolute; top: 3px; left: 3px; display: grid; place-items: center; min-width: 16px; height: 16px; padding: 0 4px; font: var(--fw-medium) 10px/1 var(--sans); color: #fff; background: rgba(0,0,0,.62); border-radius: 999px; }
+.context-badge { position: absolute; top: 3px; left: 3px; display: grid; place-items: center; min-width: 16px; height: 16px; padding: 0 4px; font: var(--fw-medium) 10px/1 var(--sans); color: var(--media-ink); background: color-mix(in srgb, var(--media-shade) 62%, transparent); border-radius: 999px; }
 .context-tile[data-state="ref"] .context-badge { font-family: var(--mono); }
 .context-tile:is([data-state="base"], [data-state="pool"]) .context-badge { color: var(--a-ink); background: var(--a); }
 .context-tile[data-state="pool"] .context-badge { padding: 0; }
 .context-tile[data-state="dropped"] .context-badge { color: var(--warn); }
 .context-badge .ico { --ico: var(--ico-xs); }
-.context-now-foot { grid-column: 2; padding-top: 6px; border-top: 1px solid rgba(255,255,255,.06); }
+.context-now-foot { grid-column: 2; padding-top: 6px; border-top: 1px solid color-mix(in srgb, var(--surface-tint) 6%, transparent); }
 .context-follow { position: relative; display: flex; align-items: center; justify-content: space-between; gap: 8px; min-height: 34px; font-size: var(--fz-xs); color: var(--fg-3); cursor: pointer; }
 .context-follow input { position: absolute; opacity: 0; width: 0; height: 0; }
 .context-raw summary { display: flex; align-items: center; justify-content: space-between; min-height: 34px; list-style: none; font-size: var(--fz-xs); color: var(--fg-3); cursor: pointer; border-radius: var(--r1); }
@@ -398,8 +398,8 @@
    Inline rather than a corner badge, which would clip against the chips
    beside it. */
 .context-button.has-overflow { color: var(--warn); }
-.context-button.has-overflow::after { content: "−" attr(data-overflow); margin-left: 2px; padding: 2px 6px; border-radius: 999px; font-size: var(--fz-2xs); color: var(--warn); background: rgba(224,171,104,.14); }
-.chat-lightbox::backdrop { background: rgba(8,8,10,.8); backdrop-filter: blur(4px); }
+.context-button.has-overflow::after { content: "−" attr(data-overflow); margin-left: 2px; padding: 2px 6px; border-radius: 999px; font-size: var(--fz-2xs); color: var(--warn); background: color-mix(in srgb, var(--warn) 14%, transparent); }
+.chat-lightbox::backdrop { background: color-mix(in srgb, var(--scrim) 80%, transparent); backdrop-filter: blur(4px); }
 .dialog-note, .dialog-note:empty { color: var(--fg-3); font-size: var(--fz-xs); }
 .dialog-note { margin-top: 16px; }
 .quota-row { display: flex; justify-content: space-between; gap: 16px; padding-block: 8px; color: var(--fg-2); }
@@ -432,7 +432,7 @@
   .chat-layout { grid-template-columns: minmax(0,1fr); }
   .chat-sidebar { position: absolute; inset: var(--bar-h) auto 0 0; width: min(280px, 85vw); z-index: var(--z-pop); visibility: hidden; transform: translateX(-100%); transition: transform var(--t2) var(--e), visibility var(--t2); }
   .chat-page[data-sidebar="open"] .chat-sidebar { visibility: visible; transform: none; }
-  .chat-sidebar-backdrop { position: absolute; inset: var(--bar-h) 0 0; z-index: calc(var(--z-pop) - 1); background: rgba(0,0,0,.55); }
+  .chat-sidebar-backdrop { position: absolute; inset: var(--bar-h) 0 0; z-index: calc(var(--z-pop) - 1); background: color-mix(in srgb, var(--scrim-neutral) 55%, transparent); }
   /* The drawer opens under the top bar, so ☰ and the backdrop close it. */
   .rail-toggle { display: none; }
   .sidebar-row { height: 44px; font-size: var(--fz-md); }
@@ -486,7 +486,7 @@
   /* Both panels become bottom sheets, sized for thumbs. */
   /* Doubled class: editor.css loads after this file and resets inset. */
   .editor-pop.chat-pop { inset: auto 0 0 0; width: 100%; min-width: 0; max-width: none; max-height: 80dvh; padding: 10px 12px calc(14px + env(safe-area-inset-bottom)); border-bottom: 0; border-radius: var(--r4) var(--r4) 0 0; }
-  .chat-pop::backdrop { background: rgba(0,0,0,.45); }
+  .chat-pop::backdrop { background: color-mix(in srgb, var(--scrim-neutral) 45%, transparent); }
   .model-group-head { font-size: var(--fz-xs); }
   .editor-pop.chat-pop { animation-name: menuUp; }
   .param-row { grid-template-columns: 48px minmax(0, 1fr); }
@@ -502,7 +502,7 @@
   .context-button { height: 44px; padding-inline: 8px; }
   /* The context panel as a bottom sheet, its controls sized for thumbs. */
   .context-panel:modal { position: fixed; inset: auto 0 0 0; width: 100%; max-height: 85dvh; padding-bottom: env(safe-area-inset-bottom); border-left: 0; border-top: 1px solid var(--line-2); border-radius: var(--r4) var(--r4) 0 0; }
-  .context-panel::backdrop { background: rgba(0,0,0,.45); }
+  .context-panel::backdrop { background: color-mix(in srgb, var(--scrim-neutral) 45%, transparent); }
   .context-follow, .context-raw summary { min-height: 44px; font-size: var(--fz-sm); }
   /* 12px above the frame, which now floats 8px off the bottom edge. */
   .latest-button { bottom: calc(var(--composer-height, 180px) + 20px + env(safe-area-inset-bottom)); }

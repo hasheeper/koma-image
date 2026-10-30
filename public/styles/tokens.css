@@ -43,7 +43,11 @@
   --chrome: #18181c;   /* topbar, composer, stage head, gallery */
   --raised: #1e1e24;   /* cards, drawers, sheets, tooltips */
   --hover:  #24242c;   /* pointer feedback on raised things */
-  --image-checker: repeating-conic-gradient(#303036 0% 25%, #25252b 0% 50%) 0 0 / 16px 16px;
+  --stage: var(--canvas); /* image mat, independent of page and reading surfaces */
+  --stage-wash: #fff;
+  --checker-a: #303036;
+  --checker-b: #25252b;
+  --image-checker: repeating-conic-gradient(var(--checker-a) 0% 25%, var(--checker-b) 0% 50%) 0 0 / 16px 16px;
 
   /* Focus deepens the well by one notch. This was a hardcoded #0c0c0f that
      survived two retunes of the ramp and had drifted to L*=3.4 — darker than
@@ -58,6 +62,9 @@
      wherever a control happens to live. */
   --well: var(--sunken);
   --well-focus: var(--sunken-focus);
+  --field-line: var(--line);
+  --field-line-hover: var(--line-2);
+  --field-shadow: none;
 
   --line: #1f1f25;     /* ΔL* +3.6 over chrome */
   --line-2: #25252e;   /* ΔL* +6.6 — emphasis dividers, focus wells */
@@ -85,11 +92,164 @@
   --err: #e88787;
   --err-dim: rgba(232, 135, 135, 0.08);
 
+  /* Theme materials. Keep values here; components own geometry and opacity.
+     Dark is the base palette; App Shell resolves the user's appearance choice. */
+  --surface-tint: #fff;
+  --ghost-hover: var(--raised);
+  --tab-hover-bg: var(--sunken);
+  --scrub-fill: linear-gradient(to right, color-mix(in srgb, var(--a) 6%, transparent), color-mix(in srgb, var(--a) 20%, transparent));
+  --seg-active-bg: var(--raised);
+  --seg-active-ink: var(--fg);
+  --seg-hover-bg: transparent;
+  --seg-active-shadow: 0 1px 2px rgb(var(--shadow-rgb) / calc(0.3 * var(--shadow-strength)));
+  --seg-quiet-shadow: inset 0 0 0 1px var(--line-2);
+  --group-bg: var(--sunken);
+  --group-line: transparent;
+  /* Segmented grooves: shared by .seg, the library tabs and the bottom tabs. */
+  --seg-bg: var(--group-bg);
+  --seg-line: var(--line);
+  --seg-shadow: var(--card-shadow);
+  --seg-ink: var(--fg-3);
+  --seg-active-weight: inherit;
+  --appearance-bg: var(--sunken);
+  --appearance-selected-bg: var(--hover);
+  --appearance-selected-shadow: 0 1px 2px rgb(var(--shadow-rgb) / .12), inset 0 0 0 1px var(--line-2);
+  --result-bg: color-mix(in srgb, var(--canvas) 78%, var(--chrome));
+  --result-shadow: none;
+  --result-file-ink: var(--fg-4);
+  --result-label-ink: var(--fg-3);
+  --result-param-bg: color-mix(in srgb, var(--fg) 3.5%, transparent);
+  --result-value-weight: var(--fw-regular);
+  --result-id-bg: var(--result-param-bg);
+  --result-copy-bg: var(--result-param-bg);
+  --result-copy-shadow: none;
+  --result-ask-ink: var(--a);
+  --result-ask-hover: var(--a-dim);
+  --result-ask-line: var(--a-line);
+  --result-download-bg: var(--a-dim);
+  --result-download-ink: var(--a);
+  --result-download-line: var(--a-line);
+  --result-download-hover-bg: color-mix(in srgb, var(--a) 26%, transparent);
+  --result-download-hover-ink: var(--fg);
+  --result-download-hover-line: var(--a);
+  --card-bg: color-mix(in srgb, var(--fg) 2.5%, transparent);
+  --card-shadow: none;
+  /* Fields inside raised panels (modals, sheets, the size panel). */
+  --panel-well: var(--chrome);
+  /* The full-page settings base: large and mostly empty, so light keeps it a step lighter than --canvas. */
+  --settings-bg: var(--canvas);
+  --choice-bg: var(--raised);
+  --choice-hover-bg: var(--choice-bg);
+  --choice-active-bg: var(--a-dim);
+  --choice-active-ink: var(--a);
+  --choice-active-line: var(--a-line);
+  --choice-active-shadow: var(--card-shadow);
+  --size-panel-bg: var(--well);
+  --ratio-active-bg: transparent;
+  --ratio-active-shadow: none;
+  --ratio-marker-opacity: 1;
+  --nav-active-bg: var(--raised);
+  --nav-active-ink: var(--fg);
+  --nav-active-shadow: none;
+  --ghost-tile-bg: color-mix(in srgb, var(--surface-tint) 1.8%, transparent);
+  --ghost-tile-ring: var(--line);
+  --menu-bg: var(--raised);
+  --menu-line: var(--line-2);
+  --menu-backdrop: none;
+  --menu-hover-bg: var(--hover);
+  --menu-hover-ink: var(--fg);
+  --menu-selected-bg: transparent;
+  --menu-selected-hover-bg: var(--menu-hover-bg);
+  --menu-selected-ink: var(--fg);
+  --ambient-ink: var(--a);
+  --specular: #fff;
+  --well-raised: #19191c;
+  --well-raised-focus: #17171a;
+  --scroll-hover: #40404c;
+  --err-hover: #f0a5a5;
+  --on-err: #fff;
+  --switch-thumb: #fff;
+  --shadow-rgb: 0 0 0;
+  --shadow-strength: 1;
+  --scrim: #08080a;
+  --scrim-neutral: #000;
+  --scrim-stage: #0a0a0c;
+  --lightbox-bg: rgba(6, 6, 8, .95);
+
+  --glass-bg: rgba(22, 22, 25, .88);
+  --glass-blur: 20px;
+  --glass-saturation: 1.4;
+  --glass-layer: rgba(255, 255, 255, .035);
+  --glass-field: rgba(0, 0, 0, .16);
+  --glass-hover: rgba(255, 255, 255, .055);
+  --glass-edge: rgba(255, 255, 255, .06);
+  --glass-edge-hover: rgba(255, 255, 255, .08);
+
+  --brand-plate: radial-gradient(circle at 28% 18%, #2f2752, #18151f 72%);
+  --brand-plate-shadow: inset 0 0 0 1px rgba(179, 161, 255, .2), 0 3px 10px -2px rgba(115, 54, 135, .35);
+  --brand-ink: #f7f3ff;
+  --brand-fill: linear-gradient(112deg, #ffffff 4%, #eadcff 48%, #bd93f7 100%);
+  --brand-caption: rgba(255, 255, 255, .8);
+  --brand-glow: rgba(189, 147, 247, .09);
+  --brand-logo-shadow: rgba(115, 54, 135, .28);
+  --empty-mark-back: #26262d;
+  --empty-mark-front: #1a1a1f;
+  --action-top: #cabdff;
+  --action-bottom: #a692fb;
+  --action-outline: #0a0814;
+  --action-hover-filter: brightness(1.06);
+  --action-shadow:
+    inset 0 1px 0 color-mix(in srgb, var(--specular) 36%, transparent),
+    inset 0 0 0 1px color-mix(in srgb, var(--specular) 10%, transparent),
+    0 0 0 1px color-mix(in srgb, var(--action-outline) 55%, transparent),
+    0 10px 24px -12px color-mix(in srgb, var(--a) 60%, transparent);
+  --action-shadow-hover:
+    inset 0 1px 0 color-mix(in srgb, var(--specular) 42%, transparent),
+    inset 0 0 0 1px color-mix(in srgb, var(--specular) 12%, transparent),
+    0 0 0 1px color-mix(in srgb, var(--action-outline) 55%, transparent),
+    0 12px 28px -12px color-mix(in srgb, var(--a) 78%, transparent);
+  --action-shadow-active:
+    inset 0 1px 0 color-mix(in srgb, var(--specular) 24%, transparent),
+    inset 0 0 0 1px color-mix(in srgb, var(--specular) 8%, transparent),
+    0 0 0 1px color-mix(in srgb, var(--action-outline) 55%, transparent),
+    0 6px 14px -10px color-mix(in srgb, var(--a) 45%, transparent);
+  --action-shadow-busy:
+    inset 0 1px 0 color-mix(in srgb, var(--specular) 4%, transparent),
+    inset 0 0 0 1px var(--a-line),
+    0 0 0 1px color-mix(in srgb, var(--action-outline) 0%, transparent),
+    0 10px 24px -12px color-mix(in srgb, var(--a) 22%, transparent);
+  --a-shine: #d6cdff;
+
+  --diff-del: rgba(232, 135, 135, .1);
+  --diff-ins: rgba(116, 207, 155, .085);
+  --diff-del-strong: rgba(232, 135, 135, .17);
+  --diff-ins-strong: rgba(116, 207, 155, .15);
+  --tag-artist: var(--err);
+  --tag-copyright: var(--a);
+  --tag-character: var(--ok);
+  --tag-meta: var(--warn);
+  --vendor-nai-tint: #f5f3c2;
+  --character-dot: rgba(22, 22, 26, .92);
+
+  /* Prompt weight changes intensity; the palette controls its presentation. */
+  --weight-neutral: rgba(255, 255, 255, .05);
+  --weight-positive-hue: 353;
+  --weight-negative-hue: 212;
+  --weight-lightness-offset: 0%;
+  --weight-alpha-scale: 1;
+
+  /* Image-overlay controls keep their contrast over arbitrary image pixels.
+     These are intentionally invariant across application themes. */
+  --media-ink: #fff;
+  --media-shade: #000;
+  --media-surface: #0e0e12;
+  --media-accent: #b3a1ff;
+
   /* elevation — spread grows negative with height so edges stay tight */
-  --sh-1: 0 6px 16px -4px rgba(0, 0, 0, 0.6);
-  --sh-2: 0 12px 32px -8px rgba(0, 0, 0, 0.7);
-  --sh-3: 0 14px 38px -10px rgba(0, 0, 0, 0.84);
-  --sh-4: 0 32px 80px -12px rgba(0, 0, 0, 0.7);
+  --sh-1: 0 6px 16px -4px rgb(var(--shadow-rgb) / calc(0.6 * var(--shadow-strength)));
+  --sh-2: 0 12px 32px -8px rgb(var(--shadow-rgb) / calc(0.7 * var(--shadow-strength)));
+  --sh-3: 0 14px 38px -10px rgb(var(--shadow-rgb) / calc(0.84 * var(--shadow-strength)));
+  --sh-4: 0 32px 80px -12px rgb(var(--shadow-rgb) / calc(0.7 * var(--shadow-strength)));
   --sh-lip: 0 1px 0 rgba(255, 255, 255, 0.035) inset;
   --ring: 0 0 0 3px var(--a-dim);
 
@@ -169,14 +329,14 @@
 
   /* The print's lift off the mat. */
   --print-shadow:
-    0 0 0 1px rgba(255,255,255,0.06),
-    0 1px 2px rgba(0,0,0,0.24),
-    0 14px 36px -12px rgba(0,0,0,0.6);
+    0 0 0 1px color-mix(in srgb, var(--specular) 6%, transparent),
+    0 1px 2px rgb(var(--shadow-rgb) / calc(0.24 * var(--shadow-strength))),
+    0 14px 36px -12px rgb(var(--shadow-rgb) / calc(0.6 * var(--shadow-strength)));
   /* The same layers at zero strength, so the frame can fade into it. */
   --print-shadow-off:
-    0 0 0 1px rgba(255,255,255,0),
-    0 1px 2px rgba(0,0,0,0),
-    0 14px 36px -12px rgba(0,0,0,0);
+    0 0 0 1px color-mix(in srgb, var(--specular) 0%, transparent),
+    0 1px 2px rgb(var(--shadow-rgb) / calc(0 * var(--shadow-strength))),
+    0 14px 36px -12px rgb(var(--shadow-rgb) / calc(0 * var(--shadow-strength)));
 
   /* Loading-state ink. Both stay inside the accent hue; only lightness moves.
      These are deliberately far stronger than a surface step (~2.5 dL*): a
@@ -191,4 +351,167 @@
   --rail: 316px;
   --hist: 132px;
   --cart: 300px;
+}
+
+/* The same semantic materials serve the light appearance. */
+:root[data-theme="light"] {
+  color-scheme: light;
+  /* Accent and glass reference: AgIzT/NovelAI-Tag, commit 569ed71.
+     Elevation by lightness: the stage well is the lowest and coolest grey,
+     panels one step lighter, and pure white is kept for controls and floating
+     surfaces, which lift with a hairline edge and a faint shadow. */
+  --canvas: #f4f4f8;
+  --stage: var(--canvas);
+  --stage-wash: transparent;
+  --chrome: #f9f9fb;
+  --settings-bg: #f7f7fa;
+  --sunken: #fff;
+  --raised: #fff;
+  --hover: #efeff4;
+  --sunken-focus: #fff;
+  --field-line: var(--line);
+  --field-line-hover: var(--line-2);
+  --field-shadow: 0 1px 3px -1px rgb(15 14 24 / .06);
+  --well-focus: #fff;
+  --well: #fff;
+  --panel-well: #fff;
+  --checker-a: #f9f9f9;
+  --checker-b: #e8e8e8;
+  /* Translucent and faintly cool, so one edge reads the same on the grey
+     panels and on white without turning into a grey outline. */
+  --line: rgb(30 32 72 / .05);
+  --line-2: rgb(30 32 72 / .07);
+  --fg: #232a3c;
+  --fg-2: var(--fg);
+  --fg-3: var(--fg);
+  --fg-4: #878da3;
+  --a: #6f5cf2;
+  --a-ink: #fff;
+  --a-hover: var(--a);
+  --a-glow: rgba(111, 92, 242, .18);
+  --a-dim: #ece9fe;
+  --a-line: var(--a);
+  --ok: #1a6e3e;
+  --warn: #8a5300;
+  --err: #b42c2c;
+  --err-dim: rgba(180, 44, 44, .08);
+
+  --surface-tint: var(--fg);
+  --ghost-hover: var(--hover);
+  --tab-hover-bg: var(--hover);
+  --scrub-fill: var(--a-dim);
+  /* Segmented: a soft grey groove with a white slider; purple is for the CTA. */
+  --seg-bg: #e9eaf2;
+  --seg-line: transparent;
+  --seg-shadow: inset 0 1px 2px rgb(15 14 24 / .04);
+  --seg-ink: #6b7184;
+  --seg-active-bg: #fff;
+  --seg-active-ink: var(--fg);
+  --seg-active-weight: var(--fw-medium);
+  --appearance-bg: #f2f2f4;
+  --appearance-selected-bg: var(--raised);
+  --appearance-selected-shadow: 0 1px 2px rgb(var(--shadow-rgb) / .06), inset 0 0 0 1px var(--line);
+  --result-bg: var(--chrome);
+  --result-shadow: none;
+  --result-file-ink: var(--seg-ink);
+  --result-label-ink: var(--seg-ink);
+  --result-param-bg: #f5f6f9;
+  --result-value-weight: var(--fw-medium);
+  --result-id-bg: var(--a-dim);
+  --result-copy-bg: var(--raised);
+  --result-copy-shadow: inset 0 0 0 1px var(--line-2);
+  --result-ask-ink: var(--fg);
+  --result-ask-hover: var(--hover);
+  --result-ask-line: transparent;
+  --result-download-bg: var(--a);
+  --result-download-ink: var(--a-ink);
+  --result-download-line: transparent;
+  --result-download-hover-bg: color-mix(in srgb, var(--a) 90%, var(--fg));
+  --result-download-hover-ink: var(--a-ink);
+  --result-download-hover-line: transparent;
+  --seg-hover-bg: rgb(15 14 24 / .04);
+  --seg-active-shadow: 0 1px 3px rgb(15 14 24 / .1), 0 1px 1px rgb(15 14 24 / .04);
+  --seg-quiet-shadow: var(--seg-active-shadow);
+  --group-bg: var(--raised);
+  --group-line: var(--line);
+  --card-bg: var(--raised);
+  --card-shadow: 0 1px 3px -1px rgb(15 14 24 / .06);
+  /* Chosen cards and presets: a tint and a 1.5px accent edge (1px border + .5px inset). */
+  --choice-bg: var(--raised);
+  --choice-hover-bg: var(--raised);
+  --choice-active-bg: color-mix(in srgb, var(--a) 7%, var(--raised));
+  --choice-active-ink: var(--a);
+  --choice-active-line: var(--a);
+  --choice-active-shadow: inset 0 0 0 .5px var(--a), var(--card-shadow);
+  --size-panel-bg: var(--raised);
+  --ratio-active-bg: var(--choice-active-bg);
+  --ratio-active-shadow: inset 0 0 0 1.5px var(--a);
+  --ratio-marker-opacity: 0;
+  --nav-active-bg: #fff;
+  --nav-active-ink: var(--a);
+  --nav-active-shadow: var(--seg-active-shadow);
+  --ghost-tile-bg: rgb(255 255 255 / .5);
+  --ghost-tile-ring: rgb(15 14 24 / .05);
+  --menu-bg: rgba(255, 255, 255, .93);
+  --menu-line: var(--line);
+  --menu-backdrop: blur(18px);
+  --menu-hover-bg: var(--hover);
+  --menu-hover-ink: var(--a);
+  --menu-selected-bg: var(--a-dim);
+  --menu-selected-hover-bg: var(--a-dim);
+  --menu-selected-ink: var(--a);
+  --ambient-ink: transparent;
+  --well-raised: #fff;
+  --well-raised-focus: #fff;
+  --scroll-hover: var(--fg-4);
+  --err-hover: #962323;
+  --shadow-rgb: 24 24 27;
+  --shadow-strength: .18;
+  --scrim: #555;
+  --scrim-neutral: #444;
+  --lightbox-bg: rgba(252, 252, 252, .98);
+  --glass-bg: var(--menu-bg);
+  --glass-blur: 18px;
+  --glass-saturation: 1;
+  --glass-layer: var(--raised);
+  --glass-field: var(--well);
+  --glass-hover: var(--hover);
+  --glass-edge: transparent;
+  --glass-edge-hover: transparent;
+
+  --brand-plate: transparent;
+  --brand-plate-shadow: none;
+  --brand-ink: var(--fg);
+  --brand-fill: var(--brand-ink);
+  --brand-caption: var(--fg-4);
+  --brand-glow: transparent;
+  --brand-logo-shadow: transparent;
+  --empty-mark-back: var(--a-dim);
+  --empty-mark-front: var(--raised);
+  --action-top: var(--a);
+  --action-bottom: var(--a);
+  --action-outline: var(--a);
+  --action-hover-filter: none;
+  --action-shadow: 0 8px 22px var(--a-glow);
+  --action-shadow-hover: 0 10px 26px color-mix(in srgb, var(--a) 32%, transparent);
+  --action-shadow-active: var(--action-shadow);
+  --action-shadow-busy: inset 0 0 0 1px var(--a-line);
+  --a-shine: var(--a-dim);
+  --diff-del: rgba(180, 44, 44, .08);
+  --diff-ins: rgba(26, 110, 62, .07);
+  --diff-del-strong: rgba(180, 44, 44, .15);
+  --diff-ins-strong: rgba(26, 110, 62, .13);
+  --vendor-nai-tint: #79671f;
+  --character-dot: rgba(255, 255, 255, .96);
+  --weight-neutral: rgba(0, 0, 0, .05);
+  --weight-lightness-offset: 12%;
+  --weight-alpha-scale: .65;
+  --sh-1: 0 1px 3px rgb(var(--shadow-rgb) / .04), 0 4px 12px rgb(var(--shadow-rgb) / .025);
+  --sh-2: 0 2px 6px rgb(var(--shadow-rgb) / .05), 0 8px 20px rgb(var(--shadow-rgb) / .04);
+  --sh-3: 0 12px 32px rgb(var(--shadow-rgb) / .08), 0 3px 10px rgb(var(--shadow-rgb) / .04);
+  --sh-4: var(--sh-3);
+  --sh-lip: 0 0 0 transparent;
+  --print-shadow: var(--sh-1);
+  --bar-ink: rgba(111, 92, 242, .92);
+  --sheen-ink: rgba(111, 92, 242, .14);
 }

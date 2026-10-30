@@ -19,6 +19,8 @@ const tabs = ["history", "favorites"] as const,
 const pending = computed(() =>
   image.library === "history" ? view.value.pending : null,
 );
+const showCompare = computed(() => !narrow.value || items.value.length > 1 || comparing.value);
+const showClear = computed(() => image.library === "history" && view.value.history.length > 0);
 /** The placeholder stands only for a picture still on its way; a landed one takes its slot while the stage reveals it. */
 const waiting = computed(() => {
   const p = pending.value;
@@ -185,11 +187,11 @@ async function preview(item: ImageRecord, e: Event) {
           aria-controls="tray"
           :aria-selected="image.library === tab"
           :tabindex="image.library === tab ? 0 : -1"
-          :data-tip="tab === 'history' ? '历史' : '收藏'"
+          :data-tip="narrow ? undefined : tab === 'history' ? '历史' : '收藏'"
           :aria-label="`${tab === 'history' ? '历史' : '收藏'}，${view[tab].length} 张`"
           @click="select(tab)"
         >
-          <AppIcon :name="tab === 'history' ? 'i-history' : 'i-star'" /><b
+          <AppIcon :name="tab === 'history' ? 'i-history' : 'i-star'" /><span v-if="narrow" class="library-tab-label">{{ tab === 'history' ? '历史' : '收藏' }}</span><b
             class="mono"
             >{{ view[tab].length > 99 ? "99+" : view[tab].length }}</b
           >
@@ -297,16 +299,16 @@ async function preview(item: ImageRecord, e: Event) {
       "
     >
       <div
-        v-show="image.library === 'history'"
+        v-show="image.library === 'history' && !narrow"
         class="tray-ghosts"
         aria-hidden="true"
       >
         <i></i><i></i><i></i><i></i>
       </div>
       <AppIcon
-        v-show="image.library === 'favorites'"
+        v-show="narrow || image.library === 'favorites'"
         class="ico-lg"
-        name="i-star"
+        :name="image.library === 'history' ? 'i-history' : 'i-star'"
       />
       <p>
         <span>{{
@@ -331,8 +333,9 @@ async function preview(item: ImageRecord, e: Event) {
       <span>已选 {{ selected.length }} 张 · <button type="button" @click="selected = []">清空</button></span>
       <button class="btn btn-quiet btn-sm" type="button" :disabled="selected.length !== 2" @click="askDiff">Ask Diff</button>
     </div>
-    <footer class="library-foot">
+    <footer v-if="!narrow || showCompare || showClear" class="library-foot">
       <button
+        v-if="!narrow"
         id="histToggle"
         class="ibtn library-fold"
         type="button"
@@ -346,7 +349,7 @@ async function preview(item: ImageRecord, e: Event) {
       >
         <AppIcon name="i-sidebar" /></button
       ><button
-        v-if="image.historyOpen || narrow"
+        v-if="(image.historyOpen || narrow) && showCompare"
         class="ibtn library-compare"
         type="button"
         :aria-pressed="comparing"
@@ -359,7 +362,7 @@ async function preview(item: ImageRecord, e: Event) {
         id="clearHist"
         class="ibtn library-clear"
         type="button"
-        :hidden="image.library !== 'history' || !view.history.length"
+        :hidden="!showClear"
         aria-label="清空历史，收藏仍保留"
         @click="drawing.clear"
       >
@@ -401,10 +404,8 @@ async function preview(item: ImageRecord, e: Event) {
   :global(body[data-hist="off"]) .library-item { display: contents; }
 }
 @media (max-width: 860px) {
-  .gallery .library-foot:has(.library-compare) { display: flex; }
-  .gallery .library-foot .library-fold { display: none; }
-  /* The phone menu stretches its icon buttons into rows; these two stay square. */
   .gallery .library-foot :is(.library-clear, .library-compare) { flex: none; width: 44px; height: 44px; padding: 0; justify-content: center; }
+  .library-tab-label { font-size: var(--fz-xs); }
   .library-diff { display: flex; justify-content: center; margin: 6px 0; }
   .library-ask-id { height: 22px; padding: 0 7px; font-size: var(--fz-xs); }
 }

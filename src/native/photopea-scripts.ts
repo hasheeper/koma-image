@@ -5,10 +5,10 @@ export type PhotopeaReturnMode = "auto" | "image" | "mask";
 export interface PhotopeaRoles { baseId: number; scratchId: number; maskId: number; carrierId: number }
 const menus = [[0, 0, 1, 0, 0, 1, 1, 0, 1], 1, 1, 1, 1, 1, 1, 0, 0];
 const tools = [0, 1, 2, 5, 6, 7, 8, 9, 10, 14, 18, 19, 20, 23, 27, 31, 34, 35, 36, 37, 38, 39, 40, 59, 60, 61];
-export function photopeaUrl(id: string) {
+export function photopeaUrl(id: string, theme: "light" | "dark" = "dark") {
   return `${PHOTOPEA_ORIGIN}/#${encodeURIComponent(JSON.stringify({
     // Omit autosave: Photopea treats 0 as a repeating timer, not as disabled.
-    environment: { theme: 3, lang: "zh-CN", intro: false, vmode: 1, panels: [2, 0], menus, showtools: tools,
+    environment: { theme: theme === "light" ? 6 : 3, lang: "zh-CN", intro: false, vmode: 1, panels: [2, 0], menus, showtools: tools,
       customIO: { save: `app.echoToOE(JSON.stringify({koma:${literal(id)},event:"save",source:app.documents.length?app.activeDocument.source:null}));` } },
   }))}`;
 }

@@ -5,6 +5,7 @@ import { useSlates } from "../app/slate.ts";
 import { useDrawing } from "../app/drawing.ts";
 import { useUi, message } from "../app/ui.ts";
 import AppIcon from "../shared/AppIcon.vue";
+import AskMenu from "../ask/AskMenu.vue";
 import SlateDeliverable from "./SlateDeliverable.vue";
 import { parseSlateEdit } from "./edit.ts";
 import { statusNames } from "./model.ts";
@@ -32,12 +33,29 @@ function discuss(todo: Todo) { ask.setInput(`关于「${todo.title}」，`); doc
 </script>
 <template>
   <section v-if="slate" class="ask-todos" aria-label="会话待办">
-    <button class="todos-bar" type="button" :aria-expanded="expanded" aria-controls="askTodoDrawer" @click="expanded = !expanded"><AppIcon name="i-chevron" :class="{ expanded }" /><b>待办</b><span v-if="!expanded" class="todos-current">{{ current?.title || (slate.todos.length ? '全部完成' : '') }}</span><span class="todos-progress"><span class="todos-meter" aria-hidden="true"><i :style="{ transform: `scaleX(${slate.todos.length ? done / slate.todos.length : 0})` }"></i></span><small>{{ done }}/{{ slate.todos.length }}</small></span></button>
+    <div class="todos-header">
+      <button class="todos-bar" type="button" :aria-expanded="expanded" aria-controls="askTodoDrawer" @click="expanded = !expanded"><AppIcon name="i-chevron" :class="{ expanded }" /><b>待办</b><span v-if="!expanded" class="todos-current">{{ current?.title || (slate.todos.length ? done === slate.todos.length ? '全部完成' : '已结束' : '') }}</span><span class="todos-progress"><span class="todos-meter" aria-hidden="true"><i :style="{ transform: `scaleX(${slate.todos.length ? done / slate.todos.length : 0})` }"></i></span><small>{{ done }}/{{ slate.todos.length }}</small></span></button>
+      <AskMenu id="askTodoOptions" label="待办清单选项" side="right">
+        <template #trigger="{ open, toggle }"><button class="ibtn todo-more" type="button" aria-label="待办清单选项" aria-haspopup="menu" :aria-expanded="open" @click="toggle"><AppIcon name="i-more" /></button></template>
+        <template #default="{ close }">
+          <button class="menu-item" role="menuitem" type="button" :disabled="!ask.canManageTasks.value" @click="close(); ask.detachSlate()"><AppIcon name="i-close" /><span class="menu-label">从当前会话移除</span></button>
+          <button class="menu-item danger" role="menuitem" type="button" :disabled="!ask.canManageTasks.value" @click="close(); ask.proposeSlateAction(slate.id, 'delete')"><AppIcon name="i-trash" /><span class="menu-label">删除清单</span></button>
+        </template>
+      </AskMenu>
+    </div>
     <Transition name="todo-drawer"><div v-if="expanded" id="askTodoDrawer" class="todo-drawer"><div class="todo-drawer-inner"><div class="todos-list">
       <div v-for="todo in rows" :key="todo.id" class="todo-row" :class="todo.status">
         <button class="todo-status" type="button" role="checkbox" :aria-checked="todo.status === 'done' ? 'true' : todo.status === 'in_progress' ? 'mixed' : 'false'" :aria-label="`${todo.title} · ${statusNames[todo.status]}`" :title="todo.status === 'done' ? '重新打开任务' : '标记完成'" :disabled="frozen" @click="toggle(todo)"><span class="todo-circle"><AppIcon v-if="todo.status === 'done'" name="i-check" /><i v-else-if="todo.status === 'in_progress'"></i></span></button>
         <button class="todo-title" type="button" :title="todo.title" @click="discuss(todo)">{{ todo.title }}</button>
         <button class="todo-deliverable" :class="{ bound: todo.binding, required: todo.image_required }" type="button" :aria-label="`${todo.title} · ${todo.binding ? '查看成果' : '交付成果'}`" :title="todo.binding ? '查看成果' : '交付成果'" :disabled="frozen" @click="delivery = { todo, complete: false }"><AppIcon name="i-image" /></button>
+        <AskMenu :id="`todo-${todo.id}-options`" :label="`${todo.title} · 任务选项`" side="right">
+          <template #trigger="{ open, toggle }"><button class="ibtn todo-more" type="button" :aria-label="`${todo.title} · 任务选项`" aria-haspopup="menu" :aria-expanded="open" @click="toggle"><AppIcon name="i-more" /></button></template>
+          <template #default="{ close }">
+            <button v-if="todo.status === 'abandoned'" class="menu-item" role="menuitem" type="button" :disabled="!ask.canManageTasks.value" @click="close(); ask.proposeSlateAction(slate.id, 'reopen', todo.id)"><AppIcon name="i-undo" /><span class="menu-label">重新打开任务</span></button>
+            <button v-else-if="todo.status !== 'done'" class="menu-item" role="menuitem" type="button" :disabled="!ask.canManageTasks.value" @click="close(); ask.proposeSlateAction(slate.id, 'abandon', todo.id)"><AppIcon name="i-close" /><span class="menu-label">放弃任务</span></button>
+            <button class="menu-item danger" role="menuitem" type="button" :disabled="!ask.canManageTasks.value" @click="close(); ask.proposeSlateAction(slate.id, 'remove', todo.id)"><AppIcon name="i-trash" /><span class="menu-label">删除待办</span></button>
+          </template>
+        </AskMenu>
       </div>
       <button v-if="folding" class="todos-finished" type="button" @click="finished = !finished">{{ finished ? '收起已完成' : `显示已完成的 ${completed.length} 项` }}</button>
       <p v-if="!rows.length" class="todos-empty">暂无待办</p>
@@ -47,6 +65,10 @@ function discuss(todo: Todo) { ask.setInput(`关于「${todo.title}」，`); doc
 </template>
 <style scoped>
 .ask-todos { flex: 0 1 auto; min-height: 0; margin-bottom: 8px; overflow: hidden; }
+.todos-header { display: flex; align-items: center; gap: 4px; }
+.todos-header .todos-bar { flex: 1; min-width: 0; }
+.todo-more { flex: none; width: 24px; height: 24px; color: var(--fg-3); }
+.todo-more .ico { --ico: var(--ico-xs); }
 /* The chevron is centred on the 20px status column so the bar, the glyphs and the titles share one grid; progress keeps to the right edge. */
 .todos-bar { display: flex; align-items: center; gap: 7px; width: 100%; min-height: 28px; padding-right: 4px; text-align: left; color: var(--fg-3); font-size: 12px; white-space: nowrap; }
 .todos-bar b { flex: none; color: var(--fg-2); font-weight: var(--fw-medium); }

@@ -400,14 +400,15 @@ defineExpose({
   overflow-x: hidden;
   overscroll-behavior: contain;
   background: var(--well);
-  border: 1px solid var(--line);
+  border: 1px solid var(--field-line);
   border-radius: var(--r3);
+  box-shadow: var(--field-shadow);
   transition: border-color var(--t1) var(--e), background var(--t1) var(--e),
     box-shadow var(--t1) var(--e);
   /* the handle now resizes the scroller itself */
   resize: vertical;
 }
-.hl-wrap:hover { border-color: var(--line-2); }
+.hl-wrap:hover { border-color: var(--field-line-hover); }
 .hl-wrap:focus-within {
   border-color: var(--a-line);
   background: var(--well-focus);
@@ -453,6 +454,7 @@ defineExpose({
   caret-color: var(--a);
   resize: none;
   border-radius: inherit;
+  box-shadow: none;
 }
 .hl-wrap > textarea:focus { outline: none; box-shadow: none; background: none; }
 .hl-wrap > textarea::placeholder { color: var(--fg-4); }

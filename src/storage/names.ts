@@ -10,6 +10,7 @@ export const names = Object.freeze({
     home: "koma-home",
   },
   preferences: "koma.prefs.v1",
+  theme: "koma.theme.v1",
   home: "koma.home.v1",
   homePreferencesLock: "koma-home-preferences-v1",
   routing: "koma.routing.v1",

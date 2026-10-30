@@ -192,7 +192,7 @@ const searchTags: ToolEntry = {
   },
 };
 const readModelManual: ToolEntry = {
-  tool: { name: "get_model_manual", description: "按需读取内置模型专项手册，不联网。nai5-prompting：NAI 混排/权重/多人排错；nai5-comics：分格漫画/文字；oc-costume-design：服装结构/词条映射。经验建议需结合实际图片验证。", schema: schema({ id: { type: "string", enum: modelManualIds } }, ["id"]) },
+  tool: { name: "get_model_manual", description: "按需读取内置模型专项手册，不联网。nai5-prompting：NAI 混排/权重/多人排错；nai5-comics：分格漫画/文字；oc-costume-design：服装结构/词条转换；nai5-reverse：照图反推/局部提取/原文与视觉推测区分。经验建议需结合实际图片验证。", schema: schema({ id: { type: "string", enum: modelManualIds } }, ["id"]) },
   verb: "查阅",
   object: (input) => typeof input.id === "string" && Object.hasOwn(models.manuals, input.id)
     ? models.manuals[input.id as ModelManualId].title : "模型手册",

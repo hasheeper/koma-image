@@ -56,8 +56,10 @@ test('ASK W2: new, switch and delete keep input, drafts and calls apart; the men
     await page.waitForFunction(()=>!ask.running.value);
 
     await openDebug(page);
-    assert.equal(await page.locator('#askDebug .debug-count').textContent(),'1 次记录');
-    assert.match(await page.locator('#askDebugCall').textContent(),/B 的输入/);
+    assert.match(await page.locator('#askDebug .debug-q').textContent(),/B 的输入/);
+    await page.locator('#askDebugCall').click();
+    assert.equal(await page.locator('#askDebugCalls [role="menuitemradio"]').count(),1);
+    await page.keyboard.press('Escape');
     await page.locator('#askDebug').getByRole('button',{name:'关闭调用上下文'}).click();
     const usage=await page.evaluate(()=>({...ask.usage.value}));
     assert.equal(usage.input,3600);

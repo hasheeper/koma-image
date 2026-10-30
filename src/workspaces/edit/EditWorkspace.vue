@@ -31,6 +31,7 @@ import { createMaskEditor } from "../../native/mask-editor.ts";
 import type { MaskEditor } from "../../native/mask-editor.ts";
 import { createEditorCanvas } from "../../native/editor-canvas";
 import { createEditorToolbar } from "../../native/editor-toolbar";
+import { watchTheme } from "../../native/theme-watch";
 import WorkspaceSwitch from "../../shared/WorkspaceSwitch.vue";
 import EditBoards from "./EditBoards.vue";
 import { createFocusRegion } from "../../native/focus-region";
@@ -50,7 +51,7 @@ import DrawingBottomPanel from "../../workspaces/image/DrawingBottomPanel.vue";
 import EditorParameters from "../../overlays/EditorParameters.vue";
 const PhotopeaPanel = defineAsyncComponent(() => import("../../overlays/PhotopeaPanel.vue"));
 const { editor, view } = useEditor(),
-  { router } = useShell(),
+  { router, narrow } = useShell(),
   services = useServices(),
   ui = useUi();
 const dialog = shallowRef<HTMLElement | null>(null),
@@ -76,6 +77,7 @@ const tab = ref<"prompt" | "negative_prompt">("prompt"),
   redo = ref(false),
   comparing = ref(false),
   rail = ref(true),
+  canvasFullscreen = ref(false),
   drop = ref("");
 const s = computed(() => view.value.session),
   locked = computed(
@@ -215,7 +217,8 @@ let mask: MaskEditor | undefined,
   syncing = false,
   tick: ReturnType<typeof setInterval> | undefined,
   promptObserver: ResizeObserver | undefined,
-  activeEvents: AbortController | undefined;
+  activeEvents: AbortController | undefined,
+  unwatchTheme: (() => void) | undefined;
 const prefs = () =>
   services.preferences.get<Record<string, unknown>>(names.preferences, {});
 function preference(key: string, value: unknown) {
@@ -323,6 +326,7 @@ function saveView() {
 function pause() {
   saveView();
   saveMask();
+  canvasFullscreen.value = false;
   closePop(); directorPanel.value?.close(); inpaintMode.value?.close(); upscaleMode.value?.close(); bottomPanel.value?.close(); boards.value?.close();
   for (const menu of dialog.value?.querySelectorAll<HTMLElement>(":popover-open") ?? []) menu.hidePopover();
   focusRegion?.pause();
@@ -481,6 +485,13 @@ watch(() => view.value.busy, startClock);
 function pick() {
   file.value?.click();
 }
+function toggleCanvasFullscreen() {
+  closePop(); directorPanel.value?.close(); inpaintMode.value?.close(); upscaleMode.value?.close(); bottomPanel.value?.close();
+  focusRegion?.cancel();
+  canvasFullscreen.value = !canvasFullscreen.value;
+  void nextTick(() => canvas?.layout());
+}
+watch(narrow, value => { if (!value) canvasFullscreen.value = false; });
 function openPhotopea() {
   if (locked.value || !view.value.viewed) return;
   try {
@@ -524,6 +535,7 @@ function key(e: KeyboardEvent) {
     }
     else if (focusTool.value) { focusRegion?.cancel(); focusTool.value = false; syncMaskLock(); }
     else if (view.value.upscaleOpen) closePop();
+    else if (canvasFullscreen.value) toggleCanvasFullscreen();
     else bottomPanel.value?.close();
     return;
   }
@@ -628,6 +640,7 @@ function paste(e: ClipboardEvent) {
 onMounted(() => {
   toolbar = createEditorToolbar(dialog.value!);
   mask = createMaskEditor(maskCanvas.value!, changedMask);
+  unwatchTheme = watchTheme(() => mask?.retint());
   focusRegion = createFocusRegion(dialog.value!, focusHost.value!, {
     size: () => view.value.base, rect: () => editor.session.focus.rect,
     visible: () => maskActive.value && editor.session.focus.on && !comparing.value,
@@ -657,6 +670,7 @@ onBeforeUnmount(() => {
   focusRegion?.dispose();
   canvas?.dispose();
   toolbar?.dispose();
+  unwatchTheme?.();
   mask?.dispose();
   editor.setMaskPort(undefined);
 });
@@ -673,6 +687,7 @@ async function copyReference(v: EditorVersion) {
     :data-mode="s.mode"
     :data-active="view.open ? 'true' : undefined"
     :data-rail="rail ? 'on' : 'off'"
+    :data-canvas-fullscreen="narrow && canvasFullscreen || undefined"
     :data-photopea="photopea ? 'on' : undefined"
     data-workspace-root="edit"
     :inert="askFullscreen"
@@ -948,6 +963,18 @@ async function copyReference(v: EditorVersion) {
             :hidden="!view.viewed"
             :data-compare="comparing ? 'on' : 'off'"
           >
+            <button
+              v-if="narrow && shown"
+              id="editorFullscreen"
+              class="ibtn editor-fullscreen-toggle"
+              type="button"
+              :aria-label="canvasFullscreen ? '退出全屏画布' : '全屏画布'"
+              :title="canvasFullscreen ? '退出全屏画布 · Esc' : '全屏画布'"
+              :aria-pressed="canvasFullscreen"
+              @click="toggleCanvasFullscreen"
+            >
+              <AppIcon :name="canvasFullscreen ? 'i-shrink' : 'i-expand'" />
+            </button>
             <p class="editor-info-meta">
               <b :title="shown ? editor.reference(shown) : undefined">{{ shown ? editor.label(shown) : "" }} · {{ label(shown) }}</b
               ><span class="mono">{{ facts }}</span>

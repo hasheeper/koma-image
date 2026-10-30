@@ -29,18 +29,21 @@ test("ASK call debug: every model request, exact payload copy/export, images, ca
     const debug = page.locator('#askDebug');
     await debug.waitFor();
     assert.equal(await debug.evaluate(el => el.matches(':modal')),true);
-    assert.equal(await page.locator('#askDebugCall').inputValue(),String(summaries[1].id));
-    assert.equal(await debug.locator('.debug-usage dd').nth(1).textContent(),'1,500');
-    assert.equal(await debug.locator('.debug-usage dd').nth(2).textContent(),'300');
-    assert.equal(await debug.locator('.debug-usage dd').nth(3).textContent(),'未报告');
-    assert.equal(await debug.locator('.debug-images img').count(),1);
-    await debug.locator('.debug-images img').evaluate(img => img.decode());
-    assert.match(await debug.locator('.debug-cache').textContent(),/本地内容是否一致，不代表缓存命中/);
+    assert.equal(await page.locator('#askDebugCall').getAttribute('data-call'),String(summaries[1].id));
+    assert.equal(await debug.locator('.debug-meters dd > span').nth(1).textContent(),'1,500');
+    assert.equal(await debug.locator('.debug-meters dd > span').nth(2).textContent(),'300');
+    assert.equal(await debug.locator('.debug-meters dd > span').nth(3).textContent(),'未报告');
+    assert.match(await debug.locator('.debug-facts').textContent(),/自动前缀/);
+    assert.equal(await debug.locator('.debug-thumb img').count(),1);
+    await debug.locator('.debug-thumb img').evaluate(img => img.decode());
+    assert.match(await debug.locator('#askDebugStructureTip').textContent(),/本地内容是否一致，不代表缓存命中/);
+    assert.match(await debug.locator('.debug-legend').textContent(),new RegExp(`与 #${summaries[0].id} 比较`));
     await context.grantPermissions(['clipboard-read','clipboard-write']);
     await debug.getByRole('button',{name:'复制请求 JSON',exact:true}).click();
     assert.equal(await page.evaluate(() => navigator.clipboard.readText()), calls[1].raw);
     const downloaded = page.waitForEvent('download');
-    await debug.getByRole('button',{name:'导出全部',exact:true}).click();
+    await debug.getByRole('button',{name:'更多',exact:true}).click();
+    await debug.getByRole('menuitem',{name:/^导出全部/}).click();
     const file = await downloaded;
     const exportedText = await readFile(await file.path(),'utf8'), exported = JSON.parse(exportedText);
     assert.equal(exported.calls.length,2);
@@ -52,8 +55,11 @@ test("ASK call debug: every model request, exact payload copy/export, images, ca
       const [width,height] = [1440, 900];
       await page.setViewportSize({width,height});
     }
-    await debug.getByRole('button',{name:'请求 JSON',exact:true}).click();
-    assert.match(await debug.locator('.debug-code').textContent(),/Base64 已在预览中折叠/);
+    await debug.locator('.debug-thumb').click();
+    const shot = debug.locator('.debug-part[data-open]').filter({has: page.locator('.debug-imgs img')});
+    await shot.waitFor();
+    assert.match(await shot.locator('.debug-code').textContent(),/Base64 已在预览中折叠/);
+    assert.equal(await shot.locator('.debug-role').first().textContent(),'工具');
     await page.keyboard.press('Escape');
     await debug.waitFor({state:'detached'});
     assert.equal(await page.locator('#askDrawer').isVisible(),true);
@@ -63,8 +69,8 @@ test("ASK call debug: every model request, exact payload copy/export, images, ca
     await page.waitForFunction(() => ask.debug.value.calls.length===3 && !ask.running.value);
     await openDebug(page);
     await debug.waitFor();
-    assert.equal(await debug.locator('.debug-usage dd').nth(1).textContent(),'未报告');
-    assert.equal(await debug.locator('.debug-usage dd').nth(2).textContent(),'未报告');
+    assert.equal(await debug.locator('.debug-meters dd > span').nth(1).textContent(),'未报告');
+    assert.equal(await debug.locator('.debug-meters dd > span').nth(2).textContent(),'未报告');
     await debug.getByRole('button',{name:'关闭调用上下文'}).click();
     llm.push({status:403,type:'application/json',body:JSON.stringify({error:{message:'Synthetic permission failure'}})});
     await page.locator('#askPrompt').fill('错误记录检查');
@@ -74,7 +80,8 @@ test("ASK call debug: every model request, exact payload copy/export, images, ca
     await debug.waitFor();
     assert.match(await debug.textContent(),/本轮未计入后续会话/);
     assert.equal(await page.evaluate(() => ask.debug.value.calls.at(-1).status),'failed');
-    await debug.getByRole('button',{name:'清空记录',exact:true}).click();
+    await debug.getByRole('button',{name:'更多',exact:true}).click();
+    await debug.getByRole('menuitem',{name:'清空记录',exact:true}).click();
     assert.equal(await debug.locator('.debug-empty').count(),1);
     await page.keyboard.press('Escape');
     assert.equal(await page.locator('.ask-turn').count(),3);
@@ -103,11 +110,14 @@ test("ASK call debug: Anthropic cache markers, creation/read counts and unknown 
     await page.locator('.ask-turn[data-status="done"]').waitFor();
     await openDebug(page);
     const debug=page.locator('#askDebug');await debug.waitFor();
-    assert.deepEqual(await debug.locator('.debug-usage dd').allTextContents(),['1,600','1,200','400','320','20']);
-    assert.equal(await debug.locator('.debug-cache li').count(),3);
+    assert.deepEqual(await debug.locator('.debug-meters dd > span').allTextContents(),['1,600','1,200','400','320','20']);
+    assert.match(await debug.locator('.debug-facts').textContent(),/显式标记 3 处/);
     assert.equal(await page.evaluate(() => ask.debugCall(1).body),calls[0].raw);
-    await debug.getByRole('button',{name:'请求 JSON',exact:true}).click();
-    assert.match(await debug.locator('.debug-code').textContent(),/"cache_control"/);
+    await debug.locator('.debug-gt',{hasText:'工具与系统'}).click();
+    await debug.locator('.debug-row[data-part="tools"]').click();
+    const tools = debug.locator('.debug-part[data-open]').filter({has: page.locator('.debug-row[data-part="tools"]')});
+    assert.match(await tools.locator('.debug-bmeta').textContent(),/tools\[\d+\]\.cache_control/);
+    assert.match(await tools.locator('.debug-code').textContent(),/"cache_control"/);
     await page.keyboard.press('Escape');
     llm.push({body:anthropic(
       {type:'message_start',message:{usage:{input_tokens:60}}},
@@ -118,7 +128,7 @@ test("ASK call debug: Anthropic cache markers, creation/read counts and unknown 
     await page.locator('#askPrompt').fill('继续');await submitAsk(page);
     await page.waitForFunction(() => ask.debug.value.calls.length===2 && !ask.running.value);
     await openDebug(page);await debug.waitFor();
-    assert.deepEqual(await debug.locator('.debug-usage dd').allTextContents(),['60','未报告','未报告','未报告','10']);
+    assert.deepEqual(await debug.locator('.debug-meters dd > span').allTextContents(),['60','未报告','未报告','未报告','10']);
     assert.deepEqual(generation(requests),[]);
     assert.deepEqual(errors,[]);
   } finally {await context.close();}
@@ -139,7 +149,13 @@ test("ASK call debug: inspecting an active request preserves it, Esc closes only
     await page.waitForFunction(() => ask.debug.value.calls.length===1);
     await openDebug(page);
     const debug=page.locator('#askDebug');await debug.waitFor();
-    assert.equal(await debug.getByRole('button',{name:'清空记录',exact:true}).isDisabled(),true);
+    assert.equal(await debug.locator('.debug-pill').first().getAttribute('data-s'),'running');
+    assert.match(await debug.locator('.debug-unone').textContent(),/响应完成后由上游返回/);
+    await debug.getByRole('button',{name:'更多',exact:true}).click();
+    assert.equal(await debug.getByRole('menuitem',{name:'清空记录',exact:true}).isDisabled(),true);
+    await page.keyboard.press('Escape');
+    await debug.locator('#askDebugMore').waitFor({state:'detached'});
+    assert.equal(await debug.isVisible(),true,'Esc closed the menu first');
     await page.evaluate(() => document.body.__vue_app__._instance.provides[Object.getOwnPropertySymbols(document.body.__vue_app__._instance.provides).find(k=>k.description==='ui')].toast('合成错误提示','err'));
     await debug.locator('.toast[role="alert"]').waitFor();
     await page.keyboard.press('Escape');await debug.waitFor({state:'detached'});

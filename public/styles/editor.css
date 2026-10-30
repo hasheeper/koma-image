@@ -52,14 +52,14 @@
 .editor .fld-hero .hl-wrap { min-height: 96px; }
 .editor .quota-warning > span { flex: 1; min-width: 0; overflow-wrap: anywhere; }
 .editor .quota-warning .ibtn { margin: -6px -6px -6px 0; color: inherit; }
-.editor-err { color: var(--err); background: var(--err-dim); border-color: rgba(232, 135, 135, 0.28); }
+.editor-err { color: var(--err); background: var(--err-dim); border-color: color-mix(in srgb, var(--err) 28%, transparent); }
 
 /* Shared NAI controls keep the drawing composer's hierarchy and drawer surface. */
 .editor .editor-controls { min-width: 0; margin: 0; border: 0; }
 .editor .composer-foot > .editor-controls { padding: 0; }
 .editor .promptbox .pane { position: relative; }
 .editor .promptbox textarea, .editor .promptbox .hl-mirror { padding-bottom: 42px; }
-.editor .composer-foot { padding-top: 10px; gap: 0; background: color-mix(in srgb,var(--chrome) 65%,var(--raised)); border-radius: var(--r3) var(--r3) 0 0; border-top: 1px solid var(--line-2); box-shadow: 0 -5px 16px -12px #000b; }
+.editor .composer-foot { padding-top: 10px; gap: 0; background: color-mix(in srgb,var(--chrome) 65%,var(--raised)); border-radius: var(--r3) var(--r3) 0 0; border-top: 1px solid var(--line-2); box-shadow: 0 -5px 16px -12px rgb(var(--shadow-rgb) / calc(.7333 * var(--shadow-strength))); }
 
 /* ── Stage ──────────────────────────────────────────────────── */
 .editor-mat { padding: 0; place-items: stretch; }
@@ -80,9 +80,7 @@
   overflow: hidden;
   background: var(--image-checker);
   box-shadow:
-    0 0 0 1px rgba(255, 255, 255, 0.06),
-    0 1px 2px rgba(0, 0, 0, 0.24),
-    0 14px 36px -12px rgba(0, 0, 0, 0.6);
+    var(--print-shadow);
 }
 .editor-print img {
   display: block; width: 100%; height: 100%;
@@ -111,7 +109,7 @@
   position: absolute; top: 0; left: 0; right: 0; z-index: 3;
   display: flex; align-items: center; justify-content: space-between; gap: var(--sp-3);
   height: 52px; padding: 0 var(--sp-3) 0 var(--sp-4);
-  background: linear-gradient(to bottom, color-mix(in srgb, var(--canvas) 92%, transparent), transparent);
+  background: linear-gradient(to bottom, color-mix(in srgb, var(--stage) 92%, transparent), transparent);
   pointer-events: none;
 }
 .editor-info > * { pointer-events: auto; }
@@ -129,7 +127,7 @@
   position: absolute; inset: var(--sp-3); z-index: 6;
   display: grid; place-items: center;
   font-size: var(--fz-sm); font-weight: var(--fw-medium); color: var(--a);
-  background: rgba(179, 161, 255, 0.06);
+  background: color-mix(in srgb, var(--a) 6%, transparent);
   border: 1.5px dashed var(--a-line); border-radius: var(--r4);
   pointer-events: none;
 }
@@ -194,7 +192,7 @@
 
 /* ── Canvas operation sheets ────────────────────────────────── */
 .editor-mini {
-  --well: var(--chrome);
+  --well: var(--panel-well);
   --well-focus: var(--sunken);
   width: 264px; max-width: calc(100vw - 16px); overflow: auto;
   color: var(--fg-2);
@@ -271,8 +269,23 @@
   /* Picture first, then its versions, then the controls — as on the workspace. */
   .editor .stage { order: 1; }
   .editor-mat { display: flex; flex-direction: column; height: clamp(320px, 58svh, 640px); }
-  .editor-viewport { position: relative; inset: auto; flex: 1; min-height: 0; padding: 52px var(--sp-3) var(--sp-3); }
-  .editor-info { height: 46px; padding: 0 var(--sp-1) 0 var(--sp-3); }
+  .editor-viewport { position: relative; inset: auto; flex: 1; min-height: 0; padding: 60px var(--sp-3) var(--sp-3); }
+  .editor-info { justify-content: flex-start; gap: 10px; height: 56px; padding: 0 var(--sp-3); }
+  .editor-info-meta { flex: 1; }
+  .editor .editor-fullscreen-toggle {
+    --ico: var(--ico-lg);
+    --ico-stroke: var(--ico-stroke-strong);
+    width: 40px; height: 40px; padding: 0;
+    color: var(--fg-2); background: var(--raised);
+    border: 1px solid var(--line-2); border-radius: var(--r3);
+    box-shadow: var(--sh-lip);
+    -webkit-tap-highlight-color: transparent;
+  }
+  .editor-fullscreen-toggle::before { content: ""; position: absolute; inset: -2px; }
+  .editor .editor-fullscreen-toggle[aria-pressed="true"] { color: var(--fg); }
+  @media (hover: hover) {
+    .editor .editor-fullscreen-toggle:hover { color: var(--fg); background: var(--hover); }
+  }
   /* The toolbar docks under the picture instead of covering it. */
   .editor-toolbar {
     --editor-toolbar-inset: 0px;
@@ -312,10 +325,20 @@
     padding: var(--sp-2) var(--sp-3) calc(var(--sp-2) + env(safe-area-inset-bottom));
     background: color-mix(in srgb, var(--chrome) 65%, var(--raised));
     backdrop-filter: none;
-    box-shadow: 0 -10px 28px -20px rgba(0, 0, 0, 0.9);
+    box-shadow: 0 -10px 28px -20px rgb(var(--shadow-rgb) / calc(0.9 * var(--shadow-strength)));
   }
   .editor .btn-go, .editor .btn-stop { height: 44px; }
   .editor .go-keys { display: none; }
+
+  .editor[data-canvas-fullscreen] { display: grid; grid-template-rows: minmax(0, 1fr); overflow: hidden; }
+  .editor[data-canvas-fullscreen] > .editor-bar,
+  .editor[data-canvas-fullscreen] .editor-shell > :is(.composer, .editor-rail) { display: none; }
+  .editor[data-canvas-fullscreen] .editor-shell { min-height: 0; padding-bottom: 0; }
+  .editor[data-canvas-fullscreen] .stage { flex: 1; min-height: 0; }
+  .editor[data-canvas-fullscreen] .editor-mat { flex: 1; min-height: 0; height: 100%; }
+  .editor[data-canvas-fullscreen] .editor-viewport { padding-top: calc(60px + env(safe-area-inset-top)); }
+  .editor[data-canvas-fullscreen] .editor-info { top: env(safe-area-inset-top); }
+  .editor[data-canvas-fullscreen] .editor-toolbar { padding-bottom: calc(4px + env(safe-area-inset-bottom)); }
 }
 @media (max-width: 600px) {
   .editor-bar { gap: var(--sp-2); padding-inline: var(--sp-2); }

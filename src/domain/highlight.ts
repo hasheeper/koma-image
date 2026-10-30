@@ -9,7 +9,7 @@
  * Parentheses are NOT weight syntax here: real tags contain them
  * (`sho_(sho_lwlw)`), so treating them as modifiers would corrupt the prompt.
  *
- * Colour, against the dark canvas:
+ * Colour, resolved by the theme palette:
  *   weight > 1  → red,  brighter as the weight climbs
  *   weight < 1  → blue, brighter as the weight drops (negatives are brightest)
  *   weight = 1  → no tint, only a faint block so the group is still legible
@@ -130,14 +130,14 @@ function intensity(weight: number) {
 export function tint(weight: number, depth: number) {
   if (!Number.isFinite(weight) || Math.abs(weight - 1) < 1e-6) {
     // Explicit but neutral scope: hint the grouping without colouring it.
-    return depth > 0 ? "background-color:rgba(255,255,255,.05)" : "";
+    return depth > 0 ? "background-color:var(--weight-neutral)" : "";
   }
   const t = intensity(weight);
-  const hue = weight > 1 ? 353 : 212;
+  const hue = weight > 1 ? "var(--weight-positive-hue)" : "var(--weight-negative-hue)";
   const sat = Math.round(55 + t * 40);
   const light = Math.round(26 + t * 34);
   const alpha = (0.2 + t * 0.34).toFixed(3);
-  return `background-color:hsl(${hue} ${sat}% ${light}% / ${alpha})`;
+  return `background-color:hsl(${hue} ${sat}% calc(${light}% + var(--weight-lightness-offset)) / calc(${alpha} * var(--weight-alpha-scale)))`;
 }
 
 const ESC: Record<string, string> = { "&": "&amp;", "<": "&lt;", ">": "&gt;" };

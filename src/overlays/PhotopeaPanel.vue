@@ -85,7 +85,8 @@ async function load(start: NonNullable<typeof props.start>, reload = false) {
             if (client === connection && props.start) { cancelReflow(); error.value = text; ready.value = false; working.value = false; }
           },
         });
-        client = connection; src.value = photopeaUrl(start.id);
+        client = connection;
+        src.value = photopeaUrl(start.id, document.documentElement.dataset.theme === "light" ? "light" : "dark");
       }
       const connection = client;
       const images = await photopeaInput(start.image, start.mask);

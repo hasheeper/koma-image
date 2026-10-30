@@ -5,6 +5,9 @@ import type { AppRouter } from "../app/router.ts";
 import { summary as replySummary } from "./format.ts";
 import { createHomeTransitions } from "../home/transition.ts";
 
+/** Tool rows in the conversation and the call inspector share one glyph per tool. */
+export const toolIcons: Readonly<Record<string, string>> = { get_state: "i-layers", search_history: "i-search", get_meta: "i-info", diff_meta: "i-layers", view_image: "i-image", view_sheet: "i-layers", search_tags: "i-search", propose_draft: "i-edit", get_chat_context: "i-layers", get_model_manual: "i-info", get_turn: "i-layers", read_ref: "i-file", save_ref: "i-download", slate_edit: "i-tasks", deliver: "i-image" };
+
 /** One app-owned presentation, shared by the floating island and HOME's head. */
 export function createAskPresentation(ask: Ask, router: AppRouter) {
   const shown = shallowRef(ask.visible.value), homeSize = shallowRef<'half' | 'full'>('half');

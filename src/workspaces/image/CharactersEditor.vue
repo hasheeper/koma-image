@@ -67,8 +67,9 @@ onDeactivated(cleanup); onBeforeUnmount(cleanup);
 .mc > .fld-top { min-height: 32px; }
 .mc-head-end { display: inline-flex; align-items: center; gap: 6px; }
 .mc-pos.seg { display: inline-flex; padding: 2px; gap: 2px; }
-.mc-pos button { padding: 4px 10px; font-size: var(--fz-xs); border-radius: var(--r1); color: var(--fg-3); }
-.mc-pos button[aria-pressed="true"] { color: var(--fg); background: var(--raised); box-shadow: var(--sh-lip); }
+.mc-pos button { padding: 4px 10px; font-size: var(--fz-xs); border-radius: var(--r1); color: var(--seg-ink); }
+.mc-pos button:hover { background: var(--seg-hover-bg); }
+.mc-pos button[aria-pressed="true"] { color: var(--seg-active-ink); background: var(--seg-active-bg); font-weight: var(--seg-active-weight); box-shadow: var(--sh-lip); }
 .mc-list { display: grid; margin: 0; padding: 0; list-style: none; }
 .mc-item + .mc-item { border-top: 1px solid var(--line); }
 .mc-list[data-muted] { opacity: .5; }
@@ -96,7 +97,7 @@ onDeactivated(cleanup); onBeforeUnmount(cleanup);
 .mc-body :deep(textarea), .mc-body :deep(.hl-mirror) { font-size: var(--fz-sm); line-height: 1.6; padding: 10px 12px; }
 .mc-pad-row { display: flex; justify-content: center; margin-top: calc(var(--sp-1) * -1); }
 .mc-pad-wide { position: absolute; top: 2px; right: 2px; --ico: var(--ico-sm); }
-.mc-stage { position: fixed; z-index: 40; border-radius: var(--r3); background: rgb(10 10 12 / 55%); box-shadow: 0 0 0 1px var(--a-line); }
+.mc-stage { position: fixed; z-index: 40; border-radius: var(--r3); background: color-mix(in srgb, var(--scrim-stage) 55%, transparent); box-shadow: 0 0 0 1px var(--a-line); }
 .mc-stage-bar { position: absolute; left: 50%; bottom: 12px; translate: -50% 0; display: flex; align-items: center; gap: 4px; max-width: calc(100% - 16px); padding: 4px; background: var(--raised); border-radius: var(--r3); box-shadow: inset 0 0 0 1px var(--line-2), var(--sh-2); }
 .mc-stage-chips { display: flex; gap: 4px; min-width: 0; overflow-x: auto; }
 .mc-stage-chip .mc-num { background: var(--hover); }

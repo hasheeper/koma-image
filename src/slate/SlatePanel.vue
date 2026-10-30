@@ -17,6 +17,7 @@ const activeIssue = computed(() => issues.value.find(m => m.id === slates.active
 const originalFocus = document.activeElement;
 function close() { dialog.value?.close(); slates.visible.value = false; }
 async function open(id: string, fresh = false) { if (!ask.canManage.value) return; if (await ask.openSlate(id, fresh)) close(); }
+function remove(id: string) { if (ask.proposeSlateAction(id, 'delete')) close(); }
 async function create() {
   try { const change = parseSlateEdit({ kind: 'slate_edit', op: 'create', slate_title: title.value }, null, drawing.snapshot().form, []).change; await slates.commit(change); open(change.id); }
   catch (e) { error.value = message(e); }
@@ -28,20 +29,31 @@ onBeforeUnmount(() => { dialog.value?.close(); if (originalFocus instanceof HTML
 <template>
   <dialog ref="dialog" class="modal slate-panel" aria-label="任务总览" @cancel.prevent="close" @click="($event.target === dialog) && close()" @keydown.stop>
     <header>
-      <b>任务总览</b><span></span>
-      <AskMenu id="slateOverviewMore" label="任务总览选项" side="right">
-        <template #trigger="{ open: shown, toggle }"><button class="ibtn" type="button" aria-label="任务总览选项" aria-haspopup="menu" :aria-expanded="shown" @click="toggle"><AppIcon name="i-more" /></button></template>
-        <template #default="{ close: dismiss }">
-          <button class="menu-item" role="menuitem" type="button" :disabled="!ask.canManage.value" @click="dismiss(); creating = !creating"><AppIcon name="i-plus" /><span class="menu-label">新建清单</span></button>
-          <button v-if="slates.activeId.value" class="menu-item" role="menuitem" type="button" :disabled="!ask.canManage.value" @click="dismiss(); open(slates.activeId.value!, true)"><AppIcon name="i-chat" /><span class="menu-label">在新会话中打开</span></button>
-          <button v-if="unmapped" class="menu-item" role="menuitem" type="button" :disabled="bridge.busy.value" @click="dismiss(); bridge.mapSlate(slates.activeId.value!)"><AppIcon name="i-folder" /><span class="menu-label">同步到当前目录</span></button>
-          <button v-if="activeIssue && slates.get(activeIssue.id)" class="menu-item" role="menuitem" type="button" title="用当前本机清单替换目录中的任务文件" :disabled="bridge.busy.value" @click="dismiss(); bridge.resolveSlate(activeIssue!.id, 'local')"><AppIcon name="i-check" /><span class="menu-label">保留本机版本</span></button>
-          <button class="menu-item" role="menuitem" type="button" :disabled="bridge.busy.value" @click="dismiss(); importer?.click()"><AppIcon name="i-upload" /><span class="menu-label">导入清单 JSON</span></button>
-        </template>
-      </AskMenu>
-      <button class="ibtn" type="button" aria-label="关闭任务总览" @click="close"><AppIcon name="i-close" /></button>
+      <h2 class="overview-title" tabindex="-1" autofocus>任务总览</h2>
+      <div class="overview-actions">
+        <AskMenu id="slateOverviewMore" label="任务总览选项" side="right">
+          <template #trigger="{ open: shown, toggle }"><button class="ibtn" type="button" aria-label="任务总览选项" aria-haspopup="menu" :aria-expanded="shown" @click="toggle"><AppIcon name="i-more" /></button></template>
+          <template #default="{ close: dismiss }">
+            <button class="menu-item" role="menuitem" type="button" :disabled="!ask.canManage.value" @click="dismiss(); creating = !creating"><AppIcon name="i-plus" /><span class="menu-label">新建清单</span></button>
+            <button v-if="slates.activeId.value" class="menu-item" role="menuitem" type="button" :disabled="!ask.canManage.value" @click="dismiss(); open(slates.activeId.value!, true)"><AppIcon name="i-chat" /><span class="menu-label">在新会话中打开</span></button>
+            <button v-if="unmapped" class="menu-item" role="menuitem" type="button" :disabled="bridge.busy.value" @click="dismiss(); bridge.mapSlate(slates.activeId.value!)"><AppIcon name="i-folder" /><span class="menu-label">同步到当前目录</span></button>
+            <button v-if="activeIssue && slates.get(activeIssue.id)" class="menu-item" role="menuitem" type="button" title="用当前本机清单替换目录中的任务文件" :disabled="bridge.busy.value" @click="dismiss(); bridge.resolveSlate(activeIssue!.id, 'local')"><AppIcon name="i-check" /><span class="menu-label">保留本机版本</span></button>
+            <button class="menu-item" role="menuitem" type="button" :disabled="bridge.busy.value" @click="dismiss(); importer?.click()"><AppIcon name="i-upload" /><span class="menu-label">导入清单 JSON</span></button>
+          </template>
+        </AskMenu>
+        <button class="ibtn" type="button" aria-label="关闭任务总览" @click="close"><AppIcon name="i-close" /></button>
+      </div>
     </header>
-    <div class="overview-body"><button v-for="s in slates.list.value" :key="s.id" class="overview-item" type="button" :disabled="!ask.canManage.value || slates.busy.value" @click="open(s.id)"><AppIcon name="i-tasks" :class="{ current: ask.activeSlate.value?.id === s.id }" /><span>{{ s.title }}</span><small>{{ s.todos.filter(t => t.status === 'done').length }}/{{ s.todos.length }}</small><AppIcon name="i-chevron" /></button><p v-if="!slates.list.value.length" class="overview-empty">暂无待办清单</p></div>
+    <div class="overview-body">
+      <div v-for="s in slates.list.value" :key="s.id" class="overview-row">
+        <button class="overview-item" type="button" :disabled="!ask.canManage.value || slates.busy.value" @click="open(s.id)"><AppIcon name="i-tasks" :class="{ current: ask.activeSlate.value?.id === s.id }" /><span :title="s.title">{{ s.title }}</span><small>{{ s.todos.filter(t => t.status === 'done').length }}/{{ s.todos.length }}</small><AppIcon name="i-chevron" /></button>
+        <AskMenu :id="`slate-${s.id}-options`" :label="`${s.title} · 清单选项`" side="right">
+          <template #trigger="{ open: shown, toggle }"><button class="ibtn" type="button" :aria-label="`${s.title} · 清单选项`" aria-haspopup="menu" :aria-expanded="shown" @click="toggle"><AppIcon name="i-more" /></button></template>
+          <template #default="{ close: dismiss }"><button class="menu-item danger" role="menuitem" type="button" :disabled="!ask.canManageTasks.value" @click="dismiss(); remove(s.id)"><AppIcon name="i-trash" /><span class="menu-label">删除清单</span></button></template>
+        </AskMenu>
+      </div>
+      <p v-if="!slates.list.value.length" class="overview-empty">暂无待办清单</p>
+    </div>
     <form v-if="creating" class="overview-create" @submit.prevent="create"><input v-model="title" type="text" aria-label="清单名称" placeholder="清单名称…" maxlength="120" /><button type="submit" :disabled="!title.trim() || slates.busy.value">创建</button></form>
     <div v-for="issue in issues" :key="issue.id" class="overview-issue"><span :title="issue.error">{{ slates.get(issue.id)?.title || '目录任务' }}</span><button type="button" @click="bridge.resolveSlate(issue.id, 'review'); close(); ask.show()">审阅修改</button></div>
     <button v-if="slates.recovery.value" class="overview-recover" type="button" @click="slates.retryRecovery()">恢复中断的操作</button>
@@ -50,21 +62,24 @@ onBeforeUnmount(() => { dialog.value?.close(); if (originalFocus instanceof HTML
   </dialog>
 </template>
 <style scoped>
-.slate-panel { --modal-w: 280px; position: fixed; inset: 64px 16px auto auto; max-height: calc(100dvh - 80px); margin: 0; padding: 8px; color: var(--fg); border-radius: var(--r3); }
+.slate-panel { --modal-w: 320px; --overview-action-size: 28px; position: fixed; inset: 64px 16px auto auto; max-width: calc(100vw - 32px); max-height: calc(100dvh - 80px); margin: 0; padding: 8px; color: var(--fg); border-radius: var(--r3); }
 .slate-panel::backdrop { background: transparent; backdrop-filter: none; }
-.slate-panel header { display: flex; align-items: center; gap: 2px; padding: 0 0 4px 6px; font-size: 13px; }
-.slate-panel header b { font-weight: var(--fw-medium); }
-.slate-panel header > span { flex: 1; }
-.slate-panel .ibtn { width: 26px; height: 26px; }
+.slate-panel header { display: grid; grid-template-columns: minmax(0, 1fr) auto; align-items: center; gap: 8px; padding: 0 0 6px 6px; }
+.overview-title { margin: 0; font-size: 13px; font-weight: var(--fw-medium); outline: none; }
+.overview-actions { display: flex; align-items: center; gap: 2px; }
+.slate-panel .ibtn { width: var(--overview-action-size); height: var(--overview-action-size); }
 .slate-panel .ibtn .ico { --ico: var(--ico-sm); }
+.slate-panel .ibtn[aria-expanded="true"] { color: var(--fg); background: var(--hover); }
+.slate-panel .ibtn:focus-visible, .overview-item:focus-visible { outline: 1.5px solid color-mix(in srgb, var(--a) 70%, transparent); outline-offset: -1.5px; }
 .overview-body { max-height: min(360px, 50dvh); overflow: auto; }
-.overview-item { display: flex; align-items: center; gap: 8px; width: 100%; min-height: 34px; padding: 0 7px; color: var(--fg-2); text-align: left; border-radius: var(--r1); }
+.overview-row { display: grid; grid-template-columns: minmax(0, 1fr) var(--overview-action-size); align-items: center; gap: 2px; }
+.overview-item { display: grid; grid-template-columns: var(--ico-sm) minmax(0, 1fr) auto var(--ico-xs); align-items: center; gap: 8px; min-width: 0; min-height: 36px; padding: 0 6px; color: var(--fg-2); text-align: left; border-radius: var(--r1); }
 .overview-item:hover { background: var(--hover); }
-.overview-item > .ico { flex: none; --ico: var(--ico-sm); color: var(--fg-3); }
+.overview-item > .ico { --ico: var(--ico-sm); color: var(--fg-3); }
 .overview-item > .ico.current { color: var(--a); }
 .overview-item > .ico:last-child { --ico: var(--ico-xs); }
-.overview-item > span { flex: 1; min-width: 0; overflow: hidden; font-size: 12px; text-overflow: ellipsis; white-space: nowrap; }
-.overview-item small { color: var(--fg-3); font: 11px var(--mono); }
+.overview-item > span { min-width: 0; overflow: hidden; font-size: 12px; text-overflow: ellipsis; white-space: nowrap; }
+.overview-item small { width: 7ch; color: var(--fg-3); font: 11px var(--mono); font-variant-numeric: tabular-nums; text-align: right; }
 .overview-empty { padding: 18px 6px; color: var(--fg-3); font-size: 12px; }
 .overview-create, .overview-issue { display: flex; align-items: center; gap: 8px; margin-top: 6px; padding: 6px; border-top: 1px solid var(--line); }
 .overview-create input { flex: 1; min-width: 0; width: 100%; font-size: 12px; }

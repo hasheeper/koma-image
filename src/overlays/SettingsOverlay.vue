@@ -1032,7 +1032,7 @@ async function reveal(id: string) {
   height: 40px;
   object-fit: contain;
   border-radius: 11px;
-  filter: drop-shadow(0 4px 10px rgb(115 54 135 / 28%));
+  filter: drop-shadow(0 4px 10px var(--brand-logo-shadow));
 }
 .supplier-brand .brand-title {
   font-size: 26px;

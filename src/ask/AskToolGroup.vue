@@ -2,11 +2,11 @@
 import { computed, shallowRef, watch } from "vue";
 import AppIcon from "../shared/AppIcon.vue";
 import type { ToolRow } from "./service.ts";
+import { toolIcons as icons } from "./presentation.ts";
 const props = defineProps<{ rows: readonly ToolRow[]; reverted?: boolean; source?: string; label?: string }>();
 const expanded = shallowRef<boolean | null>(null);
 const open = computed(() => expanded.value ?? props.rows.some(r => r.state === 'error' || !!r.reason));
 watch(() => props.rows, () => { if (props.rows.some(r => r.state === 'error')) expanded.value = true; });
-const icons: Record<string, string> = { get_state: "i-layers", search_history: "i-search", get_meta: "i-info", diff_meta: "i-layers", view_image: "i-image", view_sheet: "i-layers", search_tags: "i-search", propose_draft: "i-edit", get_chat_context: "i-layers", get_model_manual: "i-info", get_turn: "i-layers", read_ref: "i-file", save_ref: "i-download", slate_edit: "i-tasks", deliver: "i-image" };
 const rowText = (row: ToolRow) =>
   row.state === "run"
     ? `正在${row.verb} ${row.object}`

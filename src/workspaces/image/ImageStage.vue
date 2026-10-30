@@ -416,9 +416,10 @@ function openAsk() {
 <style scoped>
 .result-panel { position: relative; }
 /* Ask leads the action row as its own group: flat like the icons, accent like its mark. */
-.result-ask { height: 36px; padding: 0 10px 0 8px; gap: 6px; color: var(--a); font-weight: var(--fw-semibold); background: transparent; border: 1px solid transparent; }
-.result-ask:not(:disabled):hover { background: var(--a-dim); border-color: var(--a-line); }
-.result-ask-id { color: var(--a); }
+.result-ask { height: 36px; padding: 0 10px 0 8px; gap: 6px; color: var(--result-ask-ink); font-weight: var(--fw-semibold); background: transparent; border: 1px solid transparent; }
+.result-ask:not(:disabled):hover { background: var(--result-ask-hover); border-color: var(--result-ask-line); }
+.result-ask-id { color: var(--a); background: var(--result-id-bg); }
+.result-ask-id:hover { background: var(--hover); }
 .ask-why { margin-top: 8px; color: var(--a); }
 @media (max-width: 860px) {
   .result-ask { height: 44px; }

@@ -21,6 +21,7 @@
    exactly where the wave left it. The phase runs off the page clock, so a
    frame mounted mid-wave (a re-rendered message, the stage after a batch
    step) continues the same wave instead of restarting it. */
+import { watchTheme } from "./theme-watch.ts";
 
 export interface TileWave {
   resize(): void;
@@ -41,7 +42,6 @@ const STEP = 90;          // ms between neighbouring diagonals: about 22 diagona
                           // to a wavelength, so a band visibly travels across
                           // even a small frame instead of the whole field pulsing
 const LENGTH = 1350;      // the crest, ms; the last tile settles at ~1270
-const INK = "rgb(179, 161, 255)";
 const INK_ALPHA = 0.26;   // a tile at the top of its swell, mid-field
 
 const clamp01 = (v: number) => Math.min(1, Math.max(0, v));
@@ -111,6 +111,8 @@ export function tileWave(
     throw new Error("当前浏览器不支持 Canvas 动画");
   }
   const g = context;
+  const tint = () => getComputedStyle(frame).getPropertyValue("--a").trim();
+  let ink = tint();
 
   let w = 0, h = 0, dpr = 1, cols = 0, rows = 0, pw = 0, ph = 0, base = 0;
   let edge: Float32Array<ArrayBuffer> | null = null;
@@ -190,6 +192,7 @@ export function tileWave(
     },
     destroy() {
       settle?.(false);
+      unwatch();
       delete frame.dataset.wave;
       live.delete(wave); seen.unobserve(canvas); sized.unobserve(canvas);
       canvas.remove();
@@ -225,7 +228,7 @@ export function tileWave(
       if (a < 0.004) continue;
       buckets[Math.min(LEVELS - 1, Math.floor(a / INK_ALPHA * LEVELS))].push(x, y, sideAt(s, e));
     }
-    g.fillStyle = INK;
+    g.fillStyle = ink;
     buckets.forEach((list, level) => {
       if (!list.length) return;
       g.globalAlpha = INK_ALPHA * (level + 0.5) / LEVELS;
@@ -268,13 +271,21 @@ export function tileWave(
         g.restore();
       }
       if (open < 1) {
-        g.globalAlpha = alphaAt(s, e) * (1 - open); g.fillStyle = INK;
+        g.globalAlpha = alphaAt(s, e) * (1 - open); g.fillStyle = ink;
         g.beginPath(); g.roundRect(X, Y, tw, th, r); g.fill();
       }
     }
     g.globalAlpha = 1;
   }
 
+  // A running wave picks the new ink up on its next frame; a held one repaints once.
+  const unwatch = watchTheme(() => {
+    ink = tint();
+    if (art || !finished) return;
+    finished = false;
+    if (wave.visible) live.add(wave);
+    wake();
+  });
   if (fade) frame.dataset.wave = "rest";
   byCanvas.set(canvas, wave);
   seen.observe(canvas); sized.observe(canvas);

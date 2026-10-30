@@ -44,6 +44,9 @@
            i-warning     a notice that something was limited or skipped
            mk-*          the Koma mark: lit tiles draw image / chat / edit / tags -->
       <defs>
+        <symbol id="i-moon" viewBox="0 0 24 24"><path vector-effect="non-scaling-stroke" d="M20.5 13.2A8.7 8.7 0 0 1 10.8 3.5a8.7 8.7 0 1 0 9.7 9.7Z" /></symbol>
+        <symbol id="i-monitor" viewBox="0 0 24 24"><rect vector-effect="non-scaling-stroke" x="3.5" y="4.5" width="17" height="11.5" rx="2" /><path vector-effect="non-scaling-stroke" d="M12 16v4m-4 0h8" /></symbol>
+        <symbol id="i-sun" viewBox="0 0 24 24"><circle vector-effect="non-scaling-stroke" cx="12" cy="12" r="3.5" /><path vector-effect="non-scaling-stroke" d="M12 3v2m0 14v2M3 12h2m14 0h2M5.6 5.6 7 7m10 10 1.4 1.4m0-12.8L17 7M7 17l-1.4 1.4" /></symbol>
         <symbol id="i-lock" viewBox="0 0 24 24">
           <rect vector-effect="non-scaling-stroke" x="4.5" y="10.5" width="15" height="10" rx="2.5" /><path vector-effect="non-scaling-stroke" d="M8 10.5V7a4 4 0 0 1 8 0v3.5" />
         </symbol>

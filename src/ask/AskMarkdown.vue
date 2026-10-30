@@ -75,7 +75,7 @@ Content.props = ["nodes", "lead"];
 .ask-markdown :deep(strong), .ask-markdown-inline :deep(strong) { color: var(--fg); font-weight: var(--fw-semibold); }
 .ask-markdown :deep(em), .ask-markdown-inline :deep(em) { font-style: italic; font-synthesis: style; }
 .ask-markdown :deep(a), .ask-markdown-inline :deep(a) { color: var(--a); text-decoration: underline; text-underline-offset: 3px; }
-.ask-markdown :deep(code), .ask-markdown-inline :deep(code) { padding: 1px 5px; font: inherit; font-family: var(--mono); font-size: 12px; background: rgba(255, 255, 255, .08); border-radius: var(--r1); }
+.ask-markdown :deep(code), .ask-markdown-inline :deep(code) { padding: 1px 5px; font: inherit; font-family: var(--mono); font-size: 12px; background: color-mix(in srgb, var(--surface-tint) 8%, transparent); border-radius: var(--r1); }
 .ask-markdown :deep(pre) { max-width: 100%; margin-bottom: 0; padding: 10px 12px; overflow: auto; color: var(--fg-2); background: var(--ask-field, var(--well)); border: 1px solid var(--line); border-radius: 8px; white-space: pre; }
 .ask-markdown :deep(pre code) { display: block; padding: 0; font-size: 12px; line-height: 1.65; background: none; border-radius: 0; overflow-wrap: normal; }
 .ask-markdown :deep(.ask-table-scroll) { max-width: 100%; overflow: auto; border: 1px solid var(--line); border-radius: 8px; }

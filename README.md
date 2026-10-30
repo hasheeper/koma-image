@@ -100,6 +100,8 @@ https://koma-image.pages.dev/skills/koma-bridge/SKILL.md
 
 详情见[图像协议说明](docs/integrations/image-protocols.md)与[当前状态](docs/status.md)。
 
+默认使用暗色界面，可从顶栏外观图标或「设置 → 通用 → 外观」切换暗色／系统／亮色，选择会在当前浏览器保存。
+
 ## 🔒 本地存储与隐私
 
 Koma 是纯前端静态应用，没有云端账号或业务后台：

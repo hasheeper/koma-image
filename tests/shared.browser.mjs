@@ -768,6 +768,53 @@ test("dictionary and prompt: weighted handoff once, picker toggle, highlight, au
   }
 });
 
+test("appearance: defaults to dark; toolbar and settings share persisted choices and system updates across tabs", async () => {
+  const t = await open("/#/image");
+  try {
+    const { page, context } = t;
+    const theme = (p = page) => p.evaluate(() => document.documentElement.dataset.theme);
+    await page.getByRole("button", { name: "外观：暗色", exact: true }).waitFor();
+    assert.equal(await theme(), "dark");
+    await page.emulateMedia({ colorScheme: "light" });
+    assert.equal(await theme(), "dark");
+    await page.getByRole("button", { name: "外观：暗色", exact: true }).click();
+    const menu = page.getByRole("menu", { name: "外观", exact: true });
+    assert.equal(await menu.getByRole("menuitemradio", { name: "暗色", exact: true }).getAttribute("aria-checked"), "true");
+    await menu.getByRole("menuitemradio", { name: "亮色", exact: true }).click();
+    await page.goto(origin + "/#/image/settings/general");
+    await page.waitForSelector("#settingsPanel[open]");
+    const group = page.getByRole("radiogroup", { name: "外观" });
+    const choice = (name) => group.getByRole("radio", { name, exact: true });
+    const pick = (name) => group.getByText(name, { exact: true }).click();
+    assert.equal(await choice("亮色").isChecked(), true);
+    assert.equal(await theme(), "light");
+    await page.emulateMedia({ colorScheme: "dark" });
+    assert.equal(await theme(), "light");
+    await pick("系统");
+    await page.waitForFunction(() => document.documentElement.dataset.theme === "dark");
+    await pick("亮色");
+    assert.equal(await theme(), "light");
+    assert.equal(await page.evaluate(() => localStorage.getItem("koma.theme.v1")), '"light"');
+    const other = await context.newPage();
+    await other.emulateMedia({ colorScheme: "dark" });
+    await other.goto(origin + "/#/chat");
+    await other.waitForSelector("[data-workspace-root]");
+    assert.equal(await theme(other), "light");
+    await other.getByRole("button", { name: "外观：亮色", exact: true }).click();
+    await other.getByRole("menuitemradio", { name: "暗色", exact: true }).click();
+    await page.waitForFunction(() => document.documentElement.dataset.theme === "dark");
+    await page.reload();
+    await page.waitForSelector("#settingsPanel[open]");
+    assert.equal(await theme(), "dark");
+    assert.equal(await choice("暗色").isChecked(), true);
+    await pick("系统");
+    await page.emulateMedia({ colorScheme: "light" });
+    await page.waitForFunction(() => document.documentElement.dataset.theme === "light");
+    assert.deepEqual(t.requests, []);
+    await clean(t);
+  } finally { await t.context.close(); }
+});
+
 test("backup UI works without keys, validates file before import and exports version 2 without secrets", async () => {
   const t = await open("/#/image/settings/backup");
   try {

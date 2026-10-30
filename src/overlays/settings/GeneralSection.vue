@@ -1,10 +1,17 @@
 <script setup lang="ts">
 import { computed } from "vue";
 import { useDrawing } from "../../app/drawing";
+import { themeChoices, useTheme } from "../../app/theme";
+import type { ThemeChoice } from "../../app/theme";
+import { message, useUi } from "../../app/ui";
 import AppIcon from "../../shared/AppIcon.vue";
 import RepoLink from "../../shared/RepoLink.vue";
 const { drawing, view } = useDrawing();
+const theme = useTheme(), ui = useUi();
 const form = computed(() => view.value.form);
+function setTheme(choice: ThemeChoice) {
+  theme.set(choice).catch((error: unknown) => ui.toast(message(error), "err"));
+}
 function change(
   key: "tagSuggest" | "historyLimit" | "editorHistoryLimit",
   event: Event,
@@ -24,6 +31,24 @@ function change(
 <template>
   <section class="sp-sec" aria-label="通用">
     <div class="sp-sec-head"><h3>通用</h3></div>
+    <div class="sp-group s-appearance-group">
+      <div class="s-row s-appearance">
+        <div>
+          <b id="themeLabel">外观</b>
+        </div>
+        <div class="seg s-theme" role="radiogroup" aria-labelledby="themeLabel">
+          <label v-for="(item, key) in themeChoices" :key="key"
+            ><input
+              type="radio"
+              name="theme"
+              :value="key"
+              :checked="theme.choice.value === key"
+              @change="setTheme(key)"
+            /><span>{{ item.label }}</span></label
+          >
+        </div>
+      </div>
+    </div>
     <div class="sp-group">
       <div class="s-row">
         <div>

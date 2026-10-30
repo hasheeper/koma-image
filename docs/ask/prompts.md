@@ -1,6 +1,6 @@
 # ASK 提示词与命名维护
 
-更新：2026-10-29。现行决策以[ASK 维护入口](README.md)为准。用户创作正文保留在源码；文档只说明职责、组装和接口事实，历史调优及验收见[归档](../archive/2026-10-25/README.md)。
+更新：2026-10-30。现行决策以[ASK 维护入口](README.md)为准。用户创作正文保留在源码；文档只说明职责、组装和接口事实，历史调优及验收见[归档](../archive/2026-10-25/README.md)。
 
 ## 文件与版本
 
@@ -9,12 +9,27 @@
 | L0 | `src/ask/prompts/constitution.ts` | 创作搭档身份、工作方式、画风配方与状态／工具原则，附加创作语境独立导出 |
 | L1 | `src/ask/prompts/workspaces.ts` | 工作区、画板、角色、草稿和 UI 事实 |
 | L2 | `src/ask/prompts/models.ts` | 常驻模型核心知识与实战经验 |
-| 专项手册 | `src/ask/prompts/manuals.ts` | nai5-prompting、nai5-comics、oc-costume-design，按需读取 |
+| 专项手册 | `src/ask/prompts/manuals.ts` | 四份按需手册，具体用途见[手册索引](#按需手册索引) |
 | 组装 | `src/ask/prompts/index.ts` | System、个人偏好、版本串和资料边界 |
 | 命名 | `src/ask/prompts/naming.ts` | ASK／画板短标题，独立请求，不加入主 System |
 | 压缩 | `src/ask/prompts/compaction.ts` | 归档边界内的七部分创作交接备忘录，独立队尾指令 |
 
-当前版本串为 `c12.w23.m8.k8`，由实现中的版本自动组装，分别对应 L0、L1、L2 和压缩提示词。命名独立为 `naming-1`。修改源码时同步相应版本与接口说明；文档不另维护完整提示词副本。
+当前版本串为 `c12.w23.m9.k8`，由实现中的版本自动组装，分别对应 L0、L1、L2 和压缩提示词。命名独立为 `naming-1`。修改源码时同步相应版本与接口说明；文档不另维护完整提示词副本。
+
+## 按需手册索引
+
+通过 `get_model_manual({ id })` 读取本地正文，不联网、不写入；正文不常驻 System。`modelManualIds` 从 `manuals` 的键自动生成，同时供类型与工具 Schema 使用；新增手册还需同步 L2 的查阅入口、工具描述与本索引。手册返回版本沿用 `models.version`。
+
+| ID | 何时读取 | 专项范围 |
+| --- | --- | --- |
+| `nai5-prompting` | 写 NAI 词、调整多人互动或排查表达冲突 | 字段混排、权重、文字、预设、施受方向与词义陷阱 |
+| `nai5-comics` | 将分镜写成单页多格提示词 | 逐框可见内容、状态连续性、文字载体、色彩转换与预设冲突 |
+| `oc-costume-design` | OC 换装、服装结构设计或衣物片段转换 | 轮廓层级、材质、穿着关系与术语核验，不内置完整服装词库 |
+| `nai5-reverse` | 照图反推提示词，或仅提取构图、光影、服装等局部 | 区分原文、用户事实与视觉推测；盲推、可见依据与身份边界 |
+
+方法对照 [Miint-Sunny/nai5-prompting v1.2.6](https://github.com/Miint-Sunny/nai5-prompting/tree/7b130f8) 的写法规范、普通插画、漫画、服装与反推资料，按 Koma 实际能力适配，不是上游全部技能的镜像。官网引号自动转 `Text:`、默认开启的预设及逐字段代码块交付不能直接当作 Koma 行为；Koma 仍读取生效状态、使用显式文字段并经草稿确认写入。原文标明的个人工作流、V4.5 经验与 V5 待验证技巧保留证据边界。
+
+L0 统一维护创作范围与原串保护，L1 维护工作台／工具事实，L2 保留日常摘要与手册路由；具体案例只在手册维护。漫画与反推按需引用通用写法，不再复制整套语法；文档只留用途与接口，不复制创作正文。
 
 ## 状态、工具与创作正文
 
@@ -56,4 +71,4 @@ HOME 状态由 `home/ask-context.ts` 生成轻量创作线与定稿索引，`wor
 
 L1 workspaces v23 说明动态 capabilities／effective／input_budget／cost、本地候选检查、EDIT 默认目标、模式与聚焦框、Director 预设、Photopea 写入护栏，以及 edit_handoff／chat_handoff 的不同导航行为。
 
-L2 models v8 明确基础与启用角色共用正负方向预算、Medium 的固定负向、Variety+ 来源限制和费用估算边界；Koma 没有自动双引号提取。动态数值留在状态／工具结果，静态说明只解释稳定规则。表情网格属于创作建议，不能当作接口保证。详细契约见 [NAI 基础感知](nai-awareness.md)与 [ASK × EDIT](edit.md)。
+L2 models v9 明确基础与启用角色共用正负方向预算、Medium 的固定负向、显式 Text: 与四份手册入口；多人字段分工与手册一致，写作经验不当作引擎硬限制。Variety+ 的来源限制与费用估算边界由 L1 和动态能力状态说明。动态数值留在状态／工具结果，静态说明只解释稳定规则。表情网格属于创作建议，不能当作接口保证。详细契约见 [NAI 基础感知](nai-awareness.md)与 [ASK × EDIT](edit.md)。

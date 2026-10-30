@@ -34,6 +34,9 @@ function output(h,source='koma:session'){
 }
 test('Photopea fixed environment contains no autosave/global import script or user image URL',()=>{
  const url=new URL(photopeaUrl('session')),config=JSON.parse(decodeURIComponent(url.hash.slice(1)));assert.equal(url.origin,PHOTOPEA_ORIGIN);assert.equal(config.environment.autosave,undefined);assert.equal(config.script,undefined);assert.equal(config.files,undefined);
+ assert.equal(config.environment.theme,3);
+ const light=JSON.parse(decodeURIComponent(new URL(photopeaUrl('session','light')).hash.slice(1)));
+ assert.equal(light.environment.theme,6);assert.deepEqual({...light.environment,theme:3},config.environment);
 });
 test('Photopea serial staged export, correlated PNGs, explicit Save and cleanup',async t=>{
  const h=harness(t);await open(h);h.event(png());h.event('done');h.reply('save',{koma:'other',source:'koma:session'});assert.equal(h.saves(),0);h.reply('save',{source:'koma:session'});assert.equal(h.saves(),1);

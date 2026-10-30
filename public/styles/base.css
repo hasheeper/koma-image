@@ -35,7 +35,7 @@ kbd {
 
 :focus-visible { outline: 2px solid var(--a); outline-offset: 2px; border-radius: var(--r1); }
 :focus:not(:focus-visible) { outline: none; }
-::selection { background: rgba(179, 161, 255, 0.3); }
+::selection { background: color-mix(in srgb, var(--a) 30%, transparent); }
 
 /* thin, self-effacing scrollbars */
 * { scrollbar-width: thin; scrollbar-color: var(--line-2) transparent; }
@@ -47,4 +47,4 @@ kbd {
   background-clip: content-box;
   border-radius: 99px;
 }
-*::-webkit-scrollbar-thumb:hover { background: #40404c; background-clip: content-box; }
+*::-webkit-scrollbar-thumb:hover { background: var(--scroll-hover); background-clip: content-box; }

@@ -156,7 +156,7 @@ watch(dock, clearDrop);
 .home-shell { position: relative; isolation: isolate; min-height: 100dvh; overflow: clip; }
 .home-shell::before, .home-shell::after { z-index: -1; content: ''; pointer-events: none; }
 /* With pictures the light falls from the top centre of the content column and scrolls away with the first screen; the empty page lights its question instead (HomeHead). */
-.home-shell::before { position: absolute; top: 0; right: var(--home-reserve, 0); left: 0; height: min(1040px, 115vh); background: radial-gradient(ellipse 62% 78% at 50% -6%, rgb(179 161 255 / .094), rgb(179 161 255 / .055) 20%, rgb(179 161 255 / .029) 40%, rgb(179 161 255 / .01) 66%, transparent 90%); transition: opacity var(--t3) var(--e); }
+.home-shell::before { position: absolute; top: 0; right: var(--home-reserve, 0); left: 0; height: min(1040px, 115vh); background: radial-gradient(ellipse 62% 78% at 50% -6%, color-mix(in srgb, var(--ambient-ink) 9.4%, transparent), color-mix(in srgb, var(--ambient-ink) 5.5%, transparent) 20%, color-mix(in srgb, var(--ambient-ink) 2.9%, transparent) 40%, color-mix(in srgb, var(--ambient-ink) 1%, transparent) 66%, transparent 90%); transition: opacity var(--t3) var(--e); }
 .home-shell.is-empty::before { opacity: 0; }
 .home-shell::after { position: fixed; inset: 0; opacity: .03; background: url('./grain.svg') repeat; background-size: 160px 160px; }
 .home-page.is-empty { position: relative; display: grid; grid-template-rows: minmax(48px, 2fr) auto 32px auto minmax(48px, 3fr); padding: 32px 0 36px; }
@@ -236,7 +236,7 @@ watch(dock, clearDrop);
 .stacked .home-other-lines { margin: 10px -6px 0; padding: 6px 6px 4px; overflow-x: auto; scrollbar-width: none; scroll-snap-type: x proximity; }
 .home-layout { flex: none; }
 .home-layout button { display: block; padding: 3px 10px; color: var(--fg-3); font-size: var(--fz-xs); border-radius: var(--r1); transition: background var(--t1) var(--e), color var(--t1) var(--e); }
-.home-layout [aria-pressed="true"] { color: var(--fg); background: var(--raised); box-shadow: var(--sh-1); }
+.home-layout [aria-pressed="true"] { color: var(--nav-active-ink); background: var(--nav-active-bg); box-shadow: var(--sh-1); }
 .home-finals { position: relative; }
 .home-print { position: absolute; border-radius: var(--r2); box-shadow: var(--print-shadow); }
 .home-print > img { display: block; width: 100%; height: 100%; object-fit: contain; background: var(--image-checker); border-radius: inherit; }

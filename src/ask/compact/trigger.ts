@@ -2,7 +2,7 @@ import type { AskUsage, AskMessage } from "../messages.ts";
 import type { TurnId } from "./ledger.ts";
 import { estimateRequest } from "../session.ts";
 
-export const DEFAULT_HIGH_WATER = 64_000;
+export const DEFAULT_HIGH_WATER = 220_000;
 export const highWater = (value?: unknown) => typeof value === "number" && Number.isSafeInteger(value) && value > 0 ? value : DEFAULT_HIGH_WATER;
 /** Normalized input already includes Anthropic cache read/creation counts. */
 export const validInputTokens = (usage: AskUsage | null) => usage && Number.isFinite(usage.input) && usage.input > 0 ? usage.input : null;

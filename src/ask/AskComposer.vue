@@ -20,15 +20,20 @@ function files(event: Event) {
 const capsule = computed(() => ask.anchor.value);
 const limited = computed(() => !ask.settings.value.images);
 const paused = computed(() => !!ask.settings.value.preference && ask.preferencePaused.value);
+const compactTokens = new Intl.NumberFormat("en-US", { notation: "compact", maximumFractionDigits: 1 });
 const contextMeter = computed(() => {
-  const tokens = ask.estimate.value, limit = ask.settings.value.compaction.highWaterTokens;
-  const known = ask.ready.value === "ok" && tokens > 0;
+  const breakdown = ask.contextTokens.value, tokens = breakdown?.total ?? 0, limit = ask.settings.value.compaction.highWaterTokens;
+  const known = ask.ready.value === "ok" && breakdown !== null;
   const tokensLabel = tokens.toLocaleString('zh-CN'), limitLabel = limit.toLocaleString('zh-CN');
   const percent = Math.round(tokens / limit * 100);
+  const parts = ([['system', '系统提示词'], ['tools', '工具定义'], ['messages', '对话消息']] as const).map(([key, name]) => {
+    const value = breakdown?.[key] ?? 0;
+    return { key, name, value, label: compactTokens.format(value), width: value / Math.max(tokens, limit) * 100 };
+  });
   const label = known
     ? `上下文约 ${tokensLabel} tokens\n压缩阈值 ${limitLabel} tokens · ${percent}%`
     : "上下文尚未估算";
-  return { known, label, limit, tokensLabel, limitLabel, percent, value: Math.min(tokens, limit), fill: known ? Math.min(100, tokens / limit * 100) : 0 };
+  return { known, label, limit, parts, totalLabel: `~${compactTokens.format(tokens)}`, limitLabel: compactTokens.format(limit), percent, value: Math.min(tokens, limit), fill: known ? Math.min(100, tokens / limit * 100) : 0 };
 });
 const contextDetails = shallowRef(false);
 let removeContextLayer = () => {};
@@ -159,9 +164,17 @@ defineExpose({
             </svg>
             <span v-if="contextDetails" id="askContextTip" class="ask-context-tip" role="tooltip" :aria-label="contextMeter.label">
               <template v-if="contextMeter.known">
-                <span class="ask-context-head"><span class="ask-context-label">上下文 · 估算</span><span class="ask-context-percent">{{ contextMeter.percent }}%</span></span>
-                <span class="ask-context-bar" aria-hidden="true"><span :style="{ width: `${contextMeter.fill}%` }"></span></span>
-                <span class="ask-context-foot"><span class="ask-context-numbers">{{ contextMeter.tokensLabel }} / {{ contextMeter.limitLabel }}</span><span class="ask-context-caption">压缩阈值</span></span>
+                <span class="ask-context-head">
+                  <span class="ask-context-label">上下文</span>
+                  <span class="ask-context-numbers">{{ contextMeter.totalLabel }}<span class="ask-context-percent">{{ contextMeter.percent }}%</span></span>
+                </span>
+                <span class="ask-context-bar" aria-hidden="true"><span v-for="part in contextMeter.parts" :key="part.key" :class="`ask-context-${part.key}`" :style="{ width: `${part.width}%` }"></span></span>
+                <span class="ask-context-breakdown">
+                  <span v-for="part in contextMeter.parts" :key="part.key" class="ask-context-row" :class="`ask-context-${part.key}`">
+                    <span class="ask-context-swatch" aria-hidden="true"></span><span>{{ part.name }}</span><span class="ask-context-amount" :aria-label="`约 ${part.value.toLocaleString('zh-CN')} tokens`">{{ part.label }}</span>
+                  </span>
+                </span>
+                <span class="ask-context-caption">估算 · 压缩阈值 <span>{{ contextMeter.limitLabel }}</span></span>
               </template>
               <span v-else class="ask-context-label">上下文尚未估算</span>
             </span>
@@ -181,8 +194,8 @@ defineExpose({
 .ask-references small { margin-left:auto; color:var(--fg-3); font:var(--fw-regular) 11px/1 var(--mono); }
 .ask-inline-target { padding: 0 10px 6px; color: var(--fg-3); font-size: var(--fz-xs); }
 .ask-dock { position: relative; display: flex; flex-direction: column; gap: var(--sp-2); }
-.ask-composer { padding: 14px 6px 10px 12px; background: var(--ask-layer, var(--raised)); border: 1px solid var(--line-2); border-radius: 14px; }
-.ask-composer.joined { padding-top: 12px; background: transparent; border: 0; border-top: 1px solid var(--line); border-radius: 0 0 14px 14px; }
+.ask-composer { padding: 14px 6px 10px 12px; background: var(--ask-layer, var(--raised)); border: 1px solid var(--line-2); border-radius: 14px; box-shadow: var(--card-shadow); }
+.ask-composer.joined { padding-top: 12px; background: transparent; border: 0; border-top: 1px solid var(--line); border-radius: 0 0 14px 14px; box-shadow: none; }
 .ask-composer textarea { display: block; width: 100%; min-height: 26px; max-height: 30dvh; padding: 0 2px 2px; color: var(--fg); font: var(--fw-regular) 13px/1.6 var(--sans); background: transparent; border: 0; box-shadow: none; resize: none; }
 .ask-composer textarea:focus { outline: none; box-shadow: none; }
 .ask-composer textarea::placeholder { color: var(--fg-3); }
@@ -207,16 +220,23 @@ defineExpose({
 .ask-context-track { opacity: .28; }
 .ask-context:hover { color: var(--fg); }
 .ask-context:focus-visible { color: var(--fg-2); outline: 1px solid var(--a); outline-offset: 1px; }
-.ask-context-tip { position: absolute; right: -4px; bottom: calc(100% + 8px); z-index: 5; box-sizing: border-box; width: 176px; max-width: calc(100vw - 64px); padding: 8px 10px 7px; color: var(--fg-2); font: var(--fw-regular) 12px/16px var(--sans); font-variant-numeric: tabular-nums; text-align: left; background: var(--raised); border: 1px solid var(--line-2); border-radius: 8px; box-shadow: 0 8px 24px rgba(0, 0, 0, .35), 0 1px 2px rgba(0, 0, 0, .3); animation: ask-context-in .12s ease-out; }
-.ask-context-tip::after { position: absolute; right: 0; bottom: -9px; left: 0; height: 9px; content: ""; }
-.ask-context-head, .ask-context-foot { display: flex; align-items: baseline; justify-content: space-between; gap: 12px; }
-.ask-context-label { color: var(--fg-3); }
-.ask-context-percent { color: var(--fg); font: var(--fw-medium) 13px/1 var(--mono); }
-.ask-context-bar { display: block; height: 2px; margin: 5px 0 4px; overflow: hidden; background: color-mix(in srgb, var(--fg-4) 35%, transparent); border-radius: 1px; }
-.ask-context-bar > span { display: block; height: 100%; background: var(--fg-2); border-radius: inherit; }
-.ask-context-foot { flex-wrap: wrap; gap: 4px 8px; font-size: 11px; line-height: 14px; }
-.ask-context-numbers { min-width: 0; font-family: var(--mono); overflow-wrap: anywhere; }
-.ask-context-caption { color: var(--fg-4); white-space: nowrap; }
+.ask-context-tip { position: absolute; right: -4px; bottom: calc(100% + 6px); z-index: 5; box-sizing: border-box; width: 200px; max-width: calc(100vw - 64px); padding: 10px 12px; color: var(--fg-2); font: var(--fw-regular) 12px/16px var(--sans); font-variant-numeric: tabular-nums; text-align: left; background: color-mix(in srgb, var(--sunken) 88%, transparent); border: 1px solid var(--line-2); border-radius: var(--r3); box-shadow: var(--sh-2); backdrop-filter: blur(16px); animation: ask-context-in .12s ease-out; }
+.ask-context-tip::after { position: absolute; right: 0; bottom: -7px; left: 0; height: 7px; content: ""; }
+.ask-context-head { display: flex; flex-wrap: wrap; align-items: baseline; justify-content: space-between; gap: 4px 8px; }
+.ask-context-label { color: var(--fg-2); }
+.ask-context-numbers { display: inline-flex; align-items: baseline; gap: 9px; color: var(--fg); font: var(--fw-medium) 12px/16px var(--mono); white-space: nowrap; }
+.ask-context-percent { color: var(--a); font: var(--fw-regular) 11px/16px var(--mono); }
+.ask-context-bar { display: flex; height: 3px; margin: 6px 0 7px; overflow: hidden; background: var(--line); border-radius: 2px; }
+.ask-context-bar > span { flex: none; height: 100%; background: var(--context-color); }
+.ask-context-system { --context-color: color-mix(in srgb, var(--a) 35%, transparent); }
+.ask-context-tools { --context-color: color-mix(in srgb, var(--a) 65%, transparent); }
+.ask-context-messages { --context-color: var(--a); }
+.ask-context-breakdown { display: grid; gap: 1px; }
+.ask-context-row { display: grid; grid-template-columns: 5px 1fr auto; align-items: center; gap: 6px; }
+.ask-context-swatch { width: 5px; height: 5px; background: var(--context-color); border-radius: 50%; }
+.ask-context-amount { color: var(--fg-2); font: var(--fw-regular) 11px/16px var(--mono); }
+.ask-context-caption { display: block; margin-top: 7px; color: var(--fg-3); font-size: 10px; line-height: 14px; }
+.ask-context-caption > span { font-family: var(--mono); }
 @keyframes ask-context-in { from { opacity: 0; transform: translateY(2px); } to { opacity: 1; transform: none; } }
 @media (prefers-reduced-motion: reduce) { .ask-context-tip { animation: none; } }
 @media (max-width: 860px) {

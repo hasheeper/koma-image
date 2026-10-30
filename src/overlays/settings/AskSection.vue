@@ -449,7 +449,7 @@ async function removeReplacement(rule: Replacement) {
 .ask-picks button b { flex: 1; min-width: 0; overflow: hidden; font-weight: var(--fw-regular); text-overflow: ellipsis; white-space: nowrap; }
 .ask-current { --ico: var(--ico-sm); flex: none; color: var(--a); }
 .ask-limit { position: relative; width: 128px; }
-.ask-limit input { height: 32px; padding: 0 44px 0 10px; color: var(--fg); text-align: right; box-shadow: inset 0 1px 2px rgba(0, 0, 0, 0.28); }
+.ask-limit input { height: 32px; padding: 0 44px 0 10px; color: var(--fg); text-align: right; box-shadow: inset 0 1px 2px rgb(var(--shadow-rgb) / calc(0.28 * var(--shadow-strength))); }
 .ask-limit input:focus { box-shadow: var(--ring); }
 .ask-limit > span { position: absolute; top: 50%; right: 10px; translate: 0 -50%; font-size: var(--fz-xs); color: var(--fg-4); pointer-events: none; }
 .ask-limit-wide input { padding-right: 56px; }
@@ -457,7 +457,7 @@ async function removeReplacement(rule: Replacement) {
 .ask-pref { position: relative; }
 .ask-pref textarea {
   display: block; min-height: 112px; padding: 14px 14px 32px; font-size: var(--fz-sm); line-height: 1.65;
-  background: var(--well-focus); border-radius: var(--r3); box-shadow: inset 0 1px 3px rgba(0, 0, 0, 0.35); resize: none;
+  background: var(--well-focus); border-radius: var(--r3); box-shadow: inset 0 1px 3px rgb(var(--shadow-rgb) / calc(0.35 * var(--shadow-strength))); resize: none;
 }
 .ask-pref textarea:focus { box-shadow: var(--ring); }
 .ask-pref small { position: absolute; right: 14px; bottom: 12px; font: var(--fz-2xs)/1 var(--mono); color: var(--fg-4); pointer-events: none; }

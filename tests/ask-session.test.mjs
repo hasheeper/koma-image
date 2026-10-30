@@ -1,6 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { approxTokens, createSession, estimateRequest, LIMITS } from "../src/ask/session.ts";
+import { approxTokens, createSession, estimateRequest, estimateRequestBreakdown, LIMITS } from "../src/ask/session.ts";
 import { run } from "../src/ask/runner.ts";
 import { createTools } from "../src/ask/tools.ts";
 import { ProviderError } from "../src/ask/messages.ts";
@@ -245,12 +245,24 @@ test("budget: local token estimate counts wide characters, tools, results and im
   assert.equal(approxTokens("abcd"), 1);
   assert.equal(approxTokens("红眼睛"), 3);
   const base = estimateRequest({ tools: [], system: ["", ""], messages: [user("x")] });
-  const more = estimateRequest({
+  const request = {
     tools: [{ name: "a", description: "b", schema: {} }],
     system: ["规则", ""],
     messages: [user("x"), { role: "assistant", content: [{ type: "call", id: "1", name: "a", input: { q: "w" } }] }, { role: "user", content: [{ type: "result", id: "1", content: [{ type: "image", mime: "image/webp", data: "" }] }] }],
-  });
-  assert.ok(more > base + 1000);
+  };
+  const parts = estimateRequestBreakdown(request);
+  assert.ok(parts.total > base + 1000);
+  assert.equal(parts.total, estimateRequest(request));
+  assert.equal(parts.total, parts.system + parts.tools + parts.messages);
+  const withoutMessages = estimateRequestBreakdown({ ...request, messages: [] });
+  assert.equal(withoutMessages.messages, 0);
+  assert.equal(withoutMessages.system, parts.system);
+  assert.equal(withoutMessages.tools, parts.tools);
+  assert.ok(parts.messages > 1000, 'tool calls/results and image estimates belong to messages');
+  const changedSystem = estimateRequestBreakdown({ ...request, system: ['新增系统提示词'.repeat(100), ''] });
+  assert.ok(changedSystem.system > parts.system);
+  assert.equal(changedSystem.tools, parts.tools);
+  assert.equal(changedSystem.messages, parts.messages);
   assert.deepEqual(LIMITS.vision, { calls: 4, pixels: 1_500_000, bytes: 400_000 });
 });
 

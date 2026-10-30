@@ -38,6 +38,8 @@ npm start
 
 `skills/koma-bridge/SKILL.md` 是外部 Agent 可直接读取的公开说明。Pages 使用 `dist/_headers` 将该路径按 UTF-8 纯文本内联返回；其他静态托管需配置对应响应类型，本地 Node 服务已按纯文本提供。它不包含本机协同目录的状态或图片，也不提供远程文件读写权限。
 
+默认暗色外观，顶栏和通用设置可切换暗色／系统／亮色；只在用户选择系统时跟随系统，已保存的外观继续生效。Photopea 新实例随当前外观选择 White／Dark Blue，保活分层文档不因切换外观重建。
+
 静态版不读取服务端环境变量，不主动探测代理。用户必须在设置中配置连接和 Key，网关需要支持跨域访问。`chat.html`、`tags.html`、`transfer.html` 仅作导航重定向。
 
 HOME、独立 EDIT、六项 Director Tools 与本地任务均随静态站发布。Director Tools 仍需用户配置 NovelAI 官方连接；线上部署不构成真实生成或计费验证。NAI token 计数所需的 `tokenizers/` 词表与许可必须随 `dist/` 一并上传，不向外部分词服务发送提示词。

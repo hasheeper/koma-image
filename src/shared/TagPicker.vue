@@ -293,8 +293,8 @@ function fullDictionary() {
 body[data-picker="open"] #pickerSheet { opacity: 1; }
 body[data-picker="open"] .picker-card { transform: none; }
 .picker-card {
-  --well: #19191c;
-  --well-focus: #17171a;
+  --well: var(--well-raised);
+  --well-focus: var(--well-raised-focus);
   display: grid;
   grid-template-rows: auto auto auto auto minmax(0, 1fr) auto;
   gap: var(--sp-3);

@@ -47,10 +47,10 @@ onDeactivated(stop); onBeforeUnmount(stop);
 .mc-pad { position: relative; width: min(100%, calc(168px * var(--ratio))); aspect-ratio: var(--ratio); background: var(--well); border: 1px solid var(--line); border-radius: var(--r2); touch-action: none; --guide: var(--line-2); background-image: linear-gradient(to right, transparent calc(50% - .5px), var(--guide) 0 calc(50% + .5px), transparent 0), linear-gradient(to bottom, transparent calc(50% - .5px), var(--guide) 0 calc(50% + .5px), transparent 0); }
 .mc-pad[data-grid="true"] { background-image: linear-gradient(to right, var(--guide) 1px, transparent 1px), linear-gradient(to bottom, var(--guide) 1px, transparent 1px); background-size: 20% 100%, 100% 20%; background-position: -1px 0, 0 -1px; }
 .mc-pad-mode { position: absolute; left: 7px; bottom: 4px; color: var(--fg-4); font-size: 10px; pointer-events: none; }
-.mc-dot { position: absolute; z-index: 1; display: grid; place-items: center; width: 22px; height: 22px; translate: -50% -50%; font: var(--fw-semibold) 11px/1 var(--mono); color: var(--fg); background: rgb(22 22 26 / 92%); border: 1.5px solid var(--fg-3); border-radius: 50%; cursor: grab; touch-action: none; transition: background var(--t1) var(--e), border-color var(--t1) var(--e); }
+.mc-dot { position: absolute; z-index: 1; display: grid; place-items: center; width: 22px; height: 22px; translate: -50% -50%; font: var(--fw-semibold) 11px/1 var(--mono); color: var(--fg); background: var(--character-dot); border: 1.5px solid var(--fg-3); border-radius: 50%; cursor: grab; touch-action: none; transition: background var(--t1) var(--e), border-color var(--t1) var(--e); }
 .mc-dot:active { cursor: grabbing; }
 .mc-dot[data-on] { color: var(--a-ink); background: var(--a); border-color: var(--a); }
 .mc-pad-stage { width: 100%; height: 100%; aspect-ratio: auto; background-color: transparent; border: 0; --guide: rgb(255 255 255 / 16%); }
-.mc-dot-lg { width: 32px; height: 32px; font-size: 13px; border-width: 2px; box-shadow: 0 2px 8px rgb(0 0 0 / 50%); }
+.mc-dot-lg { width: 32px; height: 32px; font-size: 13px; border-width: 2px; box-shadow: 0 2px 8px rgb(var(--shadow-rgb) / calc(.5 * var(--shadow-strength))); }
 @media (pointer: coarse) { .mc-dot::before { content: ""; position: absolute; inset: -11px; } }
 </style>
