@@ -153,7 +153,7 @@ watch(dock, clearDrop);
   </div>
 </template>
 <style scoped>
-.home-shell { position: relative; isolation: isolate; min-height: 100dvh; overflow: clip; }
+.home-shell { position: relative; isolation: isolate; min-height: 100dvh; overflow: clip; background: var(--page-bg); }
 .home-shell::before, .home-shell::after { z-index: -1; content: ''; pointer-events: none; }
 /* With pictures the light falls from the top centre of the content column and scrolls away with the first screen; the empty page lights its question instead (HomeHead). */
 .home-shell::before { position: absolute; top: 0; right: var(--home-reserve, 0); left: 0; height: min(1040px, 115vh); background: radial-gradient(ellipse 62% 78% at 50% -6%, color-mix(in srgb, var(--ambient-ink) 9.4%, transparent), color-mix(in srgb, var(--ambient-ink) 5.5%, transparent) 20%, color-mix(in srgb, var(--ambient-ink) 2.9%, transparent) 40%, color-mix(in srgb, var(--ambient-ink) 1%, transparent) 66%, transparent 90%); transition: opacity var(--t3) var(--e); }

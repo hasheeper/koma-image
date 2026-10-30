@@ -751,20 +751,19 @@ button.w-seg:hover { background: var(--ghost-hover); }
 /* The whole picture, letterboxed. `cover` filled the square but cropped the
    composition — on a portrait result that meant losing the top and bottom of
    the very thing being judged. `contain` keeps the grid uniform AND the frame
-   intact; the unused area is the tile's own dark backing. */
+   intact; the unused area uses the tile's theme-aware backing. */
 .tile img {
   position: absolute; inset: 0; margin: auto; display: block;
   width: min(100%, calc(100% * var(--image-ratio, 1)));
   height: min(100%, calc(100% / var(--image-ratio, 1)));
   object-fit: contain; background: var(--image-checker);
 }
-/* The letterbox bars carry a dim, blurred copy of the same picture, so a
-   portrait in a square tile sits in its own colour instead of two black slabs. */
+/* The blurred backing is dim in dark mode and a faint colour wash in light mode. */
 .tile:not(.tile-pending)::before {
   content: "";
   position: absolute; inset: -12px;
   background: var(--thumb, none) center / cover no-repeat;
-  filter: blur(10px) brightness(0.45) saturate(1.15);
+  filter: blur(10px) var(--thumb-backdrop-filter);
 }
 .tile:hover { transform: translateY(-1px); box-shadow: 0 0 0 1px var(--line-2), 0 6px 14px -4px rgb(var(--shadow-rgb) / calc(0.6 * var(--shadow-strength))); }
 .tile[aria-current="true"] { box-shadow: 0 0 0 1.5px var(--a); }

@@ -26,6 +26,7 @@ fonts/index.css
 | --- | --- |
 | 表面、文字、分隔、状态 | `--canvas/chrome/sunken/raised/hover`、`--fg*`、`--line*`、`--a*`、`--ok/warn/err` |
 | 图片舞台与环境柔光 | `--stage`、`--stage-wash`、`--ambient-ink`；舞台底色独立于页面 `--canvas`，亮色不保留大面积紫色柔光 |
+| HOME／CHAT 底板与缩略图衬底 | `--page-bg` 管首页与对话阅读区，亮色为稍浅的 `#f8f8fb`；`--thumb-backdrop-filter` 管缩略图留白处的模糊图像，亮色低饱和、18% 不透明度，暗色沿用原有压暗效果；不作用于原图 |
 | 输入与分段控件 | `--well*`、`--field-line/hover`、`--field-shadow` 管输入，弹窗、导入卡、小编辑器和尺寸面板内的输入用 `--panel-well`；分段内槽用 `--seg-bg/line/shadow`（`.seg`、图片分类和底部标签共用），未选中字色 `--seg-ink`，选中用 `--seg-active-*`（含 `--seg-active-weight`）／`--seg-quiet-shadow`；画幅方向、比例及尺寸分组分别用 `--choice-*`（含 `--choice-active-shadow`）、`--ratio-*`（含 `--ratio-active-shadow`）、`--size-panel-bg`。亮色为浅灰内槽加白色滑块，方向与比例为淡紫底加 1.5px 紫边；`--seg-hover-bg` 管灰色悬停 |
 | 导航状态与悬停 | `--nav-active-bg/ink/shadow` 管导航选中，亮色为白色凸起、紫字；`--hover`、`--ghost-hover`、`--tab-hover-bg` 管灰色悬停，选中态不由悬停覆盖 |
 | 外观选择器 | `--appearance-bg/selected-bg/selected-shadow`；紧凑三等分、浅色白色浮片、深色亮一级浮片，中性选中文字；专用材质不改变其他分段控件 |
@@ -40,7 +41,7 @@ fonts/index.css
 
 组件继续负责布局、局部阴影几何、渐变方向与透明度；共享颜色取变量，需要半透明时用 `color-mix()`，不在组件中重复色值。`--surface-tint` 是随主题变化的表面叠色，`--specular` 是固定白色高光，二者不能混用。提示词权重解析只计算强度，生成的高亮样式引用 `--weight-*`，换配色不重算词文。
 
-亮色强调色与玻璃材质参考 [AgIzT/NovelAI-Tag 的 tokens.css](https://github.com/AgIzT/NovelAI-Tag/blob/569ed7199e1df2e78d69085000ffff2644db4f9a/site/assets/tokens.css)及[控件状态](https://github.com/AgIzT/NovelAI-Tag/blob/569ed7199e1df2e78d69085000ffff2644db4f9a/site/assets/ui-kit.css)，以已核对的提交 `569ed71` 为准。底板按用户给定的明度层级并按反馈提亮：页面与图片舞台 `#f4f4f8`，侧栏、顶栏与历史栏 `#f9f9fb`，控件、卡片、额度条、输入和浮窗为白色；悬停 `#efeff4`；分隔与边界为半透明冷灰 `rgb(30 32 72 / .05)`、`.07`，在灰底和白底上读数一致；分段内槽 `#e9eaf2`。主文及操作标签用 `#232a3c`，分段未选中 `#6b7184`，弱色 `#878da3` 只给占位、附注或装饰；强调色 `#6f5cf2`、浅选中底 `#ece9fe`。中性底板和画幅填充状态是 Koma 的适配，不宣称来自参考仓库；不引入该项目依赖、字体、布局或业务脚本。
+亮色强调色与玻璃材质参考 [AgIzT/NovelAI-Tag 的 tokens.css](https://github.com/AgIzT/NovelAI-Tag/blob/569ed7199e1df2e78d69085000ffff2644db4f9a/site/assets/tokens.css)及[控件状态](https://github.com/AgIzT/NovelAI-Tag/blob/569ed7199e1df2e78d69085000ffff2644db4f9a/site/assets/ui-kit.css)，以已核对的提交 `569ed71` 为准。底板按用户给定的明度层级并按反馈提亮：图片舞台与通用页面底 `#f4f4f8`，HOME／CHAT 阅读区 `#f8f8fb`，侧栏、顶栏与历史栏 `#f9f9fb`，控件、卡片、额度条、输入和浮窗为白色；悬停 `#efeff4`；分隔与边界为半透明冷灰 `rgb(30 32 72 / .05)`、`.07`，在灰底和白底上读数一致；分段内槽 `#e9eaf2`。主文及操作标签用 `#232a3c`，分段未选中 `#6b7184`，弱色 `#878da3` 只给占位、附注或装饰；强调色 `#6f5cf2`、浅选中底 `#ece9fe`。中性底板和画幅填充状态是 Koma 的适配，不宣称来自参考仓库；不引入该项目依赖、字体、布局或业务脚本。
 
 Koma 字标在亮色中为纯墨蓝，方块保留品牌紫，形状与字体不变。HOME 五格图形使用内联 SVG 消费主题变量，亮色为淡紫后层、白色前层，暗色保持原值。生成主按钮为紫底白字及淡紫投影；结果栏下载用实心紫白字，不加光晕。分段（含角色自动／手动与草稿分段）为浅灰内槽加白色凸起滑块，选中深色中粗字、未选中弱灰字；画幅方向卡与比例选中为 7% 淡紫底、1.5px 紫边和紫字，比例不用下划线；菜单选中为浅紫底。尺寸输入与所在分组均为白色；ASK 建议卡、输入框和设置卡片沿用同一层次。边界保持极淡，卡片与输入投影向下柔和扩散，不形成硬底边，键盘焦点仍有清晰提示。设置导航、图片历史／收藏、底部标签及 HOME 排列选中为白色凸起、紫字；历史栏空槽为半透明白；未选中控件保留灰度悬停反馈。共享表面阴影收敛为低透明度中性双层投影，避免边缘出现厚重灰晕。ASK 浮窗与菜单采用参考菜单的 93% 白色和 18px 磨砂，ASK 不增饱和；HOME 停靠和手机全屏仍用实色。Koma 常驻面板为 `--chrome` 浅灰实色，不移植参考站点 74% 白色的悬浮侧栏布局。环境紫色柔光关闭，亮色不反转原图，也不靠整体滤镜转换暗色。
 

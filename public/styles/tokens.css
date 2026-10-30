@@ -44,7 +44,9 @@
   --raised: #1e1e24;   /* cards, drawers, sheets, tooltips */
   --hover:  #24242c;   /* pointer feedback on raised things */
   --stage: var(--canvas); /* image mat, independent of page and reading surfaces */
+  --page-bg: var(--canvas); /* HOME and CHAT reading surfaces */
   --stage-wash: #fff;
+  --thumb-backdrop-filter: brightness(.45) saturate(1.15);
   --checker-a: #303036;
   --checker-b: #25252b;
   --image-checker: repeating-conic-gradient(var(--checker-a) 0% 25%, var(--checker-b) 0% 50%) 0 0 / 16px 16px;
@@ -362,7 +364,9 @@
      surfaces, which lift with a hairline edge and a faint shadow. */
   --canvas: #f4f4f8;
   --stage: var(--canvas);
+  --page-bg: #f8f8fb;
   --stage-wash: transparent;
+  --thumb-backdrop-filter: saturate(.6) opacity(.18);
   --chrome: #f9f9fb;
   --settings-bg: #f7f7fa;
   --sunken: #fff;

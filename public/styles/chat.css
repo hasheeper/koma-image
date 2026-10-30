@@ -96,7 +96,7 @@
   .conversation-busy { animation: none; }
   .chat-layout { transition: none; }
 }
-.chat-workspace { display: flex; flex-direction: column; min-height: 0; position: relative; background: var(--canvas); }
+.chat-workspace { display: flex; flex-direction: column; min-height: 0; position: relative; background: var(--page-bg); }
 .chat-scroll { flex: 1; min-height: 0; overflow-y: auto; overflow-x: hidden; overscroll-behavior: contain; scroll-padding: 24px; }
 /* A new conversation opens with the mark and wordmark alone, a size above
    the drawing page's: the placeholder already asks, the starters under the
@@ -137,7 +137,7 @@
 .turn-rail { position: relative; grid-column: 1; grid-row: 2; }
 .turn-rail::after { content: ""; position: absolute; top: 34px; bottom: -40px; left: 13.5px; width: 1px; background: var(--line-2); pointer-events: none; }
 .chat-turn:last-child .turn-rail::after { display: none; }
-.turn-number { position: relative; display: grid; place-items: center; width: 28px; height: 28px; font-size: var(--fz-xs); font-weight: var(--fw-bold); color: var(--fg-3); background: var(--raised); border-radius: 50%; box-shadow: 0 0 0 1px var(--line-2), 0 -5px 0 3px var(--canvas); }
+.turn-number { position: relative; display: grid; place-items: center; width: 28px; height: 28px; font-size: var(--fz-xs); font-weight: var(--fw-bold); color: var(--fg-3); background: var(--raised); border-radius: 50%; box-shadow: 0 0 0 1px var(--line-2), 0 -5px 0 3px var(--page-bg); }
 .chat-turn[data-base] .turn-number { color: var(--a-ink); background: var(--a); box-shadow: 0 0 0 4px var(--a-dim); }
 .chat-turn[data-pending] .turn-number { color: var(--a); background: var(--chrome); box-shadow: 0 0 0 1.5px var(--a), 0 0 0 5px var(--a-dim); }
 .msg { min-width: 0; }
@@ -146,9 +146,9 @@
 .msg-bubble:focus-visible { outline: 2px solid var(--a); outline-offset: 3px; }
 .chat-turn[data-older] .msg-bubble { padding: 8px 14px; color: var(--fg-2); font-size: var(--fz-sm); }
 .turn-references { display: flex; flex-wrap: wrap; justify-content: flex-end; gap: 4px 0; padding: 3px; }
-.turn-references button { flex: none; position: relative; width: 40px; height: 40px; overflow: hidden; border-radius: 10px; background: var(--well); box-shadow: 0 0 0 2px var(--canvas); }
+.turn-references button { flex: none; position: relative; width: 40px; height: 40px; overflow: hidden; border-radius: 10px; background: var(--well); box-shadow: 0 0 0 2px var(--page-bg); }
 .turn-references button + button { margin-left: -10px; }
-.turn-references button[data-slot="base"] { box-shadow: 0 0 0 2px var(--canvas), 0 0 0 3.5px var(--a); }
+.turn-references button[data-slot="base"] { box-shadow: 0 0 0 2px var(--page-bg), 0 0 0 3.5px var(--a); }
 .turn-references button:hover, .turn-references button:focus-visible { z-index: 1; }
 .turn-references img { display: block; width: 100%; height: 100%; object-fit: cover; }
 .chat-turn[data-older] .turn-references button { width: 30px; height: 30px; border-radius: 8px; }
