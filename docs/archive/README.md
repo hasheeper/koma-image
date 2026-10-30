@@ -1,6 +1,6 @@
 # 历史文档索引
 
-更新：2026-10-29。这里只保存当时的方案、设计确认与验收证据。现行行为从[文档索引](../README.md)进入；历史的测试数量、供应商结果、发布记录和授权只适用于其注明范围。公开前匿名化历史作者邮箱后，文内提交号同步映射到对应新提交；过程和验收事实保持原意。
+更新：2026-10-30。这里只保存当时的方案、设计确认与验收证据。现行行为从[文档索引](../README.md)进入；历史的测试数量、供应商结果、发布记录和授权只适用于其注明范围。公开前匿名化历史作者邮箱后，文内提交号同步映射到对应新提交；过程和验收事实保持原意。
 
 ## 目录与早期基线
 
@@ -70,3 +70,4 @@
 | 10-28 | [HOME／EDIT／NAI 发布核验](releases/2026-10-28-home-edit-nai-release-verification.md) |
 | 10-29 | [图片身份与 HOME 空状态发布核验](releases/2026-10-29-image-identity-home-release-verification.md) |
 | 10-29 | [ASK／EDIT 发布与公开前核验](releases/2026-10-29-ask-edit-public-release-verification.md)：凭据与历史邮箱、单一 main 分支、Git／Pages 证据 |
+| 10-30 | [外观与工作区发布核验](releases/2026-10-30-appearance-workspace-release.md)：默认暗色、主题菜单、手机 EDIT、ASK 任务与上下文统计、脱敏及线上产物 |
