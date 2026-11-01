@@ -12,7 +12,8 @@ import type { Drawing } from "../../services/drawing.ts";
 import type { Chat } from "../../services/chat.ts";
 import type { AppRouter } from "../../app/router.ts";
 import type { DrawingBoard, DrawingForm } from "../../domain/drawing.ts";
-import { imageFileName } from "../../domain/drawing.ts";
+import { imageFileName, boardForm } from "../../domain/drawing.ts";
+import { syncComfyParameters } from "../../domain/comfy-parameters.ts";
 import type { DraftPlan, Field } from "./types.ts";
 
 const labels: Partial<Record<Field, string>> = { prompt: "Prompt", negative: "Negative", composer: "对话输入框", model: "模型", width: "尺寸", height: "尺寸", seed: "Seed", steps: "步数", scale: "Guidance", cfg: "中转 CFG（旧）", cfgRescale: "Guidance Rescale", varietyPlus: "Variety+", naiMode: "模式", complexity: "Complexity", qualityPreset: "质量预设", negativePreset: "负向预设", transparentBg: "透明底", sampler: "采样器", batchCount: "张数", characters: "角色组", placement: "角色定位" };
@@ -42,6 +43,11 @@ export function createDraftWriter(drawing: Drawing, chat: Chat, router: AppRoute
     if (plan.workspace === "chat" && current.id !== plan.conversationId) return "对话已切换";
     if (plan.branch) return chatDraftKey(current) === (receipt ?? (side === "before" ? plan.branch.key : "")) ? "" : "对话分支已变化";
     if (plan.workspace === "image" && plan.boardId && !boards.has(plan.boardId)) return "来源画板已删除";
+    if (plan.comfyContext) {
+      for (const [id, revision] of Object.entries(plan.comfyContext.revisions)) if (!revision || drawing.workflowRevision(id) !== revision) return "工作流配置已变化，请重新提议";
+      const form = plan.createdBoard && side === "after" ? boards.get(plan.createdBoard.id)?.form : plan.boardId ? boards.get(plan.boardId)?.form : fallback;
+      if (form && form.model !== plan.comfyContext[side === "before" ? "beforeModel" : "afterModel"]) return "画板工作流已切换";
+    }
     if (plan.createdBoard) {
       const b = boards.get(plan.createdBoard.id);
       return side === "before" ? b ? "目标画板已存在" : "" : !b ? "新画板已删除" : !sameValue(b.form, plan.createdBoard.form) ? "新画板已继续编辑" : "";
@@ -163,7 +169,12 @@ export function createDraftWriter(drawing: Drawing, chat: Chat, router: AppRoute
           }
           else if (plan.branch) { Object.assign(current, plan.branch.before); current.selectionRevision++; }
           else if (plan.createdBoard) boards.delete(plan.createdBoard.id);
-          else if (plan.workspace === "image") Object.assign(plan.boardId ? boards.get(plan.boardId)!.form : form, Object.fromEntries(plan.changes.map(c => [c.field, structuredClone(c.before)])));
+          else if (plan.workspace === "image") {
+            const target = plan.boardId ? boards.get(plan.boardId)!.form : form;
+            const values = Object.fromEntries(plan.changes.map(c => [c.field, structuredClone(c.before)]));
+            const restored = { ...syncComfyParameters({ ...form, ...target }, drawing.snapshot().models?.find(m => m.id === (values.model ?? target.model))), ...values };
+            Object.assign(target, plan.boardId ? boardForm(restored) : restored);
+          }
           else if (plan.changes.length) current.prompt = String(plan.changes.find(c => c.field === "composer")!.before);
           return plan.workspace === "chat" ? chatDraftKey(current) : null;
         },

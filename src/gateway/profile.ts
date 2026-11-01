@@ -1,7 +1,7 @@
 import { freeze } from "../domain/value.ts";
 
 export const STANDARD_PROFILE_ID = "koma-standard-v1";
-export type Protocol = "standard" | "openai-images" | "gemini-native" | "novelai" | "openai-chat" | "anthropic-messages";
+export type Protocol = "standard" | "openai-images" | "gemini-native" | "novelai" | "openai-chat" | "anthropic-messages" | "comfyui-workflow";
 export type ProfilePath = "catalog" | "quota" | "stats" | "estimate" | "toolEstimate" | "generate" | "toolRun" | "native" | "reasoning" | "encodeVibe" | "upscale" | "augment";
 export interface GatewayProfile {
   readonly id: string;
@@ -99,7 +99,12 @@ export const anthropicMessagesProfile: GatewayProfile = freeze({
   auth: { kind: "anthropic-key", headers: { "anthropic-version": ANTHROPIC_VERSION, "anthropic-dangerous-direct-browser-access": "true" } },
   transport: { apiPrefix: "/v1", paths: { catalog: "/models", reasoning: "/messages" }, nativeHeaders: {} },
 });
-export const connectionProfiles: readonly GatewayProfile[] = freeze([standardProfile, openaiImagesProfile, geminiProfile, novelaiProfile, openaiChatProfile, anthropicMessagesProfile]);
+export const comfyuiProfile: GatewayProfile = freeze({
+  ...unquoted, id: "comfyui-workflow", protocol: "comfyui-workflow", label: "ComfyUI · Custom Workflow",
+  auth: { kind: "bearer" }, executionRoutes: { nativeFree: false, studio: true, tools: false },
+  transport: { apiPrefix: "", paths: { catalog: "/system_stats", generate: "/prompt" }, nativeHeaders: {} },
+});
+export const connectionProfiles: readonly GatewayProfile[] = freeze([standardProfile, openaiImagesProfile, geminiProfile, novelaiProfile, comfyuiProfile, openaiChatProfile, anthropicMessagesProfile]);
 /** Only locally registered protocols can be selected or restored. */
 const profiles: Readonly<Record<string, GatewayProfile>> = freeze(Object.fromEntries(connectionProfiles.map(profile => [profile.id, profile])));
 

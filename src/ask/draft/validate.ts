@@ -1,3 +1,5 @@
+import { comfyWritable, isComfyModel } from "../../domain/comfy-workflow.ts";
+import { syncComfyParameters } from "../../domain/comfy-parameters.ts";
 import { naiCapabilities } from "../../domain/nai.ts";
 import { parseEditHandoff,validateEditHandoff } from "./edit-handoff.ts";
 import { parseEditDraft, validateEditDraft, draftTarget } from "./edit.ts";
@@ -54,11 +56,18 @@ export function parseDraft(input: Readonly<Record<string, unknown>>, base: Draft
   if (!title || input.base_hash !== stateHash(base)) throw new Error("草稿 base_hash 与本轮快照不符，请使用本轮原始值");
   if (!Array.isArray(input.steps) || !input.steps.length || input.steps.length > 12) throw new Error("草稿需要 1–12 个步骤");
   const rawSteps = input.steps;
+  const requestedModel = rawSteps.reduce((id, raw) => {
+    const step = record(raw);
+    if (step.kind === "params_patch" && typeof record(step.params).model === "string") return String(record(step.params).model);
+    if (step.kind === "restore_partial" && Array.isArray(step.fields) && step.fields.includes("model")) return String(library.find(p => p.aliases.includes(String(step.source)))?.params.model ?? id);
+    return id;
+  }, base.form.model);
+  const workflowParameters = isComfyModel(resolveModel(base.models, requestedModel) ?? { id: requestedModel });
   const steps = rawSteps.map((raw) => {
     const step = record(raw);
     if (step.kind === "save_ref") return parseFile(step, base);
     if (step.kind === "slate_edit") return parseSlateEdit(step, base.slate ?? null, base.form, library);
-    if (step.kind === "params_patch") return { kind: "params_patch" as const, params: parseParameters(step.params) };
+    if (step.kind === "params_patch") return { kind: "params_patch" as const, params: parseParameters(step.params, workflowParameters) };
     if (step.kind === "prompt_patch") {
       const target = text(step.target, 80), mode = text(step.mode, 20);
       if (!/^(?:image\.(?:prompt|negative|char\.c[1-9]\d*\.(?:prompt|negative))|chat\.composer)$/.test(target)) throw new Error("草稿目标无效");
@@ -187,6 +196,8 @@ export function validateDraft(draft: Draft, now: DraftState, options: ValidateOp
     if (!value || !sameValue(initial.model, draft.base.form.model) && !sameValue(initial.model, value)) return id;
     return value;
   }, now.form.model);
+  const targetModel = resolveModel(now.models, finalModel);
+  const fieldLabel = (field: Field) => field === "scale" && isComfyModel(targetModel) ? "CFG" : labels[field] ?? field;
   const checked: CheckedStep[] = [];
   let aligned = stateHash(now) !== draft.baseHash;
   const checkText = (id: string, target: TextTarget, mode: TextMode, anchor: string, replacement: string, label?: string) => {
@@ -268,7 +279,7 @@ export function validateDraft(draft: Draft, now: DraftState, options: ValidateOp
       for (const [key, after] of Object.entries(step.params)) {
         const field = key as ParameterKey, id = `${i}:${key}`, enabled = !options.off.has(id), before = working[field];
         const issue = !sameValue(initial[field], draft.base.form[field]) && !sameValue(initial[field], after) ? "此参数已在外部修改" : "";
-        checked.push({ id, label: labels[field] ?? field, kind: "parameter", enabled, issue, aligned: !!issue, before: String(before), after: String(after) });
+        checked.push({ id, label: fieldLabel(field), kind: "parameter", enabled, issue, aligned: !!issue, before: String(before), after: String(after) });
         if (enabled && !issue) Object.assign(working, { [field]: after });
       }
       return;
@@ -276,7 +287,7 @@ export function validateDraft(draft: Draft, now: DraftState, options: ValidateOp
     if (step.kind !== "restore_partial") return;
     for (const key of step.fields) {
       const id = `${i}:${key}`, field = key === "negative_prompt" ? "negative" : key;
-      const label = `${labels[field]} · ${step.source}`, value = step.values[key];
+      const label = `${fieldLabel(field)} · ${step.source}`, value = step.values[key];
       if (key === "characters") {
         let issue = !Array.isArray(value) ? "来源没有角色参数" : !sameValue(initial.characters, draft.base.form.characters ?? []) || initial.placement !== draft.base.form.placement ? "角色组已在外部修改" : "";
         if (now.boardPresent === false) issue = "来源画板已删除";
@@ -291,11 +302,12 @@ export function validateDraft(draft: Draft, now: DraftState, options: ValidateOp
         if (value !== undefined) { checkText(id, key === "prompt" ? "image.prompt" : "image.negative", "rewrite", "", String(value), label); continue; }
       }
       const samplers = [...new Set([...now.samplers, ...Object.values(now.samplersByModel ?? {}).flat()])];
-      const { changes } = prepareDrawingFields({ [key]: value }, now.models, samplers);
+      const { changes } = prepareDrawingFields({ [key]: value }, now.models, samplers, targetModel);
       const after = changes[field], before = working[field];
       let issue = value === undefined ? "来源没有此参数" : after === undefined ? "当前模型或采样器不可用" : "";
       if (!sameValue(initial[field], draft.base.form[field]) && !sameValue(initial[field], after)) issue ||= "此参数已在外部修改";
-      if ((field === "width" || field === "height") && (typeof after !== "number" || after < 64 || after > 2048 || after % 64)) issue ||= "尺寸须为 64–2048 且对齐 64px";
+      if (!isComfyModel(targetModel) && (field === "width" || field === "height") && (typeof after !== "number" || after < 64 || after > 2048 || after % 64)) issue ||= "尺寸须为 64–2048 且对齐 64px";
+      if (isComfyModel(targetModel) && ["width", "height", "steps", "scale"].includes(field) && after !== undefined) issue ||= parameterIssue(field as ParameterKey, { ...working, [field]: after }, targetModel);
       if (field === "batchCount" && (typeof after !== "number" || !Number.isInteger(after) || after < 1)) issue ||= "批次数无效";
       if (field === "seed" && after !== "" && (!/^\d+$/.test(String(after)) || Number(after) > 4294967295)) issue ||= "种子无效";
       const enabled = !options.off.has(id);
@@ -307,8 +319,10 @@ export function validateDraft(draft: Draft, now: DraftState, options: ValidateOp
   });
   const allowedSamplers = now.samplersByModel?.[working.model] ?? now.samplers;
   const model = resolveModel(now.models, working.model);
-  const samplerConflict = (working.model !== initial.model || working.sampler !== initial.sampler) && !naiCapabilities(working.model).medium && !allowedSamplers.includes(working.sampler);
-  const sizeConflict = !options.editing && model && (working.width !== initial.width || working.height !== initial.height || working.model !== initial.model) && sizeProblem(working.width, working.height, model.maxPixels).fatal;
+  const explicit = new Set(checked.filter(row => row.enabled && !row.issue && row.kind === "parameter").map(row => row.id.split(":")[1]));
+  const effective = { ...syncComfyParameters(initial, model), ...Object.fromEntries(Object.entries(working).filter(([key, value]) => key === "model" || explicit.has(key) || !sameValue(value, initial[key as Field]))) };
+  const samplerConflict = !isComfyModel(model) && (working.model !== initial.model || working.sampler !== initial.sampler) && !naiCapabilities(working.model).medium && !allowedSamplers.includes(working.sampler);
+  const sizeConflict = !isComfyModel(model) && !options.editing && model && (working.width !== initial.width || working.height !== initial.height || working.model !== initial.model) && sizeProblem(effective.width, effective.height, model.maxPixels).fatal;
   if (samplerConflict || sizeConflict) {
     // These four fields form one constraint group. Reverting only the model
     // could leave a sampler that the original model cannot accept.
@@ -323,9 +337,22 @@ export function validateDraft(draft: Draft, now: DraftState, options: ValidateOp
     const keys = new Set<ParameterKey>();
     draft.steps.forEach((s, i) => { if (s.kind === "params_patch") for (const key of Object.keys(s.params) as ParameterKey[]) if (!options.off.has(`${i}:${key}`)) keys.add(key); });
 
-    const issue = [...keys].map(key => parameterIssue(key, working, model)).find(Boolean);
+    const issue = [...keys].map(key => parameterIssue(key, effective, model)).find(Boolean);
     if (issue) for (let i = 0; i < checked.length; i++) if (checked[i].enabled && checked[i].kind === "parameter") checked[i] = { ...checked[i], issue: checked[i].issue || issue };
     if (checked.some(s => s.enabled && s.issue)) Object.assign(working, structuredClone(initial));
+  }
+  const target = resolveModel(now.models, finalModel), writable = comfyWritable(target ?? { id: finalModel });
+  if (writable && workspace === "image") {
+    const previous = draft.base.models.find(m => m.id === finalModel);
+    const stale = !target || !previous || target.sourceRevision !== previous.sourceRevision;
+    for (let index = 0; index < checked.length; index++) {
+      const row = checked[index];
+      const step = draft.steps[Number(row.id.split(":")[0])];
+      if (!row.enabled || !step || ["slate_edit", "save_ref"].includes(step.kind)) continue;
+      const field = step.kind === "prompt_patch" ? step.target.replace(/^image\./, "") : step.kind === "character_edit" ? "characters" : row.id.split(":")[1]?.replace("negative_prompt", "negative");
+      if (stale || !field || !writable.includes(field)) checked[index] = { ...row, issue: row.issue || (stale ? "工作流配置已变化或不可用，请重新提议" : "此字段由 ComfyUI 工作流固定") };
+    }
+    if (checked.some(row => row.enabled && row.issue)) Object.assign(working, structuredClone(initial));
   }
   const cap = characterCapability(working.model);
   if (cap.max && working.characters.filter(c => c.on).length > cap.max && (!sameValue(initial.characters, working.characters) || initial.model !== working.model)) {
@@ -334,7 +361,7 @@ export function validateDraft(draft: Draft, now: DraftState, options: ValidateOp
   }
   if (workspace === "image" && now.boardPresent === false && draft.steps.some(s => s.kind !== "slate_edit")) { for (let i = 0; i < checked.length; i++) checked[i] = { ...checked[i], issue: "来源画板已删除" }; Object.assign(working, initial); }
   if (slate) {
-    if (slateStep?.captureRecipe && slate.after?.golden_recipe) slate.after.golden_recipe.form = boardForm(working);
+    if (slateStep?.captureRecipe && slate.after?.golden_recipe) slate.after.golden_recipe.form = boardForm(effective);
     const row = checked.find(s => s.kind === "slate")!;
     const at = checked.indexOf(row); checked[at] = { ...row, after: `${slateStep?.unlockRecipe ? "本次明确解锁配方并更新\n" : ""}${describe(slate.after)}` };
     for (let i = 0; i < checked.length; i++) checked[i] = { ...checked[i], locked: true };
@@ -342,8 +369,11 @@ export function validateDraft(draft: Draft, now: DraftState, options: ValidateOp
     else if (contentKey(slate.before) === contentKey(slate.after)) slate = undefined;
   }
   if (files.length) { if (options.off.size) for (let i = 0; i < checked.length; i++) checked[i] = { ...checked[i], issue: checked[i].issue || "文件与画板是一个组合，请整体应用或重新提议" }; for (let i = 0; i < checked.length; i++) checked[i] = { ...checked[i], locked: true }; if (checked.some(step => step.issue)) { Object.assign(working, structuredClone(initial)); slate = undefined; } }
-  const changes = (Object.keys(working) as Field[]).filter((field) => !sameValue(working[field], initial[field])).map((field) => ({ field, before: initial[field], after: working[field] }));
-  const plan = { boardId: slate && !changes.length && !draft.newBoardName ? undefined : draft.base.boardId, boardName: now.boardName, ...(draft.newBoardName === undefined ? {} : { newBoardName: draft.newBoardName }), title: draft.title, workspace, conversationId: draft.base.conversationId, steps: checked, changes, aligned, ...(files.length ? { files } : {}), ...(slate ? { slate } : {}) };
+  const changes = (Object.keys(working) as Field[]).filter((field) => !sameValue(working[field], initial[field]) || working.model !== initial.model && explicit.has(field) && ["width", "height", "steps", "scale"].includes(field)).map((field) => ({ field, before: initial[field], after: working[field] }));
+  const comfyModels = [...new Set([initial.model, working.model])].filter(id => isComfyModel(resolveModel(now.models, id) ?? { id }));
+  const plan = { boardId: slate && !changes.length && !draft.newBoardName ? undefined : draft.base.boardId, boardName: now.boardName, ...(draft.newBoardName === undefined ? {} : { newBoardName: draft.newBoardName }), title: draft.title, workspace, conversationId: draft.base.conversationId, steps: checked, changes, aligned, ...(files.length ? { files } : {}), ...(slate ? { slate } : {}),
+    ...(workspace === "image" && comfyModels.length ? { comfyContext: { beforeModel: initial.model, afterModel: working.model, revisions: Object.fromEntries(comfyModels.map(id => [id, resolveModel(now.models, id)?.sourceRevision])) } } : {}),
+  };
   return { ...plan, fingerprint: hash(canonical(plan)) };
 }
 

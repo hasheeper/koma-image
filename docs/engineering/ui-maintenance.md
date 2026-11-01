@@ -122,9 +122,11 @@ AI 命名的共用星光／停止按钮与状态动效由 `src/shared/AiNameButt
 
 绘图统一底栏、三段导航与抽屉动画归 `DrawingBottomPanel.vue`，参考缩略图及控件私有排布归 `NaiReferenceEditor.vue`，原参数宿主归 `DrawingParameters.vue`，底栏表面归 `ImageWorkspace.vue`；不改公共 scrub 的填充矩形样式。
 
+模型选择框与菜单的来源胶囊归 `NaiSelect.vue`，复用共享 badge 与颜色变量；所有条目统一左侧模型名、右侧来源胶囊，长名称省略。`ModelField.vue` 提供模型名、来源标签及完整名称提示，ComfyUI 文件名的本地提取归 `domain/comfy-models.ts`。
+
 会话内紧凑 Todo 与高度展开动画归 `src/slate/AskTodos.vue`，280px 轻量总览归 `SlatePanel.vue`，必要的成果选图／查看归 `SlateDeliverable.vue`；复用共享 modal、控件和 tokens。没有大任务板、单项详情编辑或常驻关联行，不新增全局样式补丁。
 
-供应商配置复用共享 modal、输入控件与设置样式；原有 Koma Logo＋品牌名排布、字段间距、Key 内嵌显隐按钮和保存 Key 复选行归 `SettingsOverlay.vue` scoped 样式。原全屏 Key gate 组件、属性钩子和全局专用样式已删除。
+供应商配置复用共享 modal、输入控件与设置样式；原有 Koma Logo＋品牌名排布、字段间距、Key 内嵌显隐按钮和保存 Key 复选行归 `SettingsOverlay.vue` scoped 样式。ComfyUI 的连接／工作流页签及连接测试转动反馈也归该组件；多工作流切换与配置包导入归 `ComfyWorkflows.vue`；上传／粘贴入口、读取状态、主模型名单和绑定列表归 `ComfyWorkflowFields.vue`，沿用共享分段控件，不新增全局覆盖。ComfyUI 可调尺寸复用 `DrawingControls.vue` 的既有画幅结构与样式，按绑定开放预设／互换和单边输入；不另建尺寸样式。采样器／调度器复用 `DrawingParameters.vue` 的表单控件，LoRA 页签复用 `PromptDraft.vue` 的 tabs；`ComfyLoras.vue` 只持位置列表布局，`ComfyChoiceField.vue` 复用共享输入与下拉样式，选项加载图标归 `ComfyOptionsRefresh.vue`。LoRA 绑定折叠区归 `ComfyLoraBindings.vue`，不增加全局补丁。原全屏 Key gate 组件、属性钩子和全局专用样式已删除。
 
 ## 样式检查
 
@@ -223,3 +225,5 @@ npm run check
 可用 `--output /path/to/scratch-family` 将重建结果写到临时位置而不替换正式资源，`--workers` 控制离线处理进程数，默认最多 4 个。该设置与应用任务并发无关。
 
 字体来源、比例字形修改及许可见[第三方资源](../third-party-assets.md)。
+
+ComfyUI 的顶栏设备状态由 `ComfySystemStatus.vue` 持有，复用 wallet／w-seg 与共享 menu；设备详情及反馈布局只写组件 scoped 样式。页面可见性管理只读轮询，指标解析和读取分别归 domain／gateway／services，不占用图像任务槽。

@@ -15,6 +15,8 @@ import { useDrawing } from "../../app/drawing";
 import { useShell } from "../../app/shell";
 import { useUi, message } from "../../app/ui";
 import { imageFileName, samplerName } from "../../domain/drawing";
+import { readComfyValues, comfyParameterLabels, isComfyModel } from "../../domain/comfy-workflow";
+import { readComfyControls } from "../../domain/comfy-controls";
 import AppIcon from "../../shared/AppIcon.vue";
 import EmptyStage from "./EmptyStage.vue";
 import WaveHost from "./WaveHost.vue";
@@ -82,7 +84,11 @@ function measure() {
     ["sk", view.value.pending],
   ] as const) {
     if (!size) continue;
-    const ratio = Math.min(width / size.width, height / size.height, 1);
+    // Workflow output dimensions are unknown; its 1:1 placeholder must fill the
+    // available stage instead of inheriting the original-image no-upscale cap.
+    const waiting = view.value.pending;
+    const ratio = Math.min(width / size.width, height / size.height,
+      kind === "sk" && waiting?.workflow && waiting.done < waiting.index ? Infinity : 1);
     vp.style.setProperty(`--${kind}-w`, `${Math.floor(size.width * ratio)}px`);
     vp.style.setProperty(`--${kind}-h`, `${Math.floor(size.height * ratio)}px`);
   }
@@ -240,14 +246,14 @@ function openAsk() {
       <div class="layer center" data-layer="empty">
         <EmptyStage :viewport="viewport" />
       </div>
-      <div class="layer center" data-layer="busy">
+      <div class="layer center" data-layer="busy" :aria-busy="view.state === 'busy'">
         <WaveHost ref="wave" class="print skeleton" id="skeleton" />
         <div class="skeleton-info sr-only">
           <p ref="timer" class="mono" id="timer">0.0s</p>
           <p class="skeleton-note">
             {{
               view.pending
-                ? `${view.pending.width}×${view.pending.height} · 第 ${view.pending.index} 张`
+                ? view.pending.workflow ? `等待工作流出图 · 第 ${view.pending.index} 张` : `${view.pending.width}×${view.pending.height} · 第 ${view.pending.index} 张`
                 : ""
             }}
           </p>
@@ -289,7 +295,7 @@ function openAsk() {
     >
       <div class="result-copy">
         <strong class="result-title" id="resultModel">{{
-          params.modelName || params.model || "结果"
+          params.modelName || (isComfyModel({ id: String(params.model ?? '') }) ? "ComfyUI 工作流" : params.model) || "结果"
         }}</strong
         ><span class="result-file mono" id="resultName">{{
           current ? imageFileName(current) : ""
@@ -331,6 +337,9 @@ function openAsk() {
             class="result-param"
             :hidden="params[key] == null"
             ><i>{{ label }}</i> {{ params[key] }}</span
+          ><span v-for="(value, key) in readComfyValues(params.comfyParameters)" :key="key" class="result-param"><i>{{ key === 'width' ? '输入宽' : key === 'height' ? '输入高' : comfyParameterLabels[key] }}</i> {{ value }}</span
+          ><span v-for="(value,key) in { '采样器':readComfyControls(params.comfyControls)?.sampler,'调度器':readComfyControls(params.comfyControls)?.scheduler }" :key="key" class="result-param" :hidden="value===undefined"><i>{{ key }}</i> {{ value }}</span
+          ><span v-if="readComfyControls(params.comfyControls)?.loras?.length" class="result-param"><i>LoRA</i> {{ readComfyControls(params.comfyControls)?.loras?.filter(l=>l.enabled).length }}</span
           ><span class="result-param" :hidden="!params.sampler">{{
             samplerName(params.sampler)
           }}</span

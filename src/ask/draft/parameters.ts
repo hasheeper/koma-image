@@ -1,3 +1,4 @@
+import { comfyWritable } from "../../domain/comfy-workflow.ts";
 import type { DrawingForm } from "../../domain/drawing.ts";
 import type { CatalogModel } from "../../domain/catalog.ts";
 import { complexities, qualityPresets, negativePresets, naiModes, naiCapabilities } from "../../domain/nai.ts";
@@ -13,19 +14,21 @@ const properties = {
   complexity: { type: "string", enum: [...complexities] }, naiMode: { type: "string", enum: [...naiModes] },
   qualityPreset: { type: "string", enum: [...qualityPresets] }, negativePreset: { type: "string", enum: [...negativePresets] }, transparentBg: { type: "boolean" },
 };
-export const parameterSchema = { type: "object", additionalProperties: false, minProperties: 1, properties };
+export const standardParameterProperties = properties;
+const workflowProperties = { ...properties, width: numeric(1, Number.MAX_SAFE_INTEGER, true), height: numeric(1, Number.MAX_SAFE_INTEGER, true), steps: numeric(1, Number.MAX_SAFE_INTEGER, true), scale: { type: "number", description: "NAI: Guidance (>= 0); ComfyUI: CFG, only when bound. Follow current capabilities." } };
+export const parameterSchema = { type: "object", additionalProperties: false, minProperties: 1, properties: workflowProperties };
 export type ParameterKey = keyof typeof properties;
 export type ParameterValues = Partial<Pick<DrawingForm, ParameterKey>>;
 export interface ParameterStep { readonly kind: "params_patch"; readonly params: Readonly<ParameterValues> }
-export function parseParameters(value: unknown): ParameterValues {
+export function parseParameters(value: unknown, workflow = false): ParameterValues {
   if (!value || typeof value !== "object" || Array.isArray(value) || !Object.keys(value).length) throw new Error("params 需要非空参数对象");
   for (const [key, item] of Object.entries(value)) {
     if (!Object.hasOwn(properties, key)) throw new Error(`不能直接修改参数 ${key}`);
-    const rule: { type: string; minimum?: number; maximum?: number; enum?: readonly unknown[] } = properties[key as ParameterKey];
+    const rule: { type: string; minimum?: number; maximum?: number; enum?: readonly unknown[] } = (workflow ? workflowProperties : properties)[key as ParameterKey];
     if (rule.type === "integer" ? !Number.isSafeInteger(item) : typeof item !== rule.type) throw new Error(`${key} 类型无效`);
     if (typeof item === "number" && (!Number.isFinite(item) || item < rule.minimum! || item > (rule.maximum ?? Infinity))) throw new Error(`${key} 超出范围`);
     if (rule.enum && !rule.enum.includes(item)) throw new Error(`${key} 选项无效`);
-    if ((key === "width" || key === "height") && Number(item) % 64) throw new Error("尺寸须对齐 64px");
+    if (!workflow && (key === "width" || key === "height") && Number(item) % 64) throw new Error("尺寸须对齐 64px");
     if (key === "seed" && item !== "" && (!/^\d+$/.test(String(item)) || Number(item) > 4294967295)) throw new Error("Seed 须为空串或 uint32 字符串");
     if ((key === "model" || key === "sampler") && (typeof item !== "string" || !item.trim() || item.length > 256)) throw new Error(`${key} 无效`);
   }
@@ -35,6 +38,10 @@ export function parseParameters(value: unknown): ParameterValues {
 export function parameterIssue(key: ParameterKey, form: DrawingForm, model: CatalogModel | null | undefined): string {
   const cap = naiCapabilities(form.model), value = form[key];
   if (!model) return "当前模型不可用";
+  const writable = comfyWritable(model);
+  if (writable && !writable.includes(key)) return key === "sampler" && model.comfyControls?.fields.sampler ? "此工作流的采样器请在 IMAGE 调整，ASK 当前只读" : "此参数由 ComfyUI 工作流固定";
+  try { parseParameters({ [key]: value }, !!writable); } catch (error) { return error instanceof Error ? error.message : "参数无效"; }
+  if (writable) return "";
   if (key === "transparentBg" && value && !model.transparentBackground) return "当前模型不支持透明底";
   if (key === "complexity" && value !== "none" && !cap.v5) return "当前模型不支持 Complexity";
   if (key === "naiMode" && !cap.supported) return "当前模型不支持 Anime／Furry 模式";

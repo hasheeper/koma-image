@@ -34,6 +34,7 @@ export function endpoint(
   return url;
 }
 export function authHeaders(context: ConnectionContext, profile: GatewayProfile): Record<string, string> {
+  if (profile.protocol === "comfyui-workflow" && context.connection.authMode === "none") return {};
   return context.localToken ? { "X-Koma-Local-Token": context.localToken }
     : profile.auth.kind === "google-key" ? { "x-goog-api-key": context.key() }
       : profile.auth.kind === "anthropic-key" ? { "x-api-key": context.key(), ...profile.auth.headers }

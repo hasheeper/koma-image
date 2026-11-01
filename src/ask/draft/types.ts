@@ -127,6 +127,7 @@ export interface CheckedStep {
   readonly suffix?: string;
 }
 export interface DraftPlan {
+  readonly comfyContext?: { readonly beforeModel: string; readonly afterModel: string; readonly revisions: Readonly<Record<string, string | undefined>> };
   readonly editSourceTag?:string;
   readonly editHandoff?: EditHandoff;
   readonly edit?: {id:string;before:EditConfiguration;after:EditConfiguration;baseId:number;maskRevision:number};

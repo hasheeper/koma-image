@@ -1,3 +1,9 @@
+import { isComfyModel, comfyParameterKey, comfyFormKey, readComfyValues, validComfyParameter, readComfyRecipe, comfyRecipeModelId } from "./comfy-workflow.ts";
+import type { ComfyValues } from "./comfy-workflow.ts";
+import { collectComfyParameters, readComfyMemory } from "./comfy-parameters.ts";
+import type { ComfyParameterMemory } from "./comfy-parameters.ts";
+import { currentComfyControls, readComfyControlMemory, readComfyControls, comfyControlSpec, validateComfyControls } from "./comfy-controls.ts";
+import type { ComfyControlMemory, ComfyControls } from "./comfy-controls.ts";
 import { emptyReferences, readReferences, referencePlan } from "./nai-references.ts";
 import { canReuseDrawingParams } from "./image-origin.ts";
 import { resolveModel } from "./catalog.ts";
@@ -24,6 +30,8 @@ export const DEFAULTS = {
   steps: 25,
   scale: 5,
   cfg: null as number | null, // Historical metadata only; never sent or interpreted as Guidance Rescale.
+  comfyParameterMemory: { saved: {} } as ComfyParameterMemory,
+  comfyControlMemory: {} as ComfyControlMemory,
   ...readNaiSettings({}),
   seed: "",
   batchCount: 1,
@@ -37,7 +45,7 @@ export const DEFAULTS = {
   placement: "auto" as Placement,
 };
 export type DrawingForm = typeof DEFAULTS;
-export const boardKeys = ["prompt", "negative", "model", "sampler", "noiseSchedule", "varietyPlus", "width", "height", "steps", "scale", "cfg", "cfgRescale", "naiMode", "complexity", "qualityPreset", "negativePreset", "seed", "batchCount", "optimize", "transparentBg", "characters", "placement", "naiReferences"] as const;
+export const boardKeys = ["prompt", "negative", "model", "sampler", "noiseSchedule", "varietyPlus", "width", "height", "steps", "scale", "cfg", "cfgRescale", "naiMode", "complexity", "qualityPreset", "negativePreset", "seed", "batchCount", "optimize", "transparentBg", "characters", "placement", "naiReferences", "comfyParameterMemory", "comfyControlMemory"] as const;
 export type BoardForm = Pick<DrawingForm, typeof boardKeys[number]>;
 export interface DrawingBoard { id: string; name: string; color: string; nextCharacterId: number; form: BoardForm }
 export interface Boards { activeId: string; items: DrawingBoard[] }
@@ -55,6 +63,8 @@ export function readBoards(value: unknown): Boards {
     const f = { ...DEFAULTS, ...(b.form && typeof b.form === "object" ? b.form : {}) } as DrawingForm;
     Object.assign(f, readNaiSettings(f));
     f.naiReferences = readReferences(f.naiReferences);
+    f.comfyParameterMemory = readComfyMemory(f.comfyParameterMemory);
+    f.comfyControlMemory = readComfyControlMemory(f.comfyControlMemory);
     f.characters = readCharacters(f.characters); f.placement = f.placement === "manual" ? "manual" : "auto"; f.seed = String(f.seed ?? "");
     return [{ id: b.id, name: String(b.name || "画板").slice(0, 80), color: boardColors.includes(String(b.color)) ? String(b.color) : boardColors[0],
       nextCharacterId: Math.max(nextCharacterId(f.characters), Number(b.nextCharacterId) || 1), form: boardForm(f) }];
@@ -63,6 +73,8 @@ export function readBoards(value: unknown): Boards {
     const f = { ...DEFAULTS, ...root } as DrawingForm;
     Object.assign(f, readNaiSettings(f));
     f.naiReferences = readReferences(f.naiReferences);
+    f.comfyParameterMemory = readComfyMemory(f.comfyParameterMemory);
+    f.comfyControlMemory = readComfyControlMemory(f.comfyControlMemory);
     f.characters = readCharacters(f.characters); f.placement = f.placement === "manual" ? "manual" : "auto"; f.seed = String(f.seed ?? "");
     items.push({ id: "board-1", name: "画板 1", color: boardColors[0], nextCharacterId: nextCharacterId(f.characters), form: boardForm(f) });
   }
@@ -102,6 +114,8 @@ export type DrawingParams = Pick<
   placement: Placement;
   naiReferences: ReturnType<typeof emptyReferences>;
   noise_schedule?: string;
+  comfyParameters?: ComfyValues;
+  comfyControls?: ComfyControls;
 };
 export interface ImageRecord extends Omit<FavoriteRecord, "favoritedAt"> {
   favoritedAt?: number;
@@ -194,6 +208,15 @@ export function collect(
   model: CatalogModel,
   batchCount: number,
 ): DrawingParams {
+  if (isComfyModel(model)) {
+    return { ...structuredClone(DEFAULTS), model: model.id, modelName: model.name, batchCount,
+      comfyParameters: collectComfyParameters(form, model),
+      comfyControls: currentComfyControls(form.comfyControlMemory,model),
+      prompt: form.prompt.trim() ? form.prompt : "best quality", basePrompt: form.prompt,
+      negative_prompt: model.comfyNegative ? form.negative : "", baseNegative: model.comfyNegative ? form.negative : "",
+      seed: form.seed.trim() === "" ? randomSeed() : Math.min(4294967295, Math.max(0, Math.floor(Number(form.seed)) || 0)),
+      randomSeed: form.seed.trim() === "", localCharacters: [], cache: false, transform_prompt: false };
+  }
   const cap = naiCapabilities(model.id), settings = readNaiSettings(form);
   const compiled = compileNaiPrompt({ ...form, prompt: form.prompt.trim(), negative: form.negative.trim() }, model);
   const characters = activeCharacters(form.characters, model.id).map(c => cap.medium ? { ...c, negative: "" } : c);
@@ -235,6 +258,7 @@ export function batchParams(base: DrawingParams, index: number): DrawingParams {
   };
 }
 export function drawingPayload(p: DrawingParams): ImagePayload {
+  if (isComfyModel({ id: p.model })) return { model: p.model, prompt: p.prompt, negative_prompt: p.negative_prompt, seed: p.seed, ...(Object.keys(p.comfyParameters ?? {}).length ? { comfyParameters: { ...p.comfyParameters } } : {}), ...(Object.keys(p.comfyControls ?? {}).length ? {comfyControls:structuredClone(p.comfyControls)} : {}) };
   const {
     negative_prompt,
     model,
@@ -272,6 +296,12 @@ export function drawingPayload(p: DrawingParams): ImagePayload {
 export function reuseFields(item: Pick<ImageRecord, "params">) {
   if (!canReuseDrawingParams(item.params)) return {};
   const p = item.params;
+  if (isComfyModel({ id: String(p.model ?? "") })) return {
+    model: p.model, prompt: p.basePrompt ?? p.prompt ?? "", negative_prompt: p.baseNegative ?? p.negative_prompt,
+    seed: p.seed ?? "", batchCount: p.batchTotal ?? p.batchCount ?? 1,
+    ...(readComfyControls(p.comfyControls) ? {comfyControls:readComfyControls(p.comfyControls),comfyWorkflow:p.comfyWorkflow} : {}),
+    ...Object.fromEntries(Object.entries(readComfyValues(p.comfyParameters)).map(([key, value]) => [comfyFormKey(key as keyof ComfyValues), value])),
+  };
   return {
     ...(p.naiReferences ? { naiReferences: readReferences(p.naiReferences) } : {}),
     prompt: p.basePrompt ?? p.prompt ?? "",
@@ -326,10 +356,32 @@ export const samplerName = (id: unknown) => {
 };
 
 /** Shared by image import and ASK parameter review; preserves existing normalization. */
-export function prepareDrawingFields(fields: Record<string, unknown>, models: CatalogModel[], samplers: string[]) {
+export function prepareDrawingFields(fields: Record<string, unknown>, models: CatalogModel[], samplers: string[], targetModel?: CatalogModel | null) {
   const changes: Partial<DrawingForm> = {};
   const applied: string[] = [];
   if (!canReuseDrawingParams(fields)) return { changes, applied };
+  const target = targetModel ?? (fields.model === undefined ? null : resolveModel(models, String(fields.model)));
+  if (isComfyModel(target ?? { id: String(fields.model ?? "") })) {
+    if (!target) return { changes, applied };
+    if (fields.comfyControls !== undefined && target.comfyControls) {
+      const source=readComfyRecipe(fields.comfyWorkflow);
+      if (source && comfyRecipeModelId(source)===target.id && comfyControlSpec(source)?.signature===target.comfyControls.signature) {
+        changes.comfyControlMemory={[target.id]:{signature:target.comfyControls.signature,values:validateComfyControls(fields.comfyControls,target.comfyControls)}};
+        applied.push("comfyControls");
+      }
+    }
+    for (const [key, value] of Object.entries(fields)) {
+      const parameter = comfyParameterKey(key);
+      if (parameter && target.comfyParameters?.defaults[parameter] !== undefined && validComfyParameter(parameter, value)) {
+        Object.assign(changes, { [key]: value }); applied.push(key);
+      } else if (key === "model") { changes.model = target.id; applied.push(key); }
+      else if (key === "prompt" && typeof value === "string") { changes.prompt = value; applied.push(key); }
+      else if (key === "negative_prompt" && target.comfyNegative && typeof value === "string") { changes.negative = value; applied.push(key); }
+      else if (key === "seed" && (value === "" || /^\d+$/.test(String(value)) && Number(value) <= 4294967295)) { changes.seed = String(value); applied.push(key); }
+      else if (key === "batchCount" && Number.isSafeInteger(value) && Number(value) > 0) { changes.batchCount = Number(value); applied.push(key); }
+    }
+    return { changes, applied };
+  }
   // Imported effective text already includes its presets; only explicit local metadata restores them.
   if (fields.prompt !== undefined) {
     changes.naiMode = "anime"; changes.qualityPreset = "none"; changes.complexity = "none"; changes.transparentBg = false;
@@ -392,8 +444,8 @@ export function prepareDrawingFields(fields: Record<string, unknown>, models: Ca
 
 /** Roll back a failed form write without normalizing a later manual choice. */
 export function rollbackDrawingEdit(before: DrawingForm, written: DrawingForm, current: DrawingForm, fields: readonly (keyof DrawingForm)[]): DrawingForm {
-  const coupled: readonly (keyof DrawingForm)[] = ["model", "sampler", "width", "height"];
-  const groupEdited = coupled.some((key) => current[key] !== written[key]);
+  const coupled: readonly (keyof DrawingForm)[] = ["model", "sampler", "width", "height", ...(!sameValue(before.comfyParameterMemory, written.comfyParameterMemory) ? ["steps", "scale", "comfyParameterMemory"] as const : [])];
+  const groupEdited = coupled.some((key) => !sameValue(current[key], written[key]));
   const restored = { ...current };
   for (const key of fields) {
     if (!sameValue(current[key], written[key]) || (groupEdited && coupled.includes(key))) continue;

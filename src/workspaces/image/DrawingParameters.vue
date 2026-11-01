@@ -7,16 +7,43 @@ import { naiCapabilities } from "../../domain/nai";
 import { naiNoiseSchedule, noiseSchedules, supportsNaiVariety } from "../../domain/nai-parameters";
 import AppIcon from "../../shared/AppIcon.vue";
 import GuidanceControl from "../../shared/GuidanceControl.vue";
+import { comfyParameterKeys, comfyFormKey, validComfyParameter } from "../../domain/comfy-workflow";
+import { useUi } from "../../app/ui";
+import { comfyChoiceKeys, comfyChoiceLabels } from "../../domain/comfy-controls";
+import type { ComfyChoiceKey } from "../../domain/comfy-controls";
+import ComfyChoiceField from "./ComfyChoiceField.vue";
+import ComfyOptionsRefresh from "./ComfyOptionsRefresh.vue";
 const { drawing, view } = useDrawing();
 const f = computed(() => view.value.form);
 const cap = computed(() => naiCapabilities(f.value.model));
 const official = computed(() => view.value.model?.profileId === "nai-official-v1");
+const ui = useUi();
+const comfySampling = computed(() => (["steps", "cfg"] as const).filter(k => view.value.model?.comfyParameters?.defaults[k] !== undefined));
+const comfyChoices = computed(()=>comfyChoiceKeys.filter(k=>view.value.model?.comfyControls?.fields[k]));
+async function chooseComfy(key:ComfyChoiceKey,value:string) {
+  try {await drawing.patchComfyControls({...view.value.comfyControls,[key]:value});} catch(e) {ui.toast(e instanceof Error?e.message:"参数无效","warn");}
+}
+function changeComfy(key: "steps" | "cfg", event: Event) {
+  const input = event.target as HTMLInputElement, value = input.value === "" ? NaN : Number(input.value);
+  if (!validComfyParameter(key, value)) {
+    ui.toast(key === "cfg" ? "CFG 须为有限数值" : "步数须为正整数", "warn");
+    input.value = String(f.value[comfyFormKey(key)]); return;
+  }
+  void drawing.patch({ [comfyFormKey(key)]: value });
+}
 const parameterValue = (key: "steps" | "scale" | "cfgRescale") => cap.value.medium ? key === "steps" ? 14 : key === "cfgRescale" ? 0 : f.value[key] : f.value[key];
 function change(key: keyof DrawingForm, event: Event) {
   const input = event.target as HTMLInputElement;
   void drawing.patch({ [key]: input.type === "checkbox" ? input.checked : input.type === "range" || (input.type === "number" && key !== "seed") ? Number(input.value) : input.value });
 }
 function reset() {
+  if (view.value.comfy) {
+    const defaults = view.value.model?.comfyParameters?.defaults ?? {};
+    const controls=view.value.model?.comfyControls;
+    void drawing.patch({ seed: "", batchCount: 1, ...Object.fromEntries(comfyParameterKeys.filter(k => defaults[k] !== undefined).map(k => [comfyFormKey(k), defaults[k]])),
+      ...(controls ? {comfyControlMemory:{...f.value.comfyControlMemory,[view.value.model!.id]:{signature:controls.signature,values:structuredClone(controls.defaults)}}} : {}),
+    }); return;
+  }
   void drawing.patch({
     sampler: view.value.samplers.includes(DEFAULTS.sampler)
       ? DEFAULTS.sampler
@@ -35,7 +62,20 @@ function reset() {
 </script>
 <template>
 <div class="drawing-parameters">
-      <div class="fld">
+      <template v-if="view.comfy">
+        <template v-if="comfyChoices.length">
+          <ComfyOptionsRefresh />
+          <ComfyChoiceField v-for="key in comfyChoices" :id="`comfyValue-${key}`" :key="key" :label="comfyChoiceLabels[key]" :field="view.model!.comfyControls!.fields[key]!" :model-value="view.comfyControls[key]!" @update:model-value="chooseComfy(key,$event)" />
+        </template>
+        <div v-if="comfySampling.length" class="scrubs">
+          <div v-for="key in comfySampling" :key="key" class="fld">
+            <label :for="`comfyValue-${key}`">{{ key === 'steps' ? '步数' : 'CFG' }}</label>
+            <input :id="`comfyValue-${key}`" type="number" :min="key === 'cfg' ? undefined : 1" :step="key === 'cfg' ? 'any' : 1" :value="f[comfyFormKey(key)]" @change="changeComfy(key, $event)" />
+          </div>
+        </div>
+        <p class="hint">未绑定的参数保持工作流原值；LoRA 在提示词旁的独立页签调整。</p>
+      </template>
+      <div v-if="!view.comfy" class="fld">
         <div class="fld-top"><label for="sampler">采样器</label></div>
         <select
           id="sampler"
@@ -59,7 +99,7 @@ function reset() {
           <option v-for="schedule in noiseSchedules" :key="schedule" :value="schedule">{{ schedule === 'auto' ? `默认 · ${naiNoiseSchedule(f.model, f.sampler, 'auto') === 'exponential' ? 'Exponential' : 'Karras'}` : schedule === 'polyexponential' ? 'Polyexponential' : schedule === 'exponential' ? 'Exponential' : 'Karras' }}</option>
         </select>
       </div>
-      <div class="scrubs">
+      <div v-if="!view.comfy" class="scrubs">
         <template
           v-for="control in [
             { key: 'steps' as const, label: '步数', min: 1, max: 50, step: 1 },
@@ -145,7 +185,7 @@ function reset() {
           严格逐张请求；失败或取消时停止剩余队列。
         </p>
       </div>
-      <div class="switches">
+      <div v-if="!view.comfy" class="switches">
         <label class="check"
           ><input
             id="optimize"

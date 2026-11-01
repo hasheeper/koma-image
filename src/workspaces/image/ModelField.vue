@@ -3,6 +3,8 @@ import { computed } from "vue";
 import { useNaiComposer } from "../../app/nai-composer";
 import { naiCapabilities, NAI_FULL, NAI_MEDIUM, naiDataset, effectiveNaiMode } from "../../domain/nai";
 import { findModel } from "../../domain/models";
+import { isComfyModel } from "../../domain/comfy-workflow";
+import { comfyModelFileLabel } from "../../domain/comfy-models";
 import NaiSelect from "./NaiSelect.vue";
 import AppIcon from "../../shared/AppIcon.vue";
 const { drawing, view, id } = useNaiComposer();
@@ -37,16 +39,30 @@ const effortOptions = computed(() => [
 ]);
 // NAI models show the official name whichever source supplies them.
 const officialName = (id: string, name: string) => { const known = findModel(id); return known?.family === "novelai" ? known.name : name; };
-const modelChoices = computed(() => modelOptions.value.map(m => ({ value: m.id, label: officialName(m.id, m.name) })));
+const modelChoices = computed(() => {
+  const choices = modelOptions.value.map(m => {
+    if (isComfyModel(m)) {
+      const files = m.comfyModelFiles ?? [];
+      return { value: m.id, label: m.comfyModelName || files.map(comfyModelFileLabel).join(" + ") || m.name, badge: "ComfyUI",
+        title: files.length ? `${m.description}\n${files.join(" + ")}` : m.name, workflowName: m.comfyWorkflowName || m.name };
+    }
+    const label = officialName(m.id, m.name);
+    return { value: m.id, label, title: label, ...(m.provider === "novelai" || findModel(m.id)?.family === "novelai" ? { badge: "NovelAI" } : {}) };
+  });
+  // Different workflows can load the same model; keep them distinguishable.
+  return choices.map(c => c.workflowName && choices.some(other => other !== c && other.label === c.label)
+    ? { ...c, label: `${c.label} · ${c.workflowName}` } : c);
+});
 const modelDisplay = computed(() => {
   if (!view.value.models.length) return view.value.catalogLoading ? "加载中…" : view.value.catalogError ? "连接未就绪" : "未配置连接";
-  return modelChoices.value.find(c => c.value === baseModel.value)?.label ?? view.value.model?.name ?? baseModel.value;
+  return modelChoices.value.find(c => c.value === baseModel.value)?.label ?? view.value.model?.name ?? (isComfyModel({ id: baseModel.value }) ? "ComfyUI 工作流未就绪" : baseModel.value);
 });
+const modelTitle = computed(() => modelChoices.value.find(c => c.value === baseModel.value)?.title ?? modelDisplay.value);
 </script>
 <template>
   <div class="fld">
     <div class="model-row">
-      <NaiSelect :id="id('model')" label="模型" variant="model" :value="baseModel" :display="modelDisplay" :title="modelDisplay" :disabled="view.locked || !view.models.length" :options="modelChoices" @change="selectModel"><AppIcon class="model-ico" name="i-model" /></NaiSelect>
+      <NaiSelect :id="id('model')" label="模型" variant="model" :value="baseModel" :display="modelDisplay" :title="modelTitle" :disabled="view.locked || !view.models.length" :options="modelChoices" @change="selectModel"><AppIcon class="model-ico" name="i-model" /></NaiSelect>
     </div>
     <div v-if="cap.supported" class="model-switches">
       <div :id="id('naiMode')" class="seg" role="radiogroup" aria-label="模式" :data-value="mode" :title="modeTitle">

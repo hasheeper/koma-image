@@ -21,6 +21,7 @@ import HighlightInput from "../../shared/HighlightInput.vue";
 import TagPicker from "../../shared/TagPicker.vue";
 import AppIcon from "../../shared/AppIcon.vue";
 import NaiTokenCount from "../../shared/NaiTokenCount.vue";
+import ComfyLoras from "./ComfyLoras.vue";
 const { preferences } = useServices(),
   ui = useUi(),
   { router } = useShell();
@@ -91,8 +92,12 @@ const negative = computed({
   },
 });
 const tab = ref("prompt");
+const tabs = computed(()=>view.value.comfy ? ["prompt","negative","lora"] : ["prompt","negative"]);
+const loraCount = computed(()=>view.value.comfyControls.loras?.filter(v=>v.enabled).length ?? 0);
+watch(tabs,values=>{if(!values.includes(tab.value))tab.value="prompt";});
 const medium = computed(() => naiCapabilities(view.value.form.model).medium);
-const locked = computed(() => tab.value === "negative" && medium.value);
+const negativeLocked = computed(() => medium.value || view.value.comfy && !view.value.model?.comfyNegative);
+const locked = computed(() => tab.value === "lora" || tab.value === "negative" && negativeLocked.value);
 const current = computed({
   get: () => (tab.value === "prompt" ? prompt.value : negative.value),
   set: (value) => {
@@ -157,14 +162,8 @@ async function cleanPrompt() {
 function select(event: KeyboardEvent) {
   if (!["ArrowLeft", "ArrowRight", "Home", "End"].includes(event.key)) return;
   event.preventDefault();
-  tab.value =
-    event.key === "Home"
-      ? "prompt"
-      : event.key === "End"
-        ? "negative"
-        : tab.value === "prompt"
-          ? "negative"
-          : "prompt";
+  const list=tabs.value,index=list.indexOf(tab.value);
+  tab.value=event.key==="Home" ? list[0] : event.key==="End" ? list[list.length-1] : list[(index+(event.key==="ArrowRight"?1:-1)+list.length)%list.length];
   document.getElementById(`tab-${tab.value}`)?.focus();
 }
 </script>
@@ -198,6 +197,7 @@ function select(event: KeyboardEvent) {
           <span>Negative</span
           ><NaiTokenCount field="negative" :text="negative" />
         </button>
+        <button v-if="view.comfy" id="tab-lora" class="tab" type="button" role="tab" aria-controls="paneLora" :aria-selected="tab==='lora'" :tabindex="tab==='lora'?0:-1" @click="tab='lora'"><span>LoRA</span><span v-if="loraCount">{{ loraCount }}</span></button>
       </div>
       <div class="fld-actions">
         <button
@@ -211,6 +211,7 @@ function select(event: KeyboardEvent) {
         <button
           class="ibtn ibtn-xs"
           type="button"
+          v-if="!view.comfy"
           aria-label="清洗当前输入的格式"
           :disabled="locked"
           @click="cleanPrompt"
@@ -222,6 +223,7 @@ function select(event: KeyboardEvent) {
           class="ibtn ibtn-xs"
           type="button"
           data-tip="Browse tags"
+          v-if="tab!=='lora'"
           aria-label="查词插入"
           :disabled="locked"
           @click="ui.pickerOpen.value = true"
@@ -258,20 +260,22 @@ function select(event: KeyboardEvent) {
         :hidden="tab !== 'negative'"
         tabindex="-1"
       >
+        <p v-if="view.comfy && !view.model?.comfyNegative" class="hint">由工作流固定，当前负向输入不会发送。</p>
         <HighlightInput
           id="negative"
           v-model="negative"
           label="Negative"
-          placeholder="lowres, blurry, watermark…"
-          :readonly="medium"
+          :placeholder="view.comfy && !view.model?.comfyNegative ? '由工作流固定' : 'lowres, blurry, watermark…'"
+          :readonly="negativeLocked"
           :dataset="naiTagDataset(view.form)"
-          :suggest="props.suggest && !medium && tab === 'negative' && !ui.pickerOpen.value"
+          :suggest="props.suggest && !negativeLocked && tab === 'negative' && !ui.pickerOpen.value"
         />
       </div>
-      <NaiPromptOptions :negative="tab === 'negative'" />
+      <NaiPromptOptions v-if="!view.comfy" :negative="tab === 'negative'" />
+      <div v-if="view.comfy" id="paneLora" class="pane" role="tabpanel" aria-labelledby="tab-lora" :hidden="tab!=='lora'" tabindex="-1"><ComfyLoras /></div>
     </div>
   </div>
-  <TagPicker v-model="current" :dataset="naiTagDataset(view.form)" />
+  <TagPicker v-if="tab!=='lora'" v-model="current" :dataset="naiTagDataset(view.form)" />
 </template>
 
 <style scoped>

@@ -1,6 +1,8 @@
 # 当前状态与待办
 
-更新：2026-10-30。本文集中说明仓库现状与剩余工作。产品介绍见[产品总览](product/overview.md)，行为细节由各专题维护；阶段过程与验收数字见[历史索引](archive/README.md)。ASK NAI 基础感知、EDIT 协作、供应商配置与本轮界面整理已推送并发布至 Pages；[发布与公开前核验](archive/releases/2026-10-29-ask-edit-public-release-verification.md)记录脱敏、历史邮箱匿名化及单一 main 分支整理。本地完成和静态发布均不代表真实供应商联调。
+**本分支已归档（2026-11-01）**：ComfyUI 开发暂停，等待明确产品依据后再评估；实现保存在 `codex/archive-comfyui-2026-11-01`，本地 `main` 恢复开发前基线。下文描述存档快照，不代表主线或线上版本。见[存档说明](archive/comfyui/README.md)。
+
+更新：2026-11-01。本文集中说明仓库现状与剩余工作。产品介绍见[产品总览](product/overview.md)，行为细节由各专题维护；阶段过程与验收数字见[历史索引](archive/README.md)。ASK NAI 基础感知、EDIT 协作、供应商配置与本轮界面整理已推送并发布至 Pages；[发布与公开前核验](archive/releases/2026-10-29-ask-edit-public-release-verification.md)记录脱敏、历史邮箱匿名化及单一 main 分支整理。本地完成和静态发布均不代表真实供应商联调。
 
 2026-10-30 外观主题、顶栏切换、手机侧栏与全屏画布、ASK 任务管理／上下文统计及专项手册已推送 `main` 并发布 Pages；本轮检查与线上产物核对见[发布记录](archive/releases/2026-10-30-appearance-workspace-release.md)。
 
@@ -37,6 +39,12 @@
 | 数据与工程 | 数据租约、全应用 N=1 调度、新版 Koma ZIP、可选本地代理与发布包；严格 TS、集中字体配置、CSS 归属与检查。浏览器测试按功能组织、共享模拟环境与自动发现清单；设置／Photopea／任务总览按需加载。见[数据与调度](engineering/data-and-tasks.md)、[架构](architecture.md)、[开发与检查](../README.md#开发与检查) |
 
 上述功能已完成相应代码及本地模拟验收。真实 Photopea 合成图往返、单 iframe 多文档保活另有[核验记录](archive/workspaces/2026-10-28-edit-workspace-verification.md)；它们不验证 NAI 的真实生成或扣费。
+
+## ComfyUI 极简接入
+
+[Custom Workflow MVP](integrations/comfyui.md)已实现：供应商弹窗分为连接信息与工作流两页，支持上传／粘贴 API JSON，手动绑定多位置 Prompt／Seed、可选 Negative 和一个输出节点，并可选同步绑定多处宽高、步数、CFG，以及单处采样器／调度器和已有 LoRA 加载位置。一个供应商可维护多份模型管线，每份指定主模型名单；已提供 FLUX／SDXL／Anima 三组可导入配置。Prompt／Negative 旁的 LoRA 页签支持文件、双强度或仅模型强度及启停；参数抽屉提供采样器／调度器，候选来自当前服务节点信息并可刷新。参数按画板／工作流保存，从工作流读取默认值，配方区分输入与最终尺寸。IMAGE 直连提交、轮询收首图，复用历史、收藏、EDIT／CHAT 原图交接及配方备份。等待出图有方块波纹动画，连接测试与文件读取显示加载状态。支持无鉴权／Bearer、有限读取容错、冻结批次和定向队列删除；ASK 按可写字段及配置版本校验草稿。ASK 对新增采样与 LoRA 设置保持只读。ComfyUI 顶栏以 GPU 显存／服务器内存状态替换费用栏，按页面可见性轮询原生系统信息；CPU／GPU 计算利用率原生未提供，明确标注。不同供应商的费用行为保留。不做 AI 节点识别、LoRA 权重下载／增删节点、通用动态表单或图拓扑编辑。
+
+已通过本地模拟、既有业务回归，以及 RTX 4090／SDXL Base 1.0 的一次 Koma 浏览器真实生成、下载、收藏、刷新和配方备份，详见[接入验收](archive/comfyui/2026-11-01-mvp-verification.md)。本轮实现仅保存在开发存档分支，不合并主线、不部署；本轮采样器／调度器、LoRA、多工作流和模型路由已完成本地模拟验证；新模型环境浏览器连通性通过只读检查，完整多模型生成仍按目标环境单独验收；MOSS／Krea 等模型、真实 LoRA 切换与效果、其他浏览器和发布后环境仍待目标管线核验。
 
 ## 仍待真实验证
 

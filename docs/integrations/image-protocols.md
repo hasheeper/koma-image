@@ -1,6 +1,6 @@
 # 图像协议能力与边界
 
-更新：2026-10-28。基础适配已经完成代码和模拟验证；供应商型号、权限、CORS、实际生成与扣费仍须逐项核验。NovelAI 官方已有授权的账户只读验证，范围见[官方接入](novelai.md)，不能推导为生成成功。历史协议勘探和测试范围见[归档](../archive/2026-10-25/README.md)。
+更新：2026-11-01。基础适配已经完成代码和模拟验证；供应商型号、权限、CORS、实际生成与扣费仍须逐项核验。NovelAI 官方已有授权的账户只读验证，范围见[官方接入](novelai.md)，不能推导为生成成功。历史协议勘探和测试范围见[归档](../archive/2026-10-25/README.md)。
 
 ## 接口能力与当前范围
 
@@ -10,6 +10,7 @@
 | OpenAI Images | GET /v1/models；Bearer；读取 ID，由现有模型页匹配 | POST /v1/images/generations：JSON；POST /v1/images/edits：multipart，参考图使用 image[]；返回 data[].b64_json | 不假造预报价或账户余额；费用未知 | 对话页生图与参考图修改；不包含 Responses、流式部分图片、DALL·E、蒙版编辑或远程结果 URL 下载 |
 | Gemini 原生 | GET /v1beta/models?pageSize=1000，单次读取 ID；x-goog-api-key | POST /v1beta/models/{model}:generateContent；contents/parts/inlineData；generationConfig；读取文本和内嵌图片 | 不套用标准网关的积分；费用未知 | 对话页生图与参考图修改；沿用现有拼接上下文，每次请求独立，不宣称已经实现有状态的原生多轮和 thoughtSignature 续传 |
 | NovelAI 官方 | 账户与图片统一为 image.novelai.net；Bearer；GET /user/subscription；未订阅不阻止 Key 识别 | POST /ai/generate-image；五型号文生图／img2img／普通 Enhance、V5 Max Enhance，V4.5 与 V5 Full High／Medium 的普通／聚焦 infill；POST /ai/upscale 提交独立 4× 放大，ZIP／原图解包；V4.5 官方来源接入 Vibe／Precise，Vibe 编码为 POST /ai/encode-vibe；六项 Director Tools 为 POST /ai/augment-image | 读取 Anlas、V5 百分比、基准约张数及加购百分比；本地 Anlas／参考／编码费估算及 Opus 判断，V5 用量仅基准近似；未知标签隐藏 | 模式／Effort／Complexity／预设／Rescale、Enhance 与参考链路已模拟核验，真实生成／编码／扣费待验；V5 Curated 无独立重绘接口；Focused Inpainting 已接入客户端裁切／放大／原尺寸合成，沿用单次 infill；Director Tools 已接独立工具请求、尺寸预处理与去背景三种结果；型号采样器／调度／数值边界已有统一校验，Max 使用独立服务端标记和输出尺寸校验，实际参数采用仍待真实核验 |
+| ComfyUI Custom Workflow | 本地工作流条目；无鉴权或 Bearer；显式测试读 /system_stats，绑定控件选项读 /object_info/{class_type} | POST /prompt；按 ID 轮询 /history，GET /view 收原图 | 顶栏显示 GPU／内存状态，不调用报价或额度 | 仅 IMAGE 文生图；工作流在 ComfyUI 调通，手动绑定字段；见[ComfyUI](comfyui.md) |
 | Koma 标准网关 | 原目录、统计与鉴权 | 原三条执行路线 | 650/400ms 报价、执行前重报、max_cost、涨价提示、批量最多提示一次、余额不足不提交 | 行为保持；新增协议不关闭此协议的报价保护 |
 
 这里的“协议”与连接名称、渠道无关。用户配置的兼容服务可以选择其真正提供的 OpenAI Images 或 Gemini 原生协议；不按域名推断，不在正式源码中内置私有服务名称、地址或 Key。新环境连接仍为空。
@@ -18,13 +19,13 @@
 
 ## 已落地的结构
 
-- `gateway/profile.ts` 统一登记四种图像协议及两种 ASK 推理协议，声明鉴权、目录、报价、额度和路径能力。新增连接和现有连接均显式选择协议；未知 Profile 继续拒绝。
+- `gateway/profile.ts` 统一登记五种图像协议及两种 ASK 推理协议，声明鉴权、目录、报价、额度和路径能力。新增连接和现有连接均显式选择协议；未知 Profile 继续拒绝。
 - `gateway/native-protocols.ts` 分开处理原生 ID 列表与匹配后的执行能力；UI／领域层继续使用现有规范模型与参数。不要求目录返回 studio_features，不按 ID 的品牌前缀或 supportedGenerationMethods 筛掉模型；未匹配 ID 留在设置供用户选择，不自动变成可生图模型。
 - `gateway/transport.ts` 处理 Gemini 的安全模型路径、OpenAI 的 multipart 边界，以及官方 NAI 的固定主机请求。Gemini 单次请求最多 1000 条，不追读 nextPageToken；URL 不携带 Key，不跟随重定向，版本前缀不重复拼接。
 - 原生协议不支持报价时，对话与编辑不再把“没有报价接口”显示成连接错误；编辑执行条件仍校验所选模型、源图和操作能力。内部费用保留未知状态，绘图和编辑生成按钮暂不显示未知费用标签，不记录为免费。
 - NAI 官方只允许固定图片地址，账户查询也使用该地址；添加时明确说明 Key 的唯一接收域名。已有其他地址的连接不能通过切换协议把保存的 Key 自动发送到官方域名，需单独添加并填写 Key。
 - 所有任务继续走应用级 runTask，共用 N=1；保留取消、超时、失败停止、不自动重试及原图字节。不改变数据键名；新版连接配置和备份携带 profileId。
-- 本地 `server.mjs` 支持标准网关与两种 ASK 推理协议的固定路径，不是任意 URL 转发器。OpenAI Images、Gemini 原生与 NovelAI 官方仅用于浏览器直连，服务须允许跨域。
+- 本地 `server.mjs` 支持标准网关与两种 ASK 推理协议的固定路径，不是任意 URL 转发器。OpenAI Images、Gemini 原生、NovelAI 官方与 ComfyUI 仅用于浏览器直连，服务须允许跨域。
 
 ## 模型目录与来源
 

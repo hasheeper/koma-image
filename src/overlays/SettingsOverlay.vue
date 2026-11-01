@@ -19,6 +19,8 @@ import BrandMark from "../shared/BrandMark.vue";
 import AppIcon from "../shared/AppIcon.vue";
 import ModelIcon from "../shared/ModelIcon.vue";
 import ConnectionAvatar from "../shared/ConnectionAvatar.vue";
+import ComfyWorkflows from "./settings/ComfyWorkflows.vue";
+import { COMFY_PROFILE_ID } from "../domain/comfy-workflow.ts";
 import ModelsSection from "./settings/ModelsSection.vue";
 import ModelListDialog from "./settings/ModelListDialog.vue";
 import BackupSection from "./settings/BackupSection.vue";
@@ -87,6 +89,11 @@ const formTarget = ref<string | null>(null),
   formBusy = ref(false),
   formKeyVisible = ref(false),
   formRemember = ref(true);
+const comfyFields = useTemplateRef<InstanceType<typeof ComfyWorkflows>>("comfyFields");
+const formSession = ref(0), formAnonymous = ref(false);
+const formComfy = computed(() => formProfile.value === COMFY_PROFILE_ID);
+type FormPage = "connection" | "workflow";
+const formPage = ref<FormPage>("connection"), formEditing = ref(false), workflowReading = ref(false);
 let formKeyTouched = false, formKeyFromSaved = false;
 const { requestClose, cancel, closed } = useDialog(
   "settings",
@@ -257,7 +264,7 @@ async function loadConnection(id: string, force = false) {
       if (connections.context(id).cacheKey !== contextKey) { queueLoad([id]); return; }
       if (results[0].status === "fulfilled") {
         raw.value = { ...raw.value, [id]: results[0].value };
-        statuses.value[id] = { s: "ok", text: gateway.profile.protocol === "novelai" ? novelaiConnectionLabel(results[0].value) : gateway.profile.reasoning ? "可用 · 推理尚未实测" : "可用 · 刚刚检查" };
+        statuses.value[id] = { s: "ok", text: gateway.profile.protocol === "novelai" ? novelaiConnectionLabel(results[0].value) : gateway.profile.protocol === "comfyui-workflow" ? "已配置 · 点击测试检查服务" : gateway.profile.reasoning ? "可用 · 推理尚未实测" : "可用 · 刚刚检查" };
       } else statuses.value[id] = { s: "err", text: message(results[0].reason) };
       if (results[1].status === "fulfilled") balances.value = { ...balances.value, [id]: results[1].value.media };
     } catch (error) {
@@ -386,9 +393,48 @@ function closeForm() {
     form.value?.close();
   }
 }
+function formClosed() {
+  formEditing.value = false;
+  workflowReading.value = false;
+  wipeKey();
+}
+function connectionFields() {
+  const name = formName.value.trim();
+  if (!name) throw new Error("请填写供应商名称");
+  const baseUrl = normalizeBaseUrl(formUrl.value);
+  const previous = formTarget.value ? routing.value.connections[formTarget.value] : undefined;
+  if (formTarget.value && !previous) throw new Error("供应商已被删除，请重新配置");
+  const input = formKeyFromSaved ? "" : formKey.value?.value.trim() ?? "", oldKey = previous ? vault.key(previous.credentialRef) : null;
+  const endpointChanged = previous && (previous.baseUrl !== baseUrl || previous.profileId !== formProfile.value);
+  const anonymous = formComfy.value && (formAnonymous.value || !input && !oldKey);
+  if (!anonymous && endpointChanged && !input) throw new Error("地址或协议已更改，请重新填写对应的 API Key");
+  if (!anonymous && !input && !oldKey) throw new Error("请填写 API Key");
+  return { name, baseUrl, previous, input, oldKey, endpointChanged, anonymous };
+}
+function showFormPage(page: FormPage) {
+  if (formBusy.value) return;
+  formError.value = "";
+  if (page === "workflow") {
+    try { connectionFields(); } catch (error) { formError.value = message(error); return; }
+  }
+  formPage.value = page;
+  void nextTick(() => { form.value?.querySelector(".modal-body")?.scrollTo(0, 0); });
+}
+function formPageKeys(event: KeyboardEvent) {
+  if (!["ArrowLeft", "ArrowRight", "Home", "End"].includes(event.key)) return;
+  event.preventDefault();
+  showFormPage(event.key === "Home" ? "connection" : event.key === "End" ? "workflow" : formPage.value === "connection" ? "workflow" : "connection");
+  void nextTick(() => form.value?.querySelector<HTMLButtonElement>(`.supplier-pages [aria-selected="true"]`)?.focus());
+}
+function submitForm() {
+  if (formComfy.value && formPage.value === "connection") showFormPage("workflow");
+  else void saveForm();
+}
 function add() {
   if (local || formBusy.value) return;
   formTarget.value = null;
+  formPage.value = "connection"; formEditing.value = true;
+  formSession.value++; formAnonymous.value = false;
   formName.value = "";
   formUrl.value = "";
   formProfile.value = STANDARD_PROFILE_ID;
@@ -397,10 +443,12 @@ function add() {
   wipeKey();
   form.value?.showModal();
 }
-function edit(id: string) {
+function edit(id: string, page: FormPage = "connection") {
   const c = routing.value.connections[id];
   if (local || !c || formBusy.value) return;
   formTarget.value = id;
+  formPage.value = c.profileId === COMFY_PROFILE_ID ? page : "connection"; formEditing.value = true;
+  formSession.value++; formAnonymous.value = c.authMode === "none";
   formName.value = c.name;
   formUrl.value = c.baseUrl;
   formProfile.value = c.profileId;
@@ -411,6 +459,7 @@ function edit(id: string) {
 }
 function selectProtocol() {
   formError.value = "";
+  formPage.value = "connection";
   const target = formTarget.value ? routing.value.connections[formTarget.value] : undefined;
   if (target && profileFor(formProfile.value).protocol === "novelai" && target.baseUrl !== NOVELAI_IMAGE_URL) {
     formProfile.value = target.profileId;
@@ -421,28 +470,24 @@ function selectProtocol() {
   else if (formUrl.value === NOVELAI_IMAGE_URL) formUrl.value = "";
 }
 async function saveForm() {
-  if (local || formBusy.value) return;
+  if (local || formBusy.value || workflowReading.value) return;
   formError.value = "";
+  let fields: ReturnType<typeof connectionFields>;
+  try { fields = connectionFields(); }
+  catch (error) { formError.value = message(error); formPage.value = "connection"; return; }
   formBusy.value = true;
   let stagedRef: string | undefined;
   try {
-    const name = formName.value.trim();
-    if (!name) throw new Error("请填写供应商名称");
-    const baseUrl = normalizeBaseUrl(formUrl.value), next = structuredClone(routing.value);
-    const previous = formTarget.value ? next.connections[formTarget.value] : undefined;
-    if (formTarget.value && !previous) throw new Error("供应商已被删除，请重新配置");
-    const input = formKeyFromSaved ? "" : formKey.value?.value.trim() ?? "", oldKey = previous ? vault.key(previous.credentialRef) : null;
-    const endpointChanged = previous && (previous.baseUrl !== baseUrl || previous.profileId !== formProfile.value);
-    if (endpointChanged && !input) throw new Error("地址或协议已更改，请重新填写对应的 API Key");
-    if (!input && !oldKey) throw new Error("请填写 API Key");
+    const { name, baseUrl, previous, input, oldKey, endpointChanged, anonymous } = fields;
+    const next = structuredClone(routing.value);
     const id = previous?.id ?? `connection-${crypto.randomUUID()}`;
     // Stage a fresh reference so a new Key can never be paired with the previous destination.
-    const replaceKey = !previous || Boolean(input && input !== oldKey) || endpointChanged;
+    const replaceKey = !previous || Boolean(input && input !== oldKey) || endpointChanged || anonymous !== (previous?.authMode === "none");
     const credentialRef = replaceKey ? `key-${crypto.randomUUID()}` : previous.credentialRef;
-    next.connections[id] = { id, name, baseUrl, profileId: formProfile.value, credentialRef, revision: previous?.revision ?? crypto.randomUUID() };
+    next.connections[id] = { id, name, baseUrl, profileId: formProfile.value, credentialRef, revision: previous?.revision ?? crypto.randomUUID(), ...(formComfy.value ? { authMode: anonymous ? "none" : "bearer", comfyWorkflows: comfyFields.value?.configuration() } : {}) };
     if (previous && previous.profileId !== formProfile.value) next.links[id] = {};
     const validated = validateRouting(next);
-    if (replaceKey) {
+    if (replaceKey && !anonymous) {
       await vault.setKey(credentialRef, input || oldKey!, formRemember.value);
       stagedRef = credentialRef;
     }
@@ -450,7 +495,7 @@ async function saveForm() {
     stagedRef = undefined;
     if (previous && previous.credentialRef !== credentialRef && !Object.values(connections.configuration.connections).some(c => c.credentialRef === previous.credentialRef)) {
       await vault.removeKey(previous.credentialRef);
-    } else if (previous && !replaceKey && formRemember.value !== vault.remembered(credentialRef)) {
+    } else if (previous && !anonymous && !replaceKey && formRemember.value !== vault.remembered(credentialRef)) {
       await vault.setKey(credentialRef, oldKey!, formRemember.value);
     }
     wipeKey();
@@ -460,6 +505,7 @@ async function saveForm() {
       try { await vault.removeKey(stagedRef); } catch { /* An unreferenced Key cannot be used by any supplier. */ }
     }
     formError.value = message(error);
+    if (formComfy.value) formPage.value = "workflow";
   } finally {
     formBusy.value = false;
   }
@@ -497,7 +543,7 @@ async function test(id: string) {
     const result = await testConnection(connections.context(id));
     statuses.value[id] = result;
     ui.toast(`${connection.name} · ${result.text}`, result.s, undefined, notice);
-    if (result.s === "ok") await load(true, [id]);
+    if (result.s === "ok" && connection.profileId !== COMFY_PROFILE_ID) await load(true, [id]);
   } catch (error) {
     statuses.value[id] = { s: "err", text: message(error) };
     ui.toast(`${connection.name} · ${message(error)}`, "err", undefined, notice);
@@ -689,10 +735,11 @@ async function reveal(id: string) {
                     class="btn btn-quiet btn-sm conn-test"
                     type="button"
                     :disabled="Boolean(testing)"
+                    :aria-busy="testing === c.id"
                     aria-label="测试连接"
                     @click="test(c.id)"
                   >
-                    <AppIcon name="i-retry" /><span>测试</span>
+                    <AppIcon name="i-retry" /><span>{{ testing === c.id ? "测试中…" : "测试" }}</span>
                   </button>
                   <template v-if="!local">
                     <button
@@ -765,6 +812,9 @@ async function reveal(id: string) {
                 ><span>{{ askModels(c.id) }}</span
                 ><AppIcon name="i-chevron" />
               </button>
+              </div>
+              <div v-else-if="c.profileId === COMFY_PROFILE_ID" class="conn-source-row">
+                <button class="conn-models" type="button" @click="edit(c.id, 'workflow')"><span class="conn-model-label">工作流</span><span>{{ c.comfyWorkflows?.length ?? 1 }} 个工作流</span><AppIcon name="i-chevron" /></button>
               </div>
               <div v-else class="conn-source-row">
                 <button
@@ -923,70 +973,87 @@ async function reveal(id: string) {
     class="modal set-ui supplier-form"
     aria-label="供应商设置"
     @cancel.prevent="closeForm"
-    @close="wipeKey"
+    @close="formClosed"
   >
-    <form class="modal-form" @submit.prevent="saveForm">
+    <form class="modal-form" @submit.prevent="submitForm">
       <header class="modal-head supplier-head">
         <div class="supplier-brand">
           <img :src="supplierLogo" width="128" height="128" alt="" />
           <span id="connectionTitle" class="brand-title">Koma Image</span>
         </div>
+        <nav v-if="formComfy" class="supplier-pages" role="tablist" aria-label="供应商配置页面" @keydown="formPageKeys">
+          <button v-for="(label, page) in { connection: '连接信息', workflow: '工作流' }" :id="`supplier-tab-${page}`" :key="page"
+            type="button" role="tab" :aria-selected="formPage === page" :aria-controls="`supplier-page-${page}`"
+            :tabindex="formPage === page ? 0 : -1" :disabled="formBusy" @click="showFormPage(page)">{{ label }}</button>
+        </nav>
       </header>
       <div class="modal-body">
-        <div class="fld">
-          <label for="connectionProtocol">接口协议</label>
-          <select id="connectionProtocol" v-model="formProfile" :disabled="formBusy" @change="selectProtocol">
-            <option v-for="p in connectionProfiles" :key="p.id" :value="p.id">{{ p.label }}</option>
-          </select>
-        </div>
-        <div class="fld">
-          <label for="connectionName">名称</label
-          ><input
-            id="connectionName"
-            v-model="formName"
-            :disabled="formBusy"
-            placeholder="供应商名称"
-            type="text"
-            maxlength="128"
-          />
-        </div>
-        <div class="fld">
-          <label for="connectionUrl">地址</label
-          ><input
-            id="connectionUrl"
-            v-model="formUrl"
-            :disabled="formBusy"
-            :readonly="profileFor(formProfile).protocol === 'novelai'"
-            type="text"
-            placeholder="https://"
-            autocomplete="off"
-            spellcheck="false"
-          />
-        </div>
-        <div class="fld">
-          <label for="connectionKey">API Key</label>
-          <div class="connection-secret">
-            <input id="connectionKey" ref="connectionKey" :type="formKeyVisible ? 'text' : 'password'" autocomplete="off" spellcheck="false"
-              :disabled="formBusy" :placeholder="formHasKey ? '留空保留原 Key' : '填写 API Key'" @input="keyEdited" />
-            <button class="ibtn connection-key-toggle" type="button" :disabled="formBusy"
-              :aria-label="formKeyVisible ? '隐藏 API Key' : '显示 API Key'" :aria-pressed="formKeyVisible"
-              :title="formKeyVisible ? '隐藏 API Key' : '显示 API Key'" aria-controls="connectionKey" @click="toggleKey">
-              <AppIcon :name="formKeyVisible ? 'i-eye-off' : 'i-eye'" />
-            </button>
+        <div id="supplier-page-connection" v-show="!formComfy || formPage === 'connection'" class="supplier-page"
+          :role="formComfy ? 'tabpanel' : undefined" :aria-labelledby="formComfy ? 'supplier-tab-connection' : undefined">
+          <div class="fld">
+            <label for="connectionProtocol">接口协议</label>
+            <select id="connectionProtocol" v-model="formProfile" :disabled="formBusy" @change="selectProtocol">
+              <option v-for="p in connectionProfiles" :key="p.id" :value="p.id">{{ p.label }}</option>
+            </select>
           </div>
+          <div class="fld">
+            <label for="connectionName">名称</label
+            ><input
+              id="connectionName"
+              v-model="formName"
+              :disabled="formBusy"
+              placeholder="供应商名称"
+              type="text"
+              maxlength="128"
+            />
+          </div>
+          <div class="fld">
+            <label for="connectionUrl">地址</label
+            ><input
+              id="connectionUrl"
+              v-model="formUrl"
+              :disabled="formBusy"
+              :readonly="profileFor(formProfile).protocol === 'novelai'"
+              type="text"
+              placeholder="https://"
+              autocomplete="off"
+              spellcheck="false"
+            />
+          </div>
+          <div class="fld">
+            <label for="connectionKey">API Key{{ formComfy ? " · 可选" : "" }}</label>
+            <div class="connection-secret">
+              <input id="connectionKey" ref="connectionKey" :type="formKeyVisible ? 'text' : 'password'" autocomplete="off" spellcheck="false"
+                :disabled="formBusy || formComfy && formAnonymous" :placeholder="formHasKey ? '留空保留原 Key' : formComfy ? '留空为无鉴权' : '填写 API Key'" @input="keyEdited" />
+              <button class="ibtn connection-key-toggle" type="button" :disabled="formBusy"
+                :aria-label="formKeyVisible ? '隐藏 API Key' : '显示 API Key'" :aria-pressed="formKeyVisible"
+                :title="formKeyVisible ? '隐藏 API Key' : '显示 API Key'" aria-controls="connectionKey" @click="toggleKey">
+                <AppIcon :name="formKeyVisible ? 'i-eye-off' : 'i-eye'" />
+              </button>
+            </div>
+          </div>
+          <label v-if="formComfy" class="connection-remember">
+            <input v-model="formAnonymous" type="checkbox" :disabled="formBusy" />
+            <span>无鉴权（不发送已保存的 Key）</span>
+          </label>
+          <label v-if="!formComfy || !formAnonymous" class="connection-remember">
+            <input v-model="formRemember" type="checkbox" :disabled="formBusy" />
+            <span>在此浏览器保存 Key</span>
+          </label>
         </div>
-        <label class="connection-remember">
-          <input v-model="formRemember" type="checkbox" :disabled="formBusy" />
-          <span>在此浏览器保存 Key</span>
-        </label>
+        <div v-if="formComfy" v-show="formPage === 'workflow'" id="supplier-page-workflow" role="tabpanel" aria-labelledby="supplier-tab-workflow">
+          <ComfyWorkflows v-if="formEditing" :key="formSession" ref="comfyFields" :initial="formTarget ? routing.connections[formTarget] : undefined" :disabled="formBusy" @busy="workflowReading = $event" />
+        </div>
       </div>
       <footer class="modal-foot">
         <p class="modal-error" role="alert">{{ formError }}</p>
         <div class="modal-actions">
           <button class="btn btn-quiet" type="button" @click="closeForm" :disabled="formBusy">
-            取消</button
-          ><button class="btn btn-primary" type="submit" :disabled="formBusy">
-            {{ formBusy ? "保存中…" : "保存" }}
+            取消
+          </button>
+          <button v-if="formComfy && formPage === 'workflow'" class="btn btn-quiet" type="button" :disabled="formBusy" @click="showFormPage('connection')">上一页</button>
+          <button class="btn btn-primary" type="submit" :disabled="formBusy || workflowReading">
+            {{ formBusy ? "保存中…" : formComfy && formPage === 'connection' ? "下一步" : "保存" }}
           </button>
         </div>
       </footer>
@@ -1048,6 +1115,15 @@ async function reveal(id: string) {
 }
 .supplier-form .fld {
   gap: 5px;
+}
+.supplier-page { display: grid; gap: 10px; }
+.supplier-pages { display: flex; gap: var(--sp-4); border-bottom: 1px solid var(--line); }
+.supplier-pages button { padding: 8px 0; color: var(--fg-3); border-bottom: 2px solid transparent; }
+.supplier-pages button[aria-selected="true"] { color: var(--fg); border-bottom-color: var(--a); }
+.conn-test[aria-busy="true"] .ico { animation: connection-spin 1s linear infinite; }
+@keyframes connection-spin { to { transform: rotate(360deg); } }
+@media (prefers-reduced-motion: reduce) {
+  .conn-test[aria-busy="true"] .ico { animation: none; }
 }
 .connection-secret {
   position: relative;

@@ -15,6 +15,7 @@ import { summary as slateSummary } from "../slate/model.ts";
 import type { ExternalOrigin, ExternalNote, InboxReceipt } from "../bridge/protocol.ts";
 import { characterCapability, characterSummary, nextCharacterId } from "../domain/characters.ts";
 import { boardForm, boardColors } from "../domain/drawing.ts";
+import { syncComfyParameters } from "../domain/comfy-parameters.ts";
 import { stateHash } from "./draft/validate.ts";
 import { chatSnapshot, chatContext, chatDraftModel, chatModelState, chatPictures } from "./chat-context.ts";
 import { computed, nextTick, shallowRef, watch } from "vue";
@@ -518,7 +519,8 @@ export function createAsk(deps: {
       if ((!!plan.newBoardName || newBoard === true) && plan.workspace === "image" && plan.boardId) {
         const source = drawing.board(plan.boardId);
         if (!source) throw new Error("来源画板已删除");
-        const form = boardForm({ ...drawing.snapshot().form, ...structuredClone(source.form), ...Object.fromEntries(plan.changes.map(c => [c.field, c.after])) });
+        const values = Object.fromEntries(plan.changes.map(c => [c.field, c.after])), snapshot = drawing.snapshot();
+        const form = boardForm({ ...syncComfyParameters({ ...snapshot.form, ...structuredClone(source.form) }, snapshot.models.find(m => m.id === (values.model ?? source.form.model))), ...values });
         plan = { ...plan, createdBoard: { ...structuredClone(source), id: crypto.randomUUID(), name: plan.newBoardName ?? `${source.name} 副本`.slice(0, 80), color: boardColors[drawing.snapshot().boards.length % boardColors.length], nextCharacterId: Math.max(source.nextCharacterId, nextCharacterId(form.characters)), form } };
       }
       rememberSlateLinks(plan);
@@ -1161,7 +1163,7 @@ export function createAsk(deps: {
               readBoards.add(board.id);
               const input=scope==='initial'?{...frozenNai,referenceCosts:frozenReferenceCosts.get(board.id)}:(()=>{const d=drawing.snapshot();return {models:d.models,samplers:d.samplers,account:d.quota?.media.subscription,accountAt:d.quotaAt,accountSource:naiSourceKey(d.model),referenceCosts:Object.fromEntries(d.models.map(m=>[m.id,services.references.cachedCost(board.form.naiReferences,m.id)]))};})();
               const awareness=await naiAwareness({...input,form:{...frozenNai.form,...board.form},quote:undefined}).counted();
-              return { text: JSON.stringify({ ...awareness, board_id: board.id, name: board.name, form: { ...board.form, characters: board.form.characters.map(c => ({ ...characterSummary(c, board.form.placement, board.form.model), centers: c.centers })) }, character_capability: characterCapability(board.form.model), draft_base_hash: digest.baseHash }), images: snapshot.history.length };
+              return { text: JSON.stringify({ ...awareness, board_id: board.id, name: board.name, form: "form" in awareness ? awareness.form : { ...board.form, characters: board.form.characters.map(c => ({ ...characterSummary(c, board.form.placement, board.form.model), centers: c.centers })) }, character_capability: characterCapability(board.form.model), draft_base_hash: digest.baseHash }), images: snapshot.history.length };
             }
             return scope === "latest" ? {
             text: stateBlock(digestNow(turnAnchor, true, metadataOnly)),

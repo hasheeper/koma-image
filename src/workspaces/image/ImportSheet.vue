@@ -17,6 +17,8 @@ import { resolveModel } from "../../domain/catalog";
 import { readReferences } from "../../domain/nai-references";
 import { reuseFields, samplerName } from "../../domain/drawing";
 import { canReuseDrawingParams } from "../../domain/image-origin.ts";
+import { comfyWritable, isComfyModel, readComfyRecipe, comfyRecipeModelId } from "../../domain/comfy-workflow.ts";
+import { comfyControlSpec, readComfyControls, currentComfyControls } from "../../domain/comfy-controls.ts";
 import { naiCapabilities } from "../../domain/nai.ts";
 import { supportsNaiVariety } from "../../domain/nai-parameters.ts";
 import { names } from "../../storage/names";
@@ -54,10 +56,12 @@ const labels: Record<string, string> = {
   transparentBg: "透明底",
   seed: "Seed",
   naiReferences: "参考",
+  comfyControls: "采样／调度／LoRA",
 };
 const rows = computed(() => {
   const fields: Readonly<Record<string, unknown>> = candidate.value?.fields ?? {},
     form = view.value.form;
+  const targetModel = resolveModel(view.value.models, String(fields.model ?? form.model)), writable = comfyWritable(targetModel);
   const entries = Object.entries(labels).flatMap(([key, label]) => {
     const keys = (key === "size" ? ["width", "height"] : key === "characters" ? ["characters", "placement"] : [key]).filter(
       (k) => fields[k] !== undefined,
@@ -68,9 +72,9 @@ const rows = computed(() => {
       blocked = "";
     if (key === "model") {
       const model = resolveModel(view.value.models, shown);
-      if (!model) blocked = "本站没有此模型";
+      if (!model) { blocked = "本站没有此模型"; if (isComfyModel({ id: shown })) shown = "ComfyUI 工作流"; }
       else shown = model.name;
-      now = view.value.model?.name || form.model;
+      now = view.value.model?.name || (isComfyModel({ id: form.model }) ? "ComfyUI 工作流" : form.model);
     }
     if (key === "sampler" && !view.value.samplers.includes(shown))
       blocked = "本站不支持";
@@ -98,13 +102,20 @@ const rows = computed(() => {
       shown ||= "随机";
       now ||= "随机";
     }
+    if(key === "comfyControls") {
+      const values=readComfyControls(fields.comfyControls),source=readComfyRecipe(fields.comfyWorkflow);
+      const format=(v:ReturnType<typeof readComfyControls>)=>v ? [v.sampler,v.scheduler,...(v.loras ?? []).map(l=>`${l.enabled?'启用':'停用'} ${l.name} · ${l.strengthModel}${l.strengthClip===undefined?'':` / ${l.strengthClip}`}`)].filter(Boolean).join(' · ') : '—';
+      shown=format(values);now=format(currentComfyControls(form.comfyControlMemory,targetModel));
+      if(!targetModel?.comfyControls || !source || comfyRecipeModelId(source)!==targetModel.id || comfyControlSpec(source)?.signature!==targetModel.comfyControls.signature) blocked="工作流绑定或默认值已变化，不能直接回填";
+    }
     const same =
       key === "size"
         ? keys.every(
             (k) => Number(fields[k]) === Number(form[k as keyof typeof form]),
           )
         : key === "naiReferences" ? JSON.stringify(readReferences(fields[key]))===JSON.stringify(form.naiReferences) : shown === now;
-    return [{ key, label, keys, shown, now, blocked, same }];
+    if (writable && key!=="comfyControls" && keys.some(k => !writable.includes(k))) blocked ||= "由工作流固定";
+    return [{ key, label: key === "scale" && isComfyModel(targetModel) ? "CFG" : key === "size" && isComfyModel(targetModel) ? "输入尺寸" : label, keys:key==="comfyControls"?[...keys,"comfyWorkflow"]:keys, shown, now, blocked, same }];
   });
   const c = candidate.value;
   if (c?.vibes || c?.vibeError) {
@@ -172,7 +183,7 @@ async function apply() {
   const values: Readonly<Record<string, unknown>> = candidate.value.fields;
   const fields: Record<string, unknown> = {};
   for (const key of selected.value)
-    for (const k of key === "size" ? ["width", "height"] : key === "characters" ? ["characters", "placement"] : [key])
+    for (const k of key === "size" ? ["width", "height"] : key === "characters" ? ["characters", "placement"] : key === "comfyControls" ? ["comfyControls","comfyWorkflow"] : [key])
       if (values[k] !== undefined)
         fields[k] = values[k];
   const board = view.value.activeBoardId, token = sequence, model = view.value.form.model;

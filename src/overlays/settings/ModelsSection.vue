@@ -25,7 +25,7 @@ const emit = defineEmits<{ change: [routing: Routing]; reload: [] }>();
 const opened = ref(new Set<string>());
 const groups = { gpt: "GPT", gemini: "Gemini", novelai: "NovelAI" };
 // Reasoning-only connections serve ASK and never appear as image model sources.
-const sources = computed(() => imageConnections(props.routing));
+const sources = computed(() => imageConnections(props.routing).filter(c => c.profileId !== "comfyui-workflow"));
 const entries = (c: string) => catalogEntries(props.raw[c]);
 const link = (c: string, m: ModelIdentity) =>
   linkFor(props.routing, c, m, entries(c));

@@ -5,12 +5,13 @@ import { menuKeys, placeMenu } from "../../shared/popover";
 const props = defineProps<{
   id: string; label: string; caption?: string; title?: string; value: string; display?: string; disabled?: boolean;
   variant?: "model";
-  options: { value: string; label: string; disabled?: boolean; title?: string }[];
+  options: { value: string; label: string; disabled?: boolean; title?: string; badge?: string }[];
 }>();
 const emit = defineEmits<{ change: [value: string] }>();
 const button = ref<HTMLButtonElement>(), menu = ref<HTMLElement>(), expanded = ref(false);
 const menuId = `nai-choice-${useId()}`;
-const selected = computed(() => props.options.find(o => o.value === props.value)?.label ?? props.value);
+const selectedOption = computed(() => props.options.find(o => o.value === props.value));
+const selected = computed(() => selectedOption.value?.label ?? props.value);
 let keyboard = false;
 function close() { menu.value?.hidePopover(); }
 function outsideScroll(event: Event) { if (!menu.value?.contains(event.target as Node)) close(); }
@@ -58,12 +59,12 @@ watch(() => props.value, close);
 onDeactivated(() => { close(); cleanup(); }); onBeforeUnmount(cleanup);
 </script>
 <template>
-  <button :id="id" ref="button" type="button" class="nai-trigger" :class="[variant && `choice-${variant}`, { chosen: value !== 'none' }]" :data-value="value" :disabled="disabled" :popovertarget="menuId" aria-haspopup="menu" :aria-controls="menuId" :aria-expanded="expanded" :aria-label="`${label}：${selected}`" :title="title" @pointerdown="keyboard = false" @keydown="openKeys">
-    <slot /><span v-if="caption" class="choice-caption">{{ caption }}</span><span v-if="!caption || value !== 'none'" class="choice-value">{{ display ?? selected }}</span><AppIcon name="i-chevron" class="choice-caret" />
+  <button :id="id" ref="button" type="button" class="nai-trigger" :class="[variant && `choice-${variant}`, { chosen: value !== 'none' }]" :data-value="value" :disabled="disabled" :popovertarget="menuId" aria-haspopup="menu" :aria-controls="menuId" :aria-expanded="expanded" :aria-label="`${label}：${display ?? selected}`" :title="title" @pointerdown="keyboard = false" @keydown="openKeys">
+    <slot /><span v-if="caption" class="choice-caption">{{ caption }}</span><span v-if="!caption || value !== 'none'" class="choice-value">{{ display ?? selected }}</span><span v-if="selectedOption?.badge" class="badge choice-badge" aria-hidden="true">{{ selectedOption.badge }}</span><AppIcon name="i-chevron" class="choice-caret" />
   </button>
   <div :id="menuId" ref="menu" popover="auto" class="menu nai-menu" role="menu" :aria-label="label" @beforetoggle="beforeToggle" @toggle="toggle" @keydown="keys">
     <template v-for="(option, index) in options" :key="option.value">
-      <button type="button" role="menuitemradio" tabindex="-1" class="menu-item" :data-value="option.value" :aria-checked="option.value === value" :disabled="option.disabled" :title="option.title" @click="choose(option.value)"><span class="menu-label">{{ option.label }}</span><AppIcon name="i-check" class="menu-check" /></button>
+      <button type="button" role="menuitemradio" tabindex="-1" class="menu-item" :data-value="option.value" :aria-checked="option.value === value" :disabled="option.disabled" :title="option.title" @click="choose(option.value)"><span class="menu-label">{{ option.label }}</span><span v-if="option.badge" class="badge choice-badge" aria-hidden="true">{{ option.badge }}</span><AppIcon name="i-check" class="menu-check" /></button>
       <hr v-if="option.value === 'none' && index < options.length - 1" />
     </template>
   </div>
@@ -74,11 +75,13 @@ onDeactivated(() => { close(); cleanup(); }); onBeforeUnmount(cleanup);
 .nai-trigger:disabled { opacity: .5; cursor: default; }
 .choice-value { min-width: 0; overflow: hidden; text-overflow: ellipsis; color: var(--fg); font-weight: var(--fw-semibold); }
 .choice-caption { font-weight: var(--fw-medium); }
+.choice-badge { flex: none; font-family: var(--sans); color: var(--fg-3); background: var(--hover); }
 .choice-caret { flex: none; --ico: var(--ico-xs); color: var(--fg-4); transform: rotate(90deg); transition: transform var(--t1) var(--e); }
 .nai-trigger[aria-expanded="true"] .choice-caret { transform: rotate(-90deg); }
 .nai-trigger:focus-visible { outline: none; background: var(--hover); box-shadow: inset 0 0 0 1px var(--fg-3); }
 .nai-trigger:hover .choice-caret { color: var(--fg-2); }
 .choice-model { flex: 1; justify-content: flex-start; min-width: 0; height: 30px; padding: 0 8px; border-radius: 7px; font-size: var(--fz-sm); }
+.choice-model .choice-value { flex: 1; text-align: left; }
 .nai-menu { width: 168px; max-width: calc(100vw - 16px); }
 @media (pointer: coarse), (max-width: 860px) { .choice-model { height: 36px; } }
 </style>

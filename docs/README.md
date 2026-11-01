@@ -47,6 +47,7 @@ docs/
 | 文档 | 维护范围 |
 | --- | --- |
 | [图像协议](integrations/image-protocols.md) | 标准网关、OpenAI Images、Gemini、NovelAI 的协议能力与差异 |
+| [ComfyUI Custom Workflow](integrations/comfyui.md) | 多管线与主模型名单、参数／采样／LoRA、设备状态、执行与配方 |
 | [NovelAI 官方适配](integrations/novelai.md) | 型号、参数、参考、费用、输入预算及真实待验边界 |
 | [Photopea](integrations/photopea.md) | iframe 生命周期、分层工作栈、蒙版分离与自动回传 |
 | [外部协同与本地任务](integrations/bridge.md) | Bridge 目录／JSON、IMAGE 外部草稿、refs、Slate 任务与交付 |

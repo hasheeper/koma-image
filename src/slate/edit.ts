@@ -1,4 +1,6 @@
 import { boardForm, DEFAULTS } from "../domain/drawing.ts";
+import { readComfyMemory } from "../domain/comfy-parameters.ts";
+import { readComfyControlMemory } from "../domain/comfy-controls.ts";
 import type { BoardForm, DrawingForm } from "../domain/drawing.ts";
 import { readCharacters } from "../domain/characters.ts";
 import { readReferences } from "../domain/nai-references.ts";
@@ -42,6 +44,10 @@ export function recipeForm(input: unknown): BoardForm {
       if (!Array.isArray(value) || canonical(readCharacters(value)) !== canonical(value)) throw new Error("配方角色结构无效");
     } else if (key === "naiReferences") {
       if (canonical(readReferences(value)) !== canonical(value)) throw new Error("配方参考结构无效");
+    } else if (key === "comfyParameterMemory") {
+      if (canonical(readComfyMemory(value)) !== canonical(value)) throw new Error("工作流参数记录无效");
+    } else if (key === "comfyControlMemory") {
+      if (canonical(readComfyControlMemory(value)) !== canonical(value)) throw new Error("采样与 LoRA 记录无效");
     } else {
       const d = defaults[key as keyof BoardForm];
       if (typeof value !== typeof d || typeof value === "number" && !Number.isFinite(value) || typeof value === "string" && value.length > 24000) throw new Error(`配方 ${key} 无效`);

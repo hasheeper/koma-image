@@ -1,3 +1,4 @@
+import { comfyCatalog, executeComfy } from "./comfyui.ts";
 import { countNaiTokens } from "../native/nai-tokenizer.ts";
 import { validateNaiText } from "../domain/nai-input.ts";
 import { readEncoding } from "../native/reference-images.ts";
@@ -42,6 +43,7 @@ export function createGateway(
   let mappedRaw: Record<string, unknown> | undefined;
   async function rawCatalog(force = false, signal?: AbortSignal) {
     context.assertCurrent();
+    if (profile.protocol === "comfyui-workflow") return { models: Object.fromEntries(comfyCatalog(context.connection).models.map(m => [m.id, { name: m.name }])) };
     if (catalogCache.raw && !force) return catalogCache.raw;
     const readSignal = timedSignal(15_000, signal);
     const source = await readJson(await transport.request(profilePath(profile, "catalog"), { signal: readSignal }));
@@ -57,6 +59,7 @@ export function createGateway(
     signal?: AbortSignal,
   ): Promise<Catalog> {
     context.assertCurrent();
+    if (profile.protocol === "comfyui-workflow") return comfyCatalog(context.connection);
     if (cached && !force && mappedRaw === catalogCache.raw) return cached;
     const raw = await rawCatalog(force, signal);
     const mapped = nativeMappedCatalog(profile, raw, context.routing, context.connection.id);
@@ -188,6 +191,11 @@ export function createGateway(
       let submitted = false,
         acknowledged = false;
       try {
+        if (profile.protocol === "comfyui-workflow") {
+          const result = await executeComfy(context, input, consume, signal, fetcher);
+          return { value: result.value, quote: null, native: false, ms: performance.now() - start,
+            via: { connection: context.connection.id, upstreamId: input.model }, promptId: result.promptId };
+        }
         const payload = wire(input);
         validateNaiText(payload);
         const adapted = profile.protocol && profile.protocol !== "standard" ? nativeRequest(profile, payload) : null;

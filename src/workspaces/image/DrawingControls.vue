@@ -13,14 +13,18 @@ import {
 } from "../../domain/drawing";
 import type { Tier, Orientation, DrawingForm } from "../../domain/drawing";
 import AppIcon from "../../shared/AppIcon.vue";
+import { validComfyParameter } from "../../domain/comfy-workflow";
 const { drawing, view } = useDrawing(),
   ui = useUi();
 const f = computed(() => view.value.form),
   tier = ref<Tier>("m"),
   lastDirection = ref<Orientation>("portrait"),
   lastShape = ref("2:3");
+const widthBound = computed(() => !view.value.comfy || view.value.model?.comfyParameters?.defaults.width !== undefined);
+const heightBound = computed(() => !view.value.comfy || view.value.model?.comfyParameters?.defaults.height !== undefined);
+const pairBound = computed(() => widthBound.value && heightBound.value);
 const match = computed(() =>
-  presetMatch(Number(f.value.width), Number(f.value.height)),
+  pairBound.value ? presetMatch(Number(f.value.width), Number(f.value.height)) : null,
 );
 const orientation = computed<Orientation>(() =>
   f.value.width === f.value.height
@@ -49,7 +53,7 @@ const ratios = computed(() =>
   lastDirection.value === "landscape" ? RATIOS.map(mirror) : RATIOS,
 );
 const problem = computed(() =>
-  sizeProblem(
+  view.value.comfy ? { fatal: false, message: "输入尺寸作用于所绑节点，最终尺寸可能由工作流缩放。" } : sizeProblem(
     Number(f.value.width),
     Number(f.value.height),
     view.value.model?.maxPixels,
@@ -65,6 +69,12 @@ const dimensions = computed(() => {
 });
 function change(key: keyof DrawingForm, event: Event) {
   const input = event.target as HTMLInputElement;
+  if (view.value.comfy && (key === "width" || key === "height")) {
+    const value = input.value === "" ? NaN : Number(input.value);
+    if (!validComfyParameter(key, value)) {
+      ui.toast("尺寸须为正整数", "warn"); input.value = String(f.value[key]); return;
+    }
+  }
   if (key === "transparentBg" && input.checked)
     ui.toast("生成时会自动添加 transparent background");
   void drawing.patch({
@@ -77,6 +87,7 @@ function change(key: keyof DrawingForm, event: Event) {
   });
 }
 function apply(shape: string, next = tier.value) {
+  if (!pairBound.value) return;
   const [width, height] = sizes(next)[shape];
   void drawing.patch({ width, height });
 }
@@ -88,6 +99,7 @@ function setTier(next: Tier) {
   );
 }
 function direct(next: Orientation) {
+  if (!pairBound.value) return;
   if (next === orientation.value) return;
   if (next === "square") apply("1:1");
   else if (orientation.value === "square")
@@ -95,6 +107,7 @@ function direct(next: Orientation) {
   else void drawing.patch({ width: f.value.height, height: f.value.width });
 }
 function commit(key: "width" | "height") {
+  if (view.value.comfy) return;
   const n = snap(f.value[key]);
   if (n !== null) {
     if (n !== f.value[key]) ui.toast(`尺寸需为 64 的倍数，已调整为 ${n}`);
@@ -126,7 +139,8 @@ function radioKey(e: KeyboardEvent) {
 }
 </script>
 <template>
-  <div
+  <p v-if="!widthBound && !heightBound" class="hint">尺寸由工作流决定</p>
+  <div v-else
     class="fld resolution-control"
     id="resolutionControl"
     :data-custom="!match"
@@ -139,13 +153,13 @@ function radioKey(e: KeyboardEvent) {
         <span class="size-custom-label" id="customSize" :hidden="!!match"
           >自定义</span
         ><span class="mono" id="pixelMeta">{{
-          f.width * f.height
+          pairBound && f.width * f.height
             ? `${((f.width * f.height) / 1e6).toFixed(2)} MP`
             : ""
         }}</span>
       </div>
     </div>
-    <div class="seg tiers" id="tiers" role="radiogroup" aria-label="尺寸档位">
+    <div v-if="pairBound" class="seg tiers" id="tiers" role="radiogroup" aria-label="尺寸档位">
       <label
         v-for="(label, key) in { s: '小幅', m: '中幅', l: '大幅' }"
         :key="key"
@@ -159,7 +173,7 @@ function radioKey(e: KeyboardEvent) {
         /><span>{{ label }}</span></label
       >
     </div>
-    <div class="size-orientations" role="radiogroup" aria-label="方向">
+    <div v-if="pairBound" class="size-orientations" role="radiogroup" aria-label="方向">
       <label
         v-for="(label, key) in {
           portrait: '竖向',
@@ -182,6 +196,7 @@ function radioKey(e: KeyboardEvent) {
     </div>
     <div class="size-panel">
       <div
+        v-if="pairBound"
         class="size-ratios"
         id="ratios"
         role="radiogroup"
@@ -210,18 +225,21 @@ function radioKey(e: KeyboardEvent) {
       </div>
       <div class="size-fields">
         <span class="size-preview" :data-custom="!match" aria-hidden="true"
-          ><i id="dimensionShape" :style="dimensions"></i
+          ><i v-if="pairBound" id="dimensionShape" :style="dimensions"></i
         ></span>
         <div class="fld-inline">
           <input
             id="width"
             type="number"
-            min="64"
-            max="2048"
-            step="64"
-            :value="f.width"
+            :min="view.comfy ? 1 : 64"
+            :max="view.comfy ? undefined : 2048"
+            :step="view.comfy ? 1 : 64"
+            :value="widthBound ? f.width : ''"
+            :disabled="!widthBound"
+            :placeholder="widthBound ? undefined : '工作流固定'"
             aria-label="宽"
-            @input="change('width', $event)"
+            @input="!view.comfy && change('width', $event)"
+            @change="view.comfy && change('width', $event)"
             @blur="commit('width')"
             @keydown.enter.prevent="commit('width')"
           /><span>W</span>
@@ -232,7 +250,7 @@ function radioKey(e: KeyboardEvent) {
           id="swapSize"
           data-tip="互换宽高"
           aria-label="互换宽高"
-          :disabled="!f.width || !f.height || f.width === f.height"
+          :disabled="!pairBound || !f.width || !f.height || f.width === f.height"
           @click="drawing.patch({ width: f.height, height: f.width })"
         >
           <AppIcon name="i-swap" />
@@ -241,12 +259,15 @@ function radioKey(e: KeyboardEvent) {
           <input
             id="height"
             type="number"
-            min="64"
-            max="2048"
-            step="64"
-            :value="f.height"
+            :min="view.comfy ? 1 : 64"
+            :max="view.comfy ? undefined : 2048"
+            :step="view.comfy ? 1 : 64"
+            :value="heightBound ? f.height : ''"
+            :disabled="!heightBound"
+            :placeholder="heightBound ? undefined : '工作流固定'"
             aria-label="高"
-            @input="change('height', $event)"
+            @input="!view.comfy && change('height', $event)"
+            @change="view.comfy && change('height', $event)"
             @blur="commit('height')"
             @keydown.enter.prevent="commit('height')"
           /><span>H</span>

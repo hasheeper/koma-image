@@ -1,10 +1,12 @@
+import { readComfyRecipe, readComfyValues } from "./comfy-workflow.ts";
+import { readComfyControls } from "./comfy-controls.ts";
 import { readInpaintFocus } from "./inpaint-focus.ts";
 import { DEFAULTS } from "./drawing.ts";
 import { readCharacters } from "./characters.ts";
 import { readReferences } from "./nai-references.ts";
 import { imageOrigin } from "./image-origin.ts";
 
-const parameterKeys = [...Object.keys(DEFAULTS), "basePrompt", "baseNegative", "negative_prompt", "modelName", "randomSeed", "batchIndex", "batchTotal", "seedStart", "cache", "transform_prompt", "transform_mode", "strength", "noise", "noise_schedule", "cfg_rescale", "enhance", "enhanceScale", "enhanceMagnitude", "tool", "directorTool", "directorVariant", "directorGroup", "directorWidth", "directorHeight", "defry", "emotion", "boardId", "boardName", "boardColor", "isComparison", "comparisonTotal", "version", "image_index", "selected"];
+const parameterKeys = ["mime", "comfyPromptId", ...Object.keys(DEFAULTS), "basePrompt", "baseNegative", "negative_prompt", "modelName", "randomSeed", "batchIndex", "batchTotal", "seedStart", "cache", "transform_prompt", "transform_mode", "strength", "noise", "noise_schedule", "cfg_rescale", "enhance", "enhanceScale", "enhanceMagnitude", "tool", "directorTool", "directorVariant", "directorGroup", "directorWidth", "directorHeight", "defry", "emotion", "boardId", "boardName", "boardColor", "isComparison", "comparisonTotal", "version", "image_index", "selected"];
 function recipeParameters(params: Readonly<Record<string, unknown>>) {
   const out: Record<string, unknown> = {};
   for (const key of parameterKeys) if (params[key] === null || ["string", "number", "boolean"].includes(typeof params[key])) out[key] = params[key];
@@ -13,6 +15,12 @@ function recipeParameters(params: Readonly<Record<string, unknown>>) {
   if (focus) out.inpaintFocus = focus;
   if (params.placement === "auto" || params.placement === "manual") out.placement = params.placement;
   if (params.naiReferences) out.naiReferences = readReferences(params.naiReferences);
+  const comfy = readComfyRecipe(params.comfyWorkflow);
+  if (comfy) out.comfyWorkflow = comfy;
+  const values = readComfyValues(params.comfyParameters);
+  if (Object.keys(values).length) out.comfyParameters = values;
+  const controls = readComfyControls(params.comfyControls);
+  if (controls && Object.keys(controls).length) out.comfyControls = controls;
   Object.assign(out, imageOrigin(params));
   if (params.tool === "chat" && params.chat_options && typeof params.chat_options === "object" && !Array.isArray(params.chat_options)) {
     out.chat_options = Object.fromEntries(Object.entries(params.chat_options).filter(([, value]) => typeof value === "string"));

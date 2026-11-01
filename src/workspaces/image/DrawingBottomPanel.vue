@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import { isComfyModel } from "../../domain/comfy-workflow.ts";
 import { computed, nextTick, onMounted, onActivated, onBeforeUnmount, onDeactivated, shallowRef, ref, watch } from "vue";
 import { useNaiComposer } from "../../app/nai-composer";
 import { samplerName } from "../../domain/drawing";
@@ -11,6 +12,11 @@ import NaiReferenceEditor from "./NaiReferenceEditor.vue";
 const { drawing, view, id } = useNaiComposer();
 const section = ref<"parameters" | ReferenceKind>("parameters"), open = ref(false), mounted = ref(false);
 const shell = shallowRef<HTMLElement>(), content = shallowRef<HTMLElement>();
+const comfy = computed(() => isComfyModel(view.value.model));
+const comfySummary = computed(() => {
+  const defaults = view.value.model?.comfyParameters?.defaults ?? {}, form = view.value.form;
+  return [defaults.steps !== undefined ? `${form.steps} 步` : '', defaults.cfg !== undefined ? `CFG ${form.scale}` : ''].filter(Boolean).join(' · ') || '由工作流决定';
+});
 const supported = computed(() => view.value.referenceSupported);
 const referenceKinds = computed(() => view.value.referenceKinds ?? ["vibe", "precise"] as const);
 const parameterPreview = computed(() => {
@@ -66,10 +72,11 @@ defineExpose({close, drawerHeight:()=>shell.value?.getBoundingClientRect().heigh
   <div class="drawing-bottom-panel">
     <div v-if="view.referenceProblem" class="reference-problem" role="status"><span>{{ view.referenceProblem }}</span><button type="button" @click="drawing.editReferences({...view.form.naiReferences,active:null})">停用参考</button></div>
     <nav class="bottom-controls" :class="{'is-single':!supported,'is-pair':supported && referenceKinds.length===1}" aria-label="底部面板导航">
-      <button :id="id('parametersToggle')" type="button" class="bottom-tab" :class="{selected:open && section==='parameters'}" :aria-expanded="open && section==='parameters'" :aria-controls="id('drawing-bottom-content')" :title="supported ? '生成参数' : `生成参数 · ${parameterPreview.sampler} · ${parameterPreview.steps} 步`" @click="toggle('parameters',$event)">
+      <button :id="id('parametersToggle')" type="button" class="bottom-tab" :class="{selected:open && section==='parameters'}" :aria-expanded="open && section==='parameters'" :aria-controls="id('drawing-bottom-content')" :title="comfy ? '调整已绑定的工作流参数、Seed 和批次数' : supported ? '生成参数' : `生成参数 · ${parameterPreview.sampler} · ${parameterPreview.steps} 步`" @click="toggle('parameters',$event)">
         <AppIcon name="i-parameters" /><span>参数</span>
         <template v-if="!supported">
-          <span class="parameter-preview"><span class="parameter-sampler">{{ parameterPreview.shortSampler }}</span><span class="parameter-steps"><b>{{ parameterPreview.steps }}</b> 步</span></span>
+          <span v-if="comfy" class="parameter-preview">{{ comfySummary }}</span>
+          <span v-else class="parameter-preview"><span class="parameter-sampler">{{ parameterPreview.shortSampler }}</span><span class="parameter-steps"><b>{{ parameterPreview.steps }}</b> 步</span></span>
           <AppIcon name="i-chevron" class="single-chevron" />
         </template>
       </button>

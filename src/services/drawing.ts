@@ -1,3 +1,11 @@
+import { resolveComfyRoute } from "../domain/comfy-workflows.ts";
+import type { ComfyRecipe } from "../domain/comfy-workflow.ts";
+import type { ConnectionContext } from "./connections.ts";
+import { COMFY_PROFILE_ID, isComfyModel, comfyWritable, comfyParameterSpec, comfyParameterKey, validComfyParameter } from "../domain/comfy-workflow.ts";
+import { syncComfyParameters } from "../domain/comfy-parameters.ts";
+import { comfyControlSpec, currentComfyControls, validateComfyControls, checkComfyControlOptions } from "../domain/comfy-controls.ts";
+import type { ComfyControls } from "../domain/comfy-controls.ts";
+import { createComfyOptions } from "./comfy-options.ts";
 import { naiQuoteKey } from "./nai-awareness.ts";
 import { imageEntity } from "../domain/image-identity.ts";
 import { assignFavorite, retireFavorite, identityStores, readFavoriteIdentity } from "./image-identities.ts";
@@ -84,6 +92,7 @@ export function createDrawing(
     total: number;
     done: number;
     composing?: boolean;
+    workflow?: boolean;
   } | null = null;
   let quota: QuotaStatus | null = null,
     quotaLoading = false,
@@ -126,6 +135,7 @@ export function createDrawing(
     syncBoard();
     if (!disposed) for (const fn of listeners) fn();
   };
+  const comfyOptions = createComfyOptions(services.connections,emit);
   const notify = (
     text: string,
     tone = "info",
@@ -201,7 +211,7 @@ export function createDrawing(
     }
     if (
       !model ||
-      sizeProblem(Number(form.width), Number(form.height), model.maxPixels)
+      !isComfyModel(model) && sizeProblem(Number(form.width), Number(form.height), model.maxPixels)
         .fatal
     ) {
       preview?.update(null);
@@ -295,19 +305,24 @@ export function createDrawing(
     quotaAt = 0;
     quote = { status: "idle", quote: null };
     revision++;
-    model = resolveModel(models, form.model) ?? (naiCapabilities(form.model).medium ? undefined : resolveModel(models, DEFAULTS.model) ?? models[0]);
+    model = resolveModel(models, form.model) ?? (naiCapabilities(form.model).medium || isComfyModel({ id: form.model }) ? undefined : resolveModel(models, DEFAULTS.model) ?? models[0]);
     if (model) {
+      form = syncComfyParameters(form, model);
+      for (const board of boards.items) if (board.id !== boards.activeId) {
+        board.form = boardForm(syncComfyParameters({ ...form, ...board.form }, resolveModel(models, board.form.model)));
+      }
       samplers = modelSamplers(model, connectionSamplers.get(model.connection) ?? [DEFAULTS.sampler]);
       form = {
         ...form,
         model: model.id,
-        sampler: naiCapabilities(form.model).medium || samplers.includes(form.sampler)
+        sampler: isComfyModel(model) || naiCapabilities(form.model).medium || samplers.includes(form.sampler)
           ? form.sampler
           : samplers.includes(DEFAULTS.sampler)
             ? DEFAULTS.sampler
             : samplers[0],
       };
       bindPreview();
+      void comfyOptions.load(model);
       if (!draftQuotePaused) void refreshQuota(true);
     } else preview = undefined;
     emit();
@@ -388,7 +403,7 @@ export function createDrawing(
         }
         connectionSamplers.set(result.value.id, result.value.catalog.samplers);
       } else catalogError = message(result.reason);
-    models = selectCatalogSources(configuration, next).filter(m => m.provider === "novelai").sort((a, b) =>
+    models = selectCatalogSources(configuration, next).filter(m => m.provider === "novelai" || isComfyModel(m)).sort((a, b) =>
       b.id.localeCompare(a.id, undefined, { numeric: true }),
     );
     catalogLoading = false;
@@ -409,7 +424,9 @@ export function createDrawing(
       let text: string;
       if (connected.length) {
         text =
-          configured.length === 1
+          configured.length === 1 && isComfyModel(connected[0]!.value.catalog.models[0])
+            ? `已配置 ${configured[0]!.name} · 工作流尚未执行`
+            : configured.length === 1
             ? `已连接 ${configured[0]!.name} · ${connected[0]!.value.catalog.models.length} 个模型`
             : `已连接 ${connected.length} 个供应商`;
         if (failed.length) text += ` · ${failed.length} 个连接失败`;
@@ -567,7 +584,7 @@ export function createDrawing(
   }
   async function patch(values: Partial<DrawingForm>) {
     draftQuotePaused = false;
-    form = { ...form, ...values };
+    form = { ...syncComfyParameters(form, resolveModel(models, values.model ?? form.model)), ...values };
     form.historyLimit = readHistoryLimit(form.historyLimit);
     form.editorHistoryLimit = readHistoryLimit(form.editorHistoryLimit);
     trim();
@@ -581,7 +598,8 @@ export function createDrawing(
     }
   }
   function apply(fields: Record<string, unknown>) {
-    const { changes, applied } = prepareDrawingFields(fields, models, samplers);
+    const { changes, applied } = prepareDrawingFields(fields, models, samplers, resolveModel(models, String(fields.model ?? form.model)));
+    if (changes.comfyControlMemory) changes.comfyControlMemory = {...form.comfyControlMemory,...changes.comfyControlMemory};
     if (changes.characters) {
       let next = activeBoard().nextCharacterId;
       changes.characters = changes.characters.map(c => ({ ...c, id: `c${next++}` }));
@@ -630,17 +648,30 @@ export function createDrawing(
       return;
     }
     if (
-      sizeProblem(Number(form.width), Number(form.height), model.maxPixels)
+      !isComfyModel(model) && sizeProblem(Number(form.width), Number(form.height), model.maxPixels)
         .fatal
     )
       return;
     const sourceBoardId = boards.activeId;
+    const comfy = isComfyModel(model);
+    let comfyRecipe: ComfyRecipe | undefined, workflowContext: ConnectionContext | undefined;
     let selected = model;
     // Keep the price the user saw, including during a pending preview refresh.
     // A later board switch must not replace this batch's comparison baseline.
     let shownCost = quote.quote?.cost ?? null;
     let base: DrawingParams;
-    try { base = collect(form, selected, batchCount()); } catch (e) { notify(message(e), "warn"); return; }
+    try {
+      if (comfy) {
+        workflowContext = services.connections.context(selected.connection);
+        const c = workflowContext.connection;
+        if (c.profileId !== COMFY_PROFILE_ID) throw new Error("工作流连接已改变，请重新选择");
+        const route = resolveComfyRoute(c, selected.id);
+        comfyRecipe = { ...route.config, connectionId: c.id, name: route.entry.name, revision: c.revision, workflowId: route.entry.id, ...(route.model ? { modelId: route.model.id, modelName: route.model.name, modelFile: route.model.file } : {}) };
+        selected = { ...selected, name: route.model?.name || route.entry.name, sourceRevision: c.revision, comfyNegative: !!comfyRecipe.bindings.negative, comfyParameters: comfyParameterSpec(comfyRecipe), comfyControls:comfyControlSpec(comfyRecipe) };
+      }
+      base = collect(form, selected, batchCount());
+      if (comfy) checkComfyControlOptions(base.comfyControls ?? {},selected.comfyControls,comfyOptions.snapshot(selected).info);
+    } catch (e) { notify(message(e), "warn"); return; }
     let completed = 0;
     const records: ImageRecord[] = [];
     taskAbort = new AbortController();
@@ -649,45 +680,51 @@ export function createDrawing(
     preview?.pause();
     browsing = false;
     state = "busy";
-    title = "检查额度";
+    title = comfy ? "准备工作流" : "检查额度";
     subtitle = "";
-    label = "检查额度…";
+    label = comfy ? "准备工作流…" : "检查额度…";
     error = "";
     pending = {
       boardId: sourceBoardId,
-      width: base.width,
-      height: base.height,
+      width: comfy ? 1 : base.width,
+      height: comfy ? 1 : base.height,
+      workflow: comfy,
       index: 1,
       total: base.batchCount,
       done: 0,
     };
     emit();
     try {
-      let preflightSource = await services.selectSource(selected, signal, activeReferences(base.naiReferences).length ? drawingPayload(base) : undefined);
-      selected = preflightSource.model;
-      signal.throwIfAborted();
-      // Preflight may observe edits on its source board, never another board.
       let source = boards.items.find(b => b.id === sourceBoardId);
-      if (!source) throw new Error("来源画板已删除，本次生成已取消");
-      const sourceModel = resolveModel(models, source.form.model);
-      if (!sourceModel) throw new Error("来源画板的模型已不可用，请重新选择模型");
-      if (sizeProblem(source.form.width, source.form.height, sourceModel.maxPixels).fatal) throw new Error("来源画板的画幅超出模型限制，请调整后重新生成");
-      if (selected.id !== sourceModel.id) {
-        shownCost = null;
-        preflightSource = await services.selectSource(sourceModel, signal, activeReferences(source.form.naiReferences).length ? drawingPayload(collect({ ...form, ...source.form }, sourceModel, count(source.form.batchCount))) : undefined);
+      if (!source) throw new Error("来源画板已删除");
+      if (!comfy) {
+        let preflightSource = await services.selectSource(selected, signal, activeReferences(base.naiReferences).length ? drawingPayload(base) : undefined);
         selected = preflightSource.model;
+        signal.throwIfAborted();
+        // Preflight may observe edits on its source board, never another board.
+        source = boards.items.find(b => b.id === sourceBoardId);
+        if (!source) throw new Error("来源画板已删除，本次生成已取消");
+        const sourceModel = resolveModel(models, source.form.model);
+        if (!sourceModel) throw new Error("来源画板的模型已不可用，请重新选择模型");
+        if (sizeProblem(source.form.width, source.form.height, sourceModel.maxPixels).fatal) throw new Error("来源画板的画幅超出模型限制，请调整后重新生成");
+        if (selected.id !== sourceModel.id) {
+          shownCost = null;
+          preflightSource = await services.selectSource(sourceModel, signal, activeReferences(source.form.naiReferences).length ? drawingPayload(collect({ ...form, ...source.form }, sourceModel, count(source.form.batchCount))) : undefined);
+          selected = preflightSource.model;
+        }
+        signal.throwIfAborted();
+        source = boards.items.find(b => b.id === sourceBoardId);
+        if (!source) throw new Error("来源画板已删除，本次生成已取消");
+        if (source.form.model !== sourceModel.id) throw new Error("预检期间模型已再次变化，请重新生成");
+        base = collect({ ...form, ...source.form }, selected, count(source.form.batchCount));
+        validateNaiText(drawingPayload(base));
       }
-      signal.throwIfAborted();
-      source = boards.items.find(b => b.id === sourceBoardId);
-      if (!source) throw new Error("来源画板已删除，本次生成已取消");
-      if (source.form.model !== sourceModel.id) throw new Error("预检期间模型已再次变化，请重新生成");
-      base = collect({ ...form, ...source.form }, selected, count(source.form.batchCount));
-      validateNaiText(drawingPayload(base));
       const provenance = { boardId: source.id, boardName: source.name, boardColor: source.color };
       pending = {
         boardId: sourceBoardId,
-        width: base.width,
-        height: base.height,
+        width: comfy ? 1 : base.width,
+        height: comfy ? 1 : base.height,
+        workflow: comfy,
         index: 1,
         total: base.batchCount,
         done: 0,
@@ -696,6 +733,9 @@ export function createDrawing(
       const result = await services.runTask(
         { id: crypto.randomUUID(), workspace: "image", snapshot: { ...base, ...provenance } },
         async (task) => {
+          workflowContext?.assertCurrent();
+          if (comfyRecipe && services.connections.configuration.connections[selected.connection]?.revision !== comfyRecipe.revision) throw new Error("工作流已更新，请重新生成");
+          const workflowGateway = comfy ? task.gateway(selected.connection) : undefined;
           const plan = referencePlan(base.naiReferences);
           let prepared: PreparedReferences | undefined;
           let referenceGateway: ReturnType<typeof task.gateway> | undefined;
@@ -724,6 +764,7 @@ export function createDrawing(
             task.signal.throwIfAborted();
             pending = {
               ...pending!,
+              ...(comfy ? { width: 1, height: 1 } : {}),
               index: index + 1,
               total: base.batchCount,
               done: completed,
@@ -738,7 +779,7 @@ export function createDrawing(
               payload: ImagePayload = { ...drawingPayload(params), ...(prepared ? { preparedReferences:prepared } : {}) };
             const consume = (response: Response, native: boolean, s: AbortSignal) => consumeImage(response, native, s, payload, params.optimize);
             const options = { notice, onNotice: (text: string) => notify(text), signal:task.signal };
-            const result = await (prepared ? referenceGateway!.execute(payload, consume, {
+            const result = await (workflowGateway ? workflowGateway.execute(payload, consume, options) : prepared ? referenceGateway!.execute(payload, consume, {
               ...options, beforeSubmit: async (freshQuote) => {
                 const balance = await referenceGateway!.quota(selected.quotaGroup, task.signal).catch(() => { task.signal.throwIfAborted(); return null; });
                 const reason = insufficientFunds(selected, balance, freshQuote, payload);
@@ -762,13 +803,21 @@ export function createDrawing(
             const record = await addImage(
               result.value.blob,
               result.value.size,
-              { ...params, ...provenance, varietyPlus: supportsNaiVariety(selected) && params.varietyPlus, noise_schedule: selected.profileId === "nai-official-v1" ? naiNoiseSchedule(selected.id, params.sampler, payload.noiseSchedule ?? payload.noise_schedule) : "karras", via: result.via },
+              comfyRecipe ? {
+                model: params.model, modelName: comfyRecipe.name, prompt: params.prompt, basePrompt: params.basePrompt,
+                ...(comfyRecipe.bindings.negative ? { negative_prompt: params.negative_prompt, baseNegative: params.baseNegative } : {}),
+                seed: params.seed, randomSeed: params.randomSeed, batchIndex: params.batchIndex!, batchTotal: params.batchTotal!,
+                width: result.value.size.width, height: result.value.size.height, mime: result.value.blob.type,
+                ...(Object.keys(params.comfyParameters ?? {}).length ? { comfyParameters: { ...params.comfyParameters } } : {}),
+                ...(Object.keys(params.comfyControls ?? {}).length ? { comfyControls: JSON.parse(JSON.stringify(params.comfyControls)) as Fields } : {}),
+                ...provenance, via: result.via, ...(result.promptId ? { comfyPromptId: result.promptId } : {}), comfyWorkflow: JSON.parse(JSON.stringify(comfyRecipe)) as Fields,
+              } : { ...params, ...provenance, varietyPlus: supportsNaiVariety(selected) && params.varietyPlus, noise_schedule: selected.profileId === "nai-official-v1" ? naiNoiseSchedule(selected.id, params.sampler, payload.noiseSchedule ?? payload.noise_schedule) : "karras", via: result.via },
               result.ms,
               JSON.parse(JSON.stringify(result.quote)) as Fields,
             );
             completed++;
             records.push(record);
-            pending = { ...pending!, done: completed };
+            pending = { ...pending!, done: completed, ...(comfy ? result.value.size : {}) };
             // The landed picture takes the placeholder's slot while the stage reveals it.
             emit();
             if (!browsing) {
@@ -778,7 +827,7 @@ export function createDrawing(
             if (completed === base.batchCount)
               void refreshQuota(true, selected);
           }
-          if (base.batchCount > 1) {
+          if (base.batchCount > 1 && !comfy) {
             task.signal.throwIfAborted();
             label = "合成对比图…";
             pending = { ...pending!, composing: true };
@@ -836,9 +885,8 @@ export function createDrawing(
       ) {
         state = current ? "done" : "empty";
         notify(
-          base.batchCount > 1
-            ? `已取消，已完成 ${completed}/${base.batchCount} 张`
-            : "已取消",
+          (base.batchCount > 1 ? `已取消，已完成 ${completed}/${base.batchCount} 张` : "已取消")
+            + (comfy ? "；已停止本地等待，GPU 中已运行的任务可能继续" : ""),
         );
       } else {
         state = "error";
@@ -930,8 +978,11 @@ export function createDrawing(
       form,
       boards: boards.items,
       activeBoardId: boards.activeId,
+      comfy: isComfyModel(model),
+      comfyControls: currentComfyControls(form.comfyControlMemory,model),
+      comfyOptions: comfyOptions.snapshot(model),
       referenceSupported: referenceModels.has(form.model),
-      referenceProblem: form.naiReferences.active && form.naiReferences[form.naiReferences.active].some(r=>r.on) && !referenceModels.has(form.model) ? "当前模型或来源不支持已启用的参考，配置已保留" : "",
+      referenceProblem: !isComfyModel(model) && form.naiReferences.active && form.naiReferences[form.naiReferences.active].some(r=>r.on) && !referenceModels.has(form.model) ? "当前模型或来源不支持已启用的参考，配置已保留" : "",
       characterCapability: characterCapability(form.model),
       characterProblem: characterCapability(form.model).max > 0 && form.characters.filter(c => c.on).length > characterCapability(form.model).max,
       models,
@@ -969,6 +1020,12 @@ export function createDrawing(
       return () => imageListeners.delete(fn);
     },
     patch,
+    refreshComfyOptions: () => comfyOptions.load(model,true),
+    async patchComfyControls(values: ComfyControls) {
+      if (!model?.comfyControls || services.connections.configuration.connections[model.connection]?.revision !== model.sourceRevision) throw new Error("工作流已变化，请重新选择");
+      const next=validateComfyControls(values,model.comfyControls);
+      await patch({comfyControlMemory:{...form.comfyControlMemory,[model.id]:{signature:model.comfyControls.signature,values:next}}});
+    },
     async editReferences(value: DrawingForm["naiReferences"], boardId = boards.activeId) {
       const target = boards.items.find(b=>b.id === boardId); if (!target) throw new Error("来源画板已删除");
       const next = readReferences(value);
@@ -1029,6 +1086,10 @@ export function createDrawing(
       const selected = resolveModel(models, modelId);
       return selected ? modelSamplers(selected, connectionSamplers.get(selected.connection) ?? [DEFAULTS.sampler]) : [...samplers];
     },
+    workflowRevision(modelId: string) {
+      const selected = resolveModel(models, modelId), connection = selected && services.connections.configuration.connections[selected.connection];
+      return connection?.profileId === COMFY_PROFILE_ID ? connection.revision : undefined;
+    },
     /** User-confirmed ASK writes invalidate the quote without scheduling network work. */
     async writeDraft(values: Partial<DrawingForm>, expected: Record<string, unknown>, boardId = boards.activeId) {
       const target = boards.items.find(b => b.id === boardId);
@@ -1039,10 +1100,14 @@ export function createDrawing(
       const targetModel = resolveModel(models, values.model ?? form.model);
       if (values.model !== undefined && !targetModel) throw new Error("目标模型已不可用");
       const allowedSamplers = targetModel ? modelSamplers(targetModel, connectionSamplers.get(targetModel.connection) ?? [DEFAULTS.sampler]) : samplers;
-      if ((values.model !== undefined || values.sampler !== undefined) && !allowedSamplers.includes(values.sampler ?? form.sampler)) throw new Error("目标模型不支持此采样器，草稿未写入");
+      const writable = comfyWritable(targetModel ?? { id: values.model ?? form.model });
+      if (writable && (!targetModel || services.connections.configuration.connections[targetModel.connection]?.revision !== targetModel.sourceRevision)) throw new Error("工作流配置已变化，请重新提议");
+      if (writable && Object.keys(values).some(key => !writable.includes(key))) throw new Error("此字段由 ComfyUI 工作流固定，草稿未写入");
+      if (writable && Object.entries(values).some(([key, value]) => { const parameter = comfyParameterKey(key); return parameter && !validComfyParameter(parameter, value); })) throw new Error("工作流基础参数无效，草稿未写入");
+      if (!writable && (values.model !== undefined || values.sampler !== undefined) && !allowedSamplers.includes(values.sampler ?? form.sampler)) throw new Error("目标模型不支持此采样器，草稿未写入");
       const before = form;
       draftQuotePaused = true;
-      form = { ...form, ...values };
+      form = { ...syncComfyParameters(form, targetModel), ...values };
       if (values.model !== undefined) bindModel();
       else preview?.update(null);
       const written = { ...form };
@@ -1054,7 +1119,7 @@ export function createDrawing(
         syncBoard();
         const owner = boards.items.find(b => b.id === boardId);
         if (owner) {
-          const restored = rollbackDrawingEdit(before, written, { ...form, ...owner.form }, Object.keys(values) as (keyof DrawingForm)[]);
+          const restored = rollbackDrawingEdit(before, written, { ...form, ...owner.form }, [...new Set<keyof DrawingForm>([...Object.keys(values) as (keyof DrawingForm)[], ...(before.comfyParameterMemory !== written.comfyParameterMemory ? ["comfyParameterMemory", "width", "height", "steps", "scale"] as const : [])])]);
           owner.form = boardForm(restored);
           if (boards.activeId === boardId) {
             const previousModel = form.model;
@@ -1114,6 +1179,7 @@ export function createDrawing(
       ),
     dispose() {
       disposed = true;
+      comfyOptions.dispose();
       taskAbort?.abort();
       refreshAbort?.abort();
       if (catalogNotice !== undefined) ui.dismissNotice(catalogNotice);

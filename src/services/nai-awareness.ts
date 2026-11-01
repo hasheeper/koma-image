@@ -1,3 +1,5 @@
+import { isComfyModel, comfyWritable, comfyParameterKeys, comfyFormKey, readComfyValues } from "../domain/comfy-workflow.ts";
+import { readComfyControls } from "../domain/comfy-controls.ts";
 import { collect, drawingPayload } from '../domain/drawing.ts';
 import type { DrawingForm } from '../domain/drawing.ts';
 import type { CatalogModel } from '../domain/catalog.ts';
@@ -13,7 +15,7 @@ import type { QuoteState } from './quote-preview.ts';
 import { canonical } from '../ask/canonical.ts';
 import { hash } from '../ask/digest/index.ts';
 import { object } from '../domain/value.ts';
-import { parameterSchema } from '../ask/draft/parameters.ts';
+import { parameterSchema, standardParameterProperties } from '../ask/draft/parameters.ts';
 
 /** Frozen read ports only. No source selection, quota refresh or encoding here. */
 export interface NaiAwarenessInput {
@@ -42,6 +44,7 @@ export function naiAccountSnapshot(value: unknown) {
 }
 export function naiAwareness(input: NaiAwarenessInput, counter = countNaiTokens) {
   const { form } = input, model = input.models.find(m => m.id === form.model);
+  const comfy = isComfyModel(model ?? { id: form.model });
   const cap = naiCapabilities(form.model), operation = input.operation ?? 'image';
   const applicable = cap.supported && operation !== 'upscale' && operation !== 'director';
   const supported = (kind: 'vibe' | 'precise') => model?.profileId === 'nai-official-v1' && referenceOperation(form.model, kind, operation === 'image' ? undefined : operation);
@@ -71,9 +74,9 @@ export function naiAwareness(input: NaiAwarenessInput, counter = countNaiTokens)
   const diagnostics: { severity: 'warning' | 'error'; message: string }[] = [];
   if (inputError) diagnostics.push({severity:'error',message:inputError});
   if (!model) diagnostics.push({ severity:'error', message:'当前型号没有可用来源' });
-  if (form.characters.filter(c=>c.on).length > roles.max) diagnostics.push({ severity:'error', message:`当前型号最多 ${roles.max} 个启用角色` });
+  if (!comfy && form.characters.filter(c=>c.on).length > roles.max) diagnostics.push({ severity:'error', message:`当前型号最多 ${roles.max} 个启用角色` });
   if (limits && usedText > limits.text) diagnostics.push({ severity:'error', message:`Text: ${usedText}/${limits.text} 字符，执行前须缩短` });
-  if (refs.active && activeReferences(refs).length && !supported(refs.active)) diagnostics.push({severity:'error',message:'当前来源或操作不支持已启用的参考'});
+  if (!comfy && refs.active && activeReferences(refs).length && !supported(refs.active)) diagnostics.push({severity:'error',message:'当前来源或操作不支持已启用的参考'});
   const freshAccount = input.accountSource===naiSourceKey(model) && input.accountAt !== undefined && Date.now()-input.accountAt < 60_000 ? input.account : undefined;
   const estimated = !inputError && model?.profileId === 'nai-official-v1' ? naiCost(payload, freshAccount) : null;
   const matchedQuote = !!model && input.quoteKey === naiQuoteKey(form,model) && !!input.quoteAt && Date.now()-input.quoteAt < 60_000;
@@ -90,7 +93,8 @@ export function naiAwareness(input: NaiAwarenessInput, counter = countNaiTokens)
   const snapshot = {
     capabilities: { ready:!!model, model_id: form.model, model_name:model?.name, profile:model?.profileId, operation,
       available_models:input.models.map(m=>({id:m.id,name:m.name})),
-      parameters: { seed:{...parameterSchema.properties.seed,random:''}, scale:{...parameterSchema.properties.scale, slider_max:10}, steps:cap.medium ? {fixed:14} : parameterSchema.properties.steps, cfgRescale:cap.medium || !cap.supported ? {supported:false} : parameterSchema.properties.cfgRescale,
+      ...(comfy ? { writable_fields: comfyWritable(model ?? { id: form.model }), fixed_by_workflow: [...comfyParameterKeys.filter(k => model?.comfyParameters?.defaults[k] === undefined), ...(["sampler","scheduler"] as const).filter(k=>!model?.comfyControls?.fields[k]), ...(model?.comfyControls?.loras.length ? [] : ["lora"]), "models", "characters", "references"], workflow_revision: model?.sourceRevision } : {}),
+      parameters: { seed:{...parameterSchema.properties.seed,random:''}, scale:{...standardParameterProperties.scale, slider_max:10}, steps:cap.medium ? {fixed:14} : standardParameterProperties.steps, cfgRescale:cap.medium || !cap.supported ? {supported:false} : parameterSchema.properties.cfgRescale,
         sampler: { options:modelSamplers(model,input.samplers), ...(cap.medium ? { fixed:'k_euler_ancestral' } : {}) },
         noiseSchedule:{options:model?.profileId === 'nai-official-v1' && cap.supported && !cap.v5 ? noiseSchedules : ['karras']},
         varietyPlus:{supported:supportsNaiVariety(model)}, qualityPreset:{options:cap.quality}, negativePreset:{options:cap.negative,fixed:cap.medium},
@@ -106,8 +110,20 @@ export function naiAwareness(input: NaiAwarenessInput, counter = countNaiTokens)
       ignored:cap.medium?['saved.steps','saved.sampler','saved.negative','saved.character_negative','saved.cfgRescale']:[],
     }, input_budget:budget(!applicable?'not_applicable':inputError?'error':!model?'unavailable':'pending',undefined,inputError||undefined), cost, diagnostics,
   };
-  return { snapshot, payload, async counted() {
-    if (!applicable || !model || inputError) return snapshot;
+  const projection = comfy ? {
+    ...snapshot,
+    form: { prompt: form.prompt, ...(model?.comfyNegative ? {negative:form.negative} : {}), model:form.model, seed:form.seed, batchCount:form.batchCount,
+      ...(model?.comfyControls ? {comfyControls:readComfyControls(payload.comfyControls)} : {}),
+      ...Object.fromEntries(Object.entries(readComfyValues(payload.comfyParameters)).map(([key, value]) => [comfyFormKey(key as typeof comfyParameterKeys[number]), value])) },
+    capabilities: { ...snapshot.capabilities, parameters: { seed: { ...parameterSchema.properties.seed, random: '' }, batchCount: parameterSchema.properties.batchCount,
+      ...Object.fromEntries(comfyParameterKeys.filter(k => model?.comfyParameters?.defaults[k] !== undefined).map(k => [comfyFormKey(k), { ...parameterSchema.properties[comfyFormKey(k)], default: model!.comfyParameters!.defaults[k], ...(k === 'cfg' ? { label: 'CFG', guidance: false } : {}) }])) },
+      ...(model?.comfyControls ? {read_only_controls:{...readComfyControls(payload.comfyControls),reason:'采样器、调度器与 LoRA 当前由用户在 IMAGE 调整；ASK 只读'}} : {}),
+      dimensions: { fixed_by_workflow: model?.comfyParameters?.defaults.width === undefined && model?.comfyParameters?.defaults.height === undefined, meaning: 'bound input dimensions; output may be resized by workflow', constraints: 'workflow node validation' }, characters: { supported: false }, references: { supported_kinds: [], active_count: 0 } },
+    effective: { prompt: payload.prompt, ...(model?.comfyNegative ? { negative:payload.negative_prompt } : {}), model_id:form.model, comfyParameters: readComfyValues(payload.comfyParameters), ...(model?.comfyControls ? {comfyControls:readComfyControls(payload.comfyControls)} : {}) },
+    cost: { status:'unknown', reason:'ComfyUI 不提供报价，GPU 成本由运行环境决定' },
+  } : snapshot;
+  return { snapshot: projection, payload, async counted() {
+    if (!applicable || !model || inputError) return projection;
     try {
       const counts = await counter(payload);
       const warnings = counts && [counts.prompt,counts.negative].some(a=>a.reduce((x,y)=>x+y,0)>counts.tokens) ? [{severity:'warning' as const,message:'Token 超出型号预算，上游可能截断；不会自动删词'}] : [];

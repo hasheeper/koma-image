@@ -8,6 +8,12 @@ import type { GatewayProfile } from "../gateway/profile.ts";
 export interface CatalogEntry { id: string; family?: string }
 export interface CatalogModel {
   profileId?: string;
+  comfyNegative?: boolean;
+  comfyParameters?: import("./comfy-workflow.ts").ComfyParameterSpec;
+  comfyControls?: import("./comfy-controls.ts").ComfyControlSpec;
+  comfyModelFiles?: string[];
+  comfyWorkflowName?: string;
+  comfyModelName?: string;
   /** Non-secret connection revision; invalidates cached read-only estimates. */
   sourceRevision?: string;
   id: string; upstreamId: string; connection: string; name: string; description: string; provider: string; family?: string;

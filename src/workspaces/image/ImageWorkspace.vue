@@ -9,6 +9,7 @@ import { useWorkspaceLifecycle } from "../../app/workspace-lifecycle";
 import AppIcon from "../../shared/AppIcon.vue";
 import WorkspaceSwitch from "../../shared/WorkspaceSwitch.vue";
 import WalletDisplay from "../../shared/WalletDisplay.vue";
+import ComfySystemStatus from "../../shared/ComfySystemStatus.vue";
 import ThemeMenu from "../../shared/ThemeMenu.vue";
 import ImageLibrary from "./ImageLibrary.vue";
 import BoardSwitcher from "./BoardSwitcher.vue";
@@ -32,7 +33,7 @@ const importSheet = shallowRef<InstanceType<typeof ImportSheet> | null>(null);
 const splitter = shallowRef<HTMLElement | null>(null);
 const bottomPanel = shallowRef<InstanceType<typeof DrawingBottomPanel>>();
 const foot = shallowRef<HTMLElement | null>(null);
-const { image, narrow } = useShell();
+const { image, narrow, router } = useShell();
 const main = shallowRef<HTMLElement | null>(null);
 
 const mobileLibrary = shallowRef<HTMLElement | null>(null);
@@ -56,11 +57,11 @@ watch(
 const valid = computed(
   () =>
     !!view.value.model && !view.value.referenceProblem && !view.value.characterProblem &&
-    !sizeProblem(
+    (view.value.comfy || !sizeProblem(
       view.value.form.width,
       view.value.form.height,
       view.value.model.maxPixels,
-    ).fatal,
+    ).fatal),
 );
 const leave = (event: BeforeUnloadEvent) => {
   if (drawing.hasUnsaved()) {
@@ -167,7 +168,8 @@ lifecycle.whileActive((signal) => {
       </div>
     </div>
     <div ref="account" class="topbar-account">
-      <WalletDisplay
+      <ComfySystemStatus v-if="view.comfy && view.model" :connection="view.model.connection" :active="!router.route.value.overlay && !askFullscreen" />
+      <WalletDisplay v-else
         :quota="view.quota"
         :loading="view.quotaLoading"
         :model="view.model"
@@ -189,7 +191,7 @@ lifecycle.whileActive((signal) => {
           :suggest="view.form.tagSuggest"
           @import="importSheet?.pick()"
         />
-        <CharactersEditor :key="view.activeBoardId" />
+        <CharactersEditor v-if="!view.comfy" :key="view.activeBoardId" />
         <DrawingControls />
       </div>
       <div ref="foot" class="composer-foot drawing-footer">

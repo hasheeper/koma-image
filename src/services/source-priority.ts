@@ -1,3 +1,4 @@
+import { isComfyModel, COMFY_PROFILE_ID } from "../domain/comfy-workflow.ts";
 import { supportsFocusedInpaint } from "../domain/inpaint-focus.ts";
 import { imageConnections } from "../config/connections.ts";
 import type { CatalogModel } from "../domain/catalog.ts";
@@ -31,6 +32,7 @@ export function createSourcePriority(connections: ReturnType<typeof createConnec
       signal?.throwIfAborted();
       assertCurrent();
       if (profileFor(connection.profileId).protocol === "novelai" && wanted.provider !== "novelai") continue;
+      if (isComfyModel(wanted) ? connection.id !== wanted.connection : connection.profileId === COMFY_PROFILE_ID) continue;
       const client = get(connection.id), catalog = await client.catalog(false, signal);
       const model = catalog.models.find(m => m.id === wanted.id);
       if (!model || !supportsSourcePayload(model, payload)) continue;

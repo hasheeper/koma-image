@@ -1,3 +1,4 @@
+import { COMFY_PROFILE_ID } from "../domain/comfy-workflow.ts";
 import {
   emptyRouting,
   validateRouting,
@@ -22,7 +23,7 @@ export interface ConnectionContext {
   assertCurrent(): void;
 }
 export interface ConnectionChange { refresh: boolean }
-const endpointIdentity = (c: Connection) => JSON.stringify([c.id, c.baseUrl, c.profileId, c.credentialRef]);
+const endpointIdentity = (c: Connection) => JSON.stringify([c.id, c.baseUrl, c.profileId, c.credentialRef, c.authMode]);
 export function createConnections(
   storage: Pick<Storage, "getItem" | "setItem">,
   write: Writer,
@@ -44,10 +45,11 @@ export function createConnections(
   const listeners = new Set<(kind: "configuration" | "keys", change: ConnectionChange) => void>();
   const emit = (kind: "configuration" | "keys" = "keys", refresh = false) =>
     listeners.forEach((fn) => fn(kind, { refresh }));
+  const anonymous = (c: Connection) => c.profileId === COMFY_PROFILE_ID && c.authMode === "none";
   function catalogKey(id: string): string | null {
     const c = routing.connections[id];
-    if (!c || (!local && !keys.has(c.credentialRef))) return null;
-    return JSON.stringify([endpointIdentity(c), keys.get(c.credentialRef)?.revision ?? "local-runtime-v1"]);
+    if (!c || (!local && !anonymous(c) && !keys.has(c.credentialRef))) return null;
+    return JSON.stringify([endpointIdentity(c), keys.get(c.credentialRef)?.revision ?? "local-runtime-v1", ...(c.profileId === COMFY_PROFILE_ID ? [c.revision, c.name] : [])]);
   }
   const imageSignature = () => JSON.stringify(imageConnections(routing).map(c => [
     c.id, catalogKey(c.id), routing.links[c.id] ?? {},
@@ -87,7 +89,7 @@ export function createConnections(
     local: Boolean(local),
     hasCredential(credentialRef: string) {
       return (
-        managed.some((c) => c.credentialRef === credentialRef) || keys.has(credentialRef)
+        managed.some((c) => c.credentialRef === credentialRef) || keys.has(credentialRef) || Object.values(routing.connections).some(c => c.credentialRef === credentialRef && anonymous(c))
       );
     },
     reload,
@@ -133,7 +135,7 @@ export function createConnections(
       // The configuration epoch still invalidates old execution snapshots.
       for (const c of Object.values(next.connections)) {
         const previous = routing.connections[c.id];
-        c.revision = previous && endpointIdentity(previous) === endpointIdentity(c)
+        c.revision = previous && endpointIdentity(previous) === endpointIdentity(c) && JSON.stringify([previous.comfyWorkflow, previous.comfyWorkflows]) === JSON.stringify([c.comfyWorkflow, c.comfyWorkflows])
           ? previous.revision : crypto.randomUUID();
       }
       if (JSON.stringify(next) === JSON.stringify(routing)) return;
@@ -166,13 +168,13 @@ export function createConnections(
         : undefined;
       if (!c) throw new Error("请先配置连接 URL 与 Key");
       const credential = keys.get(c.credentialRef);
-      if (!credential && !local) throw new Error("请先配置供应商的 API Key");
+      if (!credential && !local && !anonymous(c)) throw new Error("请先配置供应商的 API Key");
       const epoch = configurationEpoch;
       const connection = freeze(structuredClone(c)),
         snapshot = freeze(structuredClone(routing));
       const assertCurrent = () => {
         if (
-          epoch !== configurationEpoch ||
+          (c.profileId === COMFY_PROFILE_ID ? !routing.connections[id] || endpointIdentity(routing.connections[id]) !== endpointIdentity(c) : epoch !== configurationEpoch) ||
           (!local &&
             keys.get(c.credentialRef)?.revision !== credential?.revision)
         )

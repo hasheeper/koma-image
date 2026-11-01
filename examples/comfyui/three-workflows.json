@@ -1,0 +1,519 @@
+{
+  "format": "koma-comfy-workflows",
+  "version": 1,
+  "workflows": [
+    {
+      "id": "flux",
+      "name": "FLUX",
+      "workflow": {
+        "1": {
+          "class_type": "UNETLoader",
+          "inputs": {
+            "unet_name": "flux-2-klein-4b.safetensors",
+            "weight_dtype": "default"
+          }
+        },
+        "2": {
+          "class_type": "CLIPLoader",
+          "inputs": {
+            "clip_name": "qwen_3_4b.safetensors",
+            "type": "flux2",
+            "device": "default"
+          }
+        },
+        "3": {
+          "class_type": "VAELoader",
+          "inputs": {
+            "vae_name": "flux2-vae.safetensors"
+          }
+        },
+        "4": {
+          "class_type": "CLIPTextEncode",
+          "inputs": {
+            "text": "A two-dimensional anime illustration of a woman with very long black hair and blue eyes, wearing a white collared blouse, blue necktie and black pleated skirt. She holds a bouquet of pink roses toward the viewer on a quiet empty street. Waist-up frontal composition, neutral expression, slightly tilted head, fine drawn outlines, flat cel shading, restrained pastel colors and a softly simplified background. No text or watermark.",
+            "clip": [
+              "2",
+              0
+            ]
+          }
+        },
+        "5": {
+          "class_type": "ConditioningZeroOut",
+          "inputs": {
+            "conditioning": [
+              "4",
+              0
+            ]
+          }
+        },
+        "6": {
+          "class_type": "EmptyFlux2LatentImage",
+          "inputs": {
+            "width": 1024,
+            "height": 1024,
+            "batch_size": 1
+          }
+        },
+        "7": {
+          "class_type": "SamplerCustomAdvanced",
+          "inputs": {
+            "noise": [
+              "10",
+              0
+            ],
+            "guider": [
+              "11",
+              0
+            ],
+            "sampler": [
+              "12",
+              0
+            ],
+            "sigmas": [
+              "13",
+              0
+            ],
+            "latent_image": [
+              "6",
+              0
+            ]
+          }
+        },
+        "8": {
+          "class_type": "VAEDecode",
+          "inputs": {
+            "samples": [
+              "7",
+              0
+            ],
+            "vae": [
+              "3",
+              0
+            ]
+          }
+        },
+        "9": {
+          "class_type": "SaveImage",
+          "inputs": {
+            "images": [
+              "8",
+              0
+            ],
+            "filename_prefix": "multimodel/flux2-klein-4b"
+          }
+        },
+        "10": {
+          "class_type": "RandomNoise",
+          "inputs": {
+            "noise_seed": 0
+          }
+        },
+        "11": {
+          "class_type": "CFGGuider",
+          "inputs": {
+            "model": [
+              "1",
+              0
+            ],
+            "positive": [
+              "4",
+              0
+            ],
+            "negative": [
+              "5",
+              0
+            ],
+            "cfg": 1
+          }
+        },
+        "12": {
+          "class_type": "KSamplerSelect",
+          "inputs": {
+            "sampler_name": "euler"
+          }
+        },
+        "13": {
+          "class_type": "Flux2Scheduler",
+          "inputs": {
+            "steps": 4,
+            "width": 1024,
+            "height": 1024
+          }
+        }
+      },
+      "bindings": {
+        "prompt": [
+          {
+            "nodeId": "4",
+            "field": "text"
+          }
+        ],
+        "seed": [
+          {
+            "nodeId": "10",
+            "field": "noise_seed"
+          }
+        ],
+        "output": "9",
+        "model": {
+          "nodeId": "1",
+          "field": "unet_name"
+        },
+        "parameters": {
+          "width": [
+            {
+              "nodeId": "6",
+              "field": "width"
+            },
+            {
+              "nodeId": "13",
+              "field": "width"
+            }
+          ],
+          "height": [
+            {
+              "nodeId": "6",
+              "field": "height"
+            },
+            {
+              "nodeId": "13",
+              "field": "height"
+            }
+          ],
+          "steps": {
+            "nodeId": "13",
+            "field": "steps"
+          },
+          "cfg": {
+            "nodeId": "11",
+            "field": "cfg"
+          }
+        },
+        "controls": {
+          "sampler": {
+            "nodeId": "12",
+            "field": "sampler_name"
+          }
+        }
+      },
+      "models": [
+        {
+          "id": "klein4b",
+          "name": "FLUX.2 Klein 4B",
+          "file": "flux-2-klein-4b.safetensors"
+        }
+      ]
+    },
+    {
+      "id": "sdxl",
+      "name": "SDXL",
+      "workflow": {
+        "1": {
+          "class_type": "CheckpointLoaderSimple",
+          "inputs": {
+            "ckpt_name": "Illustrious-XL-v2.0.safetensors"
+          }
+        },
+        "4": {
+          "class_type": "CLIPTextEncode",
+          "inputs": {
+            "clip": [
+              "1",
+              1
+            ],
+            "text": "masterpiece, best quality, 1girl, solo, long black hair, blue eyes, white shirt, blue necktie, black pleated skirt, holding bouquet, pink roses, offering bouquet, looking at viewer, neutral expression, head tilt, upper body, outdoors, empty street, anime illustration, lineart, cel shading, pastel colors"
+          }
+        },
+        "5": {
+          "class_type": "CLIPTextEncode",
+          "inputs": {
+            "clip": [
+              "1",
+              1
+            ],
+            "text": "worst quality, low quality, blurry, jpeg artifacts, text, watermark"
+          }
+        },
+        "6": {
+          "class_type": "EmptyLatentImage",
+          "inputs": {
+            "width": 1024,
+            "height": 1024,
+            "batch_size": 1
+          }
+        },
+        "7": {
+          "class_type": "KSampler",
+          "inputs": {
+            "model": [
+              "1",
+              0
+            ],
+            "positive": [
+              "4",
+              0
+            ],
+            "negative": [
+              "5",
+              0
+            ],
+            "latent_image": [
+              "6",
+              0
+            ],
+            "seed": 0,
+            "steps": 28,
+            "cfg": 5,
+            "sampler_name": "euler_ancestral",
+            "scheduler": "normal",
+            "denoise": 1
+          }
+        },
+        "8": {
+          "class_type": "VAEDecode",
+          "inputs": {
+            "samples": [
+              "7",
+              0
+            ],
+            "vae": [
+              "1",
+              2
+            ]
+          }
+        },
+        "9": {
+          "class_type": "SaveImage",
+          "inputs": {
+            "images": [
+              "8",
+              0
+            ],
+            "filename_prefix": "multimodel/illustrious-xl"
+          }
+        }
+      },
+      "bindings": {
+        "prompt": [
+          {
+            "nodeId": "4",
+            "field": "text"
+          }
+        ],
+        "seed": [
+          {
+            "nodeId": "7",
+            "field": "seed"
+          }
+        ],
+        "output": "9",
+        "model": {
+          "nodeId": "1",
+          "field": "ckpt_name"
+        },
+        "parameters": {
+          "width": {
+            "nodeId": "6",
+            "field": "width"
+          },
+          "height": {
+            "nodeId": "6",
+            "field": "height"
+          },
+          "steps": {
+            "nodeId": "7",
+            "field": "steps"
+          },
+          "cfg": {
+            "nodeId": "7",
+            "field": "cfg"
+          }
+        },
+        "controls": {
+          "sampler": {
+            "nodeId": "7",
+            "field": "sampler_name"
+          },
+          "scheduler": {
+            "nodeId": "7",
+            "field": "scheduler"
+          }
+        },
+        "negative": {
+          "nodeId": "5",
+          "field": "text"
+        }
+      },
+      "models": [
+        {
+          "id": "il-v2",
+          "name": "Illustrious XL v2",
+          "file": "Illustrious-XL-v2.0.safetensors"
+        },
+        {
+          "id": "noob-v11",
+          "name": "NoobAI XL v1.1",
+          "file": "NoobAI-XL-v1.1.safetensors"
+        }
+      ]
+    },
+    {
+      "id": "anima",
+      "name": "Anima",
+      "workflow": {
+        "1": {
+          "class_type": "UNETLoader",
+          "inputs": {
+            "unet_name": "anima-turbo-v1.1.safetensors",
+            "weight_dtype": "default"
+          }
+        },
+        "2": {
+          "class_type": "CLIPLoader",
+          "inputs": {
+            "clip_name": "qwen_3_06b_base.safetensors",
+            "type": "stable_diffusion",
+            "device": "default"
+          }
+        },
+        "3": {
+          "class_type": "VAELoader",
+          "inputs": {
+            "vae_name": "qwen_image_vae.safetensors"
+          }
+        },
+        "4": {
+          "class_type": "CLIPTextEncode",
+          "inputs": {
+            "text": "masterpiece, best quality, safe. A two-dimensional anime illustration of a woman with very long black hair and blue eyes, wearing a white collared blouse, blue necktie and black pleated skirt. She holds a bouquet of pink roses toward the viewer on a quiet empty street. Waist-up frontal composition, neutral expression, slightly tilted head, fine drawn outlines, flat cel shading, restrained pastel colors and a softly simplified background. No text or watermark.",
+            "clip": [
+              "2",
+              0
+            ]
+          }
+        },
+        "5": {
+          "class_type": "ConditioningZeroOut",
+          "inputs": {
+            "conditioning": [
+              "4",
+              0
+            ]
+          }
+        },
+        "6": {
+          "class_type": "EmptyLatentImage",
+          "inputs": {
+            "width": 1024,
+            "height": 1024,
+            "batch_size": 1
+          }
+        },
+        "7": {
+          "class_type": "KSampler",
+          "inputs": {
+            "model": [
+              "1",
+              0
+            ],
+            "positive": [
+              "4",
+              0
+            ],
+            "negative": [
+              "5",
+              0
+            ],
+            "latent_image": [
+              "6",
+              0
+            ],
+            "seed": 0,
+            "steps": 8,
+            "cfg": 1,
+            "sampler_name": "euler",
+            "scheduler": "simple",
+            "denoise": 1
+          }
+        },
+        "8": {
+          "class_type": "VAEDecode",
+          "inputs": {
+            "samples": [
+              "7",
+              0
+            ],
+            "vae": [
+              "3",
+              0
+            ]
+          }
+        },
+        "9": {
+          "class_type": "SaveImage",
+          "inputs": {
+            "images": [
+              "8",
+              0
+            ],
+            "filename_prefix": "multimodel/anima-turbo"
+          }
+        }
+      },
+      "bindings": {
+        "prompt": [
+          {
+            "nodeId": "4",
+            "field": "text"
+          }
+        ],
+        "seed": [
+          {
+            "nodeId": "7",
+            "field": "seed"
+          }
+        ],
+        "output": "9",
+        "model": {
+          "nodeId": "1",
+          "field": "unet_name"
+        },
+        "parameters": {
+          "width": {
+            "nodeId": "6",
+            "field": "width"
+          },
+          "height": {
+            "nodeId": "6",
+            "field": "height"
+          },
+          "steps": {
+            "nodeId": "7",
+            "field": "steps"
+          },
+          "cfg": {
+            "nodeId": "7",
+            "field": "cfg"
+          }
+        },
+        "controls": {
+          "sampler": {
+            "nodeId": "7",
+            "field": "sampler_name"
+          },
+          "scheduler": {
+            "nodeId": "7",
+            "field": "scheduler"
+          }
+        }
+      },
+      "models": [
+        {
+          "id": "turbo-v11",
+          "name": "Anima Turbo v1.1",
+          "file": "anima-turbo-v1.1.safetensors"
+        }
+      ]
+    }
+  ]
+}

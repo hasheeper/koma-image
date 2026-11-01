@@ -1,6 +1,6 @@
 # 架构规范
 
-更新：2026-10-30。描述当前核心技术、模块结构与所有权。产品定位和功能见[产品总览](product/overview.md)，功能状态和真实待验项见[当前状态](status.md)，UI 标准见[设计语言](product/design-language.md)，行为约束见[业务契约](business-contracts.md)。
+更新：2026-11-01。描述当前核心技术、模块结构与所有权。产品定位和功能见[产品总览](product/overview.md)，功能状态和真实待验项见[当前状态](status.md)，UI 标准见[设计语言](product/design-language.md)，行为约束见[业务契约](business-contracts.md)。
 
 ## 核心技术
 
@@ -44,15 +44,17 @@ Photopea 首次打开后保留单 iframe，每编辑画板拥有独立分层文�
 
 依赖方向为工作区 → domain／services → Gateway Profile → transport。Profile 声明目录、鉴权、报价、额度、路线及图像／推理能力，不按连接名称或域名分支。
 
-登记表包含六种协议：Koma 标准网关、OpenAI Images、Gemini 原生、NovelAI 官方、OpenAI Chat 兼容和 Anthropic Messages。前四种服务图像工作区，后两种仅服务 ASK 推理、命名和压缩。实现边界见[图像协议](integrations/image-protocols.md)和[ASK 运行契约](ask/runtime.md)。
+登记表包含七种协议：Koma 标准网关、OpenAI Images、Gemini 原生、NovelAI 官方、ComfyUI Custom Workflow、OpenAI Chat 兼容和 Anthropic Messages。前五种服务图像工作区，后两种仅服务 ASK 推理、命名和压缩。实现边界见[图像协议](integrations/image-protocols.md)和[ASK 运行契约](ask/runtime.md)。
 
 标准网关保留防抖报价、执行前重报、`max_cost`、原生／Studio／工具分流和余额检查。无报价能力保留未知费用状态，与报价失败、零值、加载分开；生成按钮暂不展示未知费用标签。没有协议自动回退或生成自动重试。
 
 图像模型的可用来源与供应商优先级分开保存。连接页按配置能力分为图像与文本两区，综合供应商的两类接口分别显示。仅图像区通过上移／下移排序，非秘密配置为 `Routing.order`；未排序时保持原连接顺序，文本始终保持添加顺序。绘图／CHAT／编辑共用 `services/source-priority.ts`，按同一模型和当前操作筛选可用来源，只在明确额度不足时继续检查下一来源；余额未知仍按优先级使用。执行前重新检查报价和余额，提交生成后不因失败或取消换源重试。原生目录只提供 ID，规范模型匹配与手动来源由用户配置；ASK 仍手动选模，不参与图像优先级分流。
 
-新环境连接为空；启动保留目标工作区，空配置或缺 Key 不自动打开设置或配置窗。用户在设置中通过统一「配置供应商」弹窗一次保存名称、协议、地址与 Key，配置 URL／Key 后才能请求。Key 按供应商选择浏览器保存或仅本次会话，不再使用口令和独立 Key 弹窗；凭据不进入普通备份。兼容服务不内置私有地址，NovelAI 官方可以固定公开官方主机。直连依赖服务支持 CORS。
+新环境连接为空；启动保留目标工作区，空配置或缺 Key 不自动打开设置或配置窗。用户在设置中通过统一「配置供应商」弹窗一次保存名称、协议、地址与 Key，配置 URL 与相应鉴权后才能请求；ComfyUI 可明确选择无鉴权，其余协议仍要求 Key。Key 按供应商选择浏览器保存或仅本次会话，不再使用口令和独立 Key 弹窗；凭据不进入普通备份。兼容服务不内置私有地址，NovelAI 官方可以固定公开官方主机。直连依赖服务支持 CORS。
 
 连接设置采用局部更新：排序、改名和模型来源编辑复用原始目录，保留当前列表与操作状态；地址／协议／Key 改变才使相应目录失效。原始目录缓存与执行上下文分离，后者仍按配置变化失效；报价和余额在执行前重新检查。具体责任见[网关与数据](engineering/data-and-tasks.md)。
+
+ComfyUI 每个供应商管理多份模型管线，每份可指定允许的主模型名单；以连接、工作流和模型身份派生本地文生图条目，冻结 API 图与手动绑定，只注入 Prompt／可选 Negative／Seed 与手动绑定的尺寸、步数、CFG、采样器／调度器及已有 LoRA 位置的文件与强度。节点选项通过只读 object_info 获取并按连接与控件签名缓存，不修改拓扑。IMAGE 顶栏读取原生 system_stats 显示内存／显存状态，轮询由界面可见性管理，独立于生成任务。批次固定来源和参数，HTTP 轮询和原图下载在任务内完成，配方快照沿用历史、收藏及元数据路径；见[ComfyUI 接入](integrations/comfyui.md)。
 
 ## 静态版与本地代理
 
@@ -64,7 +66,7 @@ Photopea 首次打开后保留单 iframe，每编辑画板拥有独立分层文�
 | ASK OpenAI Chat | `KOMA_ASK_OPENAI` | 固定目录与流式推理路径 |
 | ASK Anthropic Messages | `KOMA_ASK_ANTHROPIC` | 固定目录与流式推理路径 |
 
-每组 URL／Key 成对设置；可只配置 ASK。网页只获得运行模式和临时令牌，服务端地址与 Key 不注入浏览器，不进入 `VITE_*`。只读运行时连接和令牌不持久化；图像模型来源另存 `koma.local.models.v1`。原生图像三协议目前仅浏览器直连。运行与打包步骤见[发布说明](release-guide.md)。
+每组 URL／Key 成对设置；可只配置 ASK。网页只获得运行模式和临时令牌，服务端地址与 Key 不注入浏览器，不进入 `VITE_*`。只读运行时连接和令牌不持久化；图像模型来源另存 `koma.local.models.v1`。原生图像三协议及 ComfyUI 目前仅浏览器直连。运行与打包步骤见[发布说明](release-guide.md)。
 
 ## 调度与数据
 

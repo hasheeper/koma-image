@@ -7,7 +7,7 @@ import type { Character, Placement, characterCapability } from "../domain/charac
 import type { NaiReferences, ReferenceKind } from "../domain/nai-references";
 import type { ImagePayload } from "../gateway/routes";
 
-type ComposerForm = Pick<DrawingForm, "model" | "prompt" | "negative" | "naiMode" | "complexity" | "qualityPreset" | "negativePreset" | "transparentBg" | "characters" | "placement" | "width" | "height" | "tagSuggest" | "naiReferences" | "sampler" | "steps">;
+type ComposerForm = Pick<DrawingForm, "model" | "prompt" | "negative" | "naiMode" | "complexity" | "qualityPreset" | "negativePreset" | "transparentBg" | "characters" | "placement" | "width" | "height" | "tagSuggest" | "naiReferences" | "sampler" | "steps"> & Partial<Pick<DrawingForm, "scale">>;
 /** Shared presentation controls; the provider owns writes and async upload targets. */
 export interface NaiComposer {
   input?: Readonly<Ref<ImagePayload>>;

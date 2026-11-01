@@ -1,3 +1,7 @@
+import { COMFY_PROFILE_ID, validateComfyWorkflow } from "../domain/comfy-workflow.ts";
+import type { ComfyWorkflow } from "../domain/comfy-workflow.ts";
+import { validateComfyWorkflows } from "../domain/comfy-workflows.ts";
+import type { ComfyWorkflowEntry } from "../domain/comfy-workflows.ts";
 import { object } from "../domain/value.ts";
 import { profileFor, NOVELAI_IMAGE_URL } from "../gateway/profile.ts";
 
@@ -8,6 +12,9 @@ export interface Connection {
   profileId: string;
   credentialRef: string;
   revision: string;
+  authMode?: "none" | "bearer";
+  comfyWorkflow?: ComfyWorkflow;
+  comfyWorkflows?: ComfyWorkflowEntry[];
 }
 export interface ModelLink {
   id: string;
@@ -105,6 +112,7 @@ export function validateRouting(value: unknown): Routing {
       throw new Error("连接配置格式无效");
     const profile = profileFor(c.profileId);
     const baseUrl = normalizeBaseUrl(c.baseUrl);
+    if (c.authMode !== undefined && (profile.id !== COMFY_PROFILE_ID || !["none", "bearer"].includes(String(c.authMode)))) throw new Error("连接鉴权方式无效");
     if (profile.protocol === "novelai" && baseUrl !== NOVELAI_IMAGE_URL)
       throw new Error("NovelAI 官方连接使用固定的图片与账户地址");
     out.connections[id] = {
@@ -114,6 +122,10 @@ export function validateRouting(value: unknown): Routing {
       credentialRef: c.credentialRef,
       profileId: c.profileId,
       revision: c.revision,
+      ...(profile.id === COMFY_PROFILE_ID ? {
+        authMode: c.authMode === "none" ? "none" as const : "bearer" as const,
+        ...(c.comfyWorkflows === undefined ? { comfyWorkflow: validateComfyWorkflow(c.comfyWorkflow) } : { comfyWorkflows: validateComfyWorkflows(c.comfyWorkflows) }),
+      } : {}),
     };
   }
   for (const [id, raw] of Object.entries(object(input.links))) {

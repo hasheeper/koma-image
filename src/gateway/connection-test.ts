@@ -14,6 +14,7 @@ export async function testConnection(
       profilePath(profile, "catalog"),
       profile,
     );
+  const comfy = profile.protocol === "comfyui-workflow";
   context.assertCurrent();
   try {
     const response = await fetcher(url, {
@@ -36,9 +37,16 @@ export async function testConnection(
         ? errorMessage(data) : "访问被拒绝（403），请检查 Key 权限" };
     if (response.status >= 500)
       return { s: "warn", text: `供应商暂时不可用（${response.status}）` };
-    if (response.status === 404 || !data) return { s: "err", text: "地址错误" };
+    if (response.status === 404 || !data) return { s: "err", text: comfy
+      ? "该地址未返回 ComfyUI API 信息，请填写 API 根地址，而非终端登录页面"
+      : "地址错误" };
     if (!response.ok)
       return { s: "err", text: `请求失败（${response.status}）` };
+    if (profile.protocol === "comfyui-workflow") {
+      return object(data).system && Array.isArray(object(data).devices)
+        ? { s: "ok", text: "ComfyUI 可达 · 工作流尚未执行" }
+        : { s: "err", text: "该地址未返回 ComfyUI 系统信息" };
+    }
     if (profile.protocol && profile.protocol !== "standard") {
       try {
         const catalog = nativeCatalog(profile, data);
@@ -60,7 +68,7 @@ export async function testConnection(
   } catch (error) {
     context.assertCurrent();
     if (error instanceof DOMException && error.name === "TimeoutError")
-      return { s: "warn", text: "连接超时" };
+      return { s: "warn", text: comfy ? "ComfyUI 连接超时，请检查服务或转发通道" : "连接超时" };
     if (context.localToken)
       return { s: "err", text: "本地代理连接失败，请检查服务端配置" };
     try {
@@ -73,8 +81,12 @@ export async function testConnection(
         signal: AbortSignal.timeout(timeout),
       });
     } catch {
+      if (comfy) return { s: "err", text: ["localhost", "127.0.0.1", "[::1]"].includes(url.hostname)
+        ? "无法连接本机 ComfyUI；请确认服务或转发通道已启动，并允许浏览器访问本地网络"
+        : "无法连接 ComfyUI；请检查 API 地址、服务状态及浏览器访问限制" };
       return { s: "err", text: "网络不可达或域名错误" };
     }
+    if (comfy) return { s: "err", text: "浏览器无法读取 ComfyUI 响应；请在服务或代理中允许当前 Koma 页面的来源（CORS）" };
     return { s: "err", text: profile.protocol && profile.protocol !== "standard"
       ? "该地址不允许网页直接调用，请检查服务端 CORS 配置"
       : "该地址不允许网页直接调用，可改用本地代理" };

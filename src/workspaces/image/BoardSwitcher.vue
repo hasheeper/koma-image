@@ -6,13 +6,15 @@ import AppIcon from "../../shared/AppIcon.vue";
 import AiNameButton from "../../shared/AiNameButton.vue";
 import { menuKeys, placeMenu } from "../../shared/popover";
 import { findModel } from "../../domain/models";
+import { isComfyModel } from "../../domain/comfy-workflow";
 const { drawing, view } = useDrawing(), ui = useUi();
 const pill = ref<HTMLElement>(), menu = ref<HTMLElement>(), nameInput = ref<HTMLInputElement>();
 const open = ref(false), renaming = ref<string | null>(null), actions = ref<string | null>(null), name = ref("");
 let actionScroll = 0;
 const current = computed(() => view.value.boards.find(b => b.id === view.value.activeBoardId)!);
 const index = computed(() => view.value.boards.findIndex(b => b.id === view.value.activeBoardId) + 1);
-function modelTag(id: string) { return id.includes("4-5") ? "V4.5" : id.includes("diffusion-5") ? "V5" : findModel(id)?.name ?? id; }
+function modelTag(id: string) { return isComfyModel({ id }) ? "ComfyUI" : id.includes("4-5") ? "V4.5" : id.includes("diffusion-5") ? "V5" : findModel(id)?.name ?? id; }
+function modelTitle(id: string) { return view.value.models.find(model => model.id === id)?.name ?? modelTag(id); }
 // The menu is as wide as its longest row, between the footer's need and the pill.
 function fit(el: HTMLElement, r: DOMRect) { const max = Math.min(r.width, innerWidth - 16); Object.assign(el.style, { width: "", maxWidth: `${max}px`, minWidth: `${Math.min(216, max)}px` }); }
 function hideActions() { menu.value?.querySelector<HTMLElement>('.bd-actions:popover-open')?.hidePopover(); actions.value = null; }
@@ -113,7 +115,7 @@ onDeactivated(cleanup); onBeforeUnmount(cleanup);
           </form>
           <template v-else>
             <button class="bd-item" role="menuitemradio" :aria-checked="board.id === view.activeBoardId" type="button" @click="run(() => drawing.switchBoard(board.id))">
-              <i class="bd-dot" :style="{ '--c': board.color }"></i><span class="bd-menu-name" :title="board.name">{{ board.name }}</span><span class="bd-tags"><span>{{ modelTag(board.form.model) }}</span><span v-if="board.form.characters.length">{{ board.form.characters.length }} 角色</span></span><AppIcon v-if="board.id === view.activeBoardId" name="i-check" class="bd-check" />
+              <i class="bd-dot" :style="{ '--c': board.color }"></i><span class="bd-menu-name" :title="board.name">{{ board.name }}</span><span class="bd-tags"><span :title="modelTitle(board.form.model)">{{ modelTag(board.form.model) }}</span><span v-if="board.form.characters.length">{{ board.form.characters.length }} 角色</span></span><AppIcon v-if="board.id === view.activeBoardId" name="i-check" class="bd-check" />
             </button>
             <button class="bd-more" type="button" :popovertarget="`boardActions-${board.id}`" :aria-label="`管理 ${board.name}`" title="管理画板" aria-haspopup="menu" :aria-expanded="actions === board.id"><AppIcon name="i-more" /></button>
             <div :id="`boardActions-${board.id}`" popover="auto" class="menu bd-actions" role="menu" :aria-label="`管理 ${board.name}`" @beforetoggle="actionBefore($event, board.id)" @toggle="actionToggle" @keydown.stop="actionKeys">
