@@ -4,7 +4,6 @@ import { classify, ProviderError, reportedCount } from "../messages.ts";
 import type { CacheUsage } from "../messages.ts";
 import type {
   AskCall,
-  AskEvent,
   AskImage,
   AskMessage,
   AskRequest,
@@ -13,6 +12,8 @@ import type {
   AskUsage,
 } from "../messages.ts";
 import type { SseEvent } from "./sse.ts";
+import { createResponseStream } from "../response-stream.ts";
+import type { ResponseEvent } from "../response-stream.ts";
 
 const url = (image: AskImage) => `data:${image.mime};base64,${image.data}`;
 const parts = (blocks: readonly (AskText | AskImage)[]) =>
@@ -113,19 +114,33 @@ interface Pending {
   name: string;
   args: string;
   input?: Record<string, unknown>;
+  response?: ReturnType<typeof createResponseStream>;
+  offset?: number;
 }
 /** Tolerates relays that omit indexes or ids, repeat names, or send parsed arguments. */
-export function reader() {
+export function reader(unwrapResponse = false) {
   const calls = new Map<string, Pending>();
   let stop: AskStop | null = null,
     used: AskUsage | null = null,
     finished = false;
   let cacheUsage: CacheUsage = { read: null, write: null };
-  function finish(): AskEvent[] {
+  function response(key: string, call: Pending, complete = false): ResponseEvent[] {
+    const decoder = call.response ??= createResponseStream();
+    let text = decoder.push(call.args.slice(call.offset ?? 0));
+    call.offset = call.args.length;
+    if (complete) {
+      let input = call.input;
+      if (!input) { try { input = object(JSON.parse(call.args)); } catch { /* A length-limited envelope can still carry partial prose. */ } }
+      text += decoder.finish(input?.content);
+    }
+    return text ? [{ type: "response-text", id: key, text }] : [];
+  }
+  function finish(): ResponseEvent[] {
     if (finished) return [];
     finished = true;
-    const out: AskEvent[] = [];
+    const out: ResponseEvent[] = [];
     for (const [key, c] of calls) {
+      if (unwrapResponse && c.name === "submit_response") { out.push(...response(key, c, true)); continue; }
       let input = c.input;
       if (!input)
         try {
@@ -141,7 +156,7 @@ export function reader() {
   }
   return {
     get cacheUsage() { return cacheUsage; },
-    read(event: SseEvent): AskEvent[] {
+    read(event: SseEvent): ResponseEvent[] {
       if (finished) return [];
       if (event.data.trim() === "[DONE]") return finish();
       let chunk: Record<string, unknown>;
@@ -158,7 +173,7 @@ export function reader() {
       }
       const choice = object(Array.isArray(chunk.choices) ? chunk.choices[0] : undefined),
         delta = object(choice.delta ?? choice.message),
-        out: AskEvent[] = [];
+        out: ResponseEvent[] = [];
       const content = Array.isArray(delta.content)
         ? delta.content.map((p) => object(p).text).filter((t) => typeof t === "string").join("")
         : delta.content;
@@ -172,19 +187,20 @@ export function reader() {
           key = typeof call.index === "number" ? `#${call.index}`
             : id ? ([...calls].find(([, c]) => c.id === id)?.[0] ?? id)
               : ([...calls.keys()].at(-1) ?? "#0");
-        const entry = calls.get(key) ?? { id: "", name: "", args: "" };
+        const entry: Pending = calls.get(key) ?? { id: "", name: "", args: "" };
         calls.set(key, entry);
         if (id) entry.id = id;
         if (typeof fn.name === "string" && fn.name && fn.name !== entry.name) entry.name += fn.name;
         if (typeof fn.arguments === "string") entry.args += fn.arguments;
         else if (fn.arguments && typeof fn.arguments === "object") entry.input = object(fn.arguments);
+        if (unwrapResponse && entry.name === "submit_response") out.push(...response(key, entry));
       }
       if (typeof choice.finish_reason === "string" && choice.finish_reason)
         stop = stops[choice.finish_reason] ?? "other";
       return out;
     },
     /** End of stream: a seen finish reason completes the turn even without [DONE]. */
-    end(): AskEvent[] {
+    end(): ResponseEvent[] {
       return stop ? finish() : [];
     },
   };

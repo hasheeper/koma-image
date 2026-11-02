@@ -1111,6 +1111,7 @@ export function createAsk(deps: {
     try {
       for await (const event of run({
         stream: tracedStream,
+        responseMode: config.responseMode,
         request: { model: config.model, tools: toolList, system: system.value, maxTokens: MAX_OUTPUT },
         turn,
         tools,

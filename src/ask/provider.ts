@@ -9,6 +9,7 @@ import type { AskBlock, AskEvent, AskRequest, AskStop, AskUsage, CacheUsage } fr
 import { createSseParser } from "./adapters/sse.ts";
 import * as openaiChat from "./adapters/openai-chat.ts";
 import * as anthropicMessages from "./adapters/anthropic-messages.ts";
+import type { ResponseEvent } from "./response-stream.ts";
 
 export * from "./messages.ts";
 const adapterFor = (profile: GatewayProfile) => {
@@ -68,6 +69,15 @@ export function createProvider(
       linked = signal ? AbortSignal.any([signal, idle.signal]) : idle.signal;
     let timer: ReturnType<typeof setTimeout> | undefined,
       reader: ReadableStreamDefaultReader<Uint8Array> | undefined;
+    const unwrapResponse = request.tools.some(tool => tool.name === "submit_response"), text = codec.stream();
+    let ordinary = "", responseId: string | undefined;
+    const leading = new Map<string, string>();
+    const fallback = (): AskEvent[] => {
+      const decoded = responseId === undefined ? text.push(ordinary) : "";
+      ordinary = "";
+      const rest = decoded + text.flush();
+      return rest ? [{ type: "text", text: rest }] : [];
+    };
     // Silence for idleMs ends the turn; every received chunk re-arms it.
     const arm = () => {
       clearTimeout(timer);
@@ -108,20 +118,37 @@ export function createProvider(
       if (linked.aborted) cancel();
       const decoder = new TextDecoder(),
         parser = createSseParser(),
-        events = adapter.reader(),
-        text = codec.stream();
+        events = adapter.reader(unwrapResponse);
       let output = false,
         done = false;
-      // Text is decoded through the codec before it leaves; calls flush it first.
-      function handle(event: AskEvent): AskEvent[] {
+      // Only normalized prose leaves this boundary; the envelope never reaches history.
+      function handle(event: ResponseEvent): AskEvent[] {
+        if (event.type === "response-text") {
+          let chunk = event.text;
+          if (responseId === undefined) {
+            chunk = (leading.get(event.id) ?? "") + chunk;
+            leading.set(event.id, chunk);
+            if (!chunk.trim()) return [];
+            responseId = event.id;
+            leading.clear();
+          }
+          if (event.id !== responseId) return [];
+          const decoded = text.push(chunk);
+          if (decoded) output = true;
+          return decoded ? [{ type: "text", text: decoded }] : [];
+        }
         if (event.type === "text") {
+          if (unwrapResponse) { ordinary += event.text; output ||= !!event.text; return []; }
           const t = text.push(event.text);
           if (t) output = true;
           return t ? [{ type: "text", text: t }] : [];
         }
-        const rest = text.flush(),
-          out: AskEvent[] = rest ? [{ type: "text", text: rest }] : [];
-        if (rest) output = true;
+        const out: AskEvent[] = event.type === "done" ? fallback() : [];
+        if (event.type === "call" && !unwrapResponse) {
+          const rest = text.flush();
+          if (rest) out.push({ type: "text", text: rest });
+        }
+        if (out.length) output = true;
         if (event.type === "call") {
           output = true;
           return [...out, { type: "call", call: { ...event.call, input: codec.decodeDeep(event.call.input) } }];
@@ -153,6 +180,10 @@ export function createProvider(
         if (!done) yield* [...parser.end().flatMap((e) => events.read(e)), ...events.end()].flatMap(handle);
       }
       if (!done) throw new ProviderError(output ? "network" : "empty");
+    } catch (error) {
+      // If a plain reply disconnects before an envelope arrives, retain its partial text.
+      yield* fallback();
+      throw error;
     } finally {
       clearTimeout(timer);
       linked.removeEventListener("abort", cancel);

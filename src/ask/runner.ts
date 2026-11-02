@@ -4,6 +4,7 @@ import { LIMITS } from "./session.ts";
 import type { Turn } from "./session.ts";
 import type { ToolContext, ToolRegistry } from "./tools.ts";
 import type { Draft } from "./draft/types.ts";
+import { withToolResponse } from "./prompts/response.ts";
 
 export type RunEvent =
   | { readonly type: "text"; readonly text: string }
@@ -34,6 +35,7 @@ export interface RunOptions {
   readonly tools: ToolRegistry;
   readonly context: ToolContext;
   readonly signal: AbortSignal;
+  readonly responseMode?: "text" | "tool";
 }
 const failure = (id: string, text: string): AskResult => ({
   type: "result",
@@ -51,6 +53,7 @@ const failure = (id: string, text: string): AskResult => ({
  */
 export async function* run(options: RunOptions): AsyncGenerator<RunEvent, void> {
   const { turn, tools, context, signal } = options;
+  const request = options.responseMode === "tool" ? withToolResponse(options.request) : options.request;
   let hasText = false, final = false, completing = false;
   const complete = () => {
     completing = true;
@@ -66,7 +69,7 @@ export async function* run(options: RunOptions): AsyncGenerator<RunEvent, void> 
       stop: "end" | "tool" | "length" | "refusal" | "other" = "other";
     const calls: AskCall[] = [];
     for await (const event of options.stream(
-      { ...options.request, ...(completing ? { toolChoice: "none" as const } : {}), messages: turn.messages() },
+      { ...request, ...(completing ? { toolChoice: "none" as const } : {}), messages: turn.messages() },
       signal,
     )) {
       if (event.type === "text") {

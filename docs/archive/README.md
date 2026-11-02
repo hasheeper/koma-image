@@ -30,6 +30,10 @@
 | 10-28 | [Focused Inpainting](nai/2026-10-28-focused-inpaint-verification.md)：手动蒙版／框选、客户端裁切放大、单次 infill 与原尺寸合成 |
 | 10-28 | [Director Tools](nai/2026-10-28-director-tools-verification.md)：六项独立工具、费用与尺寸、去背景三种结果、紧凑工具栏及放大面板 |
 
+## ASK 回复模式
+
+- [可选工具正文模式](ask/2026-11-02-ask-tool-response-plan.md)：按入口拆信封原则重写并实施，默认关闭、双协议宽容接收，接收后统一为普通文本，下游存储与压缩不作改动。
+
 ## ASK 的 NAI 基础感知与 EDIT
 
 - [CHAT 交接 H0–H4](ask/ask-chat-handoff-plan.md)：能力感知、编号与交接草稿的设计及验收。

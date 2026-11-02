@@ -23,6 +23,7 @@ export interface AskSettings {
   /** IDs picked per reasoning connection, in the order picked; the composer switches among them. */
   models: Record<string, string[]>;
   images: boolean;
+  responseMode: "text" | "tool";
   textAttachments: TextAttachmentLimits;
   compaction: { highWaterTokens: number };
   preference: string;
@@ -39,6 +40,7 @@ export const defaultAskSettings = (): AskSettings => ({
   model: "",
   models: {},
   images: true,
+  responseMode: "text",
   textAttachments: { ...DEFAULT_TEXT_ATTACHMENT_LIMITS },
   compaction: { highWaterTokens: DEFAULT_HIGH_WATER },
   preference: "",
@@ -87,6 +89,7 @@ export function readAskSettings(value: unknown): AskSettings {
     if (ids.length) out.models[id] = ids;
   }
   if (typeof v.images === "boolean") out.images = v.images;
+  if (v.responseMode === "tool") out.responseMode = "tool";
   out.textAttachments = readTextAttachmentLimits(v.textAttachments);
   out.compaction = { highWaterTokens: highWater(object(v.compaction).highWaterTokens) };
   if (typeof v.preference === "string")

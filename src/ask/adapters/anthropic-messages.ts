@@ -4,7 +4,6 @@ import { classify, ProviderError, reportedCount } from "../messages.ts";
 import type { CacheUsage } from "../messages.ts";
 import type {
   AskBlock,
-  AskEvent,
   AskImage,
   AskRequest,
   AskStop,
@@ -12,6 +11,8 @@ import type {
   AskUsage,
 } from "../messages.ts";
 import type { SseEvent } from "./sse.ts";
+import { createResponseStream } from "../response-stream.ts";
+import type { ResponseEvent } from "../response-stream.ts";
 
 type Wire = Record<string, unknown>;
 const ephemeral = { type: "ephemeral" };
@@ -77,8 +78,8 @@ const stops: Record<string, AskStop> = {
   max_tokens: "length",
   refusal: "refusal",
 };
-export function reader() {
-  const blocks = new Map<number, { id: string; name: string; json: string; input?: Record<string, unknown> }>();
+export function reader(unwrapResponse = false) {
+  const blocks = new Map<number, { id: string; name: string; json: string; input?: Record<string, unknown>; response?: ReturnType<typeof createResponseStream> }>();
   let stop: AskStop | null = null,
     started = false,
     finished = false;
@@ -101,13 +102,18 @@ export function reader() {
   }
   const usage = (): AskUsage | null =>
     started && reported ? { ...tally, input: tally.input + tally.cacheRead + tally.cacheWrite } : null;
-  function finish(): AskEvent[] {
+  function finish(): ResponseEvent[] {
     finished = true;
-    return [{ type: "done", stop: stop ?? "other", usage: usage() }];
+    const out: ResponseEvent[] = [];
+    for (const [index, b] of blocks) {
+      const text = b.response?.finish(b.input?.content);
+      if (text) out.push({ type: "response-text", id: String(index), text });
+    }
+    return [...out, { type: "done", stop: stop ?? "other", usage: usage() }];
   }
   return {
     get cacheUsage() { return cacheUsage; },
-    read(event: SseEvent): AskEvent[] {
+    read(event: SseEvent): ResponseEvent[] {
       if (finished) return [];
       let data: Record<string, unknown>;
       try {
@@ -131,6 +137,7 @@ export function reader() {
             id: typeof b.id === "string" ? b.id : `call_${index}`,
             name: typeof b.name === "string" ? b.name : "",
             json: "",
+            ...(unwrapResponse && b.name === "submit_response" ? { response: createResponseStream() } : {}),
             ...(Object.keys(input).length ? { input } : {}),
           });
         } else if (b.type === "text" && typeof b.text === "string" && b.text)
@@ -143,7 +150,11 @@ export function reader() {
           return [{ type: "text", text: d.text }];
         if (d.type === "input_json_delta" && typeof d.partial_json === "string") {
           const b = blocks.get(index);
-          if (b) b.json += d.partial_json;
+          if (b) {
+            b.json += d.partial_json;
+            const text = b.response?.push(d.partial_json);
+            if (text) return [{ type: "response-text", id: String(index), text }];
+          }
         }
         return [];
       }
@@ -151,6 +162,12 @@ export function reader() {
         const b = blocks.get(index);
         if (!b) return [];
         blocks.delete(index);
+        if (b.response) {
+          let input = b.input;
+          if (b.json) { try { input = object(JSON.parse(b.json)); } catch { /* Preserve partial prose just like a truncated text block. */ } }
+          const text = b.response.finish(input?.content);
+          return text ? [{ type: "response-text", id: String(index), text }] : [];
+        }
         let input = b.input ?? {};
         if (b.json)
           try {
@@ -171,7 +188,7 @@ export function reader() {
       return [];
     },
     /** A stop reason without message_stop still ends the turn. */
-    end(): AskEvent[] {
+    end(): ResponseEvent[] {
       return !finished && stop ? finish() : [];
     },
   };

@@ -406,6 +406,16 @@ async function removeReplacement(rule: Replacement) {
               <p v-if="replacementError" class="ask-error" role="alert">{{ replacementError }}</p>
             </div>
           </template>
+          <div class="s-row">
+            <div>
+              <b><label for="askResponseMode">工具正文模式</label></b>
+              <p>引导模型通过工具参数输出正文，仍兼容普通回复</p>
+            </div>
+            <label class="s-toggle" title="工具正文模式">
+              <input id="askResponseMode" type="checkbox" role="switch" :checked="settings.responseMode === 'tool'" @change="save({ responseMode: checked($event) ? 'tool' : 'text' })" />
+              <span class="switch" aria-hidden="true"></span>
+            </label>
+          </div>
         </div>
       </section>
     </template>
