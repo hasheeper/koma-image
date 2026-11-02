@@ -8,7 +8,6 @@ import { pipeline } from "node:stream/promises";
 import { standardProfile, profileFor } from "./src/gateway/profile.ts";
 import { normalizeBaseUrl } from "./src/config/connections.ts";
 import { endpoint } from "./src/gateway/transport.ts";
-import packageInfo from "./package.json" with { type: "json" };
 
 const root = dirname(fileURLToPath(import.meta.url));
 const MAX_BODY = 64 * 1024 * 1024;
@@ -80,84 +79,8 @@ async function body(req) {
   return bytes;
 }
 
-/** Public post JSON and hash-addressed CDN images. No caller-supplied host, cookies or redirects. */
-async function danbooruRead(req, res, url, path, fetcher, timeout) {
-  if (req.method !== "GET") return send(res, 405, { error: "请求方法无效" });
-  const image = path.startsWith("media/"), list = path === "posts.json";
-  const media = image && /^(?:(?:180x180|360x360|720x720|sample|original)\/)?([a-f0-9]{2})\/([a-f0-9]{2})\/(?:sample-)?([a-f0-9]{32})\.(?:jpg|jpeg|png|webp|avif|gif)$/.exec(path.slice(6));
-  if (image ? !media || media[3].slice(0, 4) !== media[1] + media[2] : !list && !/^posts\/[1-9]\d{0,11}\.json$/.test(path))
-    return send(res, 404, { error: "词典接口路径无效" });
-  const keys = [...url.searchParams.keys()], tags = url.searchParams.get("tags"), limit = url.searchParams.get("limit");
-  if ((!list && keys.length) || (list && (
-    keys.length !== 2 || !tags?.trim() || tags.length > 1000 || /[\x00-\x1f\x7f]/.test(tags) ||
-    !/^(?:[1-9]|1\d|20)$/.test(limit ?? "") || keys.some(key => !["tags", "limit"].includes(key))
-  ))) return send(res, 400, { error: "词典查询参数无效" });
-  const target = new URL(image ? path.slice(6) : path, image ? "https://cdn.donmai.us/" : "https://danbooru.donmai.us/");
-  target.search = url.search;
-  const controller = new AbortController(),
-    abort = () => controller.abort(new DOMException("客户端已断开", "AbortError")),
-    signal = AbortSignal.any([controller.signal, AbortSignal.timeout(Math.min(timeout, image ? 20_000 : 8_000))]);
-  req.once("aborted", abort);
-  res.once("close", abort);
-  try {
-    const response = await fetcher(target, {
-      method: "GET", headers: { Accept: image ? "image/*" : "application/json", "User-Agent": `Koma-Image/${packageInfo.version} (https://github.com/hasheeper/koma-image)` },
-      credentials: "omit", referrerPolicy: "no-referrer", redirect: "error", signal,
-    });
-    const type = response.headers.get("content-type") || "", validType = image
-      ? /^image\/(?:jpeg|png|webp|avif|gif)(?:\s*;|$)/i.test(type)
-      : /^application\/json(?:\s*;|$)/i.test(type);
-    if (!response.ok || !validType) {
-      await response.body?.cancel();
-      const challenge = response.headers.get("cf-mitigated") === "challenge";
-      return send(res, challenge ? 403 : response.ok ? 502 : response.status, { error: challenge
-        ? "Danbooru 需要站点验证，请在浏览器打开原站检查"
-        : response.status === 404 && !image ? "Danbooru 上没有这条帖子"
-          : response.status === 429 ? "Danbooru 请求过于频繁，请稍后再试"
-            : response.ok ? "Danbooru 返回格式异常"
-              : `Danbooru ${image ? "图片" : ""}暂不可用 (${response.status})` });
-    }
-    const chunks = [];
-    let length = 0;
-    // Bound both declared and streamed lengths; upstream HTML is never served as a page.
-    const maxBytes = image ? MAX_BODY : 4 * 1024 * 1024;
-    if (Number(response.headers.get("content-length")) > maxBytes) {
-      await response.body?.cancel();
-      return send(res, 502, { error: `Danbooru ${image ? "图片" : "帖子"}数据过大` });
-    }
-    if (image) {
-      res.writeHead(200, { "Content-Type": type });
-      if (!response.body) return res.end();
-      const bounded = new Transform({ transform(chunk, _encoding, done) {
-        length += chunk.length;
-        done(length > maxBytes ? new Error("Danbooru 图片数据过大") : null, chunk);
-      } });
-      return await pipeline(Readable.fromWeb(response.body), bounded, res, { signal });
-    }
-    if (response.body) for await (const chunk of response.body) {
-      length += chunk.length;
-      if (length > 4 * 1024 * 1024) return send(res, 502, { error: "Danbooru 帖子数据过大" });
-      chunks.push(chunk);
-    }
-    signal.throwIfAborted();
-    let data;
-    try { data = JSON.parse(Buffer.concat(chunks).toString("utf8")); }
-    catch { return send(res, 502, { error: "Danbooru 返回 JSON 格式异常" }); }
-    send(res, 200, data);
-  } catch (error) {
-    if (res.destroyed || controller.signal.aborted) return;
-    if (res.headersSent) return res.destroy();
-    send(res, error.name === "TimeoutError" ? 504 : 502, { error: error.name === "TimeoutError"
-      ? "Danbooru 请求超时，请稍后重试"
-      : "本地服务无法连接 Danbooru，请检查网络代理配置" });
-  } finally {
-    req.off("aborted", abort);
-    res.off("close", abort);
-  }
-}
-
-/** Shared loopback and same-origin boundary for the local server and Vite's tag-only middleware. */
-export function localRequest(req, res, port, mount = "/") {
+/** Loopback and same-origin boundary for the local server. */
+function localRequest(req, res, port, mount = "/") {
   res.setHeader("Cache-Control", "no-store");
   res.setHeader("X-Content-Type-Options", "nosniff");
   res.setHeader("Referrer-Policy", "no-referrer");
@@ -185,23 +108,6 @@ export function localRequest(req, res, port, mount = "/") {
   if (url.origin !== origin || !url.pathname.startsWith(mount))
     return void send(res, 404, { error: "未找到" });
   return url;
-}
-
-/** The same anonymous, fixed-path transport in local and development modes. */
-export function createDanbooruProxy({ fetcher = fetch, timeout = 240_000 } = {}) {
-  const token = randomBytes(32).toString("hex"), expected = Buffer.from(token);
-  return {
-    runtime: `<script id="koma-tags-runtime" type="application/json">${JSON.stringify({ version: 1, token })}</script>`,
-    async handle(req, res, url, path) {
-      // Hash-addressed public images have no token in their URL; localRequest guards their origin.
-      if (!path.startsWith("media/")) {
-        const supplied = Buffer.from(typeof req.headers["x-koma-local-token"] === "string" ? req.headers["x-koma-local-token"] : "");
-        if (supplied.length !== expected.length || !timingSafeEqual(supplied, expected))
-          return send(res, 403, { error: "本地会话已失效，请刷新页面" });
-      }
-      return danbooruRead(req, res, url, path, fetcher, timeout);
-    },
-  };
 }
 
 /** A loopback-only static server and fixed-profile proxy. No upstream discovery or retries. */
@@ -234,7 +140,6 @@ export function createLocalServer({
   const token = randomBytes(32).toString("hex"),
     tokenBytes = Buffer.from(token);
   const runtime = `<script id="koma-runtime" type="application/json">${JSON.stringify({ version: 1, mode: "local", token, image: !!gateway, reasoning: reasoning.map((c) => c.profileId) })}</script>`;
-  const tags = createDanbooruProxy({ fetcher, timeout });
   const server = http.createServer(async (req, res) => {
     const address = server.address();
     const url = localRequest(req, res, typeof address === "object" && address?.port, mount);
@@ -242,9 +147,7 @@ export function createLocalServer({
     const path = url.pathname.slice(mount.length);
     try {
       if (path.startsWith("api/")) {
-        const tagRequest = path.startsWith("api/danbooru/");
-        if (!configured && !tagRequest) return send(res, 503, { error: "本地网关尚未配置" });
-        if (tagRequest) return await tags.handle(req, res, url, path.slice("api/danbooru/".length));
+        if (!configured) return send(res, 503, { error: "本地网关尚未配置" });
         const supplied = Buffer.from(
           typeof req.headers["x-koma-local-token"] === "string"
             ? req.headers["x-koma-local-token"]
@@ -374,9 +277,9 @@ export function createLocalServer({
       if (!file.startsWith(base + sep) || !(await stat(file)).isFile())
         return send(res, 404, { error: "未找到" });
       let bytes = await readFile(file);
-      if (relative === "index.html")
+      if (relative === "index.html" && configured)
         bytes = Buffer.from(
-          bytes.toString("utf8").replace("</head>", `${tags.runtime}${configured ? runtime : ""}</head>`),
+          bytes.toString("utf8").replace("</head>", `${runtime}</head>`),
         );
       res.writeHead(200, {
         "Content-Type": types[extname(file)] || "application/octet-stream",

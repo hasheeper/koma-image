@@ -641,6 +641,12 @@ test("dictionary and prompt: weighted handoff once, picker toggle, highlight, au
     await route(page, "#/tags");
     await page.locator("#tagSearch").fill("blue");
     await page.waitForSelector(".tag-card");
+    await page.locator(".tag-more").first().click();
+    const menu = page.getByRole("menu", { name: "blue hair 的操作", exact: true });
+    assert.equal(await menu.getByRole("menuitem").count(), 2);
+    await menu.getByRole("menuitem", { name: "复制 blue hair", exact: true }).waitFor();
+    assert.equal(await menu.getByRole("menuitem", { name: "在 Danbooru 打开 blue hair（新标签页）", exact: true }).getAttribute("href"), "https://danbooru.donmai.us/posts?tags=blue_hair");
+    await page.keyboard.press("Escape");
     const tagRequests = t.requests.filter((r) => new URL(r.url).host === "tagsuggest.zeabur.app").length;
     await page.getByRole("button", { name: "下一页", exact: true }).click();
     await page.waitForFunction(() => document.querySelectorAll(".tag-card").length === 2);

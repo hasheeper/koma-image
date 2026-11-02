@@ -26,16 +26,12 @@ import {
   promptTag,
 } from "../../domain/tags.ts";
 import type { TagItem, CartTag } from "../../domain/tags.ts";
-import { postUrl, sampleMark, sampleTier } from "../../domain/tag-samples.ts";
-import { POST_GROUPS, droppedLink, postId } from "../../domain/danbooru-post.ts";
-import type { DanbooruPost } from "../../domain/danbooru-post.ts";
 import { copyText } from "../../shared/files";
 import WorkspaceSwitch from "../../shared/WorkspaceSwitch.vue";
 import ThemeToggle from "../../shared/ThemeToggle.vue";
 import WaveMark from "../../shared/WaveMark.vue";
 import AppIcon from "../../shared/AppIcon.vue";
 import PopoverMenu from "../../shared/ui/PopoverMenu.vue";
-import TagSamples from "./TagSamples.vue";
 import TagResult from "./TagResult.vue";
 const { router, tags: shellTags, narrow } = useShell(),
   { tags: search, preferences } = useServices(),
@@ -49,9 +45,6 @@ const filters = ref(
 const cart = shallowRef<CartTag[]>(
   readCart(preferences.get(names.tagCart, [])),
 );
-const flag = (key: string) => preferences.get<unknown>(key, false) === true;
-const readTier = () => sampleTier(flag(names.askAdult), flag(names.askNsfw), flag(names.askR18));
-const tier = shallowRef(readTier());
 const items = shallowRef<TagItem[]>([]),
   busy = ref(false),
   status = ref("输入关键词开始搜索"),
@@ -59,32 +52,13 @@ const items = shallowRef<TagItem[]>([]),
   last = ref(""),
   page = ref(1),
   hasNext = ref(false),
-  searched = ref(false),
-  post = shallowRef<DanbooruPost | null>(null),
-  translated = shallowRef<ReadonlyMap<string, TagItem>>(new Map()),
-  translating = ref(false);
+  searched = ref(false);
 const prompt = computed(() => combinedPrompt(cart.value));
 const categories = [0, 3, 4, 1, 5];
 // One card covers the start, no-match and failure; results replace it.
 const view = computed(() =>
-  items.value.length || post.value ? "results" : !searched.value ? "initial" : error.value ? "error" : "none",
+  items.value.length ? "results" : !searched.value ? "initial" : error.value ? "error" : "none",
 );
-const failedPostUrl = computed(() => {
-  const id = postId(last.value);
-  return id === null ? null : postUrl(id);
-});
-// A post link lists its four category groups; a word search is one ungrouped page.
-const groups = computed(() => {
-  const found = post.value;
-  if (!found) return [{ key: "all", label: "", category: 0, items: items.value }];
-  return POST_GROUPS.filter((g) => found.tags[g.key].length).map((g) => ({
-    ...g,
-    items: found.tags[g.key].map((name) => ({ name, cnName: translated.value.get(name)?.cnName ?? "", category: g.category, count: translated.value.get(name)?.count ?? 0 })),
-  }));
-});
-const postTotal = computed(() => groups.value.reduce((n, g) => n + g.items.length, 0));
-const identityGroups = computed(() => groups.value.filter((g) => g.key !== "general" && g.key !== "all"));
-const resultGroups = computed(() => groups.value.filter((g) => g.key === "general" || g.key === "all"));
 const selectedTags = computed(() => new Set(cart.value.map((item) => item.name)));
 const typeLabel = computed(() => {
   const on = categories.filter((id) => filters.value.includes(id));
@@ -95,7 +69,6 @@ const typeLabel = computed(() => {
 const side = computed(() =>
   narrow.value ? undefined : shellTags.cartOpen ? "cart" : askShown.value ? "ask" : undefined,
 );
-const peek = shallowRef<{ name: string; kind: "artist" | "character"; card: HTMLElement } | null>(null);
 const fab = shallowRef<HTMLButtonElement | null>(null),
   cartPanel = shallowRef<HTMLElement | null>(null);
 const lifecycle = useWorkspaceLifecycle("tags");
@@ -112,8 +85,6 @@ const unsub = preferences.subscribe((key) => {
     );
   if (!key || key === names.tagCart)
     cart.value = readCart(preferences.get(names.tagCart, []));
-  if (!key || key === names.askAdult || key === names.askNsfw || key === names.askR18)
-    tier.value = readTier();
 });
 function pause() {
   active = false;
@@ -121,8 +92,6 @@ function pause() {
   request?.abort();
   token++;
   busy.value = false;
-  translating.value = false;
-  peek.value = null;
 }
 const unsubDispose = () => {
   pause();
@@ -150,8 +119,7 @@ lifecycle.whileActive((signal) =>
     "keydown",
     (event) => {
       if (event.key === "Escape" && !document.querySelector("dialog[open]")) {
-        if (peek.value) closePeek(true);
-        else if (!document.querySelector(":popover-open")) shellTags.cartOpen = false;
+        if (!document.querySelector(":popover-open")) shellTags.cartOpen = false;
       }
       if (event.key === "Tab" && narrow.value && shellTags.cartOpen) {
         const focus = [
@@ -202,13 +170,7 @@ watch(
 async function run(nextPage = 1, updateUrl = true) {
   clearTimeout(timer);
   request?.abort();
-  peek.value = null;
-  const id = ++token,
-    q = query.value.trim(),
-    link = postId(q);
-  translating.value = false;
-  translated.value = new Map();
-  if (link !== null) nextPage = 1;
+  const id = ++token, q = query.value.trim();
   page.value = nextPage;
   if (updateUrl) {
     const url = new URL(location.href);
@@ -220,7 +182,6 @@ async function run(nextPage = 1, updateUrl = true) {
   }
   if (!q) {
     items.value = [];
-    post.value = null;
     error.value = "";
     status.value = "输入关键词开始搜索";
     searched.value = false;
@@ -230,34 +191,23 @@ async function run(nextPage = 1, updateUrl = true) {
   }
   const signal = (request = new AbortController()).signal;
   busy.value = true;
-  status.value = link === null ? `正在搜索“${q}”…` : `正在读取 Danbooru #${link}…`;
+  status.value = `正在搜索“${q}”…`;
   try {
-    if (link === null) {
-      const result = await search.page(q, {
-        page: nextPage,
-        pageSize: 24,
-        categories: filters.value,
-        signal,
-      });
-      if (id !== token || !active) return;
-      post.value = null;
-      items.value = result.items;
-      hasNext.value = result.hasNext;
-    } else {
-      const found = await search.post(link, signal);
-      if (id !== token || !active) return;
-      post.value = found;
-      items.value = [];
-      hasNext.value = false;
-      void translate(found, id, signal);
-    }
+    const result = await search.page(q, {
+      page: nextPage,
+      pageSize: 24,
+      categories: filters.value,
+      signal,
+    });
+    if (id !== token || !active) return;
+    items.value = result.items;
+    hasNext.value = result.hasNext;
     error.value = "";
     last.value = q;
-    status.value = link === null ? `“${q}”的匹配结果` : `Danbooru #${link} 的 Tag`;
+    status.value = `“${q}”的匹配结果`;
     searched.value = true;
   } catch (e) {
     if (id !== token || signal.aborted) return;
-    post.value = null;
     items.value = [];
     error.value = message(e);
     last.value = q;
@@ -268,19 +218,6 @@ async function run(nextPage = 1, updateUrl = true) {
     if (id === token) busy.value = false;
   }
 }
-// Chinese names fill in after the original tags; a miss keeps the name intact.
-async function translate(found: DanbooruPost, id: number, signal: AbortSignal) {
-  translated.value = new Map();
-  translating.value = true;
-  try {
-    const names = await search.translate(POST_GROUPS.flatMap((g) => found.tags[g.key]), signal);
-    if (id === token) translated.value = names;
-  } catch {
-    // Aborted by the next search or leaving TAGS.
-  } finally {
-    if (id === token) translating.value = false;
-  }
-}
 function schedule() {
   clearTimeout(timer);
   if (composing) return;
@@ -289,14 +226,6 @@ function schedule() {
     return;
   }
   timer = setTimeout(() => void run(), 320);
-}
-function dropPost(event: DragEvent) {
-  const text = droppedLink(event.dataTransfer?.getData("text/uri-list") ?? "") || event.dataTransfer?.getData("text/plain") || "";
-  if (postId(text) === null) return;
-  event.preventDefault();
-  event.stopPropagation();
-  query.value = text;
-  void run();
 }
 function startComposition() {
   composing = true;
@@ -394,17 +323,6 @@ function turn(next: number) {
     .querySelector(".tags-results")
     ?.scrollIntoView({ block: "start", behavior: "smooth" });
 }
-const sampleKind = (item: TagItem) =>
-  item.category === 1 ? "artist" : item.category === 4 ? "character" : undefined;
-function togglePeek(item: TagItem, card: HTMLElement) {
-  const kind = sampleKind(item);
-  peek.value = peek.value?.name === item.name || !kind || !card ? null : { name: item.name, kind, card };
-}
-function closePeek(refocus: boolean) {
-  const card = peek.value?.card;
-  peek.value = null;
-  if (refocus) card?.querySelector<HTMLElement>(".tag-more")?.focus();
-}
 </script>
 <template>
   <header class="tags-nav" :inert="askFullscreen">
@@ -429,15 +347,13 @@ function closePeek(refocus: boolean) {
             type="search"
             autocomplete="off"
             spellcheck="false"
-            placeholder="蓝发 / blue hair / Danbooru 帖子链接"
-            aria-label="搜索 Danbooru Tag，或粘贴帖子链接"
-            @dragover.prevent
-            @drop="dropPost"
+            placeholder="蓝发 / blue hair"
+            aria-label="搜索 Danbooru Tag"
             @input="schedule"
             @compositionstart="startComposition"
             @compositionend="endComposition"
           /><PopoverMenu
-            v-if="view !== 'initial' && !post"
+            v-if="view !== 'initial'"
             id="tagTypes"
             label="Tag 类型"
             side="right"
@@ -500,64 +416,22 @@ function closePeek(refocus: boolean) {
           <p>换个写法，或打开更多类型。</p>
         </template>
         <template v-else>
-          <h2>{{ failedPostUrl ? '帖子读取失败' : '搜索失败' }}</h2>
-          <p>{{ error }}<a v-if="failedPostUrl" class="tags-retry" :href="failedPostUrl" target="_blank" rel="noopener noreferrer">打开原站</a><button class="tags-retry" type="button" :disabled="busy" @click="run(page)">重试</button></p>
+          <h2>搜索失败</h2>
+          <p>{{ error }}<button class="tags-retry" type="button" :disabled="busy" @click="run(page)">重试</button></p>
         </template>
       </section>
       <section v-else class="tags-results" :aria-busy="busy">
-        <div v-if="post" class="tag-post">
-          <a
-            class="tag-post-thumb"
-            :href="postUrl(post.id)"
-            target="_blank"
-            rel="noopener noreferrer"
-            :aria-label="`在 Danbooru 打开 #${post.id}（新标签页）`"
-            :style="post.width && post.height ? { '--post-aspect': `${post.width} / ${post.height}` } : undefined"
-          >
-            <img v-if="post.preview" :src="search.imageUrl(post.preview.src)" alt="" decoding="async" referrerpolicy="no-referrer" />
-            <AppIcon v-else name="i-image" />
-            <span v-if="sampleMark(post)" class="tag-post-mark">{{ sampleMark(post) }}</span>
-          </a>
-          <div class="tag-post-meta">
-            <header class="tag-post-heading">
-              <div>
-                <h2>{{ busy ? status : `Danbooru #${post.id}` }}</h2>
-                <p>{{ [post.width && post.height ? `${post.width} × ${post.height}` : "", `${postTotal} 个 Tag`].filter(Boolean).join(" · ") }}</p>
-              </div>
-              <a class="ibtn" :href="postUrl(post.id)" target="_blank" rel="noopener noreferrer" aria-label="在 Danbooru 查看原帖（新标签页）" data-tip="查看原帖"><AppIcon name="tag-i-external" /></a>
-            </header>
-            <section v-for="group in identityGroups" :key="group.key" class="tag-post-identity" :aria-labelledby="`tag-group-${group.key}`">
-              <h3 :id="`tag-group-${group.key}`" class="tag-group-head">
-                <i class="tag-category-dot" :class="CATEGORIES[group.category].className"></i>{{ group.label }}<span>{{ group.items.length }}</span>
-              </h3>
-              <div class="tag-chip-list">
-                <TagResult
-                  v-for="item in group.items" :key="item.name" :item="item" variant="chip"
-                  :selected="selectedTags.has(item.name)"
-                  @toggle="toggle" @copy="copy(promptTag($event.name), `已复制 ${promptTag($event.name)}`)" @samples="togglePeek"
-                />
-              </div>
-            </section>
-          </div>
-        </div>
-        <div v-else class="tags-results-head">
+        <div class="tags-results-head">
           <h2>{{ busy ? status : `“${last}”的匹配结果` }}</h2>
           <span v-if="!busy">{{ items.length }} 个 · 第 {{ page }} 页</span>
         </div>
-        <p v-if="post" class="tag-post-note" role="status">{{ translating ? "正在补充中文释义…" : "点选 Tag 加入 Prompt 组合" }}</p>
-        <section v-for="group in resultGroups" :key="group.key" class="tag-result-group" :aria-labelledby="group.label ? `tag-group-${group.key}` : undefined">
-          <h3 v-if="group.label" :id="`tag-group-${group.key}`" class="tag-group-head">
-            <i class="tag-category-dot" :class="CATEGORIES[group.category].className"></i>{{ group.label }}<span>{{ group.items.length }}</span>
-          </h3>
-          <div :class="post ? 'tag-chip-list' : 'tags-grid'">
-            <TagResult
-              v-for="item in group.items" :key="item.name" :item="item"
-              :variant="post ? 'chip' : 'card'"
-              :selected="selectedTags.has(item.name)"
-              @toggle="toggle" @copy="copy(promptTag($event.name), `已复制 ${promptTag($event.name)}`)" @samples="togglePeek"
-            />
-          </div>
-        </section>
+        <div class="tags-grid">
+          <TagResult
+            v-for="item in items" :key="item.name" :item="item"
+            :selected="selectedTags.has(item.name)"
+            @toggle="toggle" @copy="copy(promptTag($event.name), `已复制 ${promptTag($event.name)}`)"
+          />
+        </div>
         <nav
           v-if="page > 1 || hasNext"
           class="tag-pagination"
@@ -583,7 +457,7 @@ function closePeek(refocus: boolean) {
       </section>
       <footer class="tags-foot">
         搜索词会发送到在线双语 Tag 服务，英文查询在需要时回退至 Danbooru
-        官方接口；示例图与帖子链接从 Danbooru 读取。
+        官方接口。
       </footer>
     </div>
     <aside
@@ -704,12 +578,4 @@ function closePeek(refocus: boolean) {
     aria-label="关闭组合侧栏"
     @click="shellTags.cartOpen = false"
   ></button>
-  <TagSamples
-    v-if="peek"
-    :name="peek.name"
-    :kind="peek.kind"
-    :tier="tier"
-    :card="peek.card"
-    @close="closePeek"
-  />
 </template>

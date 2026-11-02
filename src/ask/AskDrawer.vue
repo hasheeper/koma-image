@@ -17,7 +17,6 @@ import DraftCard from "./DraftCard.vue";
 import { useAskPresentation } from "./presentation.ts";
 import AskActivity from "./AskActivity.vue";
 import { ATTACHMENT_LIMITS } from "./attachments.ts";
-import { droppedLink, postId } from "../domain/danbooru-post.ts";
 import { useDrawing } from "../app/drawing.ts";
 import { useChat } from "../app/chat.ts";
 import { homePictureType, homePictureFile } from "../home/transfer.ts";
@@ -50,19 +49,13 @@ function paste(event: ClipboardEvent) {
   event.stopPropagation();
   const data = event.clipboardData;
   if (!data) return;
-  const files = [...data.files], text = data.getData("text/plain"), post = postId(text);
+  const files = [...data.files], text = data.getData("text/plain");
   if (files.length) { event.preventDefault(); void ask.addFiles(files); }
-  else if (post !== null) { event.preventDefault(); void ask.addPost(post); }
   else if (text.length > ATTACHMENT_LIMITS.paste) { event.preventDefault(); void ask.addPastedText(text); }
 }
 function drag(event: DragEvent) {
   const data = event.dataTransfer;
-  if (!acceptsInput() || !data || !["Files", names.historyDragType, homePictureType, "text/uri-list", "text/plain"].some(type => data.types.includes(type))) return;
-  const post = postId(droppedLink(data.getData("text/uri-list")) || data.getData("text/plain"));
-  // Ordinary text keeps native insertion without bubbling into IMAGE's import.
-  if (event.type === "drop" && post === null && !["Files", names.historyDragType, homePictureType].some(type => data.types.includes(type))) {
-    event.stopPropagation(); clearDrop(); return;
-  }
+  if (!acceptsInput() || !data || !["Files", names.historyDragType, homePictureType].some(type => data.types.includes(type))) return;
   event.stopPropagation();
   if (event.type === "dragleave") {
     dragDepth = Math.max(0, dragDepth - 1); dropping.value = dragDepth > 0;
@@ -75,7 +68,6 @@ function drag(event: DragEvent) {
     const file = homePictureFile(data, drawingService, chatService, homeService);
     if (file) void ask.addFiles([file]);
     else if (id) ask.referenceHistory(id);
-    else if (post !== null) void ask.addPost(post);
     else void ask.addFiles([...data.files]);
     void composer.value?.focus(true);
   } else {

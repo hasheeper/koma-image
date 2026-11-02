@@ -127,6 +127,8 @@ test('ASK W5: paste and crossing drags belong to their window; history drops ins
     const before=await count();assert.equal(await pasteSynthetic(page,'#askPrompt',{file:true}),true);
     await page.waitForFunction(()=>!ask.preparing.value&&ask.tray.value.length===1);assert.equal(await count(),before);
     assert.equal(await pasteSynthetic(page,'#askPrompt',{text:'短文本'}),false);
+    assert.equal(await pasteSynthetic(page,'#askPrompt',{text:'https://danbooru.donmai.us/posts/123456?q=blue_hair'}),false);
+    assert.equal(await page.evaluate(()=>ask.tray.value.length),1,'a post URL stays ordinary text and adds no attachment');
     assert.equal(await pasteSynthetic(page,'#askPrompt',{text:'长'.repeat(2001)}),true);
     await page.waitForFunction(()=>ask.tray.value.length===2);assert.equal(await page.locator('#askPrompt').inputValue(),'');
     await page.getByRole('button',{name:'查看 粘贴的文本',exact:true}).click();await page.getByRole('dialog',{name:'粘贴的文本',exact:true}).waitFor();await page.keyboard.press('Escape');

@@ -204,7 +204,7 @@ function select(event: KeyboardEvent) {
           class="ibtn ibtn-xs"
           type="button"
           aria-label="从图片导入参数"
-          title="从图片导入参数；粘贴或拖入 Danbooru 帖子链接可导入 Tag"
+          title="从图片导入参数"
           @click="emit('import')"
         >
           <AppIcon name="i-import" />

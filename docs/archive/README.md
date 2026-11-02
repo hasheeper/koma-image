@@ -61,13 +61,9 @@
 - [HM1 数据](workspaces/2026-10-28-home-hm1-verification.md)、[HM2 页面](workspaces/2026-10-28-home-hm2-verification.md)、[HM3 ASK 与动效](workspaces/2026-10-28-home-hm3-verification.md)。
 - [EDIT 独立页面、编辑画板与收口](workspaces/2026-10-28-edit-workspace-verification.md)。
 
-## TAGS 词典
-
-- [示例图与帖子导入](workspaces/2026-11-02-tag-samples-plan.md)：TAGS 分类卡、IMAGE 原图与分类勾选、ASK 输入附件及原文元数据的极简方案与本地验收；取代新增工具及回复确认卡的旧规划，已随 v0.2.0 发布。
-
 ## 发布与脱敏记录
 
-- [v0.2 系列发布](releases/2026-11-02-v0.2-release.md)：公共 UI、Danbooru 导入、版本管理，以及开发环境读取与 TAGS 顶部留白修复。
+- [v0.2 系列发布](releases/2026-11-02-v0.2-release.md)：公共 UI、版本管理与 TAGS 顶部留白修复的历史发布记录。
 
 这些记录只证明注明提交和部署的状态，不能推导出后续工作已发布。
 

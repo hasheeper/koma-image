@@ -198,7 +198,7 @@
 .tags-retry:hover:not(:disabled) { text-decoration: underline; }
 
 /* ── Results ─────────────────────────────────────────────────── */
-.tags-results { margin-top: 32px; container-type: inline-size; }
+.tags-results { margin-top: 32px; }
 /* HOME's section head: title with a count pill. */
 .tags-results-head { display: flex; align-items: center; gap: 10px; margin-bottom: 16px; }
 .tags-results-head h2 { min-width: 0; margin: 0; overflow: hidden; color: var(--fg); font-size: 18px; font-weight: var(--fw-semibold); line-height: 32px; text-overflow: ellipsis; white-space: nowrap; }
@@ -213,38 +213,6 @@
   font: var(--fw-medium) var(--fz-xs)/1 var(--mono);
   background: var(--raised);
   border-radius: 11px;
-}
-/* A post keeps artist, characters and copyright beside its preview;
-   the wrapping pool below contains only general tags. */
-.tag-post { display: grid; grid-template-columns: minmax(0, 320px) minmax(0, 1fr); align-items: start; gap: 28px; }
-.tag-post-thumb { position: relative; display: grid; place-items: center; width: 100%; max-height: 280px; aspect-ratio: var(--post-aspect, 3 / 2); overflow: hidden; color: var(--fg-4); background: var(--stage); border-radius: var(--r3); box-shadow: var(--print-shadow); }
-.tag-post-thumb img { display: block; width: 100%; height: 100%; min-height: 0; object-fit: contain; }
-.tag-post-thumb:focus-visible { outline: 2px solid var(--focus-line); outline-offset: 2px; }
-.tag-post-mark { position: absolute; top: 8px; left: 8px; height: 16px; padding: 0 4px; color: var(--media-ink); font: var(--fw-semibold) 10px/16px var(--mono); letter-spacing: .02em; background: color-mix(in srgb, var(--media-surface) 45%, transparent); border-radius: 4px; box-shadow: inset 0 0 0 .5px color-mix(in srgb, var(--media-ink) 28%, transparent); backdrop-filter: blur(8px) saturate(1.4); }
-.tag-post-meta { display: flex; flex-direction: column; gap: 16px; min-width: 0; }
-.tag-post-heading { display: flex; align-items: start; justify-content: space-between; gap: 12px; padding-bottom: 14px; border-bottom: 1px solid var(--line); }
-.tag-post-heading > div { min-width: 0; }
-.tag-post-heading > .ibtn { flex: none; }
-.tag-post-heading h2 { margin: 0 0 5px; color: var(--fg); font-size: 18px; font-weight: var(--fw-semibold); line-height: 1.5; overflow-wrap: anywhere; }
-.tag-post-heading p { margin: 0; color: var(--fg-3); font: var(--fw-regular) var(--fz-xs)/1.5 var(--mono); }
-.tag-post-identity { display: grid; grid-template-columns: 64px minmax(0, 1fr); align-items: baseline; gap: 10px; }
-.tag-group-head { display: flex; align-items: center; gap: 8px; margin: 0 0 12px; color: var(--fg-2); font-size: var(--fz-sm); font-weight: var(--fw-semibold); line-height: 20px; }
-.tag-post-identity .tag-group-head { margin: 0; white-space: nowrap; }
-.tag-group-head span { color: var(--fg-4); font: var(--fw-regular) var(--fz-2xs)/1 var(--mono); }
-.tag-post-note { margin: 20px 0 0; color: var(--fg-3); font-size: var(--fz-xs); line-height: 1.5; }
-.tag-post-note + .tag-result-group { margin-top: 20px; }
-.tag-result-group + .tag-result-group { margin-top: 28px; padding-top: 20px; border-top: 1px solid var(--line); }
-.tag-chip-list { display: flex; flex-wrap: wrap; align-items: start; gap: 6px; min-width: 0; }
-/* Respond to the available content width, including when ASK/cart is docked. */
-@container (max-width: 760px) {
-  .tag-post { grid-template-columns: minmax(0, 220px) minmax(0, 1fr); gap: 20px; }
-  .tag-post-identity { grid-template-columns: minmax(0, 1fr); gap: 6px; }
-}
-@container (max-width: 520px) {
-  .tag-post { grid-template-columns: minmax(0, 1fr); gap: 20px; }
-  .tag-post-thumb { max-height: 240px; }
-  .tag-post-meta { gap: 12px; }
-  .tag-post-identity { grid-template-columns: 64px minmax(0, 1fr); }
 }
 /* 24 a page fills every row from one to four columns. */
 .tags-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(min(100%, 248px), 1fr)); gap: 12px; }
@@ -309,18 +277,6 @@
 .tag-card-actions [data-tip]::after { left: auto; right: 0; transform: translate(0, -3px); }
 .tag-card-actions [data-tip]:hover::after { transform: translate(0, 0); }
 .tag-more[aria-expanded="true"] { color: var(--fg); background: var(--hover); }
-
-/* Post chips share the same menu and selection without repeated category
-   or count rows. Both names use the whole text column and may wrap. */
-.tag-card-chip { background: color-mix(in srgb, var(--surface-tint) 3%, transparent); border-color: transparent; border-radius: var(--r2); }
-.tag-card-chip:hover { transform: none; background: var(--hover); border-color: transparent; }
-.tag-card-chip { align-items: center; max-width: 100%; }
-.tag-card-chip .tag-card-info { display: block; flex: 1; width: auto; min-width: 0; padding: 7px 8px 7px 10px; border-radius: inherit; }
-.tag-card-chip .tag-card-names { display: flex; flex-wrap: wrap; align-items: baseline; gap: 2px 7px; }
-.tag-card-chip .tag-card-names strong,
-.tag-card-chip .tag-card-names span { overflow: visible; white-space: normal; overflow-wrap: anywhere; }
-.tag-card-chip > .tag-card-actions { margin: 0 3px 0 0; }
-.tag-card-chip .tag-more { --ico: var(--ico-sm); }
 
 .tag-pagination {
   display: flex;

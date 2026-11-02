@@ -10,7 +10,6 @@ import { useAskPresentation } from '../ask/presentation.ts';
 import { homePictureType, homePictureFile } from './transfer.ts';
 import { names } from '../storage/names.ts';
 import { ATTACHMENT_LIMITS } from '../ask/attachments.ts';
-import { droppedLink, postId } from '../domain/danbooru-post.ts';
 import AskModelPicker from '../ask/AskModelPicker.vue';
 import { useAsk, AskMark } from '../app/ask.ts';
 import { useShell } from '../app/shell.ts';
@@ -34,26 +33,21 @@ onBeforeUnmount(pauseDrop);
 watch(shown, clearDrop);
 function drag(event: DragEvent) {
   const data = event.dataTransfer;
-  if (!data || !['Files', names.historyDragType, homePictureType, 'text/uri-list', 'text/plain'].some(t => data.types.includes(t))) return;
-  const post = postId(droppedLink(data.getData('text/uri-list')) || data.getData('text/plain'));
-  if (event.type === 'drop' && post === null && !['Files', names.historyDragType, homePictureType].some(t => data.types.includes(t))) {
-    event.stopPropagation(); clearDrop(); return;
-  }
+  if (!data || !['Files', names.historyDragType, homePictureType].some(t => data.types.includes(t))) return;
   event.stopPropagation();
   if (event.type === 'dragleave') { dropping.value = !!(dragDepth = Math.max(0, dragDepth - 1)); return; }
   event.preventDefault();
   if (event.type === 'drop') {
     clearDrop(); const id = data.getData(names.historyDragType);
     ask.show(); const file = homePictureFile(data, drawing, chat, home);
-    if (file) void ask.addFiles([file]); else if (id) ask.referenceHistory(id); else if (post !== null) void ask.addPost(post); else void ask.addFiles([...data.files]);
+    if (file) void ask.addFiles([file]); else if (id) ask.referenceHistory(id); else void ask.addFiles([...data.files]);
   } else { if (event.type === 'dragenter') dragDepth++; dropping.value = true; data.dropEffect = 'copy'; }
 }
 function paste(event: ClipboardEvent) {
   event.stopPropagation();
   const data = event.clipboardData; if (!data) return;
-  const text = data.getData('text/plain'), post = postId(text);
+  const text = data.getData('text/plain');
   if (data.files.length) { event.preventDefault(); ask.show(); void ask.addFiles([...data.files]); }
-  else if (post !== null) { event.preventDefault(); ask.show(); void ask.addPost(post); }
   else if (text.length > ATTACHMENT_LIMITS.paste) { event.preventDefault(); ask.show(); void ask.addPastedText(text); }
 }
 const input = shallowRef<HTMLInputElement | null>(null), choosing = shallowRef(false);

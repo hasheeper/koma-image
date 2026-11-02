@@ -66,7 +66,6 @@ Photopea 首次打开后保留单 iframe，每编辑画板拥有独立分层文�
 
 每组 URL／Key 成对设置；可只配置 ASK。网页只获得运行模式和临时令牌，服务端地址与 Key 不注入浏览器，不进入 `VITE_*`。只读运行时连接和令牌不持久化；图像模型来源另存 `koma.local.models.v1`。原生图像三协议目前仅浏览器直连。运行与打包步骤见[发布说明](release-guide.md)。
 
-本地服务另提供独立的 Danbooru 只读转发，使用单独的 `koma-tags-runtime` 标记与帖子查询令牌，仅允许固定的列表／单帖 JSON 及 CDN 哈希图片路径，不开启模型连接只读模式。公共图片沿同源校验读取，不将令牌放入图片地址。开发入口 `scripts/dev.mjs` 为 Vite 复用同一词典转发与本机／同源校验，应用 HTML 注入词典标记，独立 `/__ui` 预览不注入；不创建模型代理或注入模型地址与 Key。静态构建不含运行时标记，帖子、示例图与链接导入直接访问 Danbooru；按实际结果展示内容或错误，站点验证交给用户在原站完成后手动重试。出站网络按显式 `HTTPS_PROXY`／`NO_PROXY` 环境变量配置，不读取系统代理或浏览器 Cookie。边界见[词典](workspaces/settings-and-tags.md#danbooru-帖子链接与-ask-附件)。
 
 ## 调度与数据
 

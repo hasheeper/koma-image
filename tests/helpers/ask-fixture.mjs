@@ -16,7 +16,7 @@ const hosts = { image: "gateway.example.test", chat: "chat.example.test", claude
 
 const reasoning = /^\/v1\/(?:chat\/completions|messages)$/;
 
-async function open(hash, { ready = "#settingsPanel[open]", ask = null, standard = false, chatModel = false, touch = false, motion = "reduce", width = 1440, localTags = false } = {}) {
+async function open(hash, { ready = "#settingsPanel[open]", ask = null, standard = false, chatModel = false, touch = false, motion = "reduce", width = 1440 } = {}) {
   const context = await browser.newContext({ viewport: { width, height: 900 }, reducedMotion: motion, hasTouch: touch });
   const page = await context.newPage(), requests = [], errors = [], llm = [], calls = [];
   page.setDefaultTimeout(12000);
@@ -35,14 +35,7 @@ async function open(hash, { ready = "#settingsPanel[open]", ask = null, standard
   }, { hosts, ask, standard });
   await context.route("**/*", async (route) => {
     const request = route.request(), url = new URL(request.url());
-    if (url.origin === origin) {
-      if (localTags && request.isNavigationRequest()) {
-        const response = await route.fetch();
-        const marker = `<script id="koma-tags-runtime" type="application/json">${JSON.stringify({ version: 1, token: 'a'.repeat(64) })}</script>`;
-        return route.fulfill({ response, body: (await response.text()).replace('</head>', marker + '</head>') });
-      }
-      return route.continue();
-    }
+    if (url.origin === origin) return route.continue();
     if (!Object.values(hosts).includes(url.hostname)) {
       errors.push(`unexpected external origin: ${url.origin}`);
       return route.abort();

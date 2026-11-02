@@ -3,11 +3,10 @@ import App from "./App.vue";
 import { createApplicationServices } from "../services/application.ts";
 import { servicesKey } from "./services.ts";
 import { names } from "../storage/names.ts";
-import { readRuntime, readTagRuntime } from "../config/runtime.ts";
+import { readRuntime } from "../config/runtime.ts";
 
 const services = createApplicationServices({
   local: readRuntime(document),
-  tagProxy: readTagRuntime(document),
   storage: localStorage,
   indexedDB,
   locks: navigator.locks,

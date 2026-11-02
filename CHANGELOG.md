@@ -2,6 +2,11 @@
 
 这里记录面向使用者的主要变化；「未发布」内容尚未上线，完整验收证据见 [发布归档](docs/archive/README.md#发布与脱敏记录)。
 
+## [0.3.3] - 2026-11-02
+
+- 移除 Danbooru 示例图、帖子链接导入、分级子开关及本地／开发转发，词典在本地与静态部署共用在线搜索逻辑。
+- 保留亮暗单击切换、TAGS 悬浮 Logo 与紧凑布局、复制／原站外链菜单，以及公共组件与设置拆分。
+
 ## [0.3.2] - 2026-11-02
 
 - 恢复静态版 Danbooru 帖子、示例图与链接导入直连，不再提前禁用功能。
@@ -49,3 +54,5 @@
 [0.3.1]: https://github.com/hasheeper/koma-image/compare/v0.3.0...v0.3.1
 
 [0.3.2]: https://github.com/hasheeper/koma-image/compare/v0.3.1...v0.3.2
+
+[0.3.3]: https://github.com/hasheeper/koma-image/compare/v0.3.2...v0.3.3
