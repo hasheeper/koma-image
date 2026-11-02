@@ -2,6 +2,10 @@
 
 这里记录面向使用者的主要变化；「未发布」内容尚未上线，完整验收证据见 [发布归档](docs/archive/README.md#发布与脱敏记录)。
 
+## [0.3.4] - 2026-11-02
+
+- 修复从 TAGS 打开设置时顶栏被压扁、返回按钮和 Logo 被裁切的问题。
+
 ## [0.3.3] - 2026-11-02
 
 - 移除 Danbooru 示例图、帖子链接导入、分级子开关及本地／开发转发，词典在本地与静态部署共用在线搜索逻辑。
@@ -56,3 +60,5 @@
 [0.3.2]: https://github.com/hasheeper/koma-image/compare/v0.3.1...v0.3.2
 
 [0.3.3]: https://github.com/hasheeper/koma-image/compare/v0.3.2...v0.3.3
+
+[0.3.4]: https://github.com/hasheeper/koma-image/compare/v0.3.3...v0.3.4

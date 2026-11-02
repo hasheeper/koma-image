@@ -7,13 +7,16 @@
    Breakpoints mirror styles.css (860 / 560). */
 
 .tags-body {
-  /* The logo floats; ASK and the cart start at the viewport's top edge. */
   --hist: 0px;
-  --bar-h: 0px;
   min-height: 100%;
   height: auto;
   background: var(--page-bg);
 }
+/* The floating logo needs no bar offset in the page, ASK dock or notices.
+   Keep this local so shared dialogs retain the application's topbar height. */
+.tags-main,
+.tags-body .ask-island,
+.tags-body > .toasts { --bar-h: 0px; }
 /* The collapsed ASK launcher occupies the outermost 60px on the right. */
 .tags-nav { position: fixed; top: 12px; right: 72px; left: 16px; z-index: var(--z-sticky); display: flex; align-items: center; justify-content: space-between; pointer-events: none; }
 .tags-nav > * { pointer-events: auto; }
