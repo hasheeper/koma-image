@@ -1,27 +1,18 @@
 <script setup lang="ts">
-import { computed, onBeforeUnmount, onDeactivated, ref, useId, watch } from "vue";
-import AppIcon from "../../shared/AppIcon.vue";
-import { menuKeys, placeMenu } from "../../shared/popover";
+import { computed, ref, useId, watch } from "vue";
+import AppIcon from "../AppIcon.vue";
+import { menuKeys, placeMenu } from "../popover";
+import { usePopover } from "../ui/use-popover";
 const props = defineProps<{
   id: string; label: string; caption?: string; title?: string; value: string; display?: string; disabled?: boolean;
   variant?: "model";
   options: { value: string; label: string; disabled?: boolean; title?: string }[];
 }>();
 const emit = defineEmits<{ change: [value: string] }>();
-const button = ref<HTMLButtonElement>(), menu = ref<HTMLElement>(), expanded = ref(false);
+const button = ref<HTMLButtonElement>(), menu = ref<HTMLElement>();
 const menuId = `nai-choice-${useId()}`;
 const selected = computed(() => props.options.find(o => o.value === props.value)?.label ?? props.value);
 let keyboard = false;
-function close() { menu.value?.hidePopover(); }
-function outsideScroll(event: Event) { if (!menu.value?.contains(event.target as Node)) close(); }
-function cleanup() { window.removeEventListener("resize", close); window.removeEventListener("scroll", outsideScroll, true); }
-function beforeToggle(event: ToggleEvent) {
-  expanded.value = event.newState === "open";
-  if (!expanded.value || !menu.value || !button.value) return;
-  menu.value.style.display = "grid";
-  position();
-  menu.value.style.removeProperty("display");
-}
 function position() {
   if (!menu.value || !button.value) return;
   const el = menu.value, anchor = button.value.getBoundingClientRect();
@@ -32,13 +23,9 @@ function position() {
 function focusChoice() {
   (menu.value?.querySelector<HTMLButtonElement>('button[aria-checked="true"]:not(:disabled)') ?? menu.value?.querySelector<HTMLButtonElement>('button:not(:disabled)'))?.focus({ preventScroll: true });
 }
-function toggle() {
-  expanded.value = !!menu.value?.matches(":popover-open"); cleanup();
-  if (!expanded.value) return;
-  position();
-  if (keyboard) focusChoice();
-  window.addEventListener("resize", close); window.addEventListener("scroll", outsideScroll, true);
-}
+const { open: expanded, close, beforeToggle, toggled: toggle } = usePopover(menu, {
+  position, closeOnScroll: "outside", onOpen() { if (keyboard) focusChoice(); },
+});
 function choose(value: string) { emit("change", value); close(); button.value?.focus({ preventScroll: true }); }
 function keys(event: KeyboardEvent) {
   if (event.key === "Escape" || event.key === "Tab") {
@@ -55,7 +42,6 @@ function openKeys(event: KeyboardEvent) {
   }
 }
 watch(() => props.value, close);
-onDeactivated(() => { close(); cleanup(); }); onBeforeUnmount(cleanup);
 </script>
 <template>
   <button :id="id" ref="button" type="button" class="nai-trigger" :class="[variant && `choice-${variant}`, { chosen: value !== 'none' }]" :data-value="value" :disabled="disabled" :popovertarget="menuId" aria-haspopup="menu" :aria-controls="menuId" :aria-expanded="expanded" :aria-label="`${label}：${selected}`" :title="title" @pointerdown="keyboard = false" @keydown="openKeys">

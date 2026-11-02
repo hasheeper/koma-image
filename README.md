@@ -10,6 +10,7 @@
 
 <p align="center">
   <a href="https://koma-image.pages.dev/">在线体验</a> ·
+  <a href="CHANGELOG.md">更新日志</a> ·
   <a href="#工作区">工作区</a> ·
   <a href="#快速开始">快速开始</a> ·
   <a href="#外部-agent-接入">外部 Agent 接入</a> ·
@@ -133,7 +134,11 @@ npm start
 
 如需通过本地 `server.mjs` 代理标准网关或 ASK 推理接口（将 Key 留在服务端环境变量中），可配置 `KOMA_GATEWAY_*`、`KOMA_ASK_OPENAI_*` 或 `KOMA_ASK_ANTHROPIC_*`；执行 `npm run package` 可打包独立发布产物。详见[发布与运行说明](docs/release-guide.md)。
 
+`npm start` 也提供 Danbooru 帖子 JSON 和 CDN 图片的匿名同源转发，供示例图与帖子链接导入使用；需要出站网络代理时配置 `HTTPS_PROXY`。静态部署和 Vite 开发仍然直连，可能受原站跨站验证限制，见[词典网络说明](docs/release-guide.md#danbooru-帖子读取)。
+
 <a id="开发与检查"></a>
+
+开发服的 [组件预览](http://127.0.0.1:3216/__ui) 使用真实公共控件与内存示例，可检查主题、状态和菜单行为；不初始化业务服务，生产构建不包含此入口。组件归属见[维护说明](docs/engineering/ui-maintenance.md#组件层级与开发预览)。
 
 | 常用命令 | 说明 |
 | --- | --- |

@@ -27,6 +27,8 @@ import { message } from "../app/ui.ts";
 import type { Ui } from "../app/ui.ts";
 import { reasoningConnections } from "../config/connections.ts";
 import { ancestry } from "../domain/conversation.ts";
+import { postParams } from "../domain/danbooru-post.ts";
+import type { ImageMetadata } from "../native/image-meta.ts";
 import { names } from "../storage/names.ts";
 import { codecFor } from "./codec.ts";
 import { readAskSettings, withModel } from "./settings.ts";
@@ -290,7 +292,7 @@ export function createAsk(deps: {
     libraryRevision.value++;
   }
   const entryAttachments = (items: readonly AskEntry[]) => items.flatMap(e => e.type === "turn" ? e.turn.attachments.map(a => a.id) : []);
-  function addInputs(inputs: readonly (() => Promise<{ file: File; origin?: RefFile["origin"] }>)[], pasted = false) {
+  function addInputs(inputs: readonly (() => Promise<{ file: File; origin?: RefFile["origin"]; params?: ImageMetadata }>)[], pasted = false) {
     const owner = conversations.current, attachments = owner.scope.attachments;
     if (disposed || !favoritesReady.value || !inputs.length) return Promise.resolve();
     owner.preparing++; preparing.value = owner.preparing;
@@ -299,12 +301,12 @@ export function createAsk(deps: {
       for (const read of inputs) {
         if (disposed || !conversations.get(owner.id)) break;
         try {
-          const { file, origin } = await read();
+          const { file, origin, params } = await read();
           if ([...scopes.values()].reduce((sum, c) => sum + c.attachments.bytes, file.size) > ATTACHMENT_LIMITS.pageBytes) throw new Error("本页附件已超过 200 MB");
           const prepared = await prepareAttachment(file, pasted, settings.value.textAttachments);
           if (disposed || !conversations.get(owner.id)) break;
           attachmentCapacity(attachments.read(owner.tray), prepared.kind, prepared.kind === "text" ? prepared.text.length : 0, settings.value.textAttachments);
-          const item = attachments.add({ ...prepared, ...(origin ? { origin } : {}) });
+          const item = attachments.add({ ...prepared, ...(origin ? { origin } : {}), ...(params && prepared.kind === "image" ? { params } : {}) });
           setTray([...owner.tray, item.id], owner);
         } catch (error) {
           const reason = message(error);
@@ -323,6 +325,15 @@ export function createAsk(deps: {
     return importing;
   }
   function addFiles(files: readonly File[], pasted = false) { return addInputs(files.map(file => async () => ({ file })), pasted); }
+  /** A Danbooru post as an image attachment, its ID, rating and category tags bound as known metadata. */
+  function addPost(id: number) {
+    const owner = conversations.current;
+    return addInputs([async () => {
+      attachmentCapacity(owner.scope.attachments.read(owner.tray), "image");
+      const post = await services.tags.post(id);
+      return { file: await services.tags.postImage(post), params: postParams(post) };
+    }]);
+  }
   function removeAttachment(id: string) {
     if (!tray.value.includes(id)) return;
     if (attachmentPreview.value?.id === id) attachmentPreview.value = null;
@@ -1662,6 +1673,7 @@ export function createAsk(deps: {
     tray: computed(() => attachments.read(tray.value).map(attachmentView)),
     preparing,
     addFiles,
+    addPost,
     addPastedText(text: string) { return addFiles([new File([text], "粘贴的文本", { type: "text/plain" })], true); },
     removeAttachment,
     attachmentPreview,

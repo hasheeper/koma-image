@@ -1,6 +1,6 @@
 # 架构规范
 
-更新：2026-10-30。描述当前核心技术、模块结构与所有权。产品定位和功能见[产品总览](product/overview.md)，功能状态和真实待验项见[当前状态](status.md)，UI 标准见[设计语言](product/design-language.md)，行为约束见[业务契约](business-contracts.md)。
+更新：2026-11-01。描述当前核心技术、模块结构与所有权。产品定位和功能见[产品总览](product/overview.md)，功能状态和真实待验项见[当前状态](status.md)，UI 标准见[设计语言](product/design-language.md)，行为约束见[业务契约](business-contracts.md)。
 
 ## 核心技术
 
@@ -25,7 +25,7 @@
 
 - 单入口 `index.html`，轻量 hash 路由为 `#/home`、`#/image`、`#/chat`、`#/edit`、`#/tags`；HOME／IMAGE／CHAT／TAGS 以稳定 ID 使用 KeepAlive，EDIT 首次挂载后原位隐藏保活，避免移动 iframe 重载。空或未知路由进入 HOME，显式路由保留；HOME 没有车间顶栏。
 - 切换保留草稿、附件、选图、滚动和在途任务。EDIT 是独立页面，每张独立来源图拥有自己的编辑画板，设置为单例弹窗，备份为其子页；旧 backup 路由仍可访问。
-- `src/app/presentation.ts` 管页面 class、data 属性、标题、favicon 与样式开关；`src/app/theme.ts` 统一解析外观偏好、系统颜色与跨页同步，默认暗色，仅显式选择系统时跟随；IMAGE／CHAT 共用顶栏菜单，通用设置同步，入口脚本先恢复首屏主题。隐藏工作区暂停界面事件和绘制，不取消后台任务。
+- `src/app/presentation.ts` 管页面 class、data 属性、标题、favicon 与样式开关；`src/app/theme.ts` 统一管理暗／亮两档外观偏好与跨页同步，默认暗色、不跟随系统；五个工作区共用可直接单击切换的按钮，通用设置同步，入口脚本先恢复首屏主题。隐藏工作区暂停界面事件和绘制，不取消后台任务。
 - 应用级服务在 KeepAlive 外持有数据、任务与资源。ASK 由外壳持有，车间桌面使用不挤压工作区的全局浮层，860px 及以下展开为全屏；HOME 使用半屏／全屏停靠；EDIT 同样可用 ASK，Photopea 打开时收起并让出键盘。
 - 设置、任务总览与 Photopea 界面在首次使用时按需加载。设置首次挂载后保留同一 dialog，Photopea 继续原位保留 iframe；应用级服务与工作区切换仍按原所有权运行。设置加载期间切走时，以最新路由决定是否打开。
 - `chat.html`、`tags.html`、`transfer.html` 只重定向到同一应用并保留查询参数，不初始化另一套应用或访问旧数据。
@@ -65,6 +65,8 @@ Photopea 首次打开后保留单 iframe，每编辑画板拥有独立分层文�
 | ASK Anthropic Messages | `KOMA_ASK_ANTHROPIC` | 固定目录与流式推理路径 |
 
 每组 URL／Key 成对设置；可只配置 ASK。网页只获得运行模式和临时令牌，服务端地址与 Key 不注入浏览器，不进入 `VITE_*`。只读运行时连接和令牌不持久化；图像模型来源另存 `koma.local.models.v1`。原生图像三协议目前仅浏览器直连。运行与打包步骤见[发布说明](release-guide.md)。
+
+本地服务另提供独立的 Danbooru 只读转发，使用单独的 `koma-tags-runtime` 标记与帖子查询令牌，仅允许固定的列表／单帖 JSON 及 CDN 哈希图片路径，不开启模型连接只读模式。公共图片沿同源校验读取，不将令牌放入图片地址。静态版与 Vite 不含该标记，继续直连。出站网络按显式 `HTTPS_PROXY`／`NO_PROXY` 环境变量配置，不读取系统代理或浏览器 Cookie。边界见[词典](workspaces/settings-and-tags.md#danbooru-帖子链接与-ask-附件)。
 
 ## 调度与数据
 
@@ -107,6 +109,8 @@ NAI 参考资产与编码由应用级 `services/nai-references.ts` 管理，收�
 | `src/config` | 非秘密配置 schema 和运行时配置 |
 
 `src/` 自有逻辑使用严格 TS／Vue TS，类型来自实现，不增加 JS 配对声明。测试、服务器和工具保留原运行方式。
+
+共享 UI 按 `shared/ui` 基础行为、`shared/boards` 画板呈现、`shared/nai` 业务组合控件分工；各工作区通过包装组件或注入端口保留业务所有权。设置外壳、供应商表单、连接呈现与目录读取已拆分。仅开发模式的 `/__ui` 使用独立无业务服务入口，正式构建不包含预览；分工与使用见[组件维护](engineering/ui-maintenance.md#组件层级与开发预览)。
 
 字体由配置生成，公共 CSS 按 tokens／base／controls／ui 分层，组件私有样式回归对应 Vue；保留词典 image＋tags、高亮全局指标等已记录依赖。维护入口见[字体](engineering/ui-maintenance.md#字体配置与重建)、[样式归属](engineering/ui-maintenance.md)与[检查](engineering/ui-maintenance.md#样式检查)。
 

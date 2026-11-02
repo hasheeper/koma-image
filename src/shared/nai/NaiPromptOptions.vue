@@ -3,7 +3,7 @@ import { computed } from "vue";
 import { useNaiComposer } from "../../app/nai-composer";
 import { naiCapabilities, complexities } from "../../domain/nai";
 import NaiSelect from "./NaiSelect.vue";
-import AppIcon from "../../shared/AppIcon.vue";
+import AppIcon from "../AppIcon.vue";
 const props = defineProps<{ negative: boolean }>();
 const { drawing, view, id } = useNaiComposer();
 const f = computed(() => view.value.form), cap = computed(() => naiCapabilities(f.value.model));
@@ -24,8 +24,10 @@ const options = (values: readonly (keyof typeof labels)[]) => values.map(value =
   </div>
 </template>
 <style scoped>
-/* Cover scrolled text to the edge; the empty right inset still passes pointer events to the native resize handle. */
-.prompt-options { position: absolute; z-index: 2; right: 1px; bottom: 1px; left: 1px; height: 34px; display: flex; align-items: center; gap: 2px; padding: 0 17px 0 7px; background: var(--well); border-radius: 0 0 var(--r3) var(--r3); pointer-events: none; }
+/* Cover scrolled text to the prompt card's inner edge (the well inside has no border, so any inset
+   leaves a strip where text shows through); the empty right inset still passes pointer events to the
+   native resize handle. */
+.prompt-options { position: absolute; z-index: 2; right: 0; bottom: 0; left: 0; height: 34px; display: flex; align-items: center; gap: 2px; padding: 0 17px 0 8px; background: var(--well); border-radius: 0 0 calc(var(--r3) - 1px) calc(var(--r3) - 1px); pointer-events: none; }
 .prompt-options > :deep(*) { pointer-events: auto; }
 .transparent-wrap { margin-left: auto; }
 .alpha { display: inline-flex; align-items: center; gap: 5px; height: 28px; padding: 0 5px; border-radius: var(--r1); white-space: nowrap; font-size: var(--fz-xs); color: var(--fg-3); transition: background var(--t1) var(--e), color var(--t1) var(--e); }

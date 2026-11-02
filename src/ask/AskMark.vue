@@ -1,15 +1,16 @@
 <script setup lang="ts">
 defineProps<{ thinking?: boolean; interactive?: boolean }>();
-// One 20px integer grid at every entry: core 8, edges 4, corners 3.
-const square = (x: number, y: number, size: number, opacity: number, ring: number, name = "") => ({
+// One 20px integer grid at every entry: core 8, edges 4, corners 3. Edges and
+// corners take the theme's mark tones.
+const square = (x: number, y: number, size: number, opacity: number | string, ring: number, name = "") => ({
   x, y, size, name, rx: size >= 8 ? 2 : size >= 4 ? 1.2 : 1,
   style: `--o:${opacity};--r:${ring}`,
 });
 const squares = [
-  square(2, 2, 3, .24, 2, "corner c1"), square(15, 2, 3, .24, 2, "corner c2"),
-  square(15, 15, 3, .24, 2, "corner c3"), square(2, 15, 3, .24, 2, "corner c4"),
-  square(8, 1, 4, .5, 1, "edge"), square(15, 8, 4, .5, 1, "edge"),
-  square(8, 15, 4, .5, 1, "edge"), square(1, 8, 4, .5, 1, "edge"),
+  square(2, 2, 3, "var(--mark-faint)", 2, "corner c1"), square(15, 2, 3, "var(--mark-faint)", 2, "corner c2"),
+  square(15, 15, 3, "var(--mark-faint)", 2, "corner c3"), square(2, 15, 3, "var(--mark-faint)", 2, "corner c4"),
+  square(8, 1, 4, "var(--mark-mid)", 1, "edge"), square(15, 8, 4, "var(--mark-mid)", 1, "edge"),
+  square(8, 15, 4, "var(--mark-mid)", 1, "edge"), square(1, 8, 4, "var(--mark-mid)", 1, "edge"),
   square(6, 6, 8, 1, 0, "core"),
 ];
 </script>

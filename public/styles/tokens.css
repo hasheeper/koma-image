@@ -67,6 +67,7 @@
   --field-line: var(--line);
   --field-line-hover: var(--line-2);
   --field-shadow: none;
+  --focus-line: var(--a-line);
 
   --line: #1f1f25;     /* ΔL* +3.6 over chrome */
   --line-2: #25252e;   /* ΔL* +6.6 — emphasis dividers, focus wells */
@@ -171,6 +172,10 @@
   --err-hover: #f0a5a5;
   --on-err: #fff;
   --switch-thumb: #fff;
+  --switch-track: color-mix(in srgb, var(--surface-tint) 12%, transparent);
+  --switch-track-hover: color-mix(in srgb, var(--surface-tint) 18%, transparent);
+  --switch-knob: var(--fg-2);
+  --switch-knob-shadow: none;
   --shadow-rgb: 0 0 0;
   --shadow-strength: 1;
   --scrim: #08080a;
@@ -193,7 +198,9 @@
   --brand-fill: linear-gradient(112deg, #ffffff 4%, #eadcff 48%, #bd93f7 100%);
   --brand-caption: rgba(255, 255, 255, .8);
   --brand-glow: rgba(189, 147, 247, .09);
-  --brand-logo-shadow: rgba(115, 54, 135, .28);
+  /* The Koma marks' half and faint tiles (sprite mk-*, WaveMark, AskMark). */
+  --mark-mid: .5;
+  --mark-faint: .24;
   --empty-mark-back: #26262d;
   --empty-mark-front: #1a1a1f;
   --action-top: #cabdff;
@@ -220,6 +227,13 @@
     inset 0 0 0 1px var(--a-line),
     0 0 0 1px color-mix(in srgb, var(--action-outline) 0%, transparent),
     0 10px 24px -12px color-mix(in srgb, var(--a) 22%, transparent);
+  /* The price chip lifts out of the fill; the shortcut pill is pressed into it. */
+  --action-cost-bg: color-mix(in srgb, var(--specular) 30%, transparent);
+  --action-cost-line: color-mix(in srgb, var(--specular) 20%, transparent);
+  --action-cost-ink: color-mix(in srgb, var(--a-ink) 82%, transparent);
+  --action-keys-bg: color-mix(in srgb, var(--a-ink) 6%, transparent);
+  --action-keys-line: color-mix(in srgb, var(--a-ink) 10%, transparent);
+  --action-keys-ink: color-mix(in srgb, var(--a-ink) 45%, transparent);
   --a-shine: #d6cdff;
 
   --diff-del: rgba(232, 135, 135, .1);
@@ -239,6 +253,7 @@
   --weight-negative-hue: 212;
   --weight-lightness-offset: 0%;
   --weight-alpha-scale: 1;
+  --weight-mark-opacity: .85;
 
   /* Image-overlay controls keep their contrast over arbitrary image pixels.
      These are intentionally invariant across application themes. */
@@ -352,30 +367,36 @@
 
   --rail: 316px;
   --hist: 132px;
-  --cart: 300px;
+  --cart: max(300px, min(360px, 30vw));
 }
 
 /* The same semantic materials serve the light appearance. */
 :root[data-theme="light"] {
   color-scheme: light;
   /* Accent and glass reference: AgIzT/NovelAI-Tag, commit 569ed71.
-     Elevation by lightness: the stage well is the lowest and coolest grey,
-     panels one step lighter, and pure white is kept for controls and floating
-     surfaces, which lift with a hairline edge and a faint shadow. */
-  --canvas: #f4f4f8;
+     Elevation by lightness: in IMAGE/EDIT the stage well is the lowest and
+     coolest grey (one gentle step, so a near-white picture keeps its edge) and
+     panels sit above it; reading pages are the lightest base with the panels a
+     hair darker. Pure white is kept for controls and floating surfaces, which
+     lift with a hairline edge and a faint shadow. */
+  --canvas: #f7f7fa;
   --stage: var(--canvas);
-  --page-bg: #f8f8fb;
+  --page-bg: #fcfcfd;
   --stage-wash: transparent;
   --thumb-backdrop-filter: saturate(.6) opacity(.18);
-  --chrome: #f9f9fb;
-  --settings-bg: #f7f7fa;
+  --chrome: #fafafc;
+  --settings-bg: var(--page-bg);
   --sunken: #fff;
   --raised: #fff;
   --hover: #efeff4;
   --sunken-focus: #fff;
-  --field-line: var(--line);
-  --field-line-hover: var(--line-2);
+  /* Fields carry a slightly firmer edge than cards; focus softens the accent
+     instead of adding a halo. */
+  --field-line: rgb(30 32 72 / .1);
+  --field-line-hover: rgb(30 32 72 / .15);
   --field-shadow: 0 1px 3px -1px rgb(15 14 24 / .06);
+  --focus-line: color-mix(in srgb, var(--a) 42%, #fff);
+  --ring: var(--field-shadow);
   --well-focus: #fff;
   --well: #fff;
   --panel-well: #fff;
@@ -383,11 +404,11 @@
   --checker-b: #e8e8e8;
   /* Translucent and faintly cool, so one edge reads the same on the grey
      panels and on white without turning into a grey outline. */
-  --line: rgb(30 32 72 / .05);
-  --line-2: rgb(30 32 72 / .07);
+  --line: rgb(30 32 72 / .06);
+  --line-2: rgb(30 32 72 / .09);
   --fg: #232a3c;
-  --fg-2: var(--fg);
-  --fg-3: var(--fg);
+  --fg-2: #343b4e;
+  --fg-3: #5c6377;
   --fg-4: #878da3;
   --a: #6f5cf2;
   --a-ink: #fff;
@@ -412,14 +433,14 @@
   --seg-active-bg: #fff;
   --seg-active-ink: var(--fg);
   --seg-active-weight: var(--fw-medium);
-  --appearance-bg: #f2f2f4;
+  --appearance-bg: #efeff4;
   --appearance-selected-bg: var(--raised);
   --appearance-selected-shadow: 0 1px 2px rgb(var(--shadow-rgb) / .06), inset 0 0 0 1px var(--line);
   --result-bg: var(--chrome);
   --result-shadow: none;
   --result-file-ink: var(--seg-ink);
   --result-label-ink: var(--seg-ink);
-  --result-param-bg: #f5f6f9;
+  --result-param-bg: #f4f4f8;
   --result-value-weight: var(--fw-medium);
   --result-id-bg: var(--a-dim);
   --result-copy-bg: var(--raised);
@@ -437,7 +458,7 @@
   --seg-active-shadow: 0 1px 3px rgb(15 14 24 / .1), 0 1px 1px rgb(15 14 24 / .04);
   --seg-quiet-shadow: var(--seg-active-shadow);
   --group-bg: var(--raised);
-  --group-line: var(--line);
+  --group-line: var(--field-line);
   --card-bg: var(--raised);
   --card-shadow: 0 1px 3px -1px rgb(15 14 24 / .06);
   /* Chosen cards and presets: a tint and a 1.5px accent edge (1px border + .5px inset). */
@@ -469,6 +490,11 @@
   --well-raised-focus: #fff;
   --scroll-hover: var(--fg-4);
   --err-hover: #962323;
+  /* Off switches: a soft cool track with a raised white knob. */
+  --switch-track: rgb(30 32 72 / .13);
+  --switch-track-hover: rgb(30 32 72 / .19);
+  --switch-knob: #fff;
+  --switch-knob-shadow: 0 1px 2px rgb(15 14 24 / .2), 0 0 0 .5px rgb(15 14 24 / .08);
   --shadow-rgb: 24 24 27;
   --shadow-strength: .18;
   --scrim: #555;
@@ -483,23 +509,50 @@
   --glass-edge: transparent;
   --glass-edge-hover: transparent;
 
-  --brand-plate: transparent;
-  --brand-plate-shadow: none;
+  --brand-plate: #fff;
+  --brand-plate-shadow: inset 0 0 0 1px rgb(30 32 72 / .08), 0 1px 3px -1px rgb(15 14 24 / .1);
   --brand-ink: var(--fg);
   --brand-fill: var(--brand-ink);
   --brand-caption: var(--fg-4);
   --brand-glow: transparent;
-  --brand-logo-shadow: transparent;
+  /* Light shapes on light ground read smaller; firmer tiles keep the outline. */
+  --mark-mid: .62;
+  --mark-faint: .3;
   --empty-mark-back: var(--a-dim);
   --empty-mark-front: var(--raised);
-  --action-top: var(--a);
-  --action-bottom: var(--a);
-  --action-outline: var(--a);
-  --action-hover-filter: none;
-  --action-shadow: 0 8px 22px var(--a-glow);
-  --action-shadow-hover: 0 10px 26px color-mix(in srgb, var(--a) 32%, transparent);
-  --action-shadow-active: var(--action-shadow);
-  --action-shadow-busy: inset 0 0 0 1px var(--a-line);
+  /* The generate button keeps the solid purple but is lit like dark's: a short
+     top-to-bottom ramp, a white lip, a darker hairline edge and a tight drop
+     rather than a wide halo. The shadows keep dark's slots (lip, ring,
+     hairline, glow) with a contact shadow added, so states still blend. */
+  --action-top: #7c6af5;
+  --action-bottom: #6551e9;
+  --action-outline: #5b47de;
+  --action-hover-filter: brightness(1.05);
+  --action-shadow:
+    inset 0 1px 0 rgb(255 255 255 / .2),
+    inset 0 0 0 1px transparent,
+    0 0 0 1px var(--action-outline),
+    0 1px 2px rgb(52 36 160 / .22),
+    0 6px 14px -6px rgb(111 92 242 / .55);
+  --action-shadow-hover:
+    inset 0 1px 0 rgb(255 255 255 / .24),
+    inset 0 0 0 1px transparent,
+    0 0 0 1px var(--action-outline),
+    0 2px 4px rgb(52 36 160 / .2),
+    0 10px 20px -8px rgb(111 92 242 / .6);
+  --action-shadow-active:
+    inset 0 1px 0 rgb(255 255 255 / .1),
+    inset 0 0 0 1px transparent,
+    0 0 0 1px var(--action-outline),
+    0 1px 1px rgb(52 36 160 / .2),
+    0 3px 8px -4px rgb(111 92 242 / .4);
+  --action-shadow-busy: inset 0 1px 0 transparent, inset 0 0 0 1px var(--a-line);
+  --action-cost-bg: rgb(255 255 255 / .16);
+  --action-cost-line: rgb(255 255 255 / .16);
+  --action-cost-ink: #fff;
+  --action-keys-bg: rgb(30 16 120 / .18);
+  --action-keys-line: rgb(30 16 120 / .06);
+  --action-keys-ink: rgb(255 255 255 / .78);
   --a-shine: var(--a-dim);
   --diff-del: rgba(180, 44, 44, .08);
   --diff-ins: rgba(26, 110, 62, .07);
@@ -510,6 +563,7 @@
   --weight-neutral: rgba(0, 0, 0, .05);
   --weight-lightness-offset: 12%;
   --weight-alpha-scale: .65;
+  --weight-mark-opacity: 1;
   --sh-1: 0 1px 3px rgb(var(--shadow-rgb) / .04), 0 4px 12px rgb(var(--shadow-rgb) / .025);
   --sh-2: 0 2px 6px rgb(var(--shadow-rgb) / .05), 0 8px 20px rgb(var(--shadow-rgb) / .04);
   --sh-3: 0 12px 32px rgb(var(--shadow-rgb) / .08), 0 3px 10px rgb(var(--shadow-rgb) / .04);

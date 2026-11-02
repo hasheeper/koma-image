@@ -6,7 +6,7 @@ import { useBridge } from "../app/bridge.ts";
 import { useDrawing } from "../app/drawing.ts";
 import { message } from "../app/ui.ts";
 import AppIcon from "../shared/AppIcon.vue";
-import AskMenu from "../ask/AskMenu.vue";
+import PopoverMenu from "../shared/ui/PopoverMenu.vue";
 import { parseSlateEdit } from "./edit.ts";
 const slates = useSlates(), ask = useAsk(), bridge = useBridge(), { drawing } = useDrawing();
 const dialog = shallowRef<HTMLDialogElement | null>(null), importer = shallowRef<HTMLInputElement | null>(null);
@@ -31,7 +31,7 @@ onBeforeUnmount(() => { dialog.value?.close(); if (originalFocus instanceof HTML
     <header>
       <h2 class="overview-title" tabindex="-1" autofocus>任务总览</h2>
       <div class="overview-actions">
-        <AskMenu id="slateOverviewMore" label="任务总览选项" side="right">
+        <PopoverMenu compact id="slateOverviewMore" label="任务总览选项" side="right">
           <template #trigger="{ open: shown, toggle }"><button class="ibtn" type="button" aria-label="任务总览选项" aria-haspopup="menu" :aria-expanded="shown" @click="toggle"><AppIcon name="i-more" /></button></template>
           <template #default="{ close: dismiss }">
             <button class="menu-item" role="menuitem" type="button" :disabled="!ask.canManage.value" @click="dismiss(); creating = !creating"><AppIcon name="i-plus" /><span class="menu-label">新建清单</span></button>
@@ -40,17 +40,17 @@ onBeforeUnmount(() => { dialog.value?.close(); if (originalFocus instanceof HTML
             <button v-if="activeIssue && slates.get(activeIssue.id)" class="menu-item" role="menuitem" type="button" title="用当前本机清单替换目录中的任务文件" :disabled="bridge.busy.value" @click="dismiss(); bridge.resolveSlate(activeIssue!.id, 'local')"><AppIcon name="i-check" /><span class="menu-label">保留本机版本</span></button>
             <button class="menu-item" role="menuitem" type="button" :disabled="bridge.busy.value" @click="dismiss(); importer?.click()"><AppIcon name="i-upload" /><span class="menu-label">导入清单 JSON</span></button>
           </template>
-        </AskMenu>
+        </PopoverMenu>
         <button class="ibtn" type="button" aria-label="关闭任务总览" @click="close"><AppIcon name="i-close" /></button>
       </div>
     </header>
     <div class="overview-body">
       <div v-for="s in slates.list.value" :key="s.id" class="overview-row">
         <button class="overview-item" type="button" :disabled="!ask.canManage.value || slates.busy.value" @click="open(s.id)"><AppIcon name="i-tasks" :class="{ current: ask.activeSlate.value?.id === s.id }" /><span :title="s.title">{{ s.title }}</span><small>{{ s.todos.filter(t => t.status === 'done').length }}/{{ s.todos.length }}</small><AppIcon name="i-chevron" /></button>
-        <AskMenu :id="`slate-${s.id}-options`" :label="`${s.title} · 清单选项`" side="right">
+        <PopoverMenu compact :id="`slate-${s.id}-options`" :label="`${s.title} · 清单选项`" side="right">
           <template #trigger="{ open: shown, toggle }"><button class="ibtn" type="button" :aria-label="`${s.title} · 清单选项`" aria-haspopup="menu" :aria-expanded="shown" @click="toggle"><AppIcon name="i-more" /></button></template>
           <template #default="{ close: dismiss }"><button class="menu-item danger" role="menuitem" type="button" :disabled="!ask.canManageTasks.value" @click="dismiss(); remove(s.id)"><AppIcon name="i-trash" /><span class="menu-label">删除清单</span></button></template>
-        </AskMenu>
+        </PopoverMenu>
       </div>
       <p v-if="!slates.list.value.length" class="overview-empty">暂无待办清单</p>
     </div>

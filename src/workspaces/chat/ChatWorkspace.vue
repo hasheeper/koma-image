@@ -13,7 +13,7 @@ import { names } from "../../storage/names";
 import { quoteLabel } from "../../domain/quote";
 import WorkspaceSwitch from "../../shared/WorkspaceSwitch.vue";
 import WalletDisplay from "../../shared/WalletDisplay.vue";
-import ThemeMenu from "../../shared/ThemeMenu.vue";
+import ThemeToggle from "../../shared/ThemeToggle.vue";
 import AppIcon from "../../shared/AppIcon.vue";
 import ModelIcon from "../../shared/ModelIcon.vue";
 import WaveMark from "../../shared/WaveMark.vue";
@@ -404,7 +404,7 @@ onDeactivated(() => {
         </button>
       </div>
       <div class="topbar-account">
-        <WalletDisplay :quota="view.quota" :model="view.model" /><ThemeMenu v-if="!narrow" />
+        <WalletDisplay :quota="view.quota" :model="view.model" /><ThemeToggle />
       </div>
     </header>
     <div class="chat-layout">
@@ -453,9 +453,6 @@ onDeactivated(() => {
           </button>
         </div>
         <ConversationList :query="query" />
-        <div v-if="narrow" class="sidebar-foot">
-          <ThemeMenu sidebar />
-        </div>
       </aside>
       <main
         class="chat-workspace"

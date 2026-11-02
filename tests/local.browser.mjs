@@ -196,6 +196,46 @@ async function assertPrivate(t) {
   assert.equal(await t.page.locator("dialog[open] #connectionKey").count(), 0);
 }
 
+test('Danbooru production local: posts and samples use same-origin routes while supplier settings remain editable', async () => {
+  const calls = [], errors = [], external = [],
+    post = {
+      id: 123456, rating: 'g', tag_string_artist: 'sample_artist', tag_string_general: 'blue_hair',
+      media_asset: { variants: ['360x360', 'sample', 'original'].map(type => ({ type, url: `https://cdn.donmai.us/${type}/ab/cd/abcd0123456789abcdef0123456789ab.png`, width: 512, height: 512 })) },
+    };
+  const local = createLocalServer({ env: { KOMA_BASE_PATH: '/app/' }, fetcher: async (url, init) => {
+    calls.push({ url: String(url), headers: init.headers });
+    if (url.origin === 'https://cdn.donmai.us') return new Response(png, { headers: { 'content-type': 'image/png' } });
+    return Response.json(url.pathname === '/posts.json' ? [post] : post);
+  } });
+  const origin = await listen(local), context = await browser.newContext(), page = await context.newPage();
+  page.setDefaultTimeout(12000);
+  page.on('pageerror', error => errors.push(error.message));
+  await context.route('https://danbooru.donmai.us/**', route => { external.push(route.request().url()); return route.abort(); });
+  await context.route('https://tagsuggest.zeabur.app/**', route => route.fulfill({ json: { results: [] } }));
+  await context.route('https://cdn.donmai.us/**', route => { external.push(route.request().url()); return route.abort(); });
+  try {
+    await page.goto(origin + '/app/#/tags');
+    await page.locator('#tagSearch').fill('https://danbooru.donmai.us/posts/123456?q=sample_artist');
+    await page.getByRole('heading', { name: 'Danbooru #123456', exact: true }).waitFor();
+    assert.equal(await page.locator('.tag-card').count(), 2);
+    await page.waitForFunction(() => document.querySelector('.tag-post-thumb img')?.naturalWidth === 512);
+    await page.getByRole('button', { name: 'sample artist 的更多操作', exact: true }).click();
+    await page.getByRole('menuitem', { name: '查看 sample artist 的示例图', exact: true }).click();
+    await page.getByRole('button', { name: '把 #123456 发给 ASK', exact: true }).waitFor();
+    await page.waitForFunction(() => document.querySelector('.tag-samples-tile img')?.naturalWidth === 512);
+    await page.getByRole('button', { name: '把 #123456 发给 ASK', exact: true }).click();
+    await page.locator('.ask-tray .ask-att-img').waitFor();
+    assert.equal(calls.filter(call => call.url.startsWith('https://danbooru.donmai.us/')).length, 2);
+    assert.ok(calls.some(call => call.url.includes('/sample/')));
+    assert.deepEqual(external, [], 'no direct cross-site post or image request in local mode');
+    await route(page, '#/image/settings/connections');
+    await page.getByRole('button', { name: '配置供应商', exact: true }).click();
+    await page.getByRole('dialog', { name: '供应商设置', exact: true }).waitFor();
+    assert.equal(await page.locator('#connectionKey').isEditable(), true);
+    assert.deepEqual(errors, []);
+  } finally { await context.close(); await close(local); }
+});
+
 test("M7 production local settings: readonly credentials, isolated model preferences, backup roundtrip", async () => {
   const t = await open("#/image/settings/connections", true),
     p = t.page;

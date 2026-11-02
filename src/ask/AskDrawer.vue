@@ -17,6 +17,7 @@ import DraftCard from "./DraftCard.vue";
 import { useAskPresentation } from "./presentation.ts";
 import AskActivity from "./AskActivity.vue";
 import { ATTACHMENT_LIMITS } from "./attachments.ts";
+import { droppedLink, postId } from "../domain/danbooru-post.ts";
 import { useDrawing } from "../app/drawing.ts";
 import { useChat } from "../app/chat.ts";
 import { homePictureType, homePictureFile } from "../home/transfer.ts";
@@ -30,7 +31,9 @@ const presentation = useAskPresentation();
 const { shown, mode, home, mobile, fullscreen, dock, canDock, latest, tools, compactDraft, completed, summary, outcome, dismiss } = presentation;
 const joinedDraft = computed(() => !!ask.draftPlan.value && (home.value || mode.value !== 'ready'));
 const inlineWindow = computed(() => !home.value && !mobile.value && !!ask.inline.value);
-const movable = computed(() => !home.value && !mobile.value && !ask.inline.value);
+// TAGS keeps an expanded ASK in the right-hand slot it shares with the Prompt cart.
+const pinned = computed(() => router.route.value.workspace === 'tags' && !mobile.value);
+const movable = computed(() => !home.value && !mobile.value && !ask.inline.value && !pinned.value);
 const behindImageMenu = computed(() => mobile.value && router.route.value.workspace === 'image' && image.menuOpen && !shown.value);
 const root = shallowRef<HTMLElement | null>(null),
   expanded = shallowRef(false),
@@ -47,13 +50,19 @@ function paste(event: ClipboardEvent) {
   event.stopPropagation();
   const data = event.clipboardData;
   if (!data) return;
-  const files = [...data.files], text = data.getData("text/plain");
+  const files = [...data.files], text = data.getData("text/plain"), post = postId(text);
   if (files.length) { event.preventDefault(); void ask.addFiles(files); }
+  else if (post !== null) { event.preventDefault(); void ask.addPost(post); }
   else if (text.length > ATTACHMENT_LIMITS.paste) { event.preventDefault(); void ask.addPastedText(text); }
 }
 function drag(event: DragEvent) {
   const data = event.dataTransfer;
-  if (!acceptsInput() || !data || !["Files", names.historyDragType, homePictureType].some(type => data.types.includes(type))) return;
+  if (!acceptsInput() || !data || !["Files", names.historyDragType, homePictureType, "text/uri-list", "text/plain"].some(type => data.types.includes(type))) return;
+  const post = postId(droppedLink(data.getData("text/uri-list")) || data.getData("text/plain"));
+  // Ordinary text keeps native insertion without bubbling into IMAGE's import.
+  if (event.type === "drop" && post === null && !["Files", names.historyDragType, homePictureType].some(type => data.types.includes(type))) {
+    event.stopPropagation(); clearDrop(); return;
+  }
   event.stopPropagation();
   if (event.type === "dragleave") {
     dragDepth = Math.max(0, dragDepth - 1); dropping.value = dragDepth > 0;
@@ -66,6 +75,7 @@ function drag(event: DragEvent) {
     const file = homePictureFile(data, drawingService, chatService, homeService);
     if (file) void ask.addFiles([file]);
     else if (id) ask.referenceHistory(id);
+    else if (post !== null) void ask.addPost(post);
     else void ask.addFiles([...data.files]);
     void composer.value?.focus(true);
   } else {
@@ -86,7 +96,7 @@ onMounted(() => {
     place = installAskWindow(root.value, controller.signal);
   }
 });
-watch([mode, dock, fullscreen, ask.inline, expanded, behindImageMenu, () => router.route.value.workspace, () => image.historyOpen, () => chat.contextOpen], () => void nextTick(place), { flush: "post" });
+watch([mode, dock, fullscreen, ask.inline, expanded, pinned, behindImageMenu, () => router.route.value.workspace, () => image.historyOpen, () => chat.contextOpen], () => void nextTick(place), { flush: "post" });
 watch(ask.conversationId, clearDrop);
 watch(() => router.route.value.overlay, clearDrop);
 watch(ask.visible, visible => { if (!visible) { clearDrop(); ask.closeAttachment(); } });
@@ -126,8 +136,8 @@ watch(mode, async () => {
 onBeforeUnmount(() => { controller.abort(); ask.attach(null); });
 </script>
 <template>
-  <aside v-show="(!home || shown) && !behindImageMenu" id="askIsland" ref="root" class="ask-island" :class="{ 'ask-inline': inlineWindow && shown }" :data-mode="mode" :data-home="home && shown ? dock : undefined" :data-fullscreen="fullscreen || undefined" :data-workspace="router.route.value.workspace" :data-context-open="chat.contextOpen || undefined" :data-quiet="router.route.value.workspace === 'image' && image.state === 'busy' || undefined" :style="{ ...dimensions, '--ask-dock-w': `${presentation.dockWidth.value}px` }" aria-label="Koma ASK" :aria-describedby="home || mobile ? undefined : 'askMoveHint'">
-    <button v-show="mode === 'idle'" id="askLauncher" class="ask-layer ask-launcher ask-open" :inert="mode !== 'idle'" data-ask-grip type="button" aria-label="打开 Koma ASK" aria-controls="askDrawer" aria-expanded="false" title="Koma ASK · 可拖动 · ⌘J / Ctrl+J" @click="ask.show()"><AskMark interactive /></button>
+  <aside v-show="(!home || shown) && !behindImageMenu" id="askIsland" ref="root" class="ask-island" :class="{ 'ask-inline': inlineWindow && shown }" :data-mode="mode" :data-home="home && shown ? dock : undefined" :data-fullscreen="fullscreen || undefined" :data-pinned="pinned || undefined" :data-workspace="router.route.value.workspace" :data-context-open="chat.contextOpen || undefined" :data-quiet="router.route.value.workspace === 'image' && image.state === 'busy' || undefined" :style="{ ...dimensions, '--ask-dock-w': `${presentation.dockWidth.value}px` }" aria-label="Koma ASK" :aria-describedby="home || mobile || pinned ? undefined : 'askMoveHint'">
+    <button v-show="mode === 'idle'" id="askLauncher" class="ask-layer ask-launcher ask-open" :inert="mode !== 'idle'" data-ask-grip type="button" aria-label="打开 Koma ASK" aria-controls="askDrawer" aria-expanded="false" :title="pinned ? 'Koma ASK · ⌘J / Ctrl+J' : 'Koma ASK · 可拖动 · ⌘J / Ctrl+J'" @click="ask.show()"><AskMark interactive /></button>
     <div v-show="mode === 'run'" class="ask-layer ask-run" :inert="mode !== 'run'">
       <button class="ask-open ask-run-grip" data-ask-grip type="button" aria-label="展开 ASK 对话" @click="ask.show()"><AskMark thinking /><AskActivity /></button>
       <AskActivity progress />
@@ -152,7 +162,7 @@ onBeforeUnmount(() => { controller.abort(); ask.attach(null); });
         <AskConversations @chosen="composer?.focus(true)" />
         <div class="ask-fill" :data-ask-grip="movable ? '' : undefined" aria-hidden="true" @dblclick="resize"></div>
         <button v-if="inlineWindow" class="btn btn-quiet btn-xs" type="button" @click="ask.expand()">展开</button>
-        <button v-else-if="!mobile && (!home || canDock)" class="ibtn" type="button" :aria-label="(home ? dock === 'full' : expanded) ? '还原 ASK 窗口' : '放大 ASK 窗口'" :title="(home ? dock === 'full' : expanded) ? '还原' : '放大'" @click="resize"><AppIcon :name="(home ? dock === 'full' : expanded) ? 'i-shrink' : 'i-expand'" /></button>
+        <button v-else-if="!mobile && !pinned && (!home || canDock)" class="ibtn" type="button" :aria-label="(home ? dock === 'full' : expanded) ? '还原 ASK 窗口' : '放大 ASK 窗口'" :title="(home ? dock === 'full' : expanded) ? '还原' : '放大'" @click="resize"><AppIcon :name="(home ? dock === 'full' : expanded) ? 'i-shrink' : 'i-expand'" /></button>
         <AskMore @debug="inspect()" />
         <button class="ibtn" type="button" aria-label="收起 ASK" title="收起" @click="ask.hide()"><svg class="ico" viewBox="0 0 24 24" aria-hidden="true"><path d="M5 12h14" /></svg></button>
       </header>
@@ -170,7 +180,7 @@ onBeforeUnmount(() => { controller.abort(); ask.attach(null); });
     </div>
     <Teleport :to="!home && mode === 'ready' && compactDraft ? '#askCompactDraft' : '#askFullDraft'" defer><DraftCard :compact="!home && mode === 'ready'" :joined="joinedDraft" @review="ask.show()" /></Teleport>
     <div class="sr-only" role="status" aria-live="polite"><span :key="ask.announce.value.id">{{ ask.announce.value.text }}</span></div>
-    <span v-if="!home && !mobile" id="askMoveHint" class="sr-only">拖动图标或标题栏移动；Alt 加方向键移动，Alt 加 Home 归位。⌘J 或 Ctrl+J 展开或收起。</span>
+    <span v-if="!home && !mobile && !pinned" id="askMoveHint" class="sr-only">拖动图标或标题栏移动；Alt 加方向键移动，Alt 加 Home 归位。⌘J 或 Ctrl+J 展开或收起。</span>
   </aside>
   <AskDebug v-if="debugOpen" :turn="debugTurn" @close="debugOpen = false" />
 </template>
@@ -296,5 +306,14 @@ html[data-home-vt] .ask-island[data-home]::before { opacity: 0; }
 .ask-island[data-fullscreen] .ask-bottom { padding-bottom: calc(14px + env(safe-area-inset-bottom)); }
 .ask-island:is([data-home], [data-fullscreen]) :is(.ask-handle, .ask-fill) { cursor: default; touch-action: auto; }
 :global(body:has(.ask-island[data-fullscreen])) { overflow: hidden; }
+/* TAGS: expanded, ASK fills the shared slot on HOME's solid surface; compact, it
+   keeps the corner, which is the slot's head while the cart holds it. */
+.ask-island[data-pinned][data-mode="exp"] {
+  --ask-glass: var(--chrome);
+  top: calc(var(--bar-h) + 12px); right: 12px; bottom: 12px; left: auto; width: var(--cart); height: auto;
+  background: var(--chrome); backdrop-filter: none; border-radius: 18px; box-shadow: 0 0 0 1px var(--line-2);
+}
+body[data-tag-cart="open"] .ask-island[data-pinned]:not([data-mode="exp"]) { top: calc(var(--bar-h) + 18px); right: 18px; }
+.ask-island[data-pinned] :is(.ask-handle, .ask-fill) { cursor: default; }
 @media (prefers-reduced-motion: reduce) { .ask-island:is([data-home], [data-fullscreen]), .ask-island:is([data-home], [data-fullscreen])::before { transition: none; } }
 </style>

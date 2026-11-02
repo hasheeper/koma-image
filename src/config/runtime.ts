@@ -7,6 +7,20 @@ export interface LocalGateway {
   readonly image?: boolean;
   readonly reasoning?: readonly string[];
 }
+export type LocalTagProxy = Pick<LocalGateway, "baseUrl" | "token">;
+
+/** Public tag transport is independent of readonly model connections. */
+export function readTagRuntime(document: Document): LocalTagProxy | undefined {
+  const marker = document.getElementById("koma-tags-runtime");
+  if (!marker) return;
+  const value = object(JSON.parse(marker.textContent || "null"));
+  if (value.version !== 1 || typeof value.token !== "string" || !/^[a-f0-9]{64}$/.test(value.token))
+    throw new Error("本地词典服务配置无效，请重新启动服务");
+  return Object.freeze({
+    baseUrl: new URL("danbooru/", apiBase(document.baseURI)).href,
+    token: value.token,
+  });
+}
 /** Only the local server supplies this marker. Static builds do not probe a server. */
 export function readRuntime(document: Document): LocalGateway | undefined {
   const marker = document.getElementById("koma-runtime");

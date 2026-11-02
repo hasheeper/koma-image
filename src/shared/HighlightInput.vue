@@ -410,9 +410,9 @@ defineExpose({
 }
 .hl-wrap:hover { border-color: var(--field-line-hover); }
 .hl-wrap:focus-within {
-  border-color: var(--a-line);
+  border-color: var(--focus-line);
   background: var(--well-focus);
-  box-shadow: 0 0 0 3px var(--a-dim);
+  box-shadow: var(--ring);
 }
 
 /* Every property here affects text layout and MUST be identical on both.
@@ -473,8 +473,9 @@ defineExpose({
 }
 
 :where(.hl-mirror) .w { border-radius: 2px; }
-/* Weight punctuation stays readable but recedes. */
-:where(.hl-mirror) .w-mark { opacity: 0.85; }
+/* Weight punctuation recedes by theme. Mirror text is transparent, so this only
+   fades the block; light keeps it opaque to avoid seams beside the word. */
+:where(.hl-mirror) .w-mark { opacity: var(--weight-mark-opacity); }
 
 </style>
 

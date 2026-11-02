@@ -1,6 +1,11 @@
 import { CATEGORIES, hasHan, rankTags } from "../domain/tags.ts";
 import type { TagItem } from "../domain/tags.ts";
+import { SAMPLE_TIERS, readSamples, samplesQuery } from "../domain/tag-samples.ts";
+import type { SampleTier, TagSample } from "../domain/tag-samples.ts";
+import { postName, readPost } from "../domain/danbooru-post.ts";
+import type { DanbooruPost } from "../domain/danbooru-post.ts";
 import { object } from "../domain/value.ts";
+import type { LocalTagProxy } from "../config/runtime.ts";
 interface Options {
   signal?: AbortSignal;
   categories?: number[];
@@ -14,10 +19,15 @@ interface SuggestionOptions extends Options { dataset?: "anime" | "furry" }
 export function createTagSearch(
   categories: () => number[],
   fetcher: typeof fetch = fetch,
+  local?: LocalTagProxy,
 ) {
   const cache = new Map<string, TagItem[]>(),
     pageCache = new Map<string, { items: TagItem[]; hasNext: boolean }>(),
-    translatedCache = new Map<string, TagItem[]>();
+    translatedCache = new Map<string, TagItem[]>(),
+    sampleCache = new Map<string, TagSample[]>(),
+    postCache = new Map<string, DanbooruPost>();
+  const imageUrl = (src: string) => local
+    ? new URL(`media${new URL(src).pathname}`, local.baseUrl).href : src;
   const remember = <T>(map: Map<string, T>, key: string, value: T) => {
     map.delete(key);
     map.set(key, value);
@@ -137,6 +147,52 @@ export function createTagSearch(
       return [{ name: row.tag, cnName: "", category: 0, count: Number(row.count) || 0, source: "nai-furry" }];
     });
   }
+  // Samples and post links share one wording; failures are not kept and never retried.
+  async function danbooru(url: URL, signal?: AbortSignal, missing = "") {
+    signal?.throwIfAborted();
+    const timeout = AbortSignal.timeout(8_000),
+      requestSignal = signal ? AbortSignal.any([signal, timeout]) : timeout;
+    let response: Response;
+    const networkFailure = (error: unknown) => new Error(
+      requestSignal.aborted || (error instanceof DOMException && error.name === "TimeoutError")
+        ? "Danbooru 请求超时，请稍后重试"
+        : local ? "本地词典服务连接失败，请检查服务并刷新页面"
+          : "无法读取 Danbooru，请检查网络或站点验证",
+      { cause: error },
+    );
+    const target = local ? new URL(url.pathname.slice(1) + url.search, local.baseUrl) : url;
+    try {
+      response = await fetcher(target, {
+        signal: requestSignal,
+        headers: { Accept: "application/json", ...(local ? { "X-Koma-Local-Token": local.token } : {}) },
+        credentials: "omit", referrerPolicy: "no-referrer",
+      });
+    } catch (error) {
+      if (signal?.aborted) throw error;
+      throw networkFailure(error);
+    }
+    signal?.throwIfAborted();
+    if (local && !response.ok) {
+      const detail = object(await response.json().catch(() => null)).error;
+      signal?.throwIfAborted();
+      if (typeof detail === "string" && detail) throw new Error(detail.slice(0, 300));
+    }
+    if (response.status === 404 && missing) throw new Error(missing);
+    if (response.status === 429) throw new Error("Danbooru 请求过于频繁，请稍后再试");
+    if (!response.ok) throw new Error(`Danbooru 暂不可用 (${response.status})`);
+    if (response.headers.get("content-type")?.includes("text/html")) {
+      await response.body?.cancel();
+      throw new Error("Danbooru 返回了网页，可能需要站点验证");
+    }
+    let data: unknown;
+    try { data = await response.json(); }
+    catch (error) {
+      if (signal?.aborted) throw error;
+      throw error instanceof SyntaxError && !requestSignal.aborted ? new Error("Danbooru 返回格式异常", { cause: error }) : networkFailure(error);
+    }
+    signal?.throwIfAborted();
+    return data;
+  }
   const friendly = (error: unknown) =>
     error instanceof TypeError
       ? new Error("Tag 服务暂时不可用，请稍后再试")
@@ -156,6 +212,7 @@ export function createTagSearch(
     ).filter((id) => Object.hasOwn(CATEGORIES, id));
   }
   return {
+    imageUrl,
     async suggest(query: string, options: SuggestionOptions = {}) {
       options.signal?.throwIfAborted();
       query = query.trim();
@@ -208,6 +265,68 @@ export function createTagSearch(
         if (options.signal?.aborted) throw error;
         throw fallbackFailure(primary, error);
       }
+    },
+    /** Danbooru posts for one artist/character, opened on demand; failures are not kept and never retried. */
+    async samples(name: string, tier: SampleTier, signal?: AbortSignal) {
+      signal?.throwIfAborted();
+      const key = `${tier}:${name}`;
+      if (sampleCache.has(key)) return structuredClone(sampleCache.get(key)!);
+      const url = new URL("https://danbooru.donmai.us/posts.json");
+      url.searchParams.set("tags", samplesQuery(name, tier));
+      url.searchParams.set("limit", String(SAMPLE_TIERS[tier].limit));
+      return remember(sampleCache, key, readSamples(await danbooru(url, signal), tier));
+    },
+    /** One pasted post link; kept for the page like samples, never retried. */
+    async post(id: number, signal?: AbortSignal) {
+      signal?.throwIfAborted();
+      if (!Number.isSafeInteger(id) || id <= 0) throw new Error("Danbooru 帖子 ID 无效");
+      const key = String(id);
+      if (postCache.has(key)) return structuredClone(postCache.get(key)!);
+      const post = readPost(await danbooru(new URL(`https://danbooru.donmai.us/posts/${id}.json`), signal, "Danbooru 上没有这条帖子"));
+      if (post.id !== id) throw new Error("Danbooru 返回的帖子 ID 不一致");
+      return remember(postCache, key, post);
+    },
+    /** ASK uses sample/720px; IMAGE explicitly asks for the original. */
+    async postImage(post: DanbooruPost, signal?: AbortSignal, original = false) {
+      signal?.throwIfAborted();
+      const image = original ? post.original : post.image;
+      if (!image) throw new Error(original ? "该帖没有可用的原图" : "该帖没有可用的图片");
+      const timeout = AbortSignal.timeout(20_000),
+        requestSignal = signal ? AbortSignal.any([signal, timeout]) : timeout;
+      let blob: Blob;
+      try {
+        const response = await fetcher(imageUrl(image.src), { signal: requestSignal, credentials: "omit", referrerPolicy: "no-referrer" });
+        if (!response.ok) {
+          const detail = local ? object(await response.json().catch(() => null)).error : undefined;
+          throw new Error(typeof detail === "string" && detail ? detail.slice(0, 300) : `Danbooru 图片暂不可用 (${response.status})`);
+        }
+        blob = await response.blob();
+      } catch (error) {
+        if (signal?.aborted) throw error;
+        throw error instanceof Error && /^(?:Danbooru|本地服务)/.test(error.message) ? error
+          : new Error(requestSignal.aborted ? "Danbooru 图片读取超时，请稍后重试" : "无法读取 Danbooru 图片，请检查网络或站点验证", { cause: error });
+      }
+      signal?.throwIfAborted();
+      if (!blob.type.startsWith("image/")) throw new Error("Danbooru 返回的不是图片");
+      return new File([blob], postName(post, image), { type: blob.type });
+    },
+    /** Exact Chinese names from the bilingual dictionary, four at a time; misses stay blank and the first failure ends the rest. */
+    async translate(names: readonly string[], signal?: AbortSignal) {
+      const found = new Map<string, TagItem>(), queue = [...new Set(names)];
+      let failed = false;
+      const worker = async () => {
+        for (let name = queue.shift(); name !== undefined && !failed; name = queue.shift()) {
+          try {
+            const hit = (await search(name, 30, 0, false, signal)).find((item) => item.name === name);
+            if (hit) found.set(name, hit);
+          } catch (error) {
+            if (signal?.aborted) throw error;
+            failed = true;
+          }
+        }
+      };
+      await Promise.all(Array.from({ length: Math.min(4, queue.length) }, worker));
+      return found;
     },
     async page(query: string, options: Options = {}) {
       query = query.trim();

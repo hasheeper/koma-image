@@ -16,6 +16,8 @@ export function createPreferences(
     names.tagHandoff,
     names.ask,
     names.askAdult,
+    names.askNsfw,
+    names.askR18,
   ]);
   const listeners = new Set<(key?: string) => void>();
   const changed = (key?: string) => {

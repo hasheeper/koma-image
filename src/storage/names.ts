@@ -23,6 +23,8 @@ export const names = Object.freeze({
   tagHandoff: "koma.tag.handoff.v1",
   ask: "koma.ask.v1",
   askAdult: "koma.ask.adult.v1",
+  askNsfw: "koma.ask.nsfw.v1",
+  askR18: "koma.ask.r18.v1",
   credentials: "koma.credentials.v1",
   credentialsLock: "koma-credentials-v1",
   sessionKeys: "koma.session.keys",

@@ -4,6 +4,7 @@ import { useBridge } from "../app/bridge.ts";
 import { useAsk } from "../app/ask.ts";
 import AppIcon from "../shared/AppIcon.vue";
 import AskMenu from "../ask/AskMenu.vue";
+import PopoverMenu from "../shared/ui/PopoverMenu.vue";
 const props = defineProps<{ home?: boolean }>();
 const menuId = useId();
 const bridge = useBridge(), ask = useAsk();
@@ -15,7 +16,7 @@ function activate(toggle: () => void) {
 }
 </script>
 <template>
-  <AskMenu :id="menuId" label="协同目录" :side="home ? 'right' : 'up'">
+  <component :is="home ? PopoverMenu : AskMenu" compact :id="menuId" label="协同目录" :side="home ? 'right' : 'up'">
     <template #trigger="{ open, toggle }">
       <button class="directory-chip" :class="{ attention, home: props.home }" type="button" :aria-label="bridge.directory.value ? `协同目录 · ${bridge.directory.value}` : '挂载协同目录'" :aria-expanded="open" :aria-controls="menuId" aria-haspopup="menu" :title="bridge.error.value || (attention ? '恢复目录连接' : bridge.directory.value || '挂载协同目录')" :disabled="bridge.busy.value" @click="activate(toggle)"><i v-if="home && bridge.directory.value" class="directory-dot" aria-hidden="true"></i><AppIcon name="i-folder" /><span>{{ bridge.directory.value || '挂载目录' }}</span></button>
     </template>
@@ -26,7 +27,7 @@ function activate(toggle: () => void) {
       </template>
       <button v-else class="menu-item" role="menuitem" type="button" @click="close(); ask.openSettings()"><AppIcon name="i-settings" /><span class="menu-label">外部协同设置</span></button>
     </template>
-  </AskMenu>
+  </component>
 </template>
 <style scoped>
 .directory-chip { display: inline-flex; flex: 0 1 auto; align-items: center; gap: 4px; min-width: 36px; max-width: 132px; height: 22px; padding: 0 6px; color: var(--fg-2); font: 11px var(--sans); white-space: nowrap; background: var(--ask-hover, var(--hover)); border-radius: var(--r1); }

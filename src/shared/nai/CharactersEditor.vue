@@ -3,11 +3,11 @@ import { computed, nextTick, onBeforeUnmount, onDeactivated, ref, watch } from "
 import { useNaiComposer } from "../../app/nai-composer";
 import { message, useUi } from "../../app/ui";
 import type { Character, Center, Placement } from "../../domain/characters.ts";
-import AppIcon from "../../shared/AppIcon.vue";
+import AppIcon from "../AppIcon.vue";
 import { naiCapabilities, naiTagDataset } from "../../domain/nai";
-import HighlightInput from "../../shared/HighlightInput.vue";
+import HighlightInput from "../HighlightInput.vue";
 import CharacterPosition from "./CharacterPosition.vue";
-import NaiTokenCount from "../../shared/NaiTokenCount.vue";
+import NaiTokenCount from "./NaiTokenCount.vue";
 const { drawing, view, id: controlId, stageTarget, stageViewport } = useNaiComposer(), ui = useUi();
 const ownerBoardId = view.value.activeBoardId;
 const open = ref(""), tab = ref<"prompt" | "negative">("prompt"), stage = ref(false), stageStyle = ref({});

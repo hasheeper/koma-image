@@ -23,6 +23,10 @@ import { names } from "../../storage/names";
 import { readImageParams } from "../../native/image-meta.ts";
 import type { ImageMetadata } from "../../native/image-meta.ts";
 import { render as renderHighlight } from "../../domain/highlight";
+import { POST_GROUPS, droppedLink, postId, postPrompt } from "../../domain/danbooru-post.ts";
+import type { DanbooruPost, PostGroup } from "../../domain/danbooru-post.ts";
+import { sampleMark } from "../../domain/tag-samples.ts";
+import { promptTag } from "../../domain/tags.ts";
 import AppIcon from "../../shared/AppIcon.vue";
 const { drawing, view } = useDrawing(),
   { image } = useShell(),
@@ -33,10 +37,12 @@ const file = shallowRef<HTMLInputElement | null>(null),
   card = shallowRef<HTMLElement | null>(null),
   candidate = shallowRef<ImageMetadata | null>(null),
   url = ref(""),
-  selected = ref<string[]>([]);
+  selected = ref<string[]>([]),
+  post = shallowRef<DanbooruPost | null>(null);
 let focus: HTMLElement | null = null,
   depth = 0,
-  sequence = 0;
+  sequence = 0,
+  fetching: AbortController | undefined;
 const referenceLabel = (value: unknown) => { const r=readReferences(value); return `${r.active==='vibe'?'Vibe':r.active==='precise'?'Precise':'停用'} · Vibe ${r.vibe.length} / Precise ${r.precise.length}`; };
 const labels: Record<string, string> = {
   model: "模型",
@@ -129,31 +135,44 @@ const texts = computed(() =>
         ).trim(),
     })),
 );
+// A Danbooru post imports its category groups, composed into the Prompt in this order.
+const groups = computed(() => {
+  const found = post.value;
+  return found
+    ? POST_GROUPS.filter((g) => found.tags[g.key].length).map((g) => ({ key: g.key, label: g.label, count: found.tags[g.key].length, value: found.tags[g.key].map(promptTag).join(", ") }))
+    : [];
+});
+const postCount = computed(() => groups.value.reduce((n, g) => n + (selected.value.includes(g.key) ? g.count : 0), 0));
 function close() {
   sequence++;
+  fetching?.abort();
   image.importing = false;
   candidate.value = null;
+  post.value = null;
   if (url.value) URL.revokeObjectURL(url.value);
   url.value = "";
   focus?.focus();
   focus = null;
 }
-async function open(result: ImageMetadata, blob: Blob) {
+async function open(result: ImageMetadata, blob: Blob | null, found: DanbooruPost | null = null) {
   if (url.value) URL.revokeObjectURL(url.value);
   focus = document.activeElement as HTMLElement;
+  post.value = found;
   candidate.value = { ...result, extras: result.extras.filter(e => !(result.fields.characters && e.label.startsWith("角色")) && !((result.vibes || result.vibeError) && e.label === "Vibe Transfer")) };
-  url.value = URL.createObjectURL(blob);
+  url.value = blob ? URL.createObjectURL(blob) : "";
   selected.value = rows.value.some(r => r.key === "model" && !r.same && !r.blocked) ? ["model"] : [];
   selected.value = [
     ...texts.value.filter((r) => !r.same).map((r) => r.key),
     ...rows.value.filter((r) => !r.same && !r.blocked).map((r) => r.key),
     ...(result.fields.characters ? ["characters"] : []),
+    ...groups.value.map((g) => g.key),
   ];
   image.importing = true;
   await nextTick();
   card.value?.querySelector<HTMLButtonElement>("button")?.focus();
 }
 async function read(blob: File) {
+  fetching?.abort();
   const token = ++sequence;
   try {
     const result = await readImageParams(blob);
@@ -167,8 +186,37 @@ async function read(blob: File) {
     ui.toast(message(e), "err");
   }
 }
+// The picture is only a preview; a failed image fetch still opens the tags.
+async function readPost(id: number) {
+  fetching?.abort();
+  const token = ++sequence, controller = (fetching = new AbortController()),
+    notice = ui.toast(`正在读取 Danbooru #${id}…`, "load");
+  try {
+    const found = await services.tags.post(id, controller.signal);
+    const extras: ImageMetadata["extras"] = [];
+    const blob = await services.tags.postImage(found, controller.signal, true).catch((e: unknown) => {
+      extras.push({ label: "原图未加载", value: message(e) });
+      return null;
+    });
+    if (token !== sequence) return ui.dismissNotice(notice);
+    if (!POST_GROUPS.some((g) => found.tags[g.key].length)) return void ui.toast("该帖没有可导入的 Tag", "info", undefined, notice);
+    ui.dismissNotice(notice);
+    const size = found.width && found.height ? `${found.width}×${found.height}` : "";
+    await open({ name: `#${id}`, dialect: "Danbooru", source: ["Danbooru", size, sampleMark(found)].filter(Boolean).join(" · "), fields: {}, extras }, blob, found);
+  } catch (e) {
+    if (token === sequence) ui.toast(message(e), "err", undefined, notice);
+    else ui.dismissNotice(notice);
+  }
+}
 async function apply() {
   if (!candidate.value || applying.value) return;
+  if (post.value) {
+    const n = postCount.value;
+    drawing.apply({ prompt: postPrompt(post.value, selected.value as PostGroup[]) });
+    close();
+    ui.toast(`已填入 ${n} 个 Tag`, "ok");
+    return;
+  }
   const values: Readonly<Record<string, unknown>> = candidate.value.fields;
   const fields: Record<string, unknown> = {};
   for (const key of selected.value)
@@ -204,11 +252,16 @@ async function copy(text: string) {
 const lifecycle = useWorkspaceLifecycle("image", []);
 lifecycle.whileActive((signal) => {
   const allowed = (e: DragEvent) =>
+    !e.defaultPrevented &&
     !document.querySelector("dialog[open], :popover-open") &&
     !ui.pickerOpen.value &&
     !!e.dataTransfer &&
     ([...e.dataTransfer.types].includes("Files") ||
-      e.dataTransfer.types.includes(names.historyDragType));
+      e.dataTransfer.types.includes(names.historyDragType) ||
+      e.dataTransfer.types.includes("text/uri-list") ||
+      // Dragover exposes types only; allow the drop before inspecting its text.
+      e.type === "dragover" && e.dataTransfer.types.includes("text/plain") ||
+      postId(e.dataTransfer.getData("text/plain")) !== null);
   window.addEventListener(
     "dragenter",
     (e) => {
@@ -244,8 +297,10 @@ lifecycle.whileActive((signal) => {
       e.preventDefault();
       depth = 0;
       image.drop = false;
-      const id = e.dataTransfer!.getData(names.historyDragType);
-      if (id) {
+      const id = e.dataTransfer!.getData(names.historyDragType),
+        link = postId(droppedLink(e.dataTransfer!.getData("text/uri-list")) || e.dataTransfer!.getData("text/plain"));
+      if (link !== null && !id) void readPost(link);
+      else if (id) {
         const item = [...view.value.history, ...view.value.favorites].find(
           (r) => r.id === id,
         );
@@ -266,8 +321,21 @@ lifecycle.whileActive((signal) => {
           /^image\/(png|jpeg)$/.test(f.type),
         );
         if (blob) void read(blob);
-        else ui.toast("仅支持 PNG 或 JPEG 图片");
+        else ui.toast(e.dataTransfer!.files.length ? "仅支持 PNG 或 JPEG 图片" : "链接仅支持 Danbooru 帖子");
       }
+    },
+    { signal },
+  );
+  // A pasted post link opens the import, also from the Prompt editors; single-line fields keep the text.
+  window.addEventListener(
+    "paste",
+    (e) => {
+      if (e.defaultPrevented || image.importing || ui.pickerOpen.value || document.querySelector("dialog[open], :popover-open")) return;
+      if (e.target instanceof Element && e.target.closest("input, select")) return;
+      const link = e.clipboardData?.files.length ? null : postId(e.clipboardData?.getData("text/plain") ?? "");
+      if (link === null) return;
+      e.preventDefault();
+      void readPost(link);
     },
     { signal },
   );
@@ -332,7 +400,7 @@ defineExpose({ pick: () => file.value?.click(), close });
       >
         <header class="import-head">
           <AppIcon name="i-import" />
-          <h1 id="importTitle">导入参数</h1>
+          <h1 id="importTitle">{{ post ? "导入 Tag" : "导入参数" }}</h1>
           <span class="import-source">{{
             [
               candidate?.source || candidate?.dialect,
@@ -359,6 +427,17 @@ defineExpose({ pick: () => file.value?.click(), close });
           </figure>
           <div class="import-main">
             <div class="import-texts">
+              <section v-for="group in groups" :key="group.key" class="import-text" :data-key="group.key">
+                <div class="import-text-head">
+                  <label class="import-toggle"
+                    ><input v-model="selected" type="checkbox" :value="group.key" /><span class="import-check"></span><b>{{ group.label }}</b
+                    ><span class="mono">{{ group.count }}</span></label
+                  ><button class="ibtn ibtn-xs import-copy" type="button" :aria-label="`复制${group.label} Tag`" @click="copy(group.value)">
+                    <AppIcon name="i-copy" />
+                  </button>
+                </div>
+                <div class="import-prose" v-html="renderHighlight(group.value)"></div>
+              </section>
               <section
                 v-for="row in texts"
                 :key="row.key"
@@ -445,9 +524,11 @@ defineExpose({ pick: () => file.value?.click(), close });
         </div>
         <footer class="import-foot">
           <span class="import-tally" aria-live="polite">{{
-            selected.length
-              ? "勾选的项会覆盖当前设置，其余不变"
-              : "没有勾选任何参数"
+            post
+              ? selected.length ? "勾选的 Tag 按顺序组成 Prompt，覆盖当前 Prompt" : "没有勾选任何 Tag"
+              : selected.length
+                ? "勾选的项会覆盖当前设置，其余不变"
+                : "没有勾选任何参数"
           }}</span
           ><button class="btn btn-quiet" type="button" @click="close">
             取消</button
@@ -458,7 +539,7 @@ defineExpose({ pick: () => file.value?.click(), close });
             :disabled="!selected.length || applying"
             @click="apply"
           >
-            {{ applying ? "导入中…" : selected.length ? `导入 ${selected.length} 项` : "导入" }}
+            {{ applying ? "导入中…" : post ? `填入 ${postCount} 个 Tag` : selected.length ? `导入 ${selected.length} 项` : "导入" }}
           </button>
         </footer>
       </div>

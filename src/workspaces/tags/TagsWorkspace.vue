@@ -10,8 +10,8 @@ import {
   watch,
 } from "vue";
 import { useShell } from "../../app/shell";
+import { useAsk } from "../../app/ask";
 import { useAskPresentation } from "../../ask/presentation";
-const { fullscreen: askFullscreen } = useAskPresentation();
 import { useServices } from "../../app/services";
 import { useUi, message } from "../../app/ui";
 import { useWorkspaceLifecycle } from "../../app/workspace-lifecycle";
@@ -24,15 +24,23 @@ import {
   combinedPrompt,
   clampWeight,
   promptTag,
-  formatCount,
-  tagUrl,
 } from "../../domain/tags.ts";
 import type { TagItem, CartTag } from "../../domain/tags.ts";
+import { postUrl, sampleMark, sampleTier } from "../../domain/tag-samples.ts";
+import { POST_GROUPS, droppedLink, postId } from "../../domain/danbooru-post.ts";
+import type { DanbooruPost } from "../../domain/danbooru-post.ts";
 import { copyText } from "../../shared/files";
 import WorkspaceSwitch from "../../shared/WorkspaceSwitch.vue";
+import ThemeToggle from "../../shared/ThemeToggle.vue";
+import WaveMark from "../../shared/WaveMark.vue";
 import AppIcon from "../../shared/AppIcon.vue";
+import PopoverMenu from "../../shared/ui/PopoverMenu.vue";
+import TagSamples from "./TagSamples.vue";
+import TagResult from "./TagResult.vue";
 const { router, tags: shellTags, narrow } = useShell(),
   { tags: search, preferences } = useServices(),
+  ask = useAsk(),
+  { shown: askShown, fullscreen: askFullscreen } = useAskPresentation(),
   ui = useUi();
 const query = ref(new URLSearchParams(location.search).get("q") ?? "");
 const filters = ref(
@@ -41,15 +49,51 @@ const filters = ref(
 const cart = shallowRef<CartTag[]>(
   readCart(preferences.get(names.tagCart, [])),
 );
+const flag = (key: string) => preferences.get<unknown>(key, false) === true;
+const readTier = () => sampleTier(flag(names.askAdult), flag(names.askNsfw), flag(names.askR18));
+const tier = shallowRef(readTier());
 const items = shallowRef<TagItem[]>([]),
   busy = ref(false),
   status = ref("输入关键词开始搜索"),
   error = ref(""),
+  last = ref(""),
   page = ref(1),
   hasNext = ref(false),
-  searched = ref(false);
+  searched = ref(false),
+  post = shallowRef<DanbooruPost | null>(null),
+  translated = shallowRef<ReadonlyMap<string, TagItem>>(new Map()),
+  translating = ref(false);
 const prompt = computed(() => combinedPrompt(cart.value));
 const categories = [0, 3, 4, 1, 5];
+// One card covers the start, no-match and failure; results replace it.
+const view = computed(() =>
+  items.value.length || post.value ? "results" : !searched.value ? "initial" : error.value ? "error" : "none",
+);
+// A post link lists its four category groups; a word search is one ungrouped page.
+const groups = computed(() => {
+  const found = post.value;
+  if (!found) return [{ key: "all", label: "", category: 0, items: items.value }];
+  return POST_GROUPS.filter((g) => found.tags[g.key].length).map((g) => ({
+    ...g,
+    items: found.tags[g.key].map((name) => ({ name, cnName: translated.value.get(name)?.cnName ?? "", category: g.category, count: translated.value.get(name)?.count ?? 0 })),
+  }));
+});
+const postTotal = computed(() => groups.value.reduce((n, g) => n + g.items.length, 0));
+const identityGroups = computed(() => groups.value.filter((g) => g.key !== "general" && g.key !== "all"));
+const resultGroups = computed(() => groups.value.filter((g) => g.key === "general" || g.key === "all"));
+const selectedTags = computed(() => new Set(cart.value.map((item) => item.name)));
+const typeLabel = computed(() => {
+  const on = categories.filter((id) => filters.value.includes(id));
+  if (on.length === categories.length) return "全部类型";
+  return on.length > 3 ? `${on.length} 类` : on.map((id) => CATEGORIES[id].label).join("、");
+});
+// The cart and an expanded ASK share one right-hand slot on wide screens; the last opened holds it.
+const side = computed(() =>
+  narrow.value ? undefined : shellTags.cartOpen ? "cart" : askShown.value ? "ask" : undefined,
+);
+const peek = shallowRef<{ name: string; kind: "artist" | "character"; card: HTMLElement } | null>(null);
+const fab = shallowRef<HTMLButtonElement | null>(null),
+  cartPanel = shallowRef<HTMLElement | null>(null);
 const lifecycle = useWorkspaceLifecycle("tags");
 let timer: ReturnType<typeof setTimeout> | undefined,
   request: AbortController | undefined,
@@ -64,6 +108,8 @@ const unsub = preferences.subscribe((key) => {
     );
   if (!key || key === names.tagCart)
     cart.value = readCart(preferences.get(names.tagCart, []));
+  if (!key || key === names.askAdult || key === names.askNsfw || key === names.askR18)
+    tier.value = readTier();
 });
 function pause() {
   active = false;
@@ -71,6 +117,8 @@ function pause() {
   request?.abort();
   token++;
   busy.value = false;
+  translating.value = false;
+  peek.value = null;
 }
 const unsubDispose = () => {
   pause();
@@ -97,11 +145,10 @@ lifecycle.whileActive((signal) =>
   window.addEventListener(
     "keydown",
     (event) => {
-      if (
-        event.key === "Escape" &&
-        !document.querySelector("dialog[open], :popover-open")
-      )
-        shellTags.cartOpen = false;
+      if (event.key === "Escape" && !document.querySelector("dialog[open]")) {
+        if (peek.value) closePeek(true);
+        else if (!document.querySelector(":popover-open")) shellTags.cartOpen = false;
+      }
       if (event.key === "Tab" && narrow.value && shellTags.cartOpen) {
         const focus = [
           ...document.querySelectorAll<HTMLElement>(
@@ -125,19 +172,40 @@ lifecycle.whileActive((signal) =>
 watch(
   () => shellTags.cartOpen,
   async (open, was) => {
+    if (open && active && !narrow.value && askShown.value) ask.hide();
+    const inside = !!cartPanel.value?.contains(document.activeElement);
     await nextTick();
-    if (!narrow.value) return;
-    if (open) document.querySelector<HTMLElement>(".tag-cart-close")?.focus();
-    else if (was) document.querySelector<HTMLElement>(".tag-cart-fab")?.focus();
+    if (!active) return;
+    if (open) cartPanel.value?.querySelector<HTMLElement>(".tag-cart-close")?.focus();
+    else if (was && inside)
+      (fab.value ?? document.getElementById("tagSearch"))?.focus({ preventScroll: true });
+  },
+);
+watch(askShown, (shown) => {
+  if (shown && active && !narrow.value) shellTags.cartOpen = false;
+});
+// A small nudge when the count grows, so an add reads as landing in the capsule.
+watch(
+  () => cart.value.length,
+  (count, previous) => {
+    if (count > previous && previous > 0 && !matchMedia("(prefers-reduced-motion: reduce)").matches)
+      fab.value?.animate(
+        [{ transform: "scale(1)" }, { transform: "scale(1.12)" }, { transform: "scale(1)" }],
+        { duration: 320, easing: "cubic-bezier(.32, .72, 0, 1)" },
+      );
   },
 );
 async function run(nextPage = 1, updateUrl = true) {
   clearTimeout(timer);
   request?.abort();
+  peek.value = null;
   const id = ++token,
-    q = query.value.trim();
+    q = query.value.trim(),
+    link = postId(q);
+  translating.value = false;
+  translated.value = new Map();
+  if (link !== null) nextPage = 1;
   page.value = nextPage;
-  error.value = "";
   if (updateUrl) {
     const url = new URL(location.href);
     if (q) url.searchParams.set("q", q);
@@ -148,6 +216,8 @@ async function run(nextPage = 1, updateUrl = true) {
   }
   if (!q) {
     items.value = [];
+    post.value = null;
+    error.value = "";
     status.value = "输入关键词开始搜索";
     searched.value = false;
     hasNext.value = false;
@@ -156,28 +226,55 @@ async function run(nextPage = 1, updateUrl = true) {
   }
   const signal = (request = new AbortController()).signal;
   busy.value = true;
-  status.value = `正在搜索“${q}”…`;
+  status.value = link === null ? `正在搜索“${q}”…` : `正在读取 Danbooru #${link}…`;
   try {
-    const result = await search.page(q, {
-      page: nextPage,
-      pageSize: 25,
-      categories: filters.value,
-      signal,
-    });
-    if (id !== token || !active) return;
-    items.value = result.items;
-    hasNext.value = result.hasNext;
-    status.value = `“${q}”的匹配结果`;
+    if (link === null) {
+      const result = await search.page(q, {
+        page: nextPage,
+        pageSize: 24,
+        categories: filters.value,
+        signal,
+      });
+      if (id !== token || !active) return;
+      post.value = null;
+      items.value = result.items;
+      hasNext.value = result.hasNext;
+    } else {
+      const found = await search.post(link, signal);
+      if (id !== token || !active) return;
+      post.value = found;
+      items.value = [];
+      hasNext.value = false;
+      void translate(found, id, signal);
+    }
+    error.value = "";
+    last.value = q;
+    status.value = link === null ? `“${q}”的匹配结果` : `Danbooru #${link} 的 Tag`;
     searched.value = true;
   } catch (e) {
     if (id !== token || signal.aborted) return;
+    post.value = null;
     items.value = [];
     error.value = message(e);
+    last.value = q;
     status.value = "搜索失败";
     hasNext.value = false;
     searched.value = true;
   } finally {
     if (id === token) busy.value = false;
+  }
+}
+// Chinese names fill in after the original tags; a miss keeps the name intact.
+async function translate(found: DanbooruPost, id: number, signal: AbortSignal) {
+  translated.value = new Map();
+  translating.value = true;
+  try {
+    const names = await search.translate(POST_GROUPS.flatMap((g) => found.tags[g.key]), signal);
+    if (id === token) translated.value = names;
+  } catch {
+    // Aborted by the next search or leaving TAGS.
+  } finally {
+    if (id === token) translating.value = false;
   }
 }
 function schedule() {
@@ -188,6 +285,14 @@ function schedule() {
     return;
   }
   timer = setTimeout(() => void run(), 320);
+}
+function dropPost(event: DragEvent) {
+  const text = droppedLink(event.dataTransfer?.getData("text/uri-list") ?? "") || event.dataTransfer?.getData("text/plain") || "";
+  if (postId(text) === null) return;
+  event.preventDefault();
+  event.stopPropagation();
+  query.value = text;
+  void run();
 }
 function startComposition() {
   composing = true;
@@ -224,24 +329,22 @@ async function save(next: CartTag[]) {
     return false;
   }
 }
-async function toggle(item: TagItem) {
+// The card's pressed state and the capsule's count are the feedback; no toast.
+function toggle(item: TagItem) {
   const found = cart.value.some((v) => v.name === item.name);
-  if (
-    await save(
-      found
-        ? cart.value.filter((v) => v.name !== item.name)
-        : [
-            ...cart.value,
-            {
-              name: item.name,
-              cnName: item.cnName,
-              category: item.category,
-              weight: 1,
-            },
-          ],
-    )
-  )
-    ui.toast(`已${found ? "移除" : "添加"} ${promptTag(item.name)}`, "ok");
+  void save(
+    found
+      ? cart.value.filter((v) => v.name !== item.name)
+      : [
+          ...cart.value,
+          {
+            name: item.name,
+            cnName: item.cnName,
+            category: item.category,
+            weight: 1,
+          },
+        ],
+  );
 }
 function weight(index: number, value: unknown) {
   const next = cart.value.map((item, i) =>
@@ -287,22 +390,30 @@ function turn(next: number) {
     .querySelector(".tags-results")
     ?.scrollIntoView({ block: "start", behavior: "smooth" });
 }
+const sampleKind = (item: TagItem) =>
+  item.category === 1 ? "artist" : item.category === 4 ? "character" : undefined;
+function togglePeek(item: TagItem, card: HTMLElement) {
+  const kind = sampleKind(item);
+  peek.value = peek.value?.name === item.name || !kind || !card ? null : { name: item.name, kind, card };
+}
+function closePeek(refocus: boolean) {
+  const card = peek.value?.card;
+  peek.value = null;
+  if (refocus) card?.querySelector<HTMLElement>(".tag-more")?.focus();
+}
 </script>
 <template>
-  <header class="topbar tags-topbar" :inert="askFullscreen">
-    <WorkspaceSwitch workspace="tags" /><a
-      class="btn btn-quiet btn-sm tags-back"
-      href="#/image"
-      @click.prevent="router.switchWorkspace('image')"
-      >回到绘图</a
-    >
+  <header class="tags-nav" :inert="askFullscreen">
+    <WorkspaceSwitch workspace="tags" />
+    <ThemeToggle />
   </header>
-  <main class="tags-main" data-workspace-root="tags" :inert="askFullscreen">
+  <main class="tags-main" data-workspace-root="tags" :data-state="view" :data-side="side" :inert="askFullscreen">
     <div class="tags-content">
+      <p class="sr-only" role="status">{{ status }}</p>
       <section class="tags-hero">
-        <p class="tags-kicker">DANBOORU TAG DICTIONARY</p>
-        <h1>中文 / 英文 Tag 词典</h1>
-        <p class="tags-lede">中文找词，英文确认，复制后直接用于 Prompt。</p>
+        <h1 class="tags-lock" :class="{ 'sr-only': view !== 'initial' }" aria-label="Koma TAGS">
+          <WaveMark surface="tags" /><span class="tags-word"><span class="brand-title">Koma</span><span class="brand-subtitle">TAGS</span></span>
+        </h1>
         <form
           class="tags-search"
           role="search"
@@ -314,18 +425,46 @@ function turn(next: number) {
             type="search"
             autocomplete="off"
             spellcheck="false"
-            placeholder="例如：蓝发 / blue hair"
-            aria-label="搜索 Danbooru Tag"
+            placeholder="蓝发 / blue hair / Danbooru 帖子链接"
+            aria-label="搜索 Danbooru Tag，或粘贴帖子链接"
+            @dragover.prevent
+            @drop="dropPost"
             @input="schedule"
             @compositionstart="startComposition"
             @compositionend="endComposition"
-          /><button class="btn btn-primary" type="submit" :disabled="busy">
-            搜索
+          /><PopoverMenu
+            v-if="view !== 'initial' && !post"
+            id="tagTypes"
+            label="Tag 类型"
+            side="right"
+            menu-class="tag-types-menu"
+          >
+            <template #trigger="{ open, toggle: toggleMenu }">
+              <button class="tag-type" type="button" aria-haspopup="menu" aria-controls="tagTypes" :aria-expanded="open" @click="toggleMenu">
+                <span class="sr-only">Tag 类型：</span><span class="tag-type-name">{{ typeLabel }}</span><AppIcon name="i-chevron" />
+              </button>
+            </template>
+            <p class="menu-group" role="presentation">类型</p>
+            <button
+              v-for="id in categories"
+              :key="id"
+              class="menu-item"
+              type="button"
+              role="menuitemcheckbox"
+              :aria-checked="filters.includes(id)"
+              @click="toggleFilter(id)"
+            >
+              <i class="tag-category-dot" :class="CATEGORIES[id].className"></i
+              ><span class="menu-label">{{ CATEGORIES[id].label }}</span
+              ><AppIcon name="i-check" class="menu-check" />
+            </button>
+            <hr /><p class="tag-types-note" role="presentation">与绘图的 Tag 补全同步</p>
+          </PopoverMenu><button class="btn btn-primary tags-send" type="submit" aria-label="搜索" :disabled="busy">
+            <AppIcon name="i-up" />
           </button>
         </form>
-        <div class="tags-filters" aria-label="Tag 类型筛选">
-          <span class="tags-filter-label">类型</span
-          ><button
+        <div v-if="view === 'initial'" class="tags-filters" role="group" aria-label="Tag 类型筛选">
+          <button
             v-for="id in categories"
             :key="id"
             class="tag-filter"
@@ -334,74 +473,87 @@ function turn(next: number) {
             @click="toggleFilter(id)"
           >
             <i class="tag-category-dot" :class="CATEGORIES[id].className"></i
-            >{{ CATEGORIES[id].label }}</button
-          ><span class="tags-filter-sync">同步补全</span>
+            >{{ CATEGORIES[id].label }}
+          </button>
         </div>
       </section>
-      <section class="tags-results" :aria-busy="busy">
-        <div class="tags-results-head">
-          <p role="status">{{ status }}</p>
-          <span>{{
-            searched && !busy && !error
-              ? `${items.length} 个 · 第 ${page} 页`
-              : ""
-          }}</span>
-        </div>
-        <div class="tags-grid">
-          <p
-            v-if="error || (searched && !items.length && !busy)"
-            class="tags-empty"
+      <section v-if="view !== 'results'" class="tags-card" :data-state="view">
+        <svg class="tags-card-art" viewBox="0 0 64 64" width="80" height="80" aria-hidden="true">
+          <g fill="var(--empty-mark-back)">
+            <rect x="8" y="8" width="22" height="22" rx="6" />
+            <rect x="34" y="8" width="22" height="22" rx="6" />
+            <rect x="8" y="34" width="22" height="22" rx="6" />
+            <rect x="34" y="34" width="22" height="22" rx="6" />
+          </g>
+          <rect x="18.75" y="18.75" width="26.5" height="26.5" rx="7.25" fill="var(--empty-mark-front)" stroke-opacity=".75" stroke-width="1.5" />
+        </svg>
+        <template v-if="view === 'initial'">
+          <h2>从一个词开始</h2>
+          <p>中文找词，英文确认，复制后直接用于 Prompt。</p>
+        </template>
+        <template v-else-if="view === 'none'">
+          <h2>没有找到“{{ last }}”</h2>
+          <p>换个写法，或打开更多类型。</p>
+        </template>
+        <template v-else>
+          <h2>搜索失败</h2>
+          <p>{{ error }}<button class="tags-retry" type="button" :disabled="busy" @click="run(page)">重试</button></p>
+        </template>
+      </section>
+      <section v-else class="tags-results" :aria-busy="busy">
+        <div v-if="post" class="tag-post">
+          <a
+            class="tag-post-thumb"
+            :href="postUrl(post.id)"
+            target="_blank"
+            rel="noopener noreferrer"
+            :aria-label="`在 Danbooru 打开 #${post.id}（新标签页）`"
+            :style="post.width && post.height ? { '--post-aspect': `${post.width} / ${post.height}` } : undefined"
           >
-            {{ error || "没有找到匹配的 Danbooru Tag" }}
-          </p>
-          <article v-for="item in items" :key="item.name" class="tag-card">
-            <button
-              class="tag-card-info tag-add"
-              type="button"
-              :data-tag="item.name"
-              :aria-pressed="cart.some((v) => v.name === item.name)"
-              :aria-label="`${cart.some((v) => v.name === item.name) ? '移出' : '加入'} Prompt 组合：${promptTag(item.name)}`"
-              @click="toggle(item)"
-            >
-              <span class="tag-card-names"
-                ><strong>{{ item.name }}</strong
-                ><span>{{ item.cnName || "暂无中文翻译" }}</span></span
-              ><span class="tag-card-meta"
-                ><i
-                  class="tag-category-dot"
-                  :class="
-                    (CATEGORIES[item.category] || CATEGORIES[0]).className
-                  "
-                ></i
-                ><span
-                  >{{ (CATEGORIES[item.category] || CATEGORIES[0]).label }} ·
-                  {{ formatCount(item.count) }}</span
-                ></span
-              >
-            </button>
-            <div class="tag-card-actions">
-              <button
-                class="ibtn ibtn-xs"
-                type="button"
-                :aria-label="`复制 ${promptTag(item.name)}`"
-                data-tip="复制"
-                @click="
-                  copy(promptTag(item.name), `已复制 ${promptTag(item.name)}`)
-                "
-              >
-                <AppIcon name="tag-i-copy" /></button
-              ><a
-                class="ibtn ibtn-xs"
-                :href="tagUrl(item.name)"
-                target="_blank"
-                rel="noopener noreferrer"
-                data-tip="Danbooru"
-                :aria-label="`在 Danbooru 打开 ${item.name}（新标签页）`"
-                ><AppIcon name="tag-i-external"
-              /></a>
-            </div>
-          </article>
+            <img v-if="post.preview" :src="search.imageUrl(post.preview.src)" alt="" decoding="async" referrerpolicy="no-referrer" />
+            <AppIcon v-else name="i-image" />
+            <span v-if="sampleMark(post)" class="tag-post-mark">{{ sampleMark(post) }}</span>
+          </a>
+          <div class="tag-post-meta">
+            <header class="tag-post-heading">
+              <div>
+                <h2>{{ busy ? status : `Danbooru #${post.id}` }}</h2>
+                <p>{{ [post.width && post.height ? `${post.width} × ${post.height}` : "", `${postTotal} 个 Tag`].filter(Boolean).join(" · ") }}</p>
+              </div>
+              <a class="ibtn" :href="postUrl(post.id)" target="_blank" rel="noopener noreferrer" aria-label="在 Danbooru 查看原帖（新标签页）" data-tip="查看原帖"><AppIcon name="tag-i-external" /></a>
+            </header>
+            <section v-for="group in identityGroups" :key="group.key" class="tag-post-identity" :aria-labelledby="`tag-group-${group.key}`">
+              <h3 :id="`tag-group-${group.key}`" class="tag-group-head">
+                <i class="tag-category-dot" :class="CATEGORIES[group.category].className"></i>{{ group.label }}<span>{{ group.items.length }}</span>
+              </h3>
+              <div class="tag-chip-list">
+                <TagResult
+                  v-for="item in group.items" :key="item.name" :item="item" variant="chip"
+                  :selected="selectedTags.has(item.name)"
+                  @toggle="toggle" @copy="copy(promptTag($event.name), `已复制 ${promptTag($event.name)}`)" @samples="togglePeek"
+                />
+              </div>
+            </section>
+          </div>
         </div>
+        <div v-else class="tags-results-head">
+          <h2>{{ busy ? status : `“${last}”的匹配结果` }}</h2>
+          <span v-if="!busy">{{ items.length }} 个 · 第 {{ page }} 页</span>
+        </div>
+        <p v-if="post" class="tag-post-note" role="status">{{ translating ? "正在补充中文释义…" : "点选 Tag 加入 Prompt 组合" }}</p>
+        <section v-for="group in resultGroups" :key="group.key" class="tag-result-group" :aria-labelledby="group.label ? `tag-group-${group.key}` : undefined">
+          <h3 v-if="group.label" :id="`tag-group-${group.key}`" class="tag-group-head">
+            <i class="tag-category-dot" :class="CATEGORIES[group.category].className"></i>{{ group.label }}<span>{{ group.items.length }}</span>
+          </h3>
+          <div :class="post ? 'tag-chip-list' : 'tags-grid'">
+            <TagResult
+              v-for="item in group.items" :key="item.name" :item="item"
+              :variant="post ? 'chip' : 'card'"
+              :selected="selectedTags.has(item.name)"
+              @toggle="toggle" @copy="copy(promptTag($event.name), `已复制 ${promptTag($event.name)}`)" @samples="togglePeek"
+            />
+          </div>
+        </section>
         <nav
           v-if="page > 1 || hasNext"
           class="tag-pagination"
@@ -426,15 +578,16 @@ function turn(next: number) {
         </nav>
       </section>
       <footer class="tags-foot">
-        搜索词会发送到在线双语 Tag 服务；英文查询在需要时回退至 Danbooru
-        官方接口。
+        搜索词会发送到在线双语 Tag 服务，英文查询在需要时回退至 Danbooru
+        官方接口；示例图与帖子链接从 Danbooru 读取。
       </footer>
     </div>
     <aside
       id="tagCart"
+      ref="cartPanel"
       class="tag-cart"
       aria-label="Prompt Tag 组合"
-      :inert="narrow && !shellTags.cartOpen"
+      :inert="!shellTags.cartOpen"
       :role="narrow ? 'dialog' : undefined"
       :aria-modal="narrow ? 'true' : undefined"
     >
@@ -444,6 +597,14 @@ function turn(next: number) {
           ><span class="badge">{{ cart.length }}</span>
         </div>
         <button
+          class="ibtn ibtn-xs tag-cart-clear"
+          type="button"
+          aria-label="清空组合"
+          :disabled="!cart.length"
+          @click="clear"
+        >
+          <AppIcon name="tag-i-trash" /></button
+        ><button
           class="ibtn ibtn-xs tag-cart-close"
           type="button"
           aria-label="关闭组合侧栏"
@@ -452,22 +613,21 @@ function turn(next: number) {
           <AppIcon name="tag-i-close" />
         </button>
       </header>
-      <div class="tag-cart-list">
+      <div v-if="cart.length" class="tag-cart-list">
         <article
           v-for="(item, index) in cart"
           :key="item.name"
           class="tag-cart-item"
         >
           <div class="tag-cart-item-names">
-            <strong>{{ item.name }}</strong
+            <strong>{{ promptTag(item.name) }}</strong
             ><span>{{ item.cnName || "暂无中文翻译" }}</span>
           </div>
           <div class="tag-weight">
-            <span>权重</span
-            ><button
+            <button
               class="ibtn ibtn-xs tag-weight-step"
               type="button"
-              :aria-label="`降低 ${item.name} 的权重`"
+              :aria-label="`降低 ${promptTag(item.name)} 的权重`"
               @click="weight(index, item.weight - 0.1)"
             >
               <AppIcon name="tag-i-minus" /></button
@@ -477,19 +637,19 @@ function turn(next: number) {
               max="5"
               step="0.1"
               :value="item.weight"
-              :aria-label="`${item.name} 权重`"
+              :aria-label="`${promptTag(item.name)} 权重`"
               @change="weight(index, ($event.target as HTMLInputElement).value)"
             /><button
               class="ibtn ibtn-xs tag-weight-step"
               type="button"
-              :aria-label="`提高 ${item.name} 的权重`"
+              :aria-label="`提高 ${promptTag(item.name)} 的权重`"
               @click="weight(index, item.weight + 0.1)"
             >
               <AppIcon name="tag-i-plus" /></button
             ><button
               class="ibtn ibtn-xs tag-cart-remove"
               type="button"
-              :aria-label="`移除 ${item.name}`"
+              :aria-label="`移除 ${promptTag(item.name)}`"
               @click="save(cart.filter((_, i) => i !== index))"
             >
               <AppIcon name="tag-i-close" />
@@ -497,41 +657,34 @@ function turn(next: number) {
           </div>
         </article>
       </div>
-      <p v-if="!cart.length" class="tag-cart-empty">从搜索结果添加 Tag</p>
-      <div v-else class="tag-cart-preview">
-        <span>组合预览</span><code id="tagCartPrompt">{{ prompt }}</code>
+      <p v-else class="tag-cart-empty">从搜索结果添加 Tag</p>
+      <div v-if="cart.length" class="tag-cart-preview">
+        <span>组合预览</span
+        ><button
+          class="tag-cart-copy"
+          type="button"
+          @click="copy(prompt, `已复制 ${cart.length} 个 Tag`)"
+        >
+          <AppIcon name="tag-i-copy" />复制</button
+        ><code id="tagCartPrompt">{{ prompt }}</code>
       </div>
       <footer class="tag-cart-foot">
         <button
-          class="btn btn-primary btn-sm tag-cart-apply"
+          class="btn btn-primary tag-cart-apply"
           type="button"
           :disabled="!cart.length"
           @click="apply"
         >
           <AppIcon name="tag-i-send" />应用到生成器
         </button>
-        <div class="tag-cart-foot-row">
-          <button
-            class="btn btn-quiet btn-sm"
-            type="button"
-            :disabled="!cart.length"
-            @click="clear"
-          >
-            <AppIcon name="tag-i-trash" />清空</button
-          ><button
-            class="btn btn-quiet btn-sm"
-            type="button"
-            :disabled="!cart.length"
-            @click="copy(prompt, `已复制 ${cart.length} 个 Tag`)"
-          >
-            <AppIcon name="tag-i-copy" />复制
-          </button>
-        </div>
       </footer>
     </aside>
   </main>
   <button
+    v-if="cart.length"
+    ref="fab"
     class="tag-cart-fab"
+    :data-side="side"
     :inert="askFullscreen"
     type="button"
     aria-label="打开 Prompt 组合"
@@ -539,7 +692,7 @@ function turn(next: number) {
     :aria-expanded="shellTags.cartOpen"
     @click="shellTags.cartOpen = true"
   >
-    <AppIcon name="tag-i-cart" /><span>{{ cart.length }}</span></button
+    <b>组合</b><span>{{ cart.length }}</span></button
   ><button
     class="tag-cart-backdrop"
     :inert="askFullscreen"
@@ -547,4 +700,12 @@ function turn(next: number) {
     aria-label="关闭组合侧栏"
     @click="shellTags.cartOpen = false"
   ></button>
+  <TagSamples
+    v-if="peek"
+    :name="peek.name"
+    :kind="peek.kind"
+    :tier="tier"
+    :card="peek.card"
+    @close="closePeek"
+  />
 </template>

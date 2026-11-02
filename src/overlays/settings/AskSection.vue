@@ -30,9 +30,12 @@ const { router } = useShell(),
   ui = useUi();
 const local = connections.local;
 const read = () => readAskSettings(preferences.get(names.ask, null)),
-  readAdult = () => preferences.get<unknown>(names.askAdult, false) === true;
+  readFlag = (key: string) => preferences.get<unknown>(key, false) === true,
+  readAdult = () => readFlag(names.askAdult);
 const settings = shallowRef<AskSettings>(read()),
   adult = ref(readAdult()),
+  nsfw = ref(readFlag(names.askNsfw)),
+  r18 = ref(readFlag(names.askR18)),
   preference = ref(settings.value.preference);
 const sources = computed(() => reasoningConnections(props.routing)),
   selected = computed(() =>
@@ -67,6 +70,8 @@ const unsubscribe = preferences.subscribe((key) => {
     preference.value = settings.value.preference;
   }
   if (!key || key === names.askAdult) adult.value = readAdult();
+  if (!key || key === names.askNsfw) nsfw.value = readFlag(names.askNsfw);
+  if (!key || key === names.askR18) r18.value = readFlag(names.askR18);
 });
 onBeforeUnmount(unsubscribe);
 async function save(patch: Partial<AskSettings>) {
@@ -106,6 +111,16 @@ async function setAdult(event: Event) {
     await preferences.set(names.askAdult, checked(event));
   } catch (error) {
     adult.value = readAdult();
+    ui.toast(message(error), "err");
+  }
+}
+// The Tag dictionary's sample tiers under 自由创作; each keeps its state while a parent is off.
+async function setTier(key: typeof names.askNsfw | typeof names.askR18, event: Event) {
+  const target = key === names.askNsfw ? nsfw : r18;
+  try {
+    await preferences.set(key, checked(event));
+  } catch (error) {
+    target.value = readFlag(key);
     ui.toast(message(error), "err");
   }
 }
@@ -324,6 +339,38 @@ async function removeReplacement(rule: Replacement) {
           <template v-if="adult">
             <div class="s-row">
               <div>
+                <b><label for="askNsfw">NSFW</label></b>
+                <p>Tag 词典示例图加入 R15（Danbooru q 级）</p>
+              </div>
+              <label class="s-toggle" title="NSFW">
+                <input
+                  id="askNsfw"
+                  type="checkbox"
+                  role="switch"
+                  :checked="nsfw"
+                  @change="setTier(names.askNsfw, $event)"
+                />
+                <span class="switch" aria-hidden="true"></span>
+              </label>
+            </div>
+            <div v-if="nsfw" class="s-row">
+              <div>
+                <b><label for="askR18">R18</label></b>
+                <p>Tag 词典示例图加入 R18（Danbooru e 级）</p>
+              </div>
+              <label class="s-toggle" title="R18">
+                <input
+                  id="askR18"
+                  type="checkbox"
+                  role="switch"
+                  :checked="r18"
+                  @change="setTier(names.askR18, $event)"
+                />
+                <span class="switch" aria-hidden="true"></span>
+              </label>
+            </div>
+            <div class="s-row">
+              <div>
                 <b><label for="askAlwaysCodec">始终启用词表混淆</label></b>
                 <p>关闭时仅在被拦截后按需启用</p>
               </div>
@@ -425,7 +472,7 @@ async function removeReplacement(rule: Replacement) {
 }
 .s-field.ask-pick > select:focus { background-color: transparent; border-color: transparent; box-shadow: none; }
 .s-field.ask-pick > select:hover, .ask-link:hover:not(:disabled) { color: var(--fg); background-color: var(--hover); border-color: transparent; }
-.s-field.ask-pick > select:focus-visible { background-color: var(--hover); border-color: var(--a-line); box-shadow: var(--ring); }
+.s-field.ask-pick > select:focus-visible { background-color: var(--hover); border-color: var(--focus-line); box-shadow: var(--ring); }
 .ask-link {
   position: relative; display: inline-flex; align-items: center; max-width: 100%; white-space: nowrap;
   transition: color var(--t1) var(--e), background-color var(--t1) var(--e);

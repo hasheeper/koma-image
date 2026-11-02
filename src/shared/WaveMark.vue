@@ -1,12 +1,13 @@
 <script setup lang="ts">
 /* The workspace mark drawn tile by tile (same geometry as
    assets/icons.svg#mk-image / #mk-chat), so each tile can breathe in turn:
-   the delay is the tile's column plus row, a wave from the top-left. */
-type Tile = [x: number, y: number, size: number, radius: number, opacity: number, delay: number];
-const big = (x: number, y: number, d: number): Tile => [x, y, 6, 1.7, 1, d],
-  mid = (x: number, y: number, d: number): Tile => [x, y, 4.4, 1.1, 0.5, d],
-  dot = (x: number, y: number, d: number): Tile => [x, y, 3, 1.1, 0.24, d];
-const tiles: Record<"home" | "image" | "chat", Tile[]> = {
+   the delay is the tile's column plus row, a wave from the top-left.
+   Half and faint tiles take the theme's mark tones. */
+type Tile = [x: number, y: number, size: number, radius: number, opacity: string | undefined, delay: number];
+const big = (x: number, y: number, d: number): Tile => [x, y, 6, 1.7, undefined, d],
+  mid = (x: number, y: number, d: number): Tile => [x, y, 4.4, 1.1, "var(--mark-mid)", d],
+  dot = (x: number, y: number, d: number): Tile => [x, y, 3, 1.1, "var(--mark-faint)", d];
+const tiles: Record<"home" | "image" | "chat" | "tags", Tile[]> = {
   home: [dot(3, 3, 0), big(9, 1.5, 1), dot(18, 3, 2), big(1.5, 9, 1), big(9, 9, 2), big(16.5, 9, 3), big(1.5, 16.5, 2), dot(10.5, 18, 3), big(16.5, 16.5, 4)],
   image: [
     dot(3, 3, 0),
@@ -27,8 +28,9 @@ const tiles: Record<"home" | "image" | "chat", Tile[]> = {
     big(9, 9, 2),
     mid(17.3, 9.8, 3),
   ],
+  tags: [dot(3, 3, 0), big(9, 1.5, 1), dot(18, 3, 2), big(1.5, 9, 1), big(9, 9, 2), big(16.5, 9, 3), dot(3, 18, 2), big(9, 16.5, 3), dot(18, 18, 4)],
 };
-defineProps<{ surface: "home" | "image" | "chat" }>();
+defineProps<{ surface: "home" | "image" | "chat" | "tags" }>();
 </script>
 <template>
   <svg class="wave-mark" viewBox="0 0 24 24" aria-hidden="true">
@@ -40,8 +42,7 @@ defineProps<{ surface: "home" | "image" | "chat" }>();
       :width="size"
       :height="size"
       :rx="radius"
-      :opacity="opacity < 1 ? opacity : undefined"
-      :style="{ '--d': delay }"
+      :style="{ '--d': delay, opacity }"
     /><path
       v-if="surface === 'chat'"
       d="M1.5 16.5h4.6L1.5 21.5Z"

@@ -320,7 +320,7 @@ body[data-picker="open"] .picker-card { transform: none; }
   border-radius: var(--r2);
   transition: border-color var(--t1) var(--e), box-shadow var(--t1) var(--e);
 }
-.picker-search:focus-within { border-color: var(--a-line); box-shadow: var(--ring); }
+.picker-search:focus-within { border-color: var(--focus-line); box-shadow: var(--ring); }
 .picker-search > .ico { margin-left: 10px; color: var(--fg-4); }
 .picker-search input {
   flex: 1; width: auto;

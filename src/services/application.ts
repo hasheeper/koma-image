@@ -13,7 +13,7 @@ import { createPreferences } from "./preferences.ts";
 import { createBackupService } from "./backup.ts";
 import { createTagSearch } from "./tag-search.ts";
 import { normalizeCategories } from "../domain/tags.ts";
-import type { LocalGateway } from "../config/runtime.ts";
+import type { LocalGateway, LocalTagProxy } from "../config/runtime.ts";
 import { createSourcePriority } from "./source-priority.ts";
 import type { SourceOptions } from "./source-priority.ts";
 import type { CatalogModel } from "../domain/catalog.ts";
@@ -28,6 +28,7 @@ export function createApplicationServices(deps: {
   events?: Pick<Window, "addEventListener" | "removeEventListener">;
   channel?: BroadcastChannel;
   local?: LocalGateway;
+  tagProxy?: LocalTagProxy;
 }) {
   const scheduler = createScheduler(deps.locks);
   scheduler.pause();
@@ -44,6 +45,7 @@ export function createApplicationServices(deps: {
   const tags = createTagSearch(
     () => normalizeCategories(preferences.get(names.tagCategories, null)),
     deps.fetch,
+    deps.tagProxy,
   );
   const clients = new Map<string, ReturnType<typeof createGateway>>();
   const catalogs = new Map<string, import("../gateway/client.ts").GatewayCatalogCache>();

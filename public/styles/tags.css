@@ -1,180 +1,287 @@
 /* ══ Danbooru Tag dictionary ═══════════════════════════════════
-   Page-specific layout only. Buttons, badges, toasts, inputs and the
-   focus ring all come from styles.css so both pages stay one product;
-   anything defined here is either a layout concern or a genuine variant.
-   Spacing uses the shared --s* ladder — the earlier hand-picked pixel
-   values were what made this page read as a different codebase.
-   Breakpoints mirror styles.css (1080 / 860 / 480); diverging by 40px
-   left the topbar in its desktop size while the body had gone mobile. */
+   Page-specific layout only. Buttons, badges, menus, toasts, inputs and the
+   focus ring come from the shared sheets; anything defined here is either a
+   layout concern or a genuine variant. The page takes HOME's measurements:
+   one centred column, the search capsule and welcome card, and a right-hand
+   slot shared by the Prompt cart and an expanded ASK (AskDrawer pins it).
+   Breakpoints mirror styles.css (860 / 560). */
 
 .tags-body {
-  /* No image rail here: the shared topbar must not leave room for one. */
+  /* The logo floats; ASK and the cart start at the viewport's top edge. */
   --hist: 0px;
+  --bar-h: 0px;
   min-height: 100%;
   height: auto;
-  background:
-    radial-gradient(760px 380px at 46% -140px, var(--a-glow), transparent 72%),
-    var(--canvas);
+  background: var(--page-bg);
 }
-.tags-topbar {
-  background: color-mix(in srgb, var(--chrome) 91%, transparent);
-  backdrop-filter: blur(16px);
-}
-.tags-back { margin-left: auto; text-decoration: none; }
+/* The collapsed ASK launcher occupies the outermost 60px on the right. */
+.tags-nav { position: fixed; top: 12px; right: 72px; left: 16px; z-index: var(--z-sticky); display: flex; align-items: center; justify-content: space-between; pointer-events: none; }
+.tags-nav > * { pointer-events: auto; }
+.tags-nav :is(.switcher, .theme-toggle) { margin: 0; background: var(--raised); border: 1px solid var(--line-2); box-shadow: var(--sh-1); }
+.tags-nav .switcher:hover,
+.tags-nav .theme-toggle:hover,
+.tags-nav .switcher[aria-expanded="true"] { background: var(--hover); }
 
 /* ── Layout ──────────────────────────────────────────────────── */
-.tags-main {
-  width: min(1180px, calc(100% - var(--sp-6)));
-  margin: 0 auto;
-  padding: clamp(var(--sp-6), 5vw, 58px) 0 var(--sp-7);
+/* The slot is reserved on the right and the column centres in what is left,
+   as HOME does for its docked ASK. */
+.tags-main { overflow-x: clip; }
+.tags-content {
+  position: relative;
+  isolation: isolate;
+  display: flex;
+  flex-direction: column;
+  width: min(84%, 1080px);
+  margin-inline: auto;
+  padding-top: 12px;
+}
+/* Start: HOME's empty grid, the lockup a little above the middle. */
+.tags-main[data-state="initial"] .tags-content {
   display: grid;
-  grid-template-columns: minmax(0, 1fr) var(--cart);
-  align-items: start;
-  gap: var(--sp-5);
+  grid-template-rows: minmax(48px, 2fr) auto 32px auto minmax(48px, 3fr);
+  min-height: calc(100dvh - var(--bar-h));
+  padding-bottom: 36px;
 }
-.tags-content { min-width: 0; }
+.tags-main[data-state="initial"] .tags-hero { grid-row: 2; }
+.tags-main[data-state="initial"] .tags-card { grid-row: 4; margin-top: 0; }
+.tags-main[data-state="initial"] .tags-foot { grid-row: 5; align-self: end; margin: 0; padding: 0; }
+/* Keep the full brand lockup clear of search when the content column narrows. */
+.tags-main[data-side]:not([data-state="initial"]) .tags-content { padding-top: 68px; }
+@media (max-width: 1100px) {
+  .tags-main:not([data-state="initial"]) .tags-content { padding-top: 68px; }
+}
 
-/* ── Hero ────────────────────────────────────────────────────── */
-.tags-hero { width: 100%; }
-.tags-kicker {
-  margin-bottom: var(--sp-2);
-  color: var(--a);
-  font: var(--fw-medium) var(--fz-2xs)/1.4 var(--mono);
-  letter-spacing: 0.14em;
+/* HOME's light: around the capsule at the start, from the top afterwards.
+   Light themes set --ambient-ink to transparent and stay flat, as HOME does. */
+.tags-main[data-state="initial"] .tags-search::before {
+  position: absolute;
+  top: calc(50% - 12px);
+  left: 50%;
+  z-index: -1;
+  width: min(1240px, 175vw);
+  height: clamp(440px, 48vw, 640px);
+  content: "";
+  background: radial-gradient(closest-side, color-mix(in srgb, var(--ambient-ink) 8.1%, transparent), color-mix(in srgb, var(--ambient-ink) 5%, transparent) 22%, color-mix(in srgb, var(--ambient-ink) 2.5%, transparent) 45%, color-mix(in srgb, var(--ambient-ink) 0.9%, transparent) 70%, transparent);
+  transform: translate(-50%, -50%);
+  pointer-events: none;
 }
-.tags-hero h1 {
-  font-size: clamp(25px, 4vw, 34px);
-  line-height: 1.2;
-  letter-spacing: -0.03em;
+.tags-main:not([data-state="initial"]) .tags-content::before {
+  position: absolute;
+  top: 0;
+  left: 50%;
+  z-index: -1;
+  width: calc(100vw - var(--tag-reserve, 0px));
+  height: min(1040px, 115vh);
+  max-height: 100%;
+  content: "";
+  background: radial-gradient(ellipse 62% 78% at 50% -6%, color-mix(in srgb, var(--ambient-ink) 9.4%, transparent), color-mix(in srgb, var(--ambient-ink) 5.5%, transparent) 20%, color-mix(in srgb, var(--ambient-ink) 2.9%, transparent) 40%, color-mix(in srgb, var(--ambient-ink) 1%, transparent) 66%, transparent 90%);
+  transform: translateX(-50%);
+  pointer-events: none;
 }
-.tags-lede { margin-top: var(--sp-2); color: var(--fg-3); font-size: var(--fz-sm); }
 
-/* ── Search ──────────────────────────────────────────────────── */
-/* A composed field: the wrapper owns the chrome and focus ring so the
-   inner input, icon and submit button read as one control. */
+/* ── Lockup ──────────────────────────────────────────────────── */
+.tags-hero { position: relative; display: flex; flex-direction: column; align-items: center; }
+.tags-lock { display: inline-flex; align-items: center; gap: 12px; margin: 0 0 28px; }
+.tags-lock .wave-mark { width: 44px; height: 44px; }
+.tags-word { display: inline-flex; align-items: baseline; gap: 8px; line-height: 1; }
+.tags-word .brand-title { font-size: 40px; }
+.tags-word .brand-subtitle { font-size: 12px; letter-spacing: .16em; }
+
+/* ── Search capsule: HOME's question capsule ─────────────────── */
 .tags-search {
   position: relative;
   display: flex;
+  flex: none;
   align-items: center;
-  margin-top: var(--sp-5);
-  min-height: 50px;
-  background: color-mix(in srgb, var(--sunken) 95%, transparent);
+  gap: 12px;
+  width: min(100%, 720px);
+  height: 56px;
+  padding: 0 9px 0 20px;
+  background: var(--raised);
   border: 1px solid var(--line-2);
-  border-radius: var(--r3);
-  box-shadow: var(--sh-2), var(--sh-lip);
-  transition: border-color var(--t1) var(--e), box-shadow var(--t1) var(--e);
+  border-radius: 28px;
+  box-shadow: var(--sh-2);
+  transition: border-color var(--t1) var(--e);
 }
-.tags-search:focus-within {
-  border-color: var(--a-line);
-  box-shadow: var(--ring), var(--sh-2);
-}
-.tags-search > .ico { margin-left: var(--sp-4); color: var(--fg-4); }
-.tags-search input[type="search"] {
+.tags-search:focus-within { border-color: color-mix(in srgb, var(--a) 45%, var(--line-2)); }
+.tags-search > .ico { flex: none; --ico: var(--ico-lg); color: var(--fg-3); }
+.tags-search input[type="search"],
+.tags-search input[type="search"]:is(:hover, :focus) {
   flex: 1;
-  width: auto;
-  min-height: 48px;
-  padding: 10px var(--sp-3);
-  background: transparent;
+  width: 0;
+  height: 24px;
+  padding: 0;
+  color: var(--fg);
+  font: var(--fw-regular) var(--fz-md)/24px var(--sans);
+  background: none;
   border: 0;
-  border-radius: var(--r3);
+  border-radius: 0;
   box-shadow: none;
-  font-size: var(--fz-md);
 }
-.tags-search input:hover:not(:focus),
-.tags-search input:focus { background: transparent; box-shadow: none; }
-.tags-search .btn { align-self: stretch; margin: var(--sp-1); min-width: 66px; }
+.tags-search input[type="search"]::placeholder { color: var(--fg-3); }
+.tags-send { flex: none; width: 36px; height: 36px; margin-left: 4px; padding: 0; border-radius: 50%; }
+.tags-send .ico { --ico: var(--ico-md); stroke-width: var(--ico-stroke-strong); }
+.tags-search:has(input:placeholder-shown) .tags-send {
+  color: var(--fg-4);
+  background: color-mix(in srgb, var(--surface-tint) 7%, transparent);
+  pointer-events: none;
+}
+/* After a search the capsule steps down to toolbar height, the send button
+   staying concentric with its end. */
+.tags-main:not([data-state="initial"]) .tags-search { height: 44px; gap: 10px; padding: 0 5px 0 16px; border-radius: 22px; box-shadow: var(--sh-1); }
+.tags-main:not([data-state="initial"]) .tags-search > .ico { --ico: var(--ico-md); }
+.tags-main:not([data-state="initial"]) .tags-send { width: 32px; height: 32px; }
 
-/* ── Category filters ────────────────────────────────────────── */
-.tags-filters {
-  display: flex;
-  flex-wrap: wrap;
-  align-items: center;
-  gap: 6px;
-  margin-top: var(--sp-5);
-  padding-top: var(--sp-3);
-  border-top: 1px solid var(--line);
-}
-.tags-filter-label { margin-right: 2px; color: var(--fg-4); font-size: var(--fz-2xs); }
+/* ── Types: a row under the capsule at the start, its menu afterwards ── */
+.tags-filters { display: flex; flex-wrap: wrap; justify-content: center; gap: 8px; margin-top: 12px; }
 .tag-filter {
   display: inline-flex;
   align-items: center;
-  gap: 6px;
-  min-height: 28px;
-  padding: var(--sp-1) 9px;
+  gap: 7px;
+  height: 34px;
+  padding: 0 14px;
   color: var(--fg-4);
-  background: transparent;
+  font-size: var(--fz-sm);
   border: 1px solid var(--line);
-  border-radius: 20px;
-  font-size: var(--fz-2xs);
+  border-radius: 18px;
   transition: color var(--t1) var(--e), background var(--t1) var(--e),
     border-color var(--t1) var(--e), transform var(--t1) var(--e);
 }
 .tag-filter .tag-category-dot { filter: grayscale(1); opacity: 0.5; transition: opacity var(--t1) var(--e); }
-.tag-filter:hover { color: var(--fg-2); border-color: var(--line-2); }
+.tag-filter:hover { color: var(--fg); background: var(--hover); border-color: var(--line-2); }
 .tag-filter:active { transform: scale(0.96); }
-.tag-filter[aria-pressed="true"] {
-  color: var(--fg-2);
-  background: var(--raised);
-  border-color: var(--line-2);
-}
+.tag-filter[aria-pressed="true"] { color: var(--fg-2); background: var(--raised); border-color: var(--line-2); }
 .tag-filter[aria-pressed="true"] .tag-category-dot { filter: none; opacity: 1; }
-.tags-filter-sync {
-  margin-left: auto;
-  color: var(--fg-4);
-  font: var(--fw-regular) var(--fz-2xs)/1.4 var(--mono);
+/* Read like HOME's model picker at the capsule's end. */
+.tag-type {
+  display: inline-flex;
+  flex: 0 1 auto;
+  align-items: center;
+  gap: 2px;
+  min-width: 0;
+  max-width: 220px;
+  height: 28px;
+  padding-left: 8px;
+  color: var(--fg-3);
+  font: var(--fw-regular) 12px/1 var(--sans);
+  border-radius: 8px;
+  transition: color var(--t1) var(--e), background var(--t1) var(--e);
 }
+.tag-type:hover,
+.tag-type[aria-expanded="true"] { color: var(--fg); background: var(--hover); }
+.tag-type-name { min-width: 0; overflow: hidden; line-height: 1.4; text-overflow: ellipsis; white-space: nowrap; }
+.tag-type .ico { flex: none; --ico: var(--ico-xs); color: var(--fg-4); transform: rotate(90deg); }
+.menu.popover-menu.tag-types-menu { width: 208px; }
+.tag-types-note { padding: 3px 8px 4px; color: var(--fg-4); font-size: var(--fz-2xs); }
+
+/* ── Welcome card: start, no match and failure ───────────────── */
+.tags-card {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  width: min(100%, 720px);
+  height: 176px;
+  margin: 32px auto 0;
+  padding: 16px 18px;
+  color: var(--fg-2);
+  text-align: center;
+  background: var(--chrome);
+  border: 1px solid color-mix(in srgb, var(--line-2) 70%, transparent);
+  border-radius: var(--r4);
+}
+.tags-card-art { display: block; flex: none; width: 80px; height: 80px; margin: 0 auto 4px; }
+.tags-card-art > rect { stroke: var(--a); }
+.tags-card[data-state="error"] .tags-card-art > rect { stroke: var(--err); }
+.tags-card h2 { align-self: stretch; margin: 0; overflow: hidden; color: var(--fg-2); font-size: 15px; font-weight: var(--fw-medium); line-height: 20px; text-overflow: ellipsis; white-space: nowrap; }
+.tags-card p { align-self: stretch; color: var(--fg-3); font-size: 12px; line-height: 18px; }
+.tags-retry { margin-left: 6px; color: var(--a); }
+.tags-retry:hover:not(:disabled) { text-decoration: underline; }
 
 /* ── Results ─────────────────────────────────────────────────── */
-.tags-results { margin-top: var(--sp-6); min-height: 260px; }
-.tags-results-head {
-  display: flex;
+.tags-results { margin-top: 32px; container-type: inline-size; }
+/* HOME's section head: title with a count pill. */
+.tags-results-head { display: flex; align-items: center; gap: 10px; margin-bottom: 16px; }
+.tags-results-head h2 { min-width: 0; margin: 0; overflow: hidden; color: var(--fg); font-size: 18px; font-weight: var(--fw-semibold); line-height: 32px; text-overflow: ellipsis; white-space: nowrap; }
+.tags-results-head > span {
+  display: inline-flex;
+  flex: none;
   align-items: center;
-  justify-content: space-between;
-  gap: var(--sp-3);
-  margin-bottom: 9px;
-  color: var(--fg-4);
-  font-size: var(--fz-xs);
-}
-.tags-results-head span { font: var(--fw-regular) var(--fz-2xs)/1.4 var(--mono); }
-.tags-grid { display: grid; grid-template-columns: 1fr; gap: 6px; }
-
-/* Whole card is the add target. It used to lift on hover while only the
-   three trailing buttons responded, which promised more than it did. */
-.tag-card {
-  display: grid;
-  grid-template-columns: minmax(0, 1fr) auto;
-  align-items: center;
-  min-height: 60px;
-  width: 100%;
+  height: 22px;
+  margin-top: 2px;
+  padding: 0 8px;
   color: var(--fg-2);
-  text-align: left;
+  font: var(--fw-medium) var(--fz-xs)/1 var(--mono);
+  background: var(--raised);
+  border-radius: 11px;
+}
+/* A post keeps artist, characters and copyright beside its preview;
+   the wrapping pool below contains only general tags. */
+.tag-post { display: grid; grid-template-columns: minmax(0, 320px) minmax(0, 1fr); align-items: start; gap: 28px; }
+.tag-post-thumb { position: relative; display: grid; place-items: center; width: 100%; max-height: 280px; aspect-ratio: var(--post-aspect, 3 / 2); overflow: hidden; color: var(--fg-4); background: var(--stage); border-radius: var(--r3); box-shadow: var(--print-shadow); }
+.tag-post-thumb img { display: block; width: 100%; height: 100%; min-height: 0; object-fit: contain; }
+.tag-post-thumb:focus-visible { outline: 2px solid var(--focus-line); outline-offset: 2px; }
+.tag-post-mark { position: absolute; top: 8px; left: 8px; height: 16px; padding: 0 4px; color: var(--media-ink); font: var(--fw-semibold) 10px/16px var(--mono); letter-spacing: .02em; background: color-mix(in srgb, var(--media-surface) 45%, transparent); border-radius: 4px; box-shadow: inset 0 0 0 .5px color-mix(in srgb, var(--media-ink) 28%, transparent); backdrop-filter: blur(8px) saturate(1.4); }
+.tag-post-meta { display: flex; flex-direction: column; gap: 16px; min-width: 0; }
+.tag-post-heading { display: flex; align-items: start; justify-content: space-between; gap: 12px; padding-bottom: 14px; border-bottom: 1px solid var(--line); }
+.tag-post-heading > div { min-width: 0; }
+.tag-post-heading > .ibtn { flex: none; }
+.tag-post-heading h2 { margin: 0 0 5px; color: var(--fg); font-size: 18px; font-weight: var(--fw-semibold); line-height: 1.5; overflow-wrap: anywhere; }
+.tag-post-heading p { margin: 0; color: var(--fg-3); font: var(--fw-regular) var(--fz-xs)/1.5 var(--mono); }
+.tag-post-identity { display: grid; grid-template-columns: 64px minmax(0, 1fr); align-items: baseline; gap: 10px; }
+.tag-group-head { display: flex; align-items: center; gap: 8px; margin: 0 0 12px; color: var(--fg-2); font-size: var(--fz-sm); font-weight: var(--fw-semibold); line-height: 20px; }
+.tag-post-identity .tag-group-head { margin: 0; white-space: nowrap; }
+.tag-group-head span { color: var(--fg-4); font: var(--fw-regular) var(--fz-2xs)/1 var(--mono); }
+.tag-post-note { margin: 20px 0 0; color: var(--fg-3); font-size: var(--fz-xs); line-height: 1.5; }
+.tag-post-note + .tag-result-group { margin-top: 20px; }
+.tag-result-group + .tag-result-group { margin-top: 28px; padding-top: 20px; border-top: 1px solid var(--line); }
+.tag-chip-list { display: flex; flex-wrap: wrap; align-items: start; gap: 6px; min-width: 0; }
+/* Respond to the available content width, including when ASK/cart is docked. */
+@container (max-width: 760px) {
+  .tag-post { grid-template-columns: minmax(0, 220px) minmax(0, 1fr); gap: 20px; }
+  .tag-post-identity { grid-template-columns: minmax(0, 1fr); gap: 6px; }
+}
+@container (max-width: 520px) {
+  .tag-post { grid-template-columns: minmax(0, 1fr); gap: 20px; }
+  .tag-post-thumb { max-height: 240px; }
+  .tag-post-meta { gap: 12px; }
+  .tag-post-identity { grid-template-columns: 64px minmax(0, 1fr); }
+}
+/* 24 a page fills every row from one to four columns. */
+.tags-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(min(100%, 248px), 1fr)); gap: 12px; }
+
+/* Whole card is the add target. */
+.tag-card {
+  position: relative;
+  display: flex;
+  align-items: flex-start;
+  min-width: 0;
+  color: var(--fg-2);
   background: color-mix(in srgb, var(--chrome) 78%, transparent);
   border: 1px solid var(--line);
-  border-radius: var(--r2);
+  border-radius: var(--r3);
   transition: background var(--t1) var(--e), border-color var(--t1) var(--e),
     transform var(--t1) var(--e);
 }
 .tag-card:hover { background: var(--chrome); border-color: var(--line-2); transform: translateY(-1px); }
-.tag-card:has(.tag-add[aria-pressed="true"]) {
-  border-color: var(--a-line);
-  background: var(--a-dim);
-}
+.tag-card:has(.tag-add[aria-pressed="true"]) { border-color: var(--a-line); background: var(--a-dim); }
+/* The text and one always-visible menu trigger own separate columns. */
 .tag-card-info {
   display: grid;
+  flex: 1;
   grid-template-columns: minmax(0, 1fr) auto;
-  align-items: center;
-  gap: var(--sp-4);
+  grid-template-areas: "name name" "cn meta";
+  align-items: baseline;
+  gap: 5px 10px;
   min-width: 0;
-  width: 100%;
-  height: 100%;
-  padding: 9px 6px 9px var(--sp-3);
+  padding: 14px 16px;
   color: inherit;
   text-align: left;
-  border-radius: var(--r2);
+  border-radius: var(--r3);
 }
 .tag-card-info:active { transform: scale(0.995); }
-/* Membership is carried by the check glyph as well as the tint, so the state
-   does not rest on colour alone. */
+/* Membership is carried by the check glyph as well as the tint. */
 .tag-add[aria-pressed="true"] .tag-card-names strong::after {
   content: "";
   display: inline-block;
@@ -184,12 +291,14 @@
   clip-path: polygon(19% 52%, 36% 68%, 82% 22%, 92% 33%, 37% 87%, 8% 60%);
   vertical-align: baseline;
 }
-.tag-card-names { display: grid; gap: 3px; overflow: hidden; }
+.tag-card-names { display: contents; }
 .tag-card-names strong,
-.tag-card-names span { overflow: hidden; white-space: nowrap; text-overflow: ellipsis; }
-.tag-card-names strong { font: var(--fw-medium) var(--fz-sm)/1.35 var(--mono); color: var(--fg); }
-.tag-card-names span { color: var(--fg-3); font-size: var(--fz-xs); }
+.tag-card-names span { min-width: 0; overflow: hidden; white-space: nowrap; text-overflow: ellipsis; }
+.tag-card-names strong { grid-area: name; color: var(--fg); font: var(--fw-medium) var(--fz-sm)/1.35 var(--mono); }
+.tag-card-names span { grid-area: cn; color: var(--fg-3); font-size: var(--fz-xs); }
 .tag-card-meta {
+  grid-area: meta;
+  justify-self: end;
   display: inline-flex;
   align-items: center;
   gap: 6px;
@@ -197,26 +306,23 @@
   font: var(--fw-regular) var(--fz-2xs)/1.3 var(--mono);
   white-space: nowrap;
 }
-.tag-card-actions { display: flex; align-items: center; gap: 2px; padding: var(--sp-1) 6px var(--sp-1) 0; }
-/* Trailing cluster: centred tooltips would spill past the row's right edge,
-   the same reason the topbar and stage tools right-align theirs. */
+/* One consistent action slot for mouse, keyboard and touch. */
+.tag-card > .tag-card-actions { flex: none; margin: 8px 8px 0 0; }
 .tag-card-actions [data-tip]::after { left: auto; right: 0; transform: translate(0, -3px); }
 .tag-card-actions [data-tip]:hover::after { transform: translate(0, 0); }
-/* Reveal on hover keeps the row calm; the touch fallback below keeps it
-   reachable where hover does not exist. */
-.tag-card-actions .ibtn { opacity: 0; transition: opacity var(--t1) var(--e), color var(--t1) var(--e), background var(--t1) var(--e); }
-.tag-card:hover .tag-card-actions .ibtn,
-.tag-card:focus-within .tag-card-actions .ibtn,
-.tag-card-actions .ibtn:focus-visible { opacity: 1; }
+.tag-more[aria-expanded="true"] { color: var(--fg); background: var(--hover); }
 
-.tags-empty {
-  padding: 48px var(--sp-4);
-  color: var(--fg-4);
-  text-align: center;
-  background: var(--sunken);
-  border: 1px dashed var(--line);
-  border-radius: var(--r3);
-}
+/* Post chips share the same menu and selection without repeated category
+   or count rows. Both names use the whole text column and may wrap. */
+.tag-card-chip { background: color-mix(in srgb, var(--surface-tint) 3%, transparent); border-color: transparent; border-radius: var(--r2); }
+.tag-card-chip:hover { transform: none; background: var(--hover); border-color: transparent; }
+.tag-card-chip { align-items: center; max-width: 100%; }
+.tag-card-chip .tag-card-info { display: block; flex: 1; width: auto; min-width: 0; padding: 7px 8px 7px 10px; border-radius: inherit; }
+.tag-card-chip .tag-card-names { display: flex; flex-wrap: wrap; align-items: baseline; gap: 2px 7px; }
+.tag-card-chip .tag-card-names strong,
+.tag-card-chip .tag-card-names span { overflow: visible; white-space: normal; overflow-wrap: anywhere; }
+.tag-card-chip > .tag-card-actions { margin: 0 3px 0 0; }
+.tag-card-chip .tag-more { --ico: var(--ico-sm); }
 
 .tag-pagination {
   display: flex;
@@ -225,7 +331,6 @@
   gap: var(--sp-3);
   margin-top: var(--sp-4);
 }
-.tag-pagination[hidden] { display: none; }
 .tag-pagination > span {
   min-width: 48px;
   color: var(--fg-4);
@@ -233,154 +338,214 @@
   text-align: center;
 }
 
-.tags-foot {
-  margin-top: var(--sp-6);
-  padding-top: var(--sp-3);
-  border-top: 1px solid var(--line);
-  color: var(--fg-4);
-  font-size: var(--fz-2xs);
-}
+.tags-foot { margin-top: 32px; padding-bottom: 24px; color: var(--fg-3); font-size: var(--fz-xs); text-align: center; }
 
 /* ── Prompt cart ─────────────────────────────────────────────── */
-.tag-cart {
-  position: sticky;
-  top: 58px;
-  display: grid;
-  grid-template-rows: auto minmax(0, 1fr) auto auto;
-  height: min(720px, calc(100dvh - 74px));
-  min-height: 360px;
-  background: color-mix(in srgb, var(--chrome) 96%, transparent);
-  border: 1px solid var(--line);
-  border-radius: var(--r3);
-  box-shadow: var(--sh-2), var(--sh-lip);
-  overflow: hidden;
-}
-.tag-cart-head {
-  grid-row: 1;
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: var(--sp-3);
-  min-height: 46px;
-  padding: 0 var(--sp-2) 0 var(--sp-3);
-  border-bottom: 1px solid var(--line);
-}
-.tag-cart-head > div { display: flex; align-items: center; gap: var(--sp-2); }
-.tag-cart-head strong { font-size: var(--fz-sm); font-weight: var(--fw-semibold); }
-.tag-cart-close { display: none; }
+/* Each Tag a small card in the result cards' family; the weight is one field
+   in the app's field material. Preview and apply share one foot on the card
+   surface; clearing, which asks first, sits in the head. */
+.tag-cart { display: flex; flex-direction: column; min-height: 0; overflow: hidden; background: var(--chrome); }
+.tag-cart-head { display: flex; flex: none; align-items: center; gap: 2px; min-height: 46px; padding: 0 8px 0 12px; }
+.tag-cart-head > div { display: flex; align-items: center; gap: var(--sp-2); margin-right: auto; }
+.tag-cart-head strong { color: var(--fg); font-size: var(--fz-sm); font-weight: var(--fw-semibold); }
+.tag-cart-head .ibtn { color: var(--fg-3); }
+.tag-cart-head .ibtn:hover:not(:disabled) { color: var(--fg); }
+.tag-cart-clear:hover:not(:disabled) { color: var(--err); background: var(--err-dim); }
+.tag-cart-clear:disabled { opacity: 0.4; }
 
-/* The list and the empty note share one cell. Both need the column: an item
-   fixed only to a row is pushed into a new column when its cell is taken. */
 .tag-cart-list {
-  grid-row: 2;
-  grid-column: 1;
+  flex: 1 1 auto;
+  display: grid;
+  align-content: start;
+  gap: 6px;
   min-height: 0;
+  padding: 2px 12px 12px;
   overflow-y: auto;
   overscroll-behavior: contain;
-  scrollbar-gutter: stable;
 }
 .tag-cart-item {
+  --well: var(--well-raised);
+  --well-focus: var(--well-raised-focus);
   display: grid;
-  gap: 9px;
-  padding: 10px var(--sp-3);
-  border-bottom: 1px solid var(--line);
+  grid-template-columns: minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 10px;
+  padding: 8px 6px 8px 12px;
+  background: var(--raised);
+  border: 1px solid var(--line);
+  border-radius: var(--r3);
+  box-shadow: var(--card-shadow);
+  transition: border-color var(--t1) var(--e);
 }
+.tag-cart-item:hover { border-color: var(--line-2); }
 .tag-cart-item-names { display: grid; gap: 2px; overflow: hidden; }
 .tag-cart-item-names strong,
 .tag-cart-item-names span { overflow: hidden; white-space: nowrap; text-overflow: ellipsis; }
-.tag-cart-item-names strong { color: var(--fg-2); font: var(--fw-medium) var(--fz-xs)/1.35 var(--mono); }
+.tag-cart-item-names strong { color: var(--fg); font: var(--fw-medium) var(--fz-xs)/1.35 var(--mono); }
 .tag-cart-item-names span { color: var(--fg-4); font-size: var(--fz-2xs); }
 
-.tag-weight { display: flex; align-items: center; gap: var(--sp-1); }
-.tag-weight > span { margin-right: auto; color: var(--fg-4); font-size: var(--fz-2xs); }
-.tag-weight input[type="number"] {
-  width: 46px;
-  height: 27px;
-  padding: 3px var(--sp-1);
+.tag-weight { position: relative; isolation: isolate; display: flex; align-items: center; }
+.tag-weight::before {
+  position: absolute;
+  inset: 0 28px 0 0;
+  z-index: -1;
+  content: "";
+  background: var(--well);
+  border: 1px solid var(--field-line);
+  border-radius: var(--r2);
+  box-shadow: var(--field-shadow);
+  transition: border-color var(--t1) var(--e);
+}
+.tag-weight:hover::before { border-color: var(--field-line-hover); }
+.tag-weight:focus-within::before { background: var(--well-focus); border-color: var(--focus-line); }
+.tag-weight .tag-weight-step { width: 24px; height: 24px; margin: 2px; color: var(--fg-3); border-radius: var(--r1); }
+.tag-weight .tag-weight-step:hover { color: var(--fg); background: var(--hover); }
+.tag-weight input[type="number"],
+.tag-weight input[type="number"]:is(:hover, :focus) {
+  width: 30px;
+  height: 24px;
+  padding: 0;
+  color: var(--fg);
+  font: var(--fw-medium) var(--fz-2xs)/24px var(--mono);
   text-align: center;
-  color: var(--fg-2);
-  background: var(--sunken);
-  border-radius: var(--r1);
-  font-size: var(--fz-2xs);
+  background: none;
+  border: 0;
+  box-shadow: none;
 }
 .tag-weight input[type="number"]::-webkit-inner-spin-button { display: none; }
-.tag-cart-remove:hover { color: var(--err); background: var(--err-dim); }
+.tag-weight .tag-cart-remove { width: 24px; height: 24px; margin-left: 4px; color: var(--fg-4); }
+.tag-weight .tag-cart-remove:hover { color: var(--err); background: var(--err-dim); }
 
-.tag-cart-empty {
-  grid-row: 2;
-  grid-column: 1;
-  align-self: center;
-  padding: var(--sp-5);
-  color: var(--fg-4);
-  text-align: center;
-  font-size: var(--fz-xs);
-}
-.tag-cart-empty[hidden] { display: none; }
+.tag-cart-empty { flex: 1 1 auto; display: grid; place-items: center; padding: var(--sp-5); color: var(--fg-4); font-size: var(--fz-xs); text-align: center; }
 
 .tag-cart-preview {
-  grid-row: 3;
-  padding: 9px var(--sp-3);
+  flex: none;
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 6px 8px;
+  padding: 10px 12px 0;
+  background: var(--raised);
   border-top: 1px solid var(--line);
-  background: var(--sunken);
 }
-.tag-cart-preview[hidden] { display: none; }
-.tag-cart-preview > span {
-  display: block;
-  margin-bottom: var(--sp-1);
-  color: var(--fg-4);
-  font-size: var(--fz-2xs);
-}
+.tag-cart-preview > span { color: var(--fg-2); font: var(--fw-medium) var(--fz-xs)/24px var(--sans); }
 .tag-cart-preview code {
+  grid-column: 1 / -1;
   display: -webkit-box;
   -webkit-box-orient: vertical;
-  -webkit-line-clamp: 3;
-  max-height: 56px;
+  -webkit-line-clamp: 4;
   overflow: hidden;
-  color: var(--fg-3);
-  font: var(--fw-regular) var(--fz-2xs)/1.45 var(--mono);
+  padding: 0;
+  color: var(--fg);
+  font: var(--fw-regular) var(--fz-xs)/1.6 var(--mono);
+  background: none;
+  border: 0;
   overflow-wrap: anywhere;
 }
-.tag-cart-foot {
-  grid-row: 4;
-  display: grid;
-  gap: var(--sp-2);
-  padding: 9px;
-  border-top: 1px solid var(--line);
-}
-.tag-cart-foot-row { display: grid; grid-template-columns: 1fr 1fr; gap: var(--sp-2); }
-.tag-cart-apply .ico { --ico: var(--ico-sm); }
+.tag-cart-copy { display: inline-flex; align-items: center; gap: 4px; height: 24px; margin-right: -6px; padding: 0 6px; color: var(--fg-3); font-size: var(--fz-2xs); border-radius: var(--r1); }
+.tag-cart-copy .ico { --ico: var(--ico-sm); }
+.tag-cart-copy:hover { color: var(--fg); background: var(--hover); }
+.tag-cart-foot { flex: none; padding: 12px; }
+.tag-cart-preview + .tag-cart-foot { padding-top: 14px; background: var(--raised); }
+.tag-cart-apply { width: 100%; height: 36px; gap: 8px; font-size: var(--fz-sm); border-radius: var(--r3); }
+.tag-cart-apply .ico { --ico: var(--ico-md); }
 
-.tag-cart-fab,
+/* The capsule: the panel's name with the count in a soft disc, bottom right
+   once something is collected. */
+.tag-cart-fab {
+  position: fixed;
+  right: 20px;
+  bottom: 20px;
+  z-index: var(--z-sticky);
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  height: 44px;
+  padding: 0 6px 0 16px;
+  color: var(--a-ink);
+  background: var(--a);
+  border-radius: 22px;
+  box-shadow: var(--sh-2);
+  animation: tagFabIn .32s cubic-bezier(.32, .72, 0, 1);
+  transition: right .52s cubic-bezier(.32, .72, 0, 1), background var(--t1) var(--e),
+    opacity .2s var(--e), transform .2s var(--e);
+}
+.tag-cart-fab:hover { background: var(--a-hover); }
+.tag-cart-fab:active { transform: scale(0.96); }
+.tag-cart-fab b { font: var(--fw-semibold) var(--fz-sm)/1 var(--sans); }
+.tag-cart-fab span {
+  display: grid;
+  place-items: center;
+  min-width: 28px;
+  height: 28px;
+  padding: 0 8px;
+  font: var(--fw-semibold) var(--fz-xs)/1 var(--sans);
+  font-variant-numeric: tabular-nums;
+  background: color-mix(in srgb, var(--a-ink) 16%, transparent);
+  border-radius: 14px;
+}
+@keyframes tagFabIn { from { opacity: 0; transform: scale(.6); } }
 .tag-cart-backdrop { display: none; }
 
-/* ── Tablet ──────────────────────────────────────────────────── */
-@media (max-width: 1080px) {
-  :root { --cart: 268px; }
+/* ── Wide: the cart opens into the shared side slot ──────────── */
+@media (min-width: 861px) {
+  .tags-main { padding-right: var(--tag-reserve, 0px); transition: padding-right .52s cubic-bezier(.32, .72, 0, 1); }
+  .tags-main[data-side] { --tag-reserve: calc(var(--cart) + 12px); }
+  .tag-cart {
+    position: fixed;
+    top: calc(var(--bar-h) + 12px);
+    right: 12px;
+    bottom: 12px;
+    z-index: var(--z-sticky);
+    width: var(--cart);
+    border-radius: 18px;
+    box-shadow: 0 0 0 1px var(--line-2);
+    visibility: hidden;
+    transform: translateX(calc(100% + 24px));
+    transition: transform .52s cubic-bezier(.32, .72, 0, 1), visibility 0s .52s;
+  }
+  .tags-main[data-side="cart"] .tag-cart { visibility: visible; transform: none; transition: transform .52s cubic-bezier(.32, .72, 0, 1); }
+  /* Stays under the opening ASK, hidden once ASK has grown over the slot. */
+  .tags-main[data-side="ask"] .tag-cart { transform: none; transition: visibility 0s .52s; }
+  /* Room at the end of the head for the ASK launcher. */
+  .tag-cart-head { min-height: 52px; padding: 0 58px 0 16px; }
+  /* The capsule turns into the slot when opened and steps aside while ASK holds it. */
+  .tag-cart-fab[data-side="cart"] {
+    visibility: hidden;
+    opacity: 0;
+    transform: scale(.88);
+    pointer-events: none;
+    transition: right .52s cubic-bezier(.32, .72, 0, 1), opacity .2s var(--e),
+      transform .2s var(--e), visibility 0s .2s;
+  }
+  .tag-cart-fab[data-side="ask"] { right: calc(var(--cart) + 24px); }
 }
 
-/* ── Mobile: cart becomes a bottom sheet ─────────────────────── */
+/* ── Narrow: the cart is a bottom sheet ──────────────────────── */
 @media (max-width: 860px) {
-  .tags-main {
-    width: calc(100% - var(--sp-5));
-    display: block;
-    padding-top: var(--sp-6);
-  }
-  .tags-hero h1 { font-size: 26px; }
-  .tags-search { margin-top: var(--sp-5); }
-  .tags-search .btn { min-width: 58px; }
-  .tags-filter-sync { width: 100%; margin: 1px 0 0; }
-  .tags-results { margin-top: var(--sp-5); }
-  .tag-card-info { gap: var(--sp-2); padding-left: 10px; }
-  .tag-card-actions { gap: 0; padding-right: 2px; }
+  .tags-main { width: calc(100% - 32px); margin: 0 auto; }
+  .tags-content { width: auto; }
+  .tags-main[data-state="initial"] .tags-content { grid-template-rows: minmax(56px, 1fr) auto 28px auto minmax(48px, 2fr); padding-top: 24px; }
+  .tags-lock { margin-bottom: 24px; }
+  .tags-search { height: 50px; gap: 10px; padding: 0 7px 0 16px; border-radius: 25px; }
+  .tag-filter { height: 36px; }
+  .tag-type { max-width: 112px; height: 36px; }
+  .tags-card { height: 160px; margin-top: 24px; padding: 10px 14px; }
+  /* The full logo and ASK float above a full-width search field. */
+  .tags-main:not([data-state="initial"]) .tags-search { width: 100%; }
+  .tags-results { margin-top: 24px; }
   .tags-foot { line-height: 1.6; }
 
   .tag-cart {
     position: fixed;
     z-index: var(--z-modal);
     inset: auto var(--sp-2) var(--sp-2);
-    height: min(72dvh, 620px);
-    min-height: 320px;
+    max-height: min(72dvh, 620px);
     padding-bottom: env(safe-area-inset-bottom);
+    border: 1px solid var(--line);
+    border-radius: var(--r4);
+    box-shadow: var(--sh-2), var(--sh-lip);
     visibility: hidden;
     opacity: 0;
     transform: translateY(calc(100% + var(--sp-5)));
@@ -394,16 +559,18 @@
     transform: none;
     transition-delay: 0s;
   }
-  .tag-cart-close { display: inline-grid; }
+  /* The sheet sizes to its rows instead of standing at a fixed height. */
+  .tag-cart-list { flex: 0 1 auto; padding-inline: 8px; }
+  .tag-cart-empty { flex: none; }
+  .tag-cart-preview { padding-inline: 8px; }
+  .tag-cart-foot { padding: 12px 8px 8px; }
+  .tag-cart-preview + .tag-cart-foot { padding-top: 14px; }
 
   .tag-cart-backdrop {
     display: block;
     position: fixed;
     inset: 0;
     z-index: var(--z-scrim);
-    padding: 0;
-    border: 0;
-    border-radius: 0;
     background: color-mix(in srgb, var(--scrim) 72%, transparent);
     backdrop-filter: blur(4px);
     opacity: 0;
@@ -417,43 +584,20 @@
     pointer-events: auto;
     transition-delay: 0s;
   }
-
-  .tag-cart-fab {
-    display: inline-flex;
-    align-items: center;
-    justify-content: center;
-    gap: var(--sp-2);
-    position: fixed;
-    right: var(--sp-4);
-    bottom: calc(var(--sp-4) + env(safe-area-inset-bottom));
-    z-index: var(--z-sticky);
-    min-width: 46px;
-    height: 46px;
-    padding: 0 var(--sp-3);
-    color: var(--a-ink);
-    background: var(--a);
-    border-radius: 20px;
-    box-shadow: var(--sh-2);
-    transition: background var(--t1) var(--e), transform var(--t1) var(--e);
-  }
-  .tag-cart-fab:active { transform: scale(0.96); }
-  .tag-cart-fab .ico { --ico: var(--ico-md); }
-  .tag-cart-fab span { font: var(--fw-semibold) var(--fz-2xs)/1 var(--mono); }
+  .tag-cart-fab { right: var(--sp-4); bottom: calc(var(--sp-4) + env(safe-area-inset-bottom)); }
 }
 
-/* ── Small phones ────────────────────────────────────────────── */
-@media (max-width: 480px) {
-  .tag-card { min-height: 66px; }
-  .tag-card-info { grid-template-columns: minmax(0, 1fr); gap: 3px; }
-  .tag-card-meta { justify-self: start; }
-  .tag-card-actions { align-self: stretch; align-items: center; }
-  .tag-cart-foot-row { grid-template-columns: 1fr 1fr; }
+@media (max-width: 560px) {
+  .tags-lock { gap: 10px; }
+  .tags-lock .wave-mark { width: 38px; height: 38px; }
+  .tags-word { gap: 7px; }
+  .tags-word .brand-title { font-size: 34px; }
+  .tags-word .brand-subtitle { font-size: 11px; }
+  .tags-filters { gap: 6px; }
+  .tag-filter { padding: 0 11px; }
 }
 
 /* ── Touch ───────────────────────────────────────────────────── */
-/* Row actions are hover-revealed on pointer devices; without this they
-   would be invisible and unreachable on touch. */
 @media (hover: none) {
-  .tag-card-actions .ibtn { opacity: 1; }
   .tag-card:hover { transform: none; background: color-mix(in srgb, var(--chrome) 78%, transparent); border-color: var(--line); }
 }

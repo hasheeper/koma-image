@@ -76,7 +76,7 @@ export async function packageRelease(output = join(root, ".local/releases")) {
     // Generate a blank template instead of copying any locally edited environment file.
     await writeFile(
       join(stage, ".env.example"),
-      "KOMA_GATEWAY_URL=\nKOMA_GATEWAY_KEY=\nKOMA_ASK_OPENAI_URL=\nKOMA_ASK_OPENAI_KEY=\nKOMA_ASK_ANTHROPIC_URL=\nKOMA_ASK_ANTHROPIC_KEY=\nKOMA_PORT=3218\nKOMA_BASE_PATH=/\n",
+      "KOMA_GATEWAY_URL=\nKOMA_GATEWAY_KEY=\nKOMA_ASK_OPENAI_URL=\nKOMA_ASK_OPENAI_KEY=\nKOMA_ASK_ANTHROPIC_URL=\nKOMA_ASK_ANTHROPIC_KEY=\nKOMA_PORT=3218\nKOMA_BASE_PATH=/\nHTTPS_PROXY=\nNO_PROXY=localhost,127.0.0.1,::1\n",
     );
     await cp(join(root, "docs/release-guide.md"), join(stage, "README.md"));
     await writeFile(

@@ -1,9 +1,9 @@
 <script setup lang="ts">
 import { computed, onBeforeUnmount, ref, watch } from "vue";
-import { useNaiComposer } from "../app/nai-composer";
-import { compileNaiPrompt } from "../domain/nai";
-import { naiInputLimits, naiInputParts, naiTextLength } from "../domain/nai-input";
-import { countNaiTokens } from "../native/nai-tokenizer";
+import { useNaiComposer } from "../../app/nai-composer";
+import { compileNaiPrompt } from "../../domain/nai";
+import { naiInputLimits, naiInputParts, naiTextLength } from "../../domain/nai-input";
+import { countNaiTokens } from "../../native/nai-tokenizer";
 const props = defineProps<{ field: "prompt" | "negative"; text: string; character?: string }>();
 const composer = useNaiComposer();
 const input = computed(() => {

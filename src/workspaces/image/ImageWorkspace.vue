@@ -9,14 +9,15 @@ import { useWorkspaceLifecycle } from "../../app/workspace-lifecycle";
 import AppIcon from "../../shared/AppIcon.vue";
 import WorkspaceSwitch from "../../shared/WorkspaceSwitch.vue";
 import WalletDisplay from "../../shared/WalletDisplay.vue";
-import ThemeMenu from "../../shared/ThemeMenu.vue";
+import ThemeToggle from "../../shared/ThemeToggle.vue";
 import ImageLibrary from "./ImageLibrary.vue";
 import BoardSwitcher from "./BoardSwitcher.vue";
-import CharactersEditor from "./CharactersEditor.vue";
+import CharactersEditor from "../../shared/nai/CharactersEditor.vue";
 import PromptDraft from "./PromptDraft.vue";
-import DrawingBottomPanel from "./DrawingBottomPanel.vue";
+import DrawingParameters from "./DrawingParameters.vue";
+import DrawingBottomPanel from "../../shared/nai/DrawingBottomPanel.vue";
 import DrawingControls from "./DrawingControls.vue";
-import ModelField from "./ModelField.vue";
+import ModelField from "../../shared/nai/ModelField.vue";
 import ImageStage from "./ImageStage.vue";
 import ImportSheet from "./ImportSheet.vue";
 import { useDrawing } from "../../app/drawing";
@@ -172,6 +173,7 @@ lifecycle.whileActive((signal) => {
         :loading="view.quotaLoading"
         :model="view.model"
       />
+      <ThemeToggle />
     </div>
   </header>
   <main ref="main" class="shell" data-workspace-root="image" :inert="askFullscreen">
@@ -193,7 +195,7 @@ lifecycle.whileActive((signal) => {
         <DrawingControls />
       </div>
       <div ref="foot" class="composer-foot drawing-footer">
-        <DrawingBottomPanel ref="bottomPanel" />
+        <DrawingBottomPanel ref="bottomPanel"><template #parameters><DrawingParameters /></template></DrawingBottomPanel>
         <div class="go-row">
           <button
             class="btn btn-primary btn-go"
@@ -260,7 +262,6 @@ lifecycle.whileActive((signal) => {
     >
       <AppIcon name="i-tasks" /><span class="topbar-action-label">任务总览</span>
     </button>
-    <ThemeMenu />
   </Teleport>
 </template>
 

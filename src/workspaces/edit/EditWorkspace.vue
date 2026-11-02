@@ -21,7 +21,7 @@ import type { EditorSession, EditorVersion } from "../../services/editor";
 import { modeNames } from "../../services/editor";
 import { editorModels } from "../../domain/media.ts";
 import { naiEnhancePrompt } from "../../domain/nai-enhance";
-import NaiTokenCount from "../../shared/NaiTokenCount.vue";
+import NaiTokenCount from "../../shared/nai/NaiTokenCount.vue";
 import { compileNaiPrompt, naiCapabilities, NAI_OFFICIAL_UPSCALE } from "../../domain/nai.ts";
 import { editStrengthRange } from "../../domain/nai-parameters.ts";
 import { normalizeOptions } from "../../domain/catalog";
@@ -33,6 +33,7 @@ import { createEditorCanvas } from "../../native/editor-canvas";
 import { createEditorToolbar } from "../../native/editor-toolbar";
 import { watchTheme } from "../../native/theme-watch";
 import WorkspaceSwitch from "../../shared/WorkspaceSwitch.vue";
+import ThemeToggle from "../../shared/ThemeToggle.vue";
 import EditBoards from "./EditBoards.vue";
 import { createFocusRegion } from "../../native/focus-region";
 import EditToolMode from "./EditToolMode.vue";
@@ -44,10 +45,10 @@ import AppIcon from "../../shared/AppIcon.vue";
 import WalletDisplay from "../../shared/WalletDisplay.vue";
 import HighlightInput from "../../shared/HighlightInput.vue";
 import { provideNaiComposer } from "../../app/nai-composer";
-import ModelField from "../../workspaces/image/ModelField.vue";
-import NaiPromptOptions from "../../workspaces/image/NaiPromptOptions.vue";
-import CharactersEditor from "../../workspaces/image/CharactersEditor.vue";
-import DrawingBottomPanel from "../../workspaces/image/DrawingBottomPanel.vue";
+import ModelField from "../../shared/nai/ModelField.vue";
+import NaiPromptOptions from "../../shared/nai/NaiPromptOptions.vue";
+import CharactersEditor from "../../shared/nai/CharactersEditor.vue";
+import DrawingBottomPanel from "../../shared/nai/DrawingBottomPanel.vue";
 import EditorParameters from "../../overlays/EditorParameters.vue";
 const PhotopeaPanel = defineAsyncComponent(() => import("../../overlays/PhotopeaPanel.vue"));
 const { editor, view } = useEditor(),
@@ -740,6 +741,7 @@ async function copyReference(v: EditorVersion) {
           :model="view.accountModel"
           :operation="view.directorOpen || view.busy && view.running === 'director' ? 'director' : undefined"
         />
+        <ThemeToggle />
       </div>
       <input
         ref="file"

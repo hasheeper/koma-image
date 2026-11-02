@@ -217,3 +217,29 @@ test('general retention settings commit complete values, trim each EDIT board an
   assert.equal(await page.locator('#historyLimit').inputValue(),'3');
   assert.deepEqual(errors,[]);
 });
+
+test('EDIT board menu renames an inactive target and closes only the confirmed board', async t => {
+  const { page, errors } = await setup(t);
+  await page.evaluate(() => { editor.createBoard(); window.boardB = editor.session.id; });
+  const first = await page.evaluate(() => boardA);
+  const menu = page.locator('#editBoardMenu');
+  await page.getByRole('button', { name: '切换编辑画板', exact: true }).click();
+  const row = menu.locator(`[data-board-id="${first}"]`);
+  await row.locator('.bd-more').click();
+  await page.keyboard.press('Escape');
+  assert.equal(await menu.evaluate(el => el.matches(':popover-open')), true);
+  assert.equal(await row.locator('.bd-more').evaluate(el => el === document.activeElement), true);
+  await row.locator('.bd-more').click();
+  await page.locator('.bd-actions:popover-open').getByRole('menuitem', { name: '重命名', exact: true }).click();
+  await menu.getByRole('textbox', { name: '画板名称', exact: true }).fill('保留原图');
+  await menu.getByRole('textbox', { name: '画板名称', exact: true }).press('Enter');
+  assert.equal(await page.evaluate(() => editor.session.id === boardB), true);
+  assert.equal(await page.evaluate(id => editor.boards().find(b => b.id === id).name, first), '保留原图');
+  await page.getByRole('button', { name: '切换编辑画板', exact: true }).click();
+  await row.locator('.bd-more').click();
+  await page.locator('.bd-actions:popover-open').getByRole('menuitem', { name: '关闭画板', exact: true }).click();
+  await page.getByRole('button', { name: '关闭', exact: true }).click();
+  assert.equal(await page.evaluate(() => editor.session.id === boardB), true);
+  assert.equal(await page.evaluate(id => !!editor.board(id), first), false);
+  assert.deepEqual(errors, []);
+});

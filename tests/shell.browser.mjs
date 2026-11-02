@@ -103,7 +103,9 @@ test("single document, cached drafts and nodes, back/forward, and global overlay
   await page.getByRole("button", { name: "收起侧栏", exact: true }).click();
   await switchTo(page, "tags");
   await page.locator("#tagSearch").fill("blue hair");
-  await page.getByRole("button", { name: "画师", exact: true }).click();
+  await page.getByRole("button", { name: /^Tag 类型/ }).click();
+  await page.getByRole("menuitemcheckbox", { name: "画师", exact: true }).click();
+  await page.keyboard.press("Escape");
   await switchTo(page, "image");
   assert.equal(await page.locator("#prompt").inputValue(), "保留绘图草稿");
   assert.equal(
@@ -117,12 +119,14 @@ test("single document, cached drafts and nodes, back/forward, and global overlay
   await page.goBack();
   await page.waitForSelector("#tagSearch");
   assert.equal(await page.locator("#tagSearch").inputValue(), "blue hair");
+  await page.getByRole("button", { name: /^Tag 类型/ }).click();
   assert.equal(
     await page
-      .getByRole("button", { name: "画师", exact: true })
-      .getAttribute("aria-pressed"),
+      .getByRole("menuitemcheckbox", { name: "画师", exact: true })
+      .getAttribute("aria-checked"),
     "true",
   );
+  await page.keyboard.press("Escape");
   await page.goBack();
   await page.waitForSelector("#chatPrompt");
   assert.equal(await page.locator("#chatPrompt").inputValue(), "保留对话草稿");

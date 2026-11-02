@@ -5,9 +5,9 @@ import { samplerName } from "../../domain/drawing";
 import { naiCapabilities } from "../../domain/nai";
 import { referenceName } from "../../domain/nai-references";
 import type { ReferenceKind } from "../../domain/nai-references";
-import AppIcon from "../../shared/AppIcon.vue";
-import DrawingParameters from "./DrawingParameters.vue";
+import AppIcon from "../AppIcon.vue";
 import NaiReferenceEditor from "./NaiReferenceEditor.vue";
+defineSlots<{ parameters(): unknown }>();
 const { drawing, view, id } = useNaiComposer();
 const section = ref<"parameters" | ReferenceKind>("parameters"), open = ref(false), mounted = ref(false);
 const shell = shallowRef<HTMLElement>(), content = shallowRef<HTMLElement>();
@@ -82,7 +82,7 @@ defineExpose({close, drawerHeight:()=>shell.value?.getBoundingClientRect().heigh
     </nav>
     <div ref="shell" class="drawer-shell" hidden :inert="!open" :aria-hidden="!open">
       <div v-if="mounted" :id="id('drawing-bottom-content')" ref="content" class="bottom-panel-content" role="region" :aria-label="section==='parameters'?'生成参数':referenceName(section)">
-        <slot v-if="section==='parameters'" name="parameters"><DrawingParameters /></slot>
+        <slot v-if="section==='parameters'" name="parameters" />
         <NaiReferenceEditor v-else :key="section" :kind="section" />
       </div>
     </div>

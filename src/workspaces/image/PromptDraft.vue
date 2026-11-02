@@ -14,13 +14,13 @@ import { useServices } from "../../app/services";
 import { useShell } from "../../app/shell";
 import { message, useUi } from "../../app/ui";
 import { naiCapabilities, naiTagDataset } from "../../domain/nai";
-import NaiPromptOptions from "./NaiPromptOptions.vue";
+import NaiPromptOptions from "../../shared/nai/NaiPromptOptions.vue";
 import { names } from "../../storage/names.ts";
 import { object } from "../../domain/value.ts";
 import HighlightInput from "../../shared/HighlightInput.vue";
 import TagPicker from "../../shared/TagPicker.vue";
 import AppIcon from "../../shared/AppIcon.vue";
-import NaiTokenCount from "../../shared/NaiTokenCount.vue";
+import NaiTokenCount from "../../shared/nai/NaiTokenCount.vue";
 const { preferences } = useServices(),
   ui = useUi(),
   { router } = useShell();
@@ -204,6 +204,7 @@ function select(event: KeyboardEvent) {
           class="ibtn ibtn-xs"
           type="button"
           aria-label="从图片导入参数"
+          title="从图片导入参数；粘贴或拖入 Danbooru 帖子链接可导入 Tag"
           @click="emit('import')"
         >
           <AppIcon name="i-import" />

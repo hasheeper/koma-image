@@ -5,7 +5,7 @@ import { naiCapabilities } from "../domain/nai";
 import { noiseSchedules, naiNoiseSchedule, supportsNaiVariety } from "../domain/nai-parameters";
 import { randomSeed, samplerName } from "../domain/drawing";
 import AppIcon from "../shared/AppIcon.vue";
-import GuidanceControl from "../shared/GuidanceControl.vue";
+import GuidanceControl from "../shared/nai/GuidanceControl.vue";
 const { editor, view } = useEditor();
 const session = computed(() => view.value.session);
 const medium = computed(() => naiCapabilities(view.value.model?.id ?? "").medium);

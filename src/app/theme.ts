@@ -3,23 +3,20 @@ import type { InjectionKey } from "vue";
 import { names } from "../storage/names";
 import type { ApplicationServices } from "../services/application";
 
-export type ThemeChoice = "system" | "light" | "dark";
+export type ThemeChoice = "light" | "dark";
 export const themeChoices = {
   dark: { label: "暗色", icon: "i-moon" },
-  system: { label: "系统", icon: "i-monitor" },
   light: { label: "亮色", icon: "i-sun" },
 } satisfies Record<ThemeChoice, { label: string; icon: string }>;
 export const readTheme = (value: unknown): ThemeChoice =>
-  value === "light" || value === "system" ? value : "dark";
+  value === "light" ? "light" : "dark";
 
 /** index.html applies the saved choice before first paint; this keeps <html data-theme> in step afterwards. */
 export function createTheme(preferences: ApplicationServices["preferences"]) {
   const root = document.documentElement;
-  const media = matchMedia("(prefers-color-scheme: light)");
   const choice = shallowRef(readTheme(preferences.get(names.theme, null)));
   function apply() {
-    const theme = choice.value === "system" ? (media.matches ? "light" : "dark") : choice.value;
-    if (root.dataset.theme !== theme) root.dataset.theme = theme;
+    if (root.dataset.theme !== choice.value) root.dataset.theme = choice.value;
   }
   // Another tab or a data reload changed the stored choice.
   function sync() {
@@ -27,14 +24,10 @@ export function createTheme(preferences: ApplicationServices["preferences"]) {
     apply();
   }
   apply();
-  media.addEventListener("change", apply);
   const unsubscribe = preferences.subscribe((key) => {
     if (!key || key === names.theme) sync();
   });
-  onScopeDispose(() => {
-    media.removeEventListener("change", apply);
-    unsubscribe();
-  });
+  onScopeDispose(unsubscribe);
   return {
     choice,
     async set(next: ThemeChoice) {

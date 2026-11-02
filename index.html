@@ -9,8 +9,7 @@
       {
         let theme;
         try { theme = JSON.parse(localStorage.getItem("koma.theme.v1") || "null"); } catch {}
-        document.documentElement.dataset.theme = theme === "light" ? "light"
-          : theme === "system" && matchMedia("(prefers-color-scheme: light)").matches ? "light" : "dark";
+        document.documentElement.dataset.theme = theme === "light" ? "light" : "dark";
       }
     </script>
     <meta name="robots" content="noindex">

@@ -308,7 +308,11 @@ test("ASK W4: editor keys, Esc layers and long-question scroll keep the edit vis
     }
     await page.keyboard.press('Escape'); assert.equal(await editor.count(),0);
     assert.equal(await page.locator('.ask-draft').count(),1); assert.equal(await drawer(page).isVisible(),true);
-    await page.locator('#askPrompt').focus(); await page.keyboard.press('Escape'); assert.equal(await page.locator('.ask-draft').count(),0);
+    const pending = await page.evaluate(() => ask.draftPlan.value.fingerprint);
+    await page.locator('#askPrompt').focus(); await page.keyboard.press('Escape');
+    await page.waitForFunction(() => !ask.visible.value);
+    // The shared draft card stays mounted; Escape hides ASK without discarding the pending draft.
+    assert.equal(await page.evaluate(() => ask.draftPlan.value.fingerprint), pending);
     assert.deepEqual(generation(requests),[]); assert.deepEqual(errors,[]);
   } finally { await context.close(); }
 });

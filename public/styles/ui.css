@@ -173,6 +173,8 @@
 /* Balances and appearance close the bar, after a hairline from the tools. The
    margins leave about 20px of air on each side of it, measured to the glyphs. */
 .topbar-account { display: flex; align-items: center; gap: 4px; flex: none; }
+/* Keep appearance at the end when task controls are teleported into the bar. */
+.topbar-account > .theme-toggle { order: 1; }
 .topbar-sep { width: 1px; height: 20px; margin: 0 11px 0 -4px; flex: none; background: var(--line-2); }
 
 .chip {
@@ -354,17 +356,43 @@ button.w-seg:hover { background: var(--ghost-hover); }
 /* One block, two panes. The inactive pane keeps its DOM (values, highlight
    mirror, autocomplete bindings) and is only hidden, so switching is free
    and nothing has to be re-attached. */
-.promptbox { gap: 0; }
+/* One card in both themes. The card is the field: it owns the edge, fill,
+   hover and focus, and the well inside is bare. Tab labels start on the text
+   column (1px edge + 12px padding), the action glyphs end on it, and tabs and
+   actions share one centre line. Character prompts keep the plain strip. */
+.promptbox {
+  gap: 0;
+  background: var(--well);
+  border: 1px solid var(--field-line);
+  border-radius: var(--r3);
+  box-shadow: var(--field-shadow);
+  transition: border-color var(--t1) var(--e), box-shadow var(--t1) var(--e);
+}
+.promptbox:hover { border-color: var(--field-line-hover); }
+/* Focus is the edge alone: the options bar is painted in --well, so the
+   fill stays put. */
+.promptbox:focus-within { border-color: var(--focus-line); box-shadow: var(--ring); }
 .promptbox-head {
   display: flex;
-  align-items: flex-end;
+  align-items: stretch;
   justify-content: space-between;
   gap: var(--sp-2);
-  /* The tab strip sits on this line and the active tab bridges it. */
+  min-height: 40px;
+  padding: 0 6px 0 12px;
+  /* The active tab's underline sits on this line. */
   border-bottom: 1px solid var(--line);
-  padding-bottom: 0;
 }
-.promptbox .fld-actions { padding-bottom: var(--sp-1); }
+.promptbox .fld-actions { align-self: center; gap: 2px; }
+.promptbox .tabs { align-items: stretch; gap: 18px; }
+.promptbox .tab { padding: 0; border-radius: 0; }
+.promptbox .tab:hover { color: var(--fg); background: none; }
+.promptbox .pane .hl-wrap,
+.promptbox .pane .hl-wrap:is(:hover, :focus-within) {
+  background: transparent;
+  border: 0;
+  border-radius: 0 0 calc(var(--r3) - 1px) calc(var(--r3) - 1px);
+  box-shadow: none;
+}
 
 .tabs { display: flex; align-items: flex-end; gap: 2px; min-width: 0; }
 .tab {

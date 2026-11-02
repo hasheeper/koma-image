@@ -643,18 +643,19 @@ test("dictionary and prompt: weighted handoff once, picker toggle, highlight, au
     await page.waitForSelector(".tag-card");
     const tagRequests = t.requests.filter((r) => new URL(r.url).host === "tagsuggest.zeabur.app").length;
     await page.getByRole("button", { name: "下一页", exact: true }).click();
-    await page.waitForFunction(() => document.querySelectorAll(".tag-card").length === 1);
-    assert.match(await page.locator(".tag-card strong").textContent(), /blue_tag_25/);
+    await page.waitForFunction(() => document.querySelectorAll(".tag-card").length === 2);
+    assert.match(await page.locator(".tag-card strong").last().textContent(), /blue tag 25/);
     assert.equal(await page.getByRole("button", { name: "下一页", exact: true }).isDisabled(), true);
     await page.getByRole("button", { name: "上一页", exact: true }).click();
-    await page.waitForFunction(() => document.querySelectorAll(".tag-card").length === 25);
+    await page.waitForFunction(() => document.querySelectorAll(".tag-card").length === 24);
     assert.equal(t.requests.filter((r) => new URL(r.url).host === "tagsuggest.zeabur.app").length, tagRequests);
     await page.locator(".tag-add").first().click();
+    await page.getByRole("button", { name: "打开 Prompt 组合", exact: true }).click();
     await page
-      .getByRole("spinbutton", { name: "blue_hair 权重", exact: true })
+      .getByRole("spinbutton", { name: "blue hair 权重", exact: true })
       .fill("1.4");
     await page
-      .getByRole("spinbutton", { name: "blue_hair 权重", exact: true })
+      .getByRole("spinbutton", { name: "blue hair 权重", exact: true })
       .blur();
     assert.equal(
       await page.locator("#tagCartPrompt").textContent(),
@@ -768,48 +769,66 @@ test("dictionary and prompt: weighted handoff once, picker toggle, highlight, au
   }
 });
 
-test("appearance: defaults to dark; toolbar and settings share persisted choices and system updates across tabs", async () => {
+test("appearance: one click toggles two choices, persists and syncs across tabs without following the OS", async () => {
   const t = await open("/#/image");
   try {
     const { page, context } = t;
     const theme = (p = page) => p.evaluate(() => document.documentElement.dataset.theme);
-    await page.getByRole("button", { name: "外观：暗色", exact: true }).waitFor();
+    await page.getByRole("button", { name: "切换到亮色", exact: true }).waitFor();
     assert.equal(await theme(), "dark");
     await page.emulateMedia({ colorScheme: "light" });
     assert.equal(await theme(), "dark");
-    await page.getByRole("button", { name: "外观：暗色", exact: true }).click();
-    const menu = page.getByRole("menu", { name: "外观", exact: true });
-    assert.equal(await menu.getByRole("menuitemradio", { name: "暗色", exact: true }).getAttribute("aria-checked"), "true");
-    await menu.getByRole("menuitemradio", { name: "亮色", exact: true }).click();
-    await page.goto(origin + "/#/image/settings/general");
+    await page.getByRole("button", { name: "切换到亮色", exact: true }).click();
+    await page.waitForFunction(() => document.documentElement.dataset.theme === "light");
+    assert.equal(await page.getByRole("menu", { name: "外观", exact: true }).count(), 0);
+    await route(page, "#/image/settings/general");
     await page.waitForSelector("#settingsPanel[open]");
     const group = page.getByRole("radiogroup", { name: "外观" });
     const choice = (name) => group.getByRole("radio", { name, exact: true });
     const pick = (name) => group.getByText(name, { exact: true }).click();
+    assert.equal(await group.getByRole("radio").count(), 2);
+    assert.equal(await choice("系统").count(), 0);
     assert.equal(await choice("亮色").isChecked(), true);
-    assert.equal(await theme(), "light");
     await page.emulateMedia({ colorScheme: "dark" });
     assert.equal(await theme(), "light");
-    await pick("系统");
+    await pick("暗色");
     await page.waitForFunction(() => document.documentElement.dataset.theme === "dark");
     await pick("亮色");
-    assert.equal(await theme(), "light");
-    assert.equal(await page.evaluate(() => localStorage.getItem("koma.theme.v1")), '"light"');
+    await page.waitForFunction(() => localStorage.getItem("koma.theme.v1") === '\"light\"');
     const other = await context.newPage();
     await other.emulateMedia({ colorScheme: "dark" });
     await other.goto(origin + "/#/chat");
-    await other.waitForSelector("[data-workspace-root]");
+    await other.getByRole("button", { name: "切换到暗色", exact: true }).waitFor();
     assert.equal(await theme(other), "light");
-    await other.getByRole("button", { name: "外观：亮色", exact: true }).click();
-    await other.getByRole("menuitemradio", { name: "暗色", exact: true }).click();
+    await other.getByRole("button", { name: "切换到暗色", exact: true }).click();
     await page.waitForFunction(() => document.documentElement.dataset.theme === "dark");
     await page.reload();
     await page.waitForSelector("#settingsPanel[open]");
     assert.equal(await theme(), "dark");
     assert.equal(await choice("暗色").isChecked(), true);
-    await pick("系统");
     await page.emulateMedia({ colorScheme: "light" });
-    await page.waitForFunction(() => document.documentElement.dataset.theme === "light");
+    assert.equal(await theme(), "dark");
+    assert.deepEqual(t.requests, []);
+    await clean(t);
+  } finally { await t.context.close(); }
+});
+
+test("appearance: every workspace exposes the toggle directly on desktop and mobile", async () => {
+  const t = await open("/#/home");
+  try {
+    const { page } = t;
+    for (const viewport of [{ width: 1440, height: 900 }, { width: 390, height: 844 }]) {
+      await page.setViewportSize(viewport);
+      for (const workspace of ["home", "image", "chat", "edit", "tags"]) {
+        await route(page, `#/${workspace}`);
+        const light = page.getByRole("button", { name: "切换到亮色", exact: true });
+        await light.waitFor();
+        await light.click();
+        await page.waitForFunction(() => document.documentElement.dataset.theme === "light");
+        await page.getByRole("button", { name: "切换到暗色", exact: true }).click();
+        await page.waitForFunction(() => document.documentElement.dataset.theme === "dark");
+      }
+    }
     assert.deepEqual(t.requests, []);
     await clean(t);
   } finally { await t.context.close(); }

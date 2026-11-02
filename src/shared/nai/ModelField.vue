@@ -4,7 +4,7 @@ import { useNaiComposer } from "../../app/nai-composer";
 import { naiCapabilities, NAI_FULL, NAI_MEDIUM, naiDataset, effectiveNaiMode } from "../../domain/nai";
 import { findModel } from "../../domain/models";
 import NaiSelect from "./NaiSelect.vue";
-import AppIcon from "../../shared/AppIcon.vue";
+import AppIcon from "../AppIcon.vue";
 const { drawing, view, id } = useNaiComposer();
 const f = computed(() => view.value.form);
 const cap = computed(() => naiCapabilities(f.value.model));

@@ -13,7 +13,7 @@ import type { Fields } from '../storage/records.ts';
 import { sourceRecipe } from '../domain/image-parameters.ts';
 import { imageFileName, reuseFields } from '../domain/drawing.ts';
 import AppIcon from '../shared/AppIcon.vue';
-import AskMenu from '../ask/AskMenu.vue';
+import PopoverMenu from '../shared/ui/PopoverMenu.vue';
 import SlateDeliverable from '../slate/SlateDeliverable.vue';
 const props = defineProps<{ recordId: string }>(), emit = defineEmits<{ close: [] }>();
 const { home, view } = useHome(), { drawing, view: drawings } = useDrawing(), { editor } = useEditor(), ask = useAsk(), slates = useSlates(), { router } = useShell(), services = useServices(), ui = useUi();
@@ -58,10 +58,10 @@ onBeforeUnmount(() => { dialog.value?.close(); if (originalFocus instanceof HTML
       <button v-if="info?.canRestore" class="ibtn" type="button" aria-label="读取参数到绘图" title="读取参数到绘图" :disabled="busy" @click="action('image')"><AppIcon name="i-reuse" /></button>
       <button class="ibtn" type="button" aria-label="送去对话" title="送去对话" :disabled="busy" @click="action('chat')"><AppIcon name="i-chat" /></button>
       <button class="ibtn" type="button" aria-label="精修图片" title="精修图片" :disabled="busy" @click="action('edit')"><AppIcon name="i-edit" /></button>
-      <AskMenu v-if="slates.list.value.some(s => s.todos.length)" id="homeDeliveryMenu" label="交付到任务" side="up">
+      <PopoverMenu compact v-if="slates.list.value.some(s => s.todos.length)" id="homeDeliveryMenu" label="交付到任务" side="up">
         <template #trigger="{ open, toggle }"><button class="ibtn" type="button" aria-label="交付到任务" title="交付到任务" aria-haspopup="menu" :aria-expanded="open" @click="toggle"><AppIcon name="i-tasks" /></button></template>
         <template #default="{ close }"><template v-for="slate in slates.list.value" :key="slate.id"><div v-if="slates.list.value.length > 1" class="menu-group">{{ slate.title }}</div><button v-for="todo in slate.todos" :key="todo.id" class="menu-item" type="button" role="menuitem" @click="close(); delivery = { slateId: slate.id, todoId: todo.id }"><span class="menu-label">{{ todo.title }}</span></button></template></template>
-      </AskMenu>
+      </PopoverMenu>
       <button v-if="validLine" class="ibtn" type="button" :aria-label="pinned ? '恢复最近图片为封面' : '设为封面'" :title="pinned ? '恢复最近图片为封面' : '设为封面'" :aria-pressed="pinned" :disabled="busy" @click="action('cover')"><AppIcon name="i-pin" /></button>
       <button class="ibtn" type="button" aria-label="取消收藏" title="取消收藏" :disabled="busy" @click="action('remove')"><AppIcon name="i-star" /></button>
     </footer>

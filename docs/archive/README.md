@@ -1,6 +1,6 @@
 # 历史文档索引
 
-更新：2026-10-30。这里只保存当时的方案、设计确认与验收证据。现行行为从[文档索引](../README.md)进入；历史的测试数量、供应商结果、发布记录和授权只适用于其注明范围。公开前匿名化历史作者邮箱后，文内提交号同步映射到对应新提交；过程和验收事实保持原意。
+更新：2026-11-02。这里只保存当时的方案、设计确认与验收证据。现行行为从[文档索引](../README.md)进入；历史的测试数量、供应商结果、发布记录和授权只适用于其注明范围。公开前匿名化历史作者邮箱后，文内提交号同步映射到对应新提交；过程和验收事实保持原意。
 
 ## 目录与早期基线
 
@@ -9,6 +9,8 @@
 [2026-10-25 完整快照](2026-10-25/README.md)保留早期 M1–M7、ASK A／R／W／CP、角色画板、TS 与字体／样式治理的原文和过程。快照自成目录，其旧规范不参与现行契约优先级。
 
 ## 工程与连接维护
+
+- [公共 UI 与设置拆分](engineering/2026-11-01-ui-components.md)：共用画板、菜单基础行为、设置职责、开发预览与本地检查。
 
 - [文档整理记录](engineering/documentation-maintenance.md)：10-28 专题收拢与 10-29 目录重整、四组合并和链接校验。
 - [测试组织与按需加载整理](engineering/2026-10-29-test-maintenance.md)：自动发现的 CI 清单、共享模拟环境、功能拆分、加载边界与本地验证。
@@ -58,6 +60,10 @@
 - [HD 页面形态确认](workspaces/2026-10-27-home-hd-confirmation.md)、[头部与 ASK 停靠确认](workspaces/2026-10-28-home-head-ask-confirmation.md)。
 - [HM1 数据](workspaces/2026-10-28-home-hm1-verification.md)、[HM2 页面](workspaces/2026-10-28-home-hm2-verification.md)、[HM3 ASK 与动效](workspaces/2026-10-28-home-hm3-verification.md)。
 - [EDIT 独立页面、编辑画板与收口](workspaces/2026-10-28-edit-workspace-verification.md)。
+
+## TAGS 词典
+
+- [示例图与帖子导入](workspaces/2026-11-02-tag-samples-plan.md)：TAGS 分类卡、IMAGE 原图与分类勾选、ASK 输入附件及原文元数据的极简方案与本地验收；取代新增工具及回复确认卡的旧规划，尚未推送或部署。
 
 ## 发布与脱敏记录
 

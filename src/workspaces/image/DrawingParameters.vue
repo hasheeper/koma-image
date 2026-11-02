@@ -6,7 +6,7 @@ import type { DrawingForm } from "../../domain/drawing";
 import { naiCapabilities } from "../../domain/nai";
 import { naiNoiseSchedule, noiseSchedules, supportsNaiVariety } from "../../domain/nai-parameters";
 import AppIcon from "../../shared/AppIcon.vue";
-import GuidanceControl from "../../shared/GuidanceControl.vue";
+import GuidanceControl from "../../shared/nai/GuidanceControl.vue";
 const { drawing, view } = useDrawing();
 const f = computed(() => view.value.form);
 const cap = computed(() => naiCapabilities(f.value.model));
