@@ -1,6 +1,11 @@
 # 更新日志
 
-这里只记录正式发布中面向使用者的主要变化；完整验收证据见 [发布归档](docs/archive/README.md#发布与脱敏记录)。
+这里记录面向使用者的主要变化；「未发布」内容尚未上线，完整验收证据见 [发布归档](docs/archive/README.md#发布与脱敏记录)。
+
+## [0.3.2] - 2026-11-02
+
+- 恢复静态版 Danbooru 帖子、示例图与链接导入直连，不再提前禁用功能。
+- 读取失败按实际情况显示 403、Cloudflare 验证或网络错误，提供打开原站与手动重试；手动帖子 JSON 导入保持删除。
 
 ## [0.3.1] - 2026-11-02
 
@@ -42,3 +47,5 @@
 [0.3.0]: https://github.com/hasheeper/koma-image/compare/v0.2.1...v0.3.0
 
 [0.3.1]: https://github.com/hasheeper/koma-image/compare/v0.3.0...v0.3.1
+
+[0.3.2]: https://github.com/hasheeper/koma-image/compare/v0.3.1...v0.3.2

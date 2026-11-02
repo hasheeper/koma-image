@@ -25,7 +25,7 @@ import type { ImageMetadata } from "../../native/image-meta.ts";
 import { render as renderHighlight } from "../../domain/highlight";
 import { POST_GROUPS, droppedLink, postId, postPrompt } from "../../domain/danbooru-post.ts";
 import type { DanbooruPost, PostGroup } from "../../domain/danbooru-post.ts";
-import { sampleMark } from "../../domain/tag-samples.ts";
+import { postUrl, sampleMark } from "../../domain/tag-samples.ts";
 import { promptTag } from "../../domain/tags.ts";
 import AppIcon from "../../shared/AppIcon.vue";
 const { drawing, view } = useDrawing(),
@@ -204,7 +204,10 @@ async function readPost(id: number) {
     const size = found.width && found.height ? `${found.width}×${found.height}` : "";
     await open({ name: `#${id}`, dialect: "Danbooru", source: ["Danbooru", size, sampleMark(found)].filter(Boolean).join(" · "), fields: {}, extras }, blob, found);
   } catch (e) {
-    if (token === sequence) ui.toast(message(e), "err", undefined, notice);
+    if (token === sequence) ui.toast(message(e), "err", {
+      label: "打开原站",
+      async run() { window.open(postUrl(id), "_blank", "noopener,noreferrer"); },
+    }, notice);
     else ui.dismissNotice(notice);
   }
 }

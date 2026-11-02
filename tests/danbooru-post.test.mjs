@@ -91,7 +91,7 @@ test("danbooru post: one local request per post, proxied image, failures not kep
   reply = () => new Response("<html>", { headers: { "content-type": "text/html" } });
   await assert.rejects(tags.postImage(post), /不是图片/);
   reply = () => new Response("", { status: 403 });
-  await assert.rejects(tags.postImage(post), /图片暂不可用 \(403\)/);
+  await assert.rejects(tags.postImage(post), /图片请求被拒绝.*403/);
   await assert.rejects(tags.postImage({ ...post, image: null }), /没有可用的图片/);
   await assert.rejects(tags.postImage({ ...post, original: null }, undefined, true), /没有可用的原图/);
 
@@ -143,22 +143,43 @@ test("danbooru post: Chinese names by exact match, a few lookups at a time, stop
   assert.ok(asked.length <= 8, `asked ${asked.length}`);
 });
 
-test('danbooru post: static mode blocks posts, samples and images without requests; keyword search stays available', async () => {
+test('danbooru post: static mode reads posts, samples and original images directly without probing a proxy', async () => {
   assert.equal(readTagRuntime({ getElementById: () => null }), undefined);
   const calls = [];
-  const tags = createTagSearch(() => [0], async url => {
-    calls.push(String(url));
+  const tags = createTagSearch(() => [0], async (url, init) => {
+    calls.push({ url: String(url), init });
+    if (new URL(url).host === 'cdn.donmai.us') return new Response(new Blob(['image'], { type: 'image/png' }));
+    if (new URL(url).pathname === '/posts.json') return Response.json([raw({ rating: 'g' })]);
+    if (new URL(url).pathname.endsWith('.json')) return Response.json(raw());
     return Response.json({ results: [{ name: 'blue_hair', cn_name: '蓝发', count: 42, category: 0 }] });
   });
-  assert.equal(tags.postsAvailable, false);
-  const unsupported = /云端静态版不支持/;
-  assert.match(tags.postsUnavailableReason, unsupported);
-  await assert.rejects(tags.post(123456), unsupported);
-  await assert.rejects(tags.samples('studio_artist', 'g'), unsupported);
-  await assert.rejects(tags.postImage(readPost(raw())), unsupported);
-  await assert.rejects(tags.postImage(readPost(raw()), undefined, true), unsupported);
-  assert.equal(calls.length, 0, 'no direct calls or local proxy probes');
+  const found = await tags.post(123456);
+  assert.equal(found.id, 123456);
+  assert.equal((await tags.samples('studio_artist', 'g')).length, 1);
+  assert.equal((await tags.postImage(found)).type, 'image/png');
+  assert.equal((await tags.postImage(found, undefined, true)).name, 'danbooru-123456.png');
   assert.equal((await tags.page('蓝发')).items[0].cnName, '蓝发');
-  assert.equal(calls.length, 1);
-  assert.equal(new URL(calls[0]).host, 'tagsuggest.zeabur.app');
+  assert.deepEqual(calls.map(c => new URL(c.url).host), ['danbooru.donmai.us', 'danbooru.donmai.us', 'cdn.donmai.us', 'cdn.donmai.us', 'tagsuggest.zeabur.app']);
+  for (const { init } of calls) assert.equal(init.credentials, 'omit');
+});
+
+test('danbooru post: reports actual denial or challenge; opaque failures do not invent a status and explicit retry can succeed', async () => {
+  let reply, calls = 0;
+  const tags = createTagSearch(() => [0], async () => { calls++; return reply(); });
+  reply = () => new Response('{}', { status: 403 });
+  await assert.rejects(tags.post(123456), /拒绝了请求（403）.*可能需要 Cloudflare 验证/);
+  assert.equal(calls, 1, 'no automatic retry after a denial');
+  reply = () => new Response('<html>challenge</html>', { status: 403, headers: { 'cf-mitigated': 'challenge' } });
+  await assert.rejects(tags.post(123456), /被 Cloudflare 验证拦截（403）/);
+  reply = () => { throw new TypeError('Failed to fetch'); };
+  await assert.rejects(tags.post(123456), error => /可能是网络问题或 Cloudflare 验证拦截/.test(error.message) && !error.message.includes('403'));
+  reply = () => { throw new DOMException('timeout', 'TimeoutError'); };
+  await assert.rejects(tags.post(123456), /请求超时/);
+  reply = () => new Response('<html>verify</html>', { headers: { 'content-type': 'text/html' } });
+  await assert.rejects(tags.post(123456), /返回了网页.*可能需要 Cloudflare 验证/);
+  reply = () => new Response(new ReadableStream({ start(controller) { controller.error(new TypeError('connection reset')); } }));
+  await assert.rejects(tags.post(123456), /网络问题或 Cloudflare 验证拦截/);
+  reply = () => Response.json(raw());
+  assert.equal((await tags.post(123456)).id, 123456);
+  assert.equal(calls, 7, 'a previous failure does not disable the feature or populate the cache');
 });

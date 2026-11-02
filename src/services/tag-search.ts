@@ -16,7 +16,6 @@ interface Options {
   pageSize?: number;
 }
 interface SuggestionOptions extends Options { dataset?: "anime" | "furry" }
-const staticPostsUnavailable = "云端静态版不支持 Danbooru 帖子读取、示例图与链接导入。";
 export function createTagSearch(
   categories: () => number[],
   fetcher: typeof fetch = fetch,
@@ -29,9 +28,6 @@ export function createTagSearch(
     postCache = new Map<string, DanbooruPost>();
   const imageUrl = (src: string) => local
     ? new URL(`media${new URL(src).pathname}`, local.baseUrl).href : src;
-  function requirePosts() {
-    if (!local) throw new Error(staticPostsUnavailable);
-  }
   const remember = <T>(map: Map<string, T>, key: string, value: T) => {
     map.delete(key);
     map.set(key, value);
@@ -161,7 +157,7 @@ export function createTagSearch(
       requestSignal.aborted || (error instanceof DOMException && error.name === "TimeoutError")
         ? "Danbooru 请求超时，请稍后重试"
         : local ? "本地词典服务连接失败，请检查服务并刷新页面"
-          : "无法读取 Danbooru，请检查网络或站点验证",
+          : "无法读取 Danbooru，可能是网络问题或 Cloudflare 验证拦截。请打开原站检查后重试",
       { cause: error },
     );
     const target = local ? new URL(url.pathname.slice(1) + url.search, local.baseUrl) : url;
@@ -183,10 +179,15 @@ export function createTagSearch(
     }
     if (response.status === 404 && missing) throw new Error(missing);
     if (response.status === 429) throw new Error("Danbooru 请求过于频繁，请稍后再试");
+    if (response.headers.get("cf-mitigated") === "challenge") {
+      await response.body?.cancel();
+      throw new Error(`Danbooru 被 Cloudflare 验证拦截（${response.status}）。请打开原站完成验证后重试`);
+    }
+    if (response.status === 403) throw new Error("Danbooru 拒绝了请求（403），可能需要 Cloudflare 验证。请打开原站检查后重试");
     if (!response.ok) throw new Error(`Danbooru 暂不可用 (${response.status})`);
     if (response.headers.get("content-type")?.includes("text/html")) {
       await response.body?.cancel();
-      throw new Error("Danbooru 返回了网页，可能需要站点验证");
+      throw new Error("Danbooru 返回了网页，可能需要 Cloudflare 验证。请打开原站检查后重试");
     }
     let data: unknown;
     try { data = await response.json(); }
@@ -216,8 +217,6 @@ export function createTagSearch(
     ).filter((id) => Object.hasOwn(CATEGORIES, id));
   }
   return {
-    postsAvailable: !!local,
-    postsUnavailableReason: local ? "" : staticPostsUnavailable,
     imageUrl,
     async suggest(query: string, options: SuggestionOptions = {}) {
       options.signal?.throwIfAborted();
@@ -275,7 +274,6 @@ export function createTagSearch(
     /** Danbooru posts for one artist/character, opened on demand; failures are not kept and never retried. */
     async samples(name: string, tier: SampleTier, signal?: AbortSignal) {
       signal?.throwIfAborted();
-      requirePosts();
       const key = `${tier}:${name}`;
       if (sampleCache.has(key)) return structuredClone(sampleCache.get(key)!);
       const url = new URL("https://danbooru.donmai.us/posts.json");
@@ -287,7 +285,6 @@ export function createTagSearch(
     async post(id: number, signal?: AbortSignal) {
       signal?.throwIfAborted();
       if (!Number.isSafeInteger(id) || id <= 0) throw new Error("Danbooru 帖子 ID 无效");
-      requirePosts();
       const key = String(id);
       if (postCache.has(key)) return structuredClone(postCache.get(key)!);
       const post = readPost(await danbooru(new URL(`https://danbooru.donmai.us/posts/${id}.json`), signal, "Danbooru 上没有这条帖子"));
@@ -297,7 +294,6 @@ export function createTagSearch(
     /** ASK uses sample/720px; IMAGE explicitly asks for the original. */
     async postImage(post: DanbooruPost, signal?: AbortSignal, original = false) {
       signal?.throwIfAborted();
-      requirePosts();
       const image = original ? post.original : post.image;
       if (!image) throw new Error(original ? "该帖没有可用的原图" : "该帖没有可用的图片");
       const timeout = AbortSignal.timeout(20_000),
@@ -307,13 +303,15 @@ export function createTagSearch(
         const response = await fetcher(imageUrl(image.src), { signal: requestSignal, credentials: "omit", referrerPolicy: "no-referrer" });
         if (!response.ok) {
           const detail = local ? object(await response.json().catch(() => null)).error : undefined;
-          throw new Error(typeof detail === "string" && detail ? detail.slice(0, 300) : `Danbooru 图片暂不可用 (${response.status})`);
+          throw new Error(typeof detail === "string" && detail ? detail.slice(0, 300) : response.status === 403
+            ? "Danbooru 图片请求被拒绝（403），可能需要 Cloudflare 验证。请打开原站检查后重试"
+            : `Danbooru 图片暂不可用 (${response.status})`);
         }
         blob = await response.blob();
       } catch (error) {
         if (signal?.aborted) throw error;
         throw error instanceof Error && /^(?:Danbooru|本地服务)/.test(error.message) ? error
-          : new Error(requestSignal.aborted ? "Danbooru 图片读取超时，请稍后重试" : "无法读取 Danbooru 图片，请检查网络或站点验证", { cause: error });
+          : new Error(requestSignal.aborted ? "Danbooru 图片读取超时，请稍后重试" : "无法读取 Danbooru 图片，可能是网络问题或 Cloudflare 验证拦截。请打开原站检查后重试", { cause: error });
       }
       signal?.throwIfAborted();
       if (!blob.type.startsWith("image/")) throw new Error("Danbooru 返回的不是图片");

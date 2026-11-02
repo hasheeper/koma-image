@@ -21,7 +21,7 @@ import HighlightInput from "../../shared/HighlightInput.vue";
 import TagPicker from "../../shared/TagPicker.vue";
 import AppIcon from "../../shared/AppIcon.vue";
 import NaiTokenCount from "../../shared/nai/NaiTokenCount.vue";
-const { preferences, tags } = useServices(),
+const { preferences } = useServices(),
   ui = useUi(),
   { router } = useShell();
 import { useDrawing } from "../../app/drawing";
@@ -204,7 +204,7 @@ function select(event: KeyboardEvent) {
           class="ibtn ibtn-xs"
           type="button"
           aria-label="从图片导入参数"
-          :title="tags.postsAvailable ? '从图片导入参数；粘贴或拖入 Danbooru 帖子链接可导入 Tag' : '从图片导入参数；云端静态版不支持 Danbooru 链接导入'"
+          title="从图片导入参数；粘贴或拖入 Danbooru 帖子链接可导入 Tag"
           @click="emit('import')"
         >
           <AppIcon name="i-import" />

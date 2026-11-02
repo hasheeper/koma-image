@@ -17,7 +17,7 @@ const post = id => ({
   media_asset: { variants: [variant(id, '360x360', 64, 96), variant(id, '720x720', 128, 192), variant(id, 'sample', 128, 192), variant(id, 'original', 256, 384)] },
 });
 
-async function sources(t) {
+async function sources(t, direct = false) {
   const state = { posts: [], images: [], postStatus: 200, imageStatus: 200, hold: null, missingSample: false, translateStatus: 200 };
   const buffers = await t.page.evaluate(async () => {
     const result = {};
@@ -28,19 +28,19 @@ async function sources(t) {
     }
     return result;
   });
-  await t.context.route('**/api/danbooru/posts**', async route => {
+  await t.context.route(direct ? 'https://danbooru.donmai.us/**' : '**/api/danbooru/posts**', async route => {
     const url = new URL(route.request().url());
     url.pathname = url.pathname.replace('/api/danbooru', '');
     const id = Number(/\/posts\/(\d+)\.json$/.exec(url.pathname)?.[1]);
     state.posts.push({ path: url.pathname, headers: route.request().headers() });
     if (state.hold) await state.hold;
-    if (url.pathname === '/posts.json') return route.fulfill({ json: [{ ...post(123456), rating: 'g' }] });
+    if (url.pathname === '/posts.json') return route.fulfill({ status: state.postStatus, json: [{ ...post(123456), rating: 'g' }] });
     if (!id) throw new Error(`unexpected post URL ${url}`);
     const result = post(id);
     if (state.missingSample) result.media_asset.variants = result.media_asset.variants.filter(v => v.type !== 'sample');
     return route.fulfill({ status: state.postStatus, json: result });
   });
-  await t.context.route('**/api/danbooru/media/**', route => {
+  await t.context.route(direct ? 'https://cdn.donmai.us/**' : '**/api/danbooru/media/**', route => {
     const url = new URL(route.request().url());
     url.pathname = url.pathname.replace('/api/danbooru/media', '');
     const kind = url.pathname.split('/')[1];
@@ -245,36 +245,47 @@ test('Danbooru ASK: a pending download remains owned by the starting conversatio
   } finally { release?.(); await t.context.close(); }
 });
 
-test('Danbooru static: unavailable notice replaces post reads and sample retries; IMAGE and ASK make no post requests', async () => {
+test('Danbooru static: tries direct reads; a 403 offers the original site and explicit retry, then TAGS, IMAGE and ASK can succeed', async () => {
   const t = await open('/#/tags', { ready: '#tagSearch', ask: askSettings() });
   try {
-    await bind(t.page); const state = await sources(t);
-    const reason = '云端静态版不支持 Danbooru 帖子读取、示例图与链接导入。';
+    await bind(t.page); const state = await sources(t, true);
+    state.postStatus = 403;
     await t.page.locator('#tagSearch').fill(link(123456));
-    await t.page.getByRole('heading', { name: '云端静态版不支持此功能', exact: true }).waitFor();
-    assert.equal(await t.page.getByRole('button', { name: '重试', exact: true }).count(), 0);
+    await t.page.getByRole('heading', { name: '帖子读取失败', exact: true }).waitFor();
+    await t.page.getByText(/拒绝了请求（403）.*Cloudflare/).waitFor();
+    assert.equal(state.posts.length, 1);
+    assert.equal(await t.page.locator('.tags-card').getByRole('link', { name: '打开原站', exact: true }).getAttribute('href'), 'https://danbooru.donmai.us/posts/123456');
     assert.equal(await t.page.getByRole('button', { name: /导入帖子 JSON/ }).count(), 0);
-    await t.page.locator('#tagSearch').fill('sample_character');
-    await t.page.getByRole('button', { name: 'sample character 的更多操作', exact: true }).click();
-    await t.page.getByRole('menuitem', { name: '查看 sample character 的示例图', exact: true }).click();
-    await t.page.locator('#tagSamples').getByText(reason, { exact: true }).waitFor();
-    assert.equal(await t.page.locator('#tagSamples').getByRole('button', { name: '重试', exact: true }).count(), 0);
-    await t.page.locator('#tagSearch').click();
+    state.postStatus = 200;
+    await t.page.getByRole('button', { name: '重试', exact: true }).click();
+    await t.page.locator('.tag-post').waitFor();
+    assert.equal(state.posts.length, 2);
+    state.postStatus = 403;
+    await t.page.getByRole('button', { name: 'studio artist 的更多操作', exact: true }).click();
+    await t.page.getByRole('menuitem', { name: '查看 studio artist 的示例图', exact: true }).click();
+    await t.page.locator('#tagSamples').getByText(/拒绝了请求（403）/).waitFor();
+    assert.equal(new URL(await t.page.locator('#tagSamples').getByRole('link', { name: '打开原站', exact: true }).getAttribute('href')).pathname, '/posts');
+    state.postStatus = 200;
+    await t.page.locator('#tagSamples').getByRole('button', { name: '重试', exact: true }).click();
+    await t.page.getByRole('button', { name: '把 #123456 发给 ASK', exact: true }).waitFor();
+    await t.page.keyboard.press('Escape');
     await route(t.page, '#/image');
     await t.page.locator('#prompt').fill('keep my prompt');
-    await pasteSynthetic(t.page, '#prompt', { text: link(123456) });
-    await t.page.getByText(reason, { exact: true }).last().waitFor();
-    assert.equal(await t.page.locator('#importSheet[open]').count(), 0);
+    await pasteSynthetic(t.page, '#prompt', { text: link(123457) });
+    await t.page.locator('#importSheet:not([hidden])').waitFor();
+    await t.page.locator('#importSheet').getByRole('button', { name: '取消', exact: true }).click();
     assert.equal(await t.page.locator('#prompt').inputValue(), 'keep my prompt');
     await t.page.evaluate(() => ask.show());
-    await pasteSynthetic(t.page, '#askPrompt', { text: link(123457) });
-    await t.page.waitForFunction(() => !ask.preparing.value);
+    state.postStatus = 403;
+    await pasteSynthetic(t.page, '#askPrompt', { text: link(123458) });
+    await t.page.getByText(/拒绝了请求（403）/).last().waitFor();
+    await t.page.getByRole('button', { name: '打开原站', exact: true }).waitFor();
     assert.equal(await t.page.evaluate(() => ask.tray.value.length), 0);
-    await dropLink(t.page, '#askPrompt', link(123458));
-    await t.page.waitForFunction(() => !ask.preparing.value);
-    assert.equal(await t.page.evaluate(() => ask.tray.value.length), 0);
-    assert.deepEqual(state.posts, []);
-    assert.deepEqual(state.images, []);
+    state.postStatus = 200;
+    await pasteSynthetic(t.page, '#askPrompt', { text: link(123458) });
+    await prepared(t.page);
+    assert.ok(state.images.some(path => path.startsWith('/original/')));
+    assert.ok(state.images.some(path => path.startsWith('/sample/')));
     assert.equal(t.calls.length, 0);
     assert.deepEqual(t.errors, []);
   } finally { await t.context.close(); }

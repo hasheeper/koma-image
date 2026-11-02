@@ -22,7 +22,6 @@ async function load() {
   const controller = (request = new AbortController()), tier = props.tier;
   rows.value = null;
   failure.value = "";
-  if (!tags.postsAvailable) return;
   try {
     const found = await tags.samples(props.name, tier, controller.signal);
     if (!controller.signal.aborted) rows.value = found.slice(0, 4);
@@ -73,10 +72,9 @@ onBeforeUnmount(() => { request?.abort(); controller.abort(); observer.disconnec
 watch(() => [props.name, props.tier], load, { immediate: true });
 </script>
 <template>
-  <div id="tagSamples" ref="root" class="tag-samples" :data-up="up || undefined" role="dialog" :aria-label="`${promptTag(name)} 的示例图`" :aria-busy="tags.postsAvailable && !rows && !failure">
-    <p v-if="!tags.postsAvailable" class="tag-samples-note" role="status">{{ tags.postsUnavailableReason }}</p>
-    <div v-else-if="failure" class="tag-samples-note" role="status">
-      {{ failure }}<button class="tag-samples-retry" type="button" @click="load">重试</button>
+  <div id="tagSamples" ref="root" class="tag-samples" :data-up="up || undefined" role="dialog" :aria-label="`${promptTag(name)} 的示例图`" :aria-busy="!rows && !failure">
+    <div v-if="failure" class="tag-samples-note tag-samples-failure" role="status">
+      <span>{{ failure }}</span><a class="tag-samples-retry" :href="postsUrl(samplesQuery(name, tier))" target="_blank" rel="noopener noreferrer">打开原站</a><button class="tag-samples-retry" type="button" @click="load">重试</button>
     </div>
     <p v-else-if="rows && !rows.length" class="tag-samples-note" role="status">
       {{ kind === "artist" ? "这位画师" : "这个角色" }}在 Danbooru 上没有{{ tier === "g" ? "全年龄" : "可显示的" }}作品
@@ -130,6 +128,8 @@ watch(() => [props.name, props.tier], load, { immediate: true });
 .tag-samples-bar [data-tip]::after { left: auto; right: 0; transform: translate(0, -3px); }
 .tag-samples-bar [data-tip]:hover::after { transform: translate(0, 0); }
 .tag-samples-note { display: flex; align-items: center; justify-content: center; gap: 4px; min-height: 64px; margin: 0; padding: 0 16px; color: var(--fg-3); font-size: var(--fz-xs); text-align: center; }
+.tag-samples-failure { flex-wrap: wrap; padding-block: 12px; }
+.tag-samples-failure > span { flex-basis: 100%; }
 .tag-samples-retry { height: 24px; padding: 0 6px; color: var(--a); font-size: var(--fz-2xs); border-radius: var(--r1); }
 .tag-samples-retry:hover { background: var(--hover); }
 </style>

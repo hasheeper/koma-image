@@ -28,6 +28,7 @@ import type { Ui } from "../app/ui.ts";
 import { reasoningConnections } from "../config/connections.ts";
 import { ancestry } from "../domain/conversation.ts";
 import { postParams } from "../domain/danbooru-post.ts";
+import { postUrl } from "../domain/tag-samples.ts";
 import type { ImageMetadata } from "../native/image-meta.ts";
 import { names } from "../storage/names.ts";
 import { codecFor } from "./codec.ts";
@@ -292,7 +293,7 @@ export function createAsk(deps: {
     libraryRevision.value++;
   }
   const entryAttachments = (items: readonly AskEntry[]) => items.flatMap(e => e.type === "turn" ? e.turn.attachments.map(a => a.id) : []);
-  function addInputs(inputs: readonly (() => Promise<{ file: File; origin?: RefFile["origin"]; params?: ImageMetadata }>)[], pasted = false) {
+  function addInputs(inputs: readonly (() => Promise<{ file: File; origin?: RefFile["origin"]; params?: ImageMetadata }>)[], pasted = false, failureAction?: Parameters<Ui["toast"]>[2]) {
     const owner = conversations.current, attachments = owner.scope.attachments;
     if (disposed || !favoritesReady.value || !inputs.length) return Promise.resolve();
     owner.preparing++; preparing.value = owner.preparing;
@@ -315,7 +316,7 @@ export function createAsk(deps: {
       }
       if (!disposed && conversations.get(owner.id)) {
         if (unsupported.length) errors.unshift(`不支持 ${[...new Set(unsupported)].join("、")}`);
-        if (errors.length) deps.ui.toast([...new Set(errors)].join("；"), "err");
+        if (errors.length) deps.ui.toast([...new Set(errors)].join("；"), "err", failureAction);
       }
     }).finally(() => {
       owner.preparing--;
@@ -332,7 +333,10 @@ export function createAsk(deps: {
       attachmentCapacity(owner.scope.attachments.read(owner.tray), "image");
       const post = await services.tags.post(id);
       return { file: await services.tags.postImage(post), params: postParams(post) };
-    }]);
+    }], false, {
+      label: "打开原站",
+      async run() { window.open(postUrl(id), "_blank", "noopener,noreferrer"); },
+    });
   }
   function removeAttachment(id: string) {
     if (!tray.value.includes(id)) return;

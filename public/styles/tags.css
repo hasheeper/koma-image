@@ -189,7 +189,7 @@
   border-radius: var(--r4);
 }
 .tags-card-art { display: block; flex: none; width: 80px; height: 80px; margin: 0 auto 4px; }
-.tags-card[data-state="unsupported"] { height: auto; min-height: 176px; }
+.tags-card[data-state="error"] { height: auto; min-height: 176px; }
 .tags-card-art > rect { stroke: var(--a); }
 .tags-card[data-state="error"] .tags-card-art > rect { stroke: var(--err); }
 .tags-card h2 { align-self: stretch; margin: 0; overflow: hidden; color: var(--fg-2); font-size: 15px; font-weight: var(--fw-medium); line-height: 20px; text-overflow: ellipsis; white-space: nowrap; }

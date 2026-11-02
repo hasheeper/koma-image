@@ -67,9 +67,12 @@ const prompt = computed(() => combinedPrompt(cart.value));
 const categories = [0, 3, 4, 1, 5];
 // One card covers the start, no-match and failure; results replace it.
 const view = computed(() =>
-  items.value.length || post.value ? "results" : !searched.value ? "initial"
-    : !search.postsAvailable && postId(last.value) !== null ? "unsupported" : error.value ? "error" : "none",
+  items.value.length || post.value ? "results" : !searched.value ? "initial" : error.value ? "error" : "none",
 );
+const failedPostUrl = computed(() => {
+  const id = postId(last.value);
+  return id === null ? null : postUrl(id);
+});
 // A post link lists its four category groups; a word search is one ungrouped page.
 const groups = computed(() => {
   const found = post.value;
@@ -221,17 +224,6 @@ async function run(nextPage = 1, updateUrl = true) {
     error.value = "";
     status.value = "输入关键词开始搜索";
     searched.value = false;
-    hasNext.value = false;
-    busy.value = false;
-    return;
-  }
-  if (link !== null && !search.postsAvailable) {
-    items.value = [];
-    post.value = null;
-    error.value = "";
-    last.value = q;
-    status.value = search.postsUnavailableReason;
-    searched.value = true;
     hasNext.value = false;
     busy.value = false;
     return;
@@ -437,8 +429,8 @@ function closePeek(refocus: boolean) {
             type="search"
             autocomplete="off"
             spellcheck="false"
-            :placeholder="search.postsAvailable ? '蓝发 / blue hair / Danbooru 帖子链接' : '蓝发 / blue hair'"
-            :aria-label="search.postsAvailable ? '搜索 Danbooru Tag，或粘贴帖子链接' : '搜索 Danbooru Tag'"
+            placeholder="蓝发 / blue hair / Danbooru 帖子链接"
+            aria-label="搜索 Danbooru Tag，或粘贴帖子链接"
             @dragover.prevent
             @drop="dropPost"
             @input="schedule"
@@ -507,13 +499,9 @@ function closePeek(refocus: boolean) {
           <h2>没有找到“{{ last }}”</h2>
           <p>换个写法，或打开更多类型。</p>
         </template>
-        <template v-else-if="view === 'unsupported'">
-          <h2>云端静态版不支持此功能</h2>
-          <p>{{ search.postsUnavailableReason }}</p>
-        </template>
         <template v-else>
-          <h2>搜索失败</h2>
-          <p>{{ error }}<button class="tags-retry" type="button" :disabled="busy" @click="run(page)">重试</button></p>
+          <h2>{{ failedPostUrl ? '帖子读取失败' : '搜索失败' }}</h2>
+          <p>{{ error }}<a v-if="failedPostUrl" class="tags-retry" :href="failedPostUrl" target="_blank" rel="noopener noreferrer">打开原站</a><button class="tags-retry" type="button" :disabled="busy" @click="run(page)">重试</button></p>
         </template>
       </section>
       <section v-else class="tags-results" :aria-busy="busy">
@@ -595,7 +583,7 @@ function closePeek(refocus: boolean) {
       </section>
       <footer class="tags-foot">
         搜索词会发送到在线双语 Tag 服务，英文查询在需要时回退至 Danbooru
-        官方接口；{{ search.postsAvailable ? '示例图与帖子链接经本地服务读取。' : '云端静态版不支持帖子读取与示例图。' }}
+        官方接口；示例图与帖子链接从 Danbooru 读取。
       </footer>
     </div>
     <aside
