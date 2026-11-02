@@ -63,6 +63,8 @@
 
 ## TAGS 词典
 
+- [纯静态帖子导入](workspaces/2026-11-02-danbooru-static-import.md)：浏览器直连试验、手动 JSON 替代路径与 v0.3.0 验证、交付记录。
+
 - [示例图与帖子导入](workspaces/2026-11-02-tag-samples-plan.md)：TAGS 分类卡、IMAGE 原图与分类勾选、ASK 输入附件及原文元数据的极简方案与本地验收；取代新增工具及回复确认卡的旧规划，已随 v0.2.0 发布。
 
 ## 发布与脱敏记录

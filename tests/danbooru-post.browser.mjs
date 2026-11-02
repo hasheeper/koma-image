@@ -40,6 +40,7 @@ async function sources(t) {
   await t.context.route('https://cdn.donmai.us/**', route => {
     const url = new URL(route.request().url()), kind = url.pathname.split('/')[1];
     state.images.push(url.pathname);
+    if (state.imageStatus !== 200) return route.fulfill({ status: state.imageStatus, contentType: 'text/html', body: '<p>Image unavailable</p>' });
     return route.fulfill({ status: state.imageStatus, contentType: 'image/png', body: Buffer.from(buffers[kind === '720x720' ? 'sample' : kind]) });
   });
   await t.context.route('https://tagsuggest.zeabur.app/**', route => {
@@ -210,6 +211,88 @@ test('Danbooru failures: IMAGE still offers tags if original is unavailable; TAG
     assert.equal(await t.page.locator('.tag-card').count(), 5);
     assert.equal(await t.page.locator('.tag-add[data-tag="blue_hair"]').textContent().then(s => s.trim()), 'blue hair');
     assert.equal(t.calls.length, 0); assert.deepEqual(t.errors, []);
+  } finally { await t.context.close(); }
+});
+
+test('Danbooru static manual import: blocked post, validated paste, shared IMAGE/ASK metadata without another API request', async () => {
+  const t = await open('/#/tags', { ready: '#tagSearch', ask: askSettings() });
+  try {
+    await bind(t.page); const state = await sources(t); state.postStatus = 403;
+    await t.page.locator('#tagSearch').fill(link(123456));
+    await t.page.getByRole('heading', { name: '搜索失败', exact: true }).waitFor();
+    assert.equal(state.posts.length, 1);
+    const trigger = t.page.getByRole('button', { name: '导入帖子 JSON', exact: true });
+    await trigger.click();
+    const dialog = t.page.getByRole('dialog', { name: '导入帖子 JSON', exact: true });
+    assert.equal(await dialog.getByRole('link').getAttribute('href'), 'https://danbooru.donmai.us/posts/123456.json');
+    await dialog.getByLabel('或粘贴 JSON 内容').fill('<html>challenge</html>');
+    await dialog.getByRole('button', { name: '导入并查看' }).click();
+    await dialog.getByRole('alert').filter({ hasText: '不是有效的 JSON' }).waitFor();
+    await dialog.getByLabel('或粘贴 JSON 内容').fill(JSON.stringify(post(123457)));
+    await dialog.getByRole('button', { name: '导入并查看' }).click();
+    await dialog.getByRole('alert').filter({ hasText: '当前需要 #123456' }).waitFor();
+    assert.equal(state.posts.length, 1);
+    await dialog.getByRole('button', { name: '取消', exact: true }).click();
+    assert.equal(await t.page.locator('.tag-post').count(), 0);
+    await trigger.click();
+    await dialog.getByLabel('或粘贴 JSON 内容').fill(JSON.stringify({ ...post(123456), unexpected: 'should-not-retain' }));
+    await dialog.getByRole('button', { name: '导入并查看' }).click();
+    await t.page.locator('.tag-add[data-tag="blue_hair"]').waitFor();
+    assert.equal(await dialog.count(), 0);
+    assert.equal(await t.page.locator('.tag-card').count(), 5);
+    await t.page.waitForFunction(() => document.querySelector('.tag-post-thumb img')?.naturalWidth === 64);
+    assert.equal(state.posts.length, 1, 'viewing imported tags never refetches the blocked post');
+    assert.equal(await t.page.evaluate(() => JSON.stringify({ ...localStorage, ...sessionStorage }).includes('should-not-retain')), false);
+
+    await route(t.page, '#/image');
+    await pasteSynthetic(t.page, '#prompt', { text: link(123456) });
+    await t.page.locator('#importSheet:not([hidden])').waitFor();
+    await t.page.waitForFunction(() => document.querySelector('.import-figure img')?.naturalWidth === 256);
+    await t.page.locator('#importApply').click();
+    assert.equal(await t.page.locator('#prompt').inputValue(), 'studio artist, sample character, sample series, blue hair, long hair');
+    await t.page.evaluate(() => ask.show());
+    await pasteSynthetic(t.page, '#askPrompt', { text: link(123456) });
+    await prepared(t.page);
+    await t.page.evaluate(() => ask.toggleFavorite());
+    const saved = await savedAsk(t.page);
+    assert.equal(saved[0].attachments[0].params.extras.find(e => e.label === 'artist').value, 'studio_artist');
+    assert.equal(state.posts.length, 1, 'IMAGE and ASK reuse explicitly imported metadata');
+    assert.equal(t.calls.length, 0);
+    assert.deepEqual(generation(t.requests), []);
+    assert.deepEqual(t.errors, []);
+  } finally { await t.context.close(); }
+});
+
+test('Danbooru static manual import: JSON file selection, drop and workspace cleanup', async () => {
+  const t = await open('/#/tags', { ready: '#tagSearch' });
+  try {
+    const state = await sources(t); state.postStatus = 403; state.imageStatus = 403;
+    await t.page.getByRole('button', { name: '导入帖子 JSON', exact: true }).click();
+    const dialog = t.page.getByRole('dialog', { name: '导入帖子 JSON', exact: true });
+    await dialog.getByLabel('选择帖子 JSON 文件').setInputFiles({ name: 'post.json', mimeType: 'application/json', buffer: Buffer.from(JSON.stringify(post(123456))) });
+    await dialog.getByRole('button', { name: '导入并查看' }).click();
+    await t.page.locator('.tag-add[data-tag="blue_hair"]').waitFor();
+    await t.page.getByText('预览未加载 · 在原帖查看', { exact: true }).waitFor();
+    assert.equal(await t.page.locator('.tag-card').count(), 5, 'image failure does not discard imported tags');
+    assert.equal(state.posts.length, 0);
+    await t.page.locator('#tagSearch').evaluate((element, json) => {
+      const data = new DataTransfer();
+      data.items.add(new File([json], 'post.json', { type: 'application/json' }));
+      element.dispatchEvent(new DragEvent('drop', { bubbles: true, cancelable: true, dataTransfer: data }));
+    }, JSON.stringify(post(123457)));
+    await dialog.waitFor();
+    await dialog.getByRole('button', { name: '导入并查看' }).click();
+    await t.page.getByRole('heading', { name: 'Danbooru #123457', exact: true }).waitFor();
+    await t.page.locator('#tagSearch').fill('');
+    await t.page.getByRole('heading', { name: '从一个词开始' }).waitFor();
+    await t.page.getByRole('button', { name: '导入帖子 JSON', exact: true }).click();
+    await dialog.waitFor();
+    await route(t.page, '#/image');
+    await dialog.waitFor({ state: 'detached' });
+    await route(t.page, '#/tags');
+    assert.equal(await dialog.count(), 0, 'leaving TAGS closes the modal');
+    assert.equal(state.posts.length, 0);
+    assert.deepEqual(t.errors, []);
   } finally { await t.context.close(); }
 });
 

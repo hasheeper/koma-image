@@ -1,7 +1,7 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import { createTagSearch } from "../src/services/tag-search.ts";
-import { droppedLink, postId, postParams, postPrompt, readPost } from "../src/domain/danbooru-post.ts";
+import { droppedLink, postId, postParams, postPrompt, readPost, readPostJson, POST_JSON_MAX_BYTES } from "../src/domain/danbooru-post.ts";
 import { readTagRuntime } from "../src/config/runtime.ts";
 
 const variant = (type, ext, host = "cdn.donmai.us") => ({ type, url: `https://${host}/${type}/ab/cd/abcd.${ext}`, width: 600, height: 800, file_ext: ext });
@@ -61,6 +61,34 @@ test("danbooru post: prompt groups in panel order, ASK metadata as posted", () =
       { label: "copyright", value: "vocaloid" }, { label: "general", value: "1girl, long_hair" },
     ],
   });
+});
+
+test("danbooru manual import: validates single-post JSON and preserves only known public fields", async () => {
+  const source = raw({ unexpected_key: "must-not-be-kept" });
+  const text = JSON.stringify(source);
+  assert.deepEqual(readPostJson("\uFEFF" + text, 123456), { ...readPost(source), imported: true });
+  assert.deepEqual(readPostJson(JSON.stringify([source])), { ...readPost(source), imported: true });
+  for (const value of ["<html>challenge</html>", "{", "null", "{}", "[]", JSON.stringify([source, source]), JSON.stringify(raw({ tag_string_artist: null }))])
+    assert.throws(() => readPostJson(value), /JSON|Tag/);
+  assert.throws(() => readPostJson(text, 9), /当前需要 #9/);
+  assert.throws(() => readPostJson(JSON.stringify(raw({ id: 1_000_000_000_000 }))), /ID 无效/);
+  assert.throws(() => readPostJson(" ".repeat(POST_JSON_MAX_BYTES + 1)), /4 MB/);
+  assert.throws(() => readPostJson(JSON.stringify(raw({ tag_string_general: Array.from({ length: 2049 }, (_, n) => `tag_${n}`).join(" ") }))), /数量过多/);
+  assert.equal(readPostJson(JSON.stringify(raw({ media_asset: { variants: [variant("sample", "jpg", "private.example")] } }))).image, null);
+  let calls = 0;
+  const tags = createTagSearch(() => [0], async () => { calls++; throw new TypeError("network blocked"); });
+  assert.throws(() => tags.importPost(text, 9));
+  const imported = tags.importPost(text, 123456);
+  imported.tags.general.push("mutation");
+  const cached = await tags.post(123456);
+  assert.deepEqual(cached.tags.general, ["1girl", "long_hair"]);
+  assert.match(postParams(cached).extras.find(e => e.label === "data_source").value, /手动导入.*未联网核验/);
+  assert.ok(!JSON.stringify(cached).includes("must-not-be-kept"));
+  assert.equal(calls, 0, "imports and subsequent IMAGE/ASK lookups do not request the post API");
+  const controller = new AbortController(); controller.abort();
+  await assert.rejects(tags.post(123456, controller.signal), { name: "AbortError" });
+  await assert.rejects(tags.post(9));
+  assert.equal(calls, 1, "a mismatched import never populates another ID");
 });
 
 test("danbooru post: one anonymous request per post, image from the CDN, failures not kept", async () => {
@@ -158,4 +186,6 @@ test('danbooru post: static mode has no proxy probe; network, timeout, body fail
   reply = () => new Response(new ReadableStream({ start(controller) { controller.error(new TypeError('connection reset')); } }));
   await assert.rejects(tags.post(123456), /网络或站点验证/, 'body read failure is not invalid JSON');
   assert.equal(calls, 4);
+  reply = () => new Response('<html>challenge</html>', { status: 403, headers: { 'cf-mitigated': 'challenge', 'content-type': 'text/html' } });
+  await assert.rejects(tags.post(123456), /要求站点验证/);
 });

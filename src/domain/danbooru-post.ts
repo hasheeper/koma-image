@@ -20,6 +20,8 @@ export interface PostImage {
 export interface DanbooruPost {
   id: number;
   rating: string;
+  /** Explicit user import, not an API response verified in this session. */
+  imported?: true;
   width: number | null;
   height: number | null;
   tags: Record<PostGroup, string[]>;
@@ -93,6 +95,30 @@ export function readPost(raw: unknown): DanbooruPost {
   };
 }
 
+export const POST_JSON_MAX_BYTES = 4 * 1024 * 1024;
+/** User-supplied single-post JSON; no URLs are fetched while parsing. */
+export function readPostJson(text: string, expectedId?: number | null): DanbooruPost {
+  if (text.length > POST_JSON_MAX_BYTES || new TextEncoder().encode(text).byteLength > POST_JSON_MAX_BYTES)
+    throw new Error("帖子 JSON 不能超过 4 MB");
+  let raw: unknown;
+  try { raw = JSON.parse(text.replace(/^\uFEFF/, "")); }
+  catch { throw new Error("不是有效的 JSON，请复制完整的帖子 JSON 内容"); }
+  if (Array.isArray(raw)) {
+    if (raw.length !== 1) throw new Error("请导入一条帖子的 JSON，不支持多帖列表");
+    raw = raw[0];
+  }
+  const record = object(raw);
+  if (POST_GROUPS.some(({ key }) => typeof record[`tag_string_${key}`] !== "string"))
+    throw new Error("缺少帖子分类 Tag，请使用 Danbooru 单帖 JSON");
+  const post = readPost(raw);
+  if (post.id > 999_999_999_999) throw new Error("Danbooru 帖子 ID 无效");
+  if (expectedId != null && post.id !== expectedId)
+    throw new Error(`这份 JSON 属于 #${post.id}，当前需要 #${expectedId}`);
+  if (POST_GROUPS.reduce((count, { key }) => count + post.tags[key].length, 0) > 2048)
+    throw new Error("帖子 Tag 数量过多，请检查 JSON 内容");
+  return { ...post, imported: true };
+}
+
 export const postName = (post: DanbooruPost, image = post.image) => `danbooru-${post.id}.${image?.ext ?? "jpg"}`;
 /** Selected groups in panel order, underscores read as spaces. */
 export const postPrompt = (post: DanbooruPost, groups: readonly PostGroup[]) =>
@@ -108,6 +134,7 @@ export function postParams(post: DanbooruPost): ImageMetadata {
     extras: [
       { label: "post_id", value: String(post.id) },
       { label: "rating", value: post.rating },
+      ...(post.imported ? [{ label: "data_source", value: "用户手动导入的 Danbooru 帖子 JSON，未联网核验" }] : []),
       ...POST_GROUPS.filter((g) => post.tags[g.key].length).map((g) => ({ label: g.key, value: post.tags[g.key].join(", ") })),
     ],
   };

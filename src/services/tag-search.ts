@@ -2,7 +2,7 @@ import { CATEGORIES, hasHan, rankTags } from "../domain/tags.ts";
 import type { TagItem } from "../domain/tags.ts";
 import { SAMPLE_TIERS, readSamples, samplesQuery } from "../domain/tag-samples.ts";
 import type { SampleTier, TagSample } from "../domain/tag-samples.ts";
-import { postName, readPost } from "../domain/danbooru-post.ts";
+import { postName, readPost, readPostJson } from "../domain/danbooru-post.ts";
 import type { DanbooruPost } from "../domain/danbooru-post.ts";
 import { object } from "../domain/value.ts";
 import type { LocalTagProxy } from "../config/runtime.ts";
@@ -177,6 +177,10 @@ export function createTagSearch(
       signal?.throwIfAborted();
       if (typeof detail === "string" && detail) throw new Error(detail.slice(0, 300));
     }
+    if (response.headers.get("cf-mitigated") === "challenge") {
+      await response.body?.cancel();
+      throw new Error("Danbooru 要求站点验证，请在原站查看；帖子资料可在 TAGS 手动导入");
+    }
     if (response.status === 404 && missing) throw new Error(missing);
     if (response.status === 429) throw new Error("Danbooru 请求过于频繁，请稍后再试");
     if (!response.ok) throw new Error(`Danbooru 暂不可用 (${response.status})`);
@@ -276,7 +280,12 @@ export function createTagSearch(
       url.searchParams.set("limit", String(SAMPLE_TIERS[tier].limit));
       return remember(sampleCache, key, readSamples(await danbooru(url, signal), tier));
     },
-    /** One pasted post link; kept for the page like samples, never retried. */
+    /** Explicit manual import; known fields only, shared for this page, with no request. */
+    importPost(text: string, expectedId?: number | null) {
+      const post = readPostJson(text, expectedId);
+      return remember(postCache, String(post.id), post);
+    },
+    /** Reads the shared page cache first, including explicitly imported post data. */
     async post(id: number, signal?: AbortSignal) {
       signal?.throwIfAborted();
       if (!Number.isSafeInteger(id) || id <= 0) throw new Error("Danbooru 帖子 ID 无效");
