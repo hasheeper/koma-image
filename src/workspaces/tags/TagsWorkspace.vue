@@ -37,14 +37,12 @@ import AppIcon from "../../shared/AppIcon.vue";
 import PopoverMenu from "../../shared/ui/PopoverMenu.vue";
 import TagSamples from "./TagSamples.vue";
 import TagResult from "./TagResult.vue";
-import PostImport from "./PostImport.vue";
 const { router, tags: shellTags, narrow } = useShell(),
   { tags: search, preferences } = useServices(),
   ask = useAsk(),
   { shown: askShown, fullscreen: askFullscreen } = useAskPresentation(),
   ui = useUi();
 const query = ref(new URLSearchParams(location.search).get("q") ?? "");
-const importing = shallowRef<{ expectedId: number | null; file?: File } | null>(null);
 const filters = ref(
   normalizeCategories(preferences.get(names.tagCategories, DEFAULT_CATEGORIES)),
 );
@@ -63,17 +61,15 @@ const items = shallowRef<TagItem[]>([]),
   hasNext = ref(false),
   searched = ref(false),
   post = shallowRef<DanbooruPost | null>(null),
-  previewFailed = ref(false),
   translated = shallowRef<ReadonlyMap<string, TagItem>>(new Map()),
   translating = ref(false);
 const prompt = computed(() => combinedPrompt(cart.value));
 const categories = [0, 3, 4, 1, 5];
 // One card covers the start, no-match and failure; results replace it.
 const view = computed(() =>
-  items.value.length || post.value ? "results" : !searched.value ? "initial" : error.value ? "error" : "none",
+  items.value.length || post.value ? "results" : !searched.value ? "initial"
+    : !search.postsAvailable && postId(last.value) !== null ? "unsupported" : error.value ? "error" : "none",
 );
-const failedPostId = computed(() => view.value === "error" ? postId(last.value) : null);
-watch(post, () => { previewFailed.value = false; });
 // A post link lists its four category groups; a word search is one ungrouped page.
 const groups = computed(() => {
   const found = post.value;
@@ -124,7 +120,6 @@ function pause() {
   busy.value = false;
   translating.value = false;
   peek.value = null;
-  importing.value = null;
 }
 const unsubDispose = () => {
   pause();
@@ -230,6 +225,17 @@ async function run(nextPage = 1, updateUrl = true) {
     busy.value = false;
     return;
   }
+  if (link !== null && !search.postsAvailable) {
+    items.value = [];
+    post.value = null;
+    error.value = "";
+    last.value = q;
+    status.value = search.postsUnavailableReason;
+    searched.value = true;
+    hasNext.value = false;
+    busy.value = false;
+    return;
+  }
   const signal = (request = new AbortController()).signal;
   busy.value = true;
   status.value = link === null ? `正在搜索“${q}”…` : `正在读取 Danbooru #${link}…`;
@@ -293,31 +299,11 @@ function schedule() {
   timer = setTimeout(() => void run(), 320);
 }
 function dropPost(event: DragEvent) {
-  const file = event.dataTransfer?.files[0];
-  if (file && (file.name.toLowerCase().endsWith(".json") || file.type === "application/json")) {
-    event.preventDefault();
-    event.stopPropagation();
-    openImport(file);
-    return;
-  }
   const text = droppedLink(event.dataTransfer?.getData("text/uri-list") ?? "") || event.dataTransfer?.getData("text/plain") || "";
   if (postId(text) === null) return;
   event.preventDefault();
   event.stopPropagation();
   query.value = text;
-  void run();
-}
-function openImport(file?: File) {
-  clearTimeout(timer);
-  request?.abort();
-  token++;
-  busy.value = false;
-  translating.value = false;
-  importing.value = { expectedId: file ? null : failedPostId.value, file };
-}
-function imported(id: number) {
-  importing.value = null;
-  query.value = postUrl(id);
   void run();
 }
 function startComposition() {
@@ -451,8 +437,8 @@ function closePeek(refocus: boolean) {
             type="search"
             autocomplete="off"
             spellcheck="false"
-            placeholder="蓝发 / blue hair / Danbooru 帖子链接"
-            aria-label="搜索 Danbooru Tag，或粘贴帖子链接"
+            :placeholder="search.postsAvailable ? '蓝发 / blue hair / Danbooru 帖子链接' : '蓝发 / blue hair'"
+            :aria-label="search.postsAvailable ? '搜索 Danbooru Tag，或粘贴帖子链接' : '搜索 Danbooru Tag'"
             @dragover.prevent
             @drop="dropPost"
             @input="schedule"
@@ -516,22 +502,18 @@ function closePeek(refocus: boolean) {
         <template v-if="view === 'initial'">
           <h2>从一个词开始</h2>
           <p>中文找词，英文确认，复制后直接用于 Prompt。</p>
-          <button class="tags-retry" type="button" @click="openImport()">导入帖子 JSON</button>
         </template>
         <template v-else-if="view === 'none'">
           <h2>没有找到“{{ last }}”</h2>
           <p>换个写法，或打开更多类型。</p>
         </template>
+        <template v-else-if="view === 'unsupported'">
+          <h2>云端静态版不支持此功能</h2>
+          <p>{{ search.postsUnavailableReason }}</p>
+        </template>
         <template v-else>
           <h2>搜索失败</h2>
           <p>{{ error }}<button class="tags-retry" type="button" :disabled="busy" @click="run(page)">重试</button></p>
-          <template v-if="failedPostId">
-            <div class="tags-import-actions">
-              <a class="btn btn-quiet btn-sm" :href="postUrl(failedPostId)" target="_blank" rel="noopener noreferrer">打开原帖</a>
-              <button class="btn btn-quiet btn-sm" type="button" @click="openImport()">导入帖子 JSON</button>
-            </div>
-            <p>如果能在原站读取帖子 JSON，可以复制或下载后导入，继续使用分类 Tag。</p>
-          </template>
         </template>
       </section>
       <section v-else class="tags-results" :aria-busy="busy">
@@ -544,8 +526,8 @@ function closePeek(refocus: boolean) {
             :aria-label="`在 Danbooru 打开 #${post.id}（新标签页）`"
             :style="post.width && post.height ? { '--post-aspect': `${post.width} / ${post.height}` } : undefined"
           >
-            <img v-if="post.preview && !previewFailed" :key="post.preview.src" :src="search.imageUrl(post.preview.src)" alt="" decoding="async" referrerpolicy="no-referrer" @error="previewFailed = true" />
-            <span v-else class="tag-post-placeholder"><AppIcon name="i-image" /><span>{{ previewFailed ? "预览未加载 · 在原帖查看" : "暂无预览 · 在原帖查看" }}</span></span>
+            <img v-if="post.preview" :src="search.imageUrl(post.preview.src)" alt="" decoding="async" referrerpolicy="no-referrer" />
+            <AppIcon v-else name="i-image" />
             <span v-if="sampleMark(post)" class="tag-post-mark">{{ sampleMark(post) }}</span>
           </a>
           <div class="tag-post-meta">
@@ -574,7 +556,7 @@ function closePeek(refocus: boolean) {
           <h2>{{ busy ? status : `“${last}”的匹配结果` }}</h2>
           <span v-if="!busy">{{ items.length }} 个 · 第 {{ page }} 页</span>
         </div>
-        <p v-if="post" class="tag-post-note" role="status">{{ post.imported ? "手动导入 · " : "" }}{{ translating ? "正在补充中文释义…" : "点选 Tag 加入 Prompt 组合" }}</p>
+        <p v-if="post" class="tag-post-note" role="status">{{ translating ? "正在补充中文释义…" : "点选 Tag 加入 Prompt 组合" }}</p>
         <section v-for="group in resultGroups" :key="group.key" class="tag-result-group" :aria-labelledby="group.label ? `tag-group-${group.key}` : undefined">
           <h3 v-if="group.label" :id="`tag-group-${group.key}`" class="tag-group-head">
             <i class="tag-category-dot" :class="CATEGORIES[group.category].className"></i>{{ group.label }}<span>{{ group.items.length }}</span>
@@ -613,7 +595,7 @@ function closePeek(refocus: boolean) {
       </section>
       <footer class="tags-foot">
         搜索词会发送到在线双语 Tag 服务，英文查询在需要时回退至 Danbooru
-        官方接口；示例图与帖子链接从 Danbooru 读取。
+        官方接口；{{ search.postsAvailable ? '示例图与帖子链接经本地服务读取。' : '云端静态版不支持帖子读取与示例图。' }}
       </footer>
     </div>
     <aside
@@ -742,5 +724,4 @@ function closePeek(refocus: boolean) {
     :card="peek.card"
     @close="closePeek"
   />
-  <PostImport v-if="importing" :expected-id="importing.expectedId" :file="importing.file" @close="importing = null" @imported="imported" />
 </template>

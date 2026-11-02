@@ -134,9 +134,7 @@ npm start
 
 如需通过本地 `server.mjs` 代理标准网关或 ASK 推理接口（将 Key 留在服务端环境变量中），可配置 `KOMA_GATEWAY_*`、`KOMA_ASK_OPENAI_*` 或 `KOMA_ASK_ANTHROPIC_*`；执行 `npm run package` 可打包独立发布产物。详见[发布与运行说明](docs/release-guide.md)。
 
-`npm start` 和 `npm run dev` 均提供 Danbooru 帖子 JSON 和 CDN 图片的匿名同源转发，供示例图与帖子链接导入使用；需要出站网络代理时配置 `HTTPS_PROXY`。开发模式只接入词典转发，模型连接仍在网页配置。静态部署继续直连，可能受原站跨站验证限制，见[词典网络说明](docs/release-guide.md#danbooru-帖子读取)。
-
-纯静态版也支持手动导入帖子 JSON：TAGS 的欢迎页或读取失败卡可上传／粘贴，搜索框可拖入文件；导入后继续使用分类 Tag、中文释义和组合操作。原站验证由用户在原站处理，图片仍需联网。
+`npm start` 和 `npm run dev` 均提供 Danbooru 帖子 JSON 和 CDN 图片的匿名同源转发，供示例图与帖子链接导入使用；需要出站网络代理时配置 `HTTPS_PROXY`。开发模式只接入词典转发，模型连接仍在网页配置。云端静态版不支持 Danbooru 帖子读取、示例图与链接导入，普通 Tag 搜索仍可用，见[词典网络说明](docs/release-guide.md#danbooru-帖子读取)。
 
 <a id="开发与检查"></a>
 

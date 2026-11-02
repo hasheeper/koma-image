@@ -53,13 +53,13 @@ test("tag samples: one anonymous request per tier and name, failures neither kep
   const tags = createTagSearch(() => [0], async (url, init) => {
     calls.push({ url: new URL(url), init });
     return reply();
-  });
+  }, { baseUrl: "http://127.0.0.1/api/danbooru/", token: "synthetic-tag-token" });
   const first = await tags.samples("blue_hair", "s");
   assert.deepEqual(first.map((v) => v.id), [1, 2]);
   first.length = 0;
   assert.equal((await tags.samples("blue_hair", "s")).length, 2);
   assert.equal(calls.length, 1);
-  assert.equal(calls[0].url.origin + calls[0].url.pathname, "https://danbooru.donmai.us/posts.json");
+  assert.equal(calls[0].url.origin + calls[0].url.pathname, "http://127.0.0.1/api/danbooru/posts.json");
   assert.equal(calls[0].url.searchParams.get("tags"), "blue_hair rating:g,s order:score");
   assert.equal(calls[0].url.searchParams.get("limit"), "20");
   assert.equal(calls[0].init.credentials, "omit");
@@ -76,7 +76,7 @@ test("tag samples: one anonymous request per tier and name, failures neither kep
   reply = () => new Response("<html>");
   await assert.rejects(tags.samples("red_hair", "q"), /格式异常/);
   reply = () => { throw new TypeError("network"); };
-  await assert.rejects(tags.samples("red_hair", "q"), /无法读取 Danbooru.*网络或站点验证/);
+  await assert.rejects(tags.samples("red_hair", "q"), /本地词典服务连接失败/);
   assert.equal(calls.length, 6);
   reply = () => new Response(JSON.stringify([post(3, "q")]));
   assert.deepEqual((await tags.samples("red_hair", "q")).map(sampleMark), ["R15"]);

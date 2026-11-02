@@ -22,6 +22,7 @@ async function load() {
   const controller = (request = new AbortController()), tier = props.tier;
   rows.value = null;
   failure.value = "";
+  if (!tags.postsAvailable) return;
   try {
     const found = await tags.samples(props.name, tier, controller.signal);
     if (!controller.signal.aborted) rows.value = found.slice(0, 4);
@@ -72,8 +73,9 @@ onBeforeUnmount(() => { request?.abort(); controller.abort(); observer.disconnec
 watch(() => [props.name, props.tier], load, { immediate: true });
 </script>
 <template>
-  <div id="tagSamples" ref="root" class="tag-samples" :data-up="up || undefined" role="dialog" :aria-label="`${promptTag(name)} 的示例图`" :aria-busy="!rows && !failure">
-    <div v-if="failure" class="tag-samples-note" role="status">
+  <div id="tagSamples" ref="root" class="tag-samples" :data-up="up || undefined" role="dialog" :aria-label="`${promptTag(name)} 的示例图`" :aria-busy="tags.postsAvailable && !rows && !failure">
+    <p v-if="!tags.postsAvailable" class="tag-samples-note" role="status">{{ tags.postsUnavailableReason }}</p>
+    <div v-else-if="failure" class="tag-samples-note" role="status">
       {{ failure }}<button class="tag-samples-retry" type="button" @click="load">重试</button>
     </div>
     <p v-else-if="rows && !rows.length" class="tag-samples-note" role="status">

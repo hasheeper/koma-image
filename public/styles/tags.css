@@ -179,7 +179,7 @@
   justify-content: center;
   gap: 8px;
   width: min(100%, 720px);
-  min-height: 176px;
+  height: 176px;
   margin: 32px auto 0;
   padding: 16px 18px;
   color: var(--fg-2);
@@ -189,13 +189,13 @@
   border-radius: var(--r4);
 }
 .tags-card-art { display: block; flex: none; width: 80px; height: 80px; margin: 0 auto 4px; }
+.tags-card[data-state="unsupported"] { height: auto; min-height: 176px; }
 .tags-card-art > rect { stroke: var(--a); }
 .tags-card[data-state="error"] .tags-card-art > rect { stroke: var(--err); }
 .tags-card h2 { align-self: stretch; margin: 0; overflow: hidden; color: var(--fg-2); font-size: 15px; font-weight: var(--fw-medium); line-height: 20px; text-overflow: ellipsis; white-space: nowrap; }
 .tags-card p { align-self: stretch; color: var(--fg-3); font-size: 12px; line-height: 18px; }
 .tags-retry { margin-left: 6px; color: var(--a); }
 .tags-retry:hover:not(:disabled) { text-decoration: underline; }
-.tags-import-actions { display: flex; flex-wrap: wrap; justify-content: center; gap: var(--sp-2); }
 
 /* ── Results ─────────────────────────────────────────────────── */
 .tags-results { margin-top: 32px; container-type: inline-size; }
@@ -232,7 +232,6 @@
 .tag-post-identity .tag-group-head { margin: 0; white-space: nowrap; }
 .tag-group-head span { color: var(--fg-4); font: var(--fw-regular) var(--fz-2xs)/1 var(--mono); }
 .tag-post-note { margin: 20px 0 0; color: var(--fg-3); font-size: var(--fz-xs); line-height: 1.5; }
-.tag-post-placeholder { display: flex; flex-direction: column; align-items: center; justify-content: center; gap: var(--sp-2); width: 100%; height: 100%; min-height: 120px; color: var(--fg-3); font-size: var(--fz-xs); }
 .tag-post-note + .tag-result-group { margin-top: 20px; }
 .tag-result-group + .tag-result-group { margin-top: 28px; padding-top: 20px; border-top: 1px solid var(--line); }
 .tag-chip-list { display: flex; flex-wrap: wrap; align-items: start; gap: 6px; min-width: 0; }
@@ -530,7 +529,7 @@
   .tags-search { height: 50px; gap: 10px; padding: 0 7px 0 16px; border-radius: 25px; }
   .tag-filter { height: 36px; }
   .tag-type { max-width: 112px; height: 36px; }
-  .tags-card { min-height: 160px; margin-top: 24px; padding: 10px 14px; }
+  .tags-card { height: 160px; margin-top: 24px; padding: 10px 14px; }
   /* The full logo and ASK float above a full-width search field. */
   .tags-main:not([data-state="initial"]) .tags-search { width: 100%; }
   .tags-results { margin-top: 24px; }

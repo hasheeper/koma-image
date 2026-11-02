@@ -2,7 +2,7 @@ import { CATEGORIES, hasHan, rankTags } from "../domain/tags.ts";
 import type { TagItem } from "../domain/tags.ts";
 import { SAMPLE_TIERS, readSamples, samplesQuery } from "../domain/tag-samples.ts";
 import type { SampleTier, TagSample } from "../domain/tag-samples.ts";
-import { postName, readPost, readPostJson } from "../domain/danbooru-post.ts";
+import { postName, readPost } from "../domain/danbooru-post.ts";
 import type { DanbooruPost } from "../domain/danbooru-post.ts";
 import { object } from "../domain/value.ts";
 import type { LocalTagProxy } from "../config/runtime.ts";
@@ -16,6 +16,7 @@ interface Options {
   pageSize?: number;
 }
 interface SuggestionOptions extends Options { dataset?: "anime" | "furry" }
+const staticPostsUnavailable = "云端静态版不支持 Danbooru 帖子读取、示例图与链接导入。";
 export function createTagSearch(
   categories: () => number[],
   fetcher: typeof fetch = fetch,
@@ -28,6 +29,9 @@ export function createTagSearch(
     postCache = new Map<string, DanbooruPost>();
   const imageUrl = (src: string) => local
     ? new URL(`media${new URL(src).pathname}`, local.baseUrl).href : src;
+  function requirePosts() {
+    if (!local) throw new Error(staticPostsUnavailable);
+  }
   const remember = <T>(map: Map<string, T>, key: string, value: T) => {
     map.delete(key);
     map.set(key, value);
@@ -177,10 +181,6 @@ export function createTagSearch(
       signal?.throwIfAborted();
       if (typeof detail === "string" && detail) throw new Error(detail.slice(0, 300));
     }
-    if (response.headers.get("cf-mitigated") === "challenge") {
-      await response.body?.cancel();
-      throw new Error("Danbooru 要求站点验证，请在原站查看；帖子资料可在 TAGS 手动导入");
-    }
     if (response.status === 404 && missing) throw new Error(missing);
     if (response.status === 429) throw new Error("Danbooru 请求过于频繁，请稍后再试");
     if (!response.ok) throw new Error(`Danbooru 暂不可用 (${response.status})`);
@@ -216,6 +216,8 @@ export function createTagSearch(
     ).filter((id) => Object.hasOwn(CATEGORIES, id));
   }
   return {
+    postsAvailable: !!local,
+    postsUnavailableReason: local ? "" : staticPostsUnavailable,
     imageUrl,
     async suggest(query: string, options: SuggestionOptions = {}) {
       options.signal?.throwIfAborted();
@@ -273,6 +275,7 @@ export function createTagSearch(
     /** Danbooru posts for one artist/character, opened on demand; failures are not kept and never retried. */
     async samples(name: string, tier: SampleTier, signal?: AbortSignal) {
       signal?.throwIfAborted();
+      requirePosts();
       const key = `${tier}:${name}`;
       if (sampleCache.has(key)) return structuredClone(sampleCache.get(key)!);
       const url = new URL("https://danbooru.donmai.us/posts.json");
@@ -280,15 +283,11 @@ export function createTagSearch(
       url.searchParams.set("limit", String(SAMPLE_TIERS[tier].limit));
       return remember(sampleCache, key, readSamples(await danbooru(url, signal), tier));
     },
-    /** Explicit manual import; known fields only, shared for this page, with no request. */
-    importPost(text: string, expectedId?: number | null) {
-      const post = readPostJson(text, expectedId);
-      return remember(postCache, String(post.id), post);
-    },
-    /** Reads the shared page cache first, including explicitly imported post data. */
+    /** One pasted post link; kept for the page like samples, never retried. */
     async post(id: number, signal?: AbortSignal) {
       signal?.throwIfAborted();
       if (!Number.isSafeInteger(id) || id <= 0) throw new Error("Danbooru 帖子 ID 无效");
+      requirePosts();
       const key = String(id);
       if (postCache.has(key)) return structuredClone(postCache.get(key)!);
       const post = readPost(await danbooru(new URL(`https://danbooru.donmai.us/posts/${id}.json`), signal, "Danbooru 上没有这条帖子"));
@@ -298,6 +297,7 @@ export function createTagSearch(
     /** ASK uses sample/720px; IMAGE explicitly asks for the original. */
     async postImage(post: DanbooruPost, signal?: AbortSignal, original = false) {
       signal?.throwIfAborted();
+      requirePosts();
       const image = original ? post.original : post.image;
       if (!image) throw new Error(original ? "该帖没有可用的原图" : "该帖没有可用的图片");
       const timeout = AbortSignal.timeout(20_000),
