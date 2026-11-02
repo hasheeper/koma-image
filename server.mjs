@@ -156,6 +156,54 @@ async function danbooruRead(req, res, url, path, fetcher, timeout) {
   }
 }
 
+/** Shared loopback and same-origin boundary for the local server and Vite's tag-only middleware. */
+export function localRequest(req, res, port, mount = "/") {
+  res.setHeader("Cache-Control", "no-store");
+  res.setHeader("X-Content-Type-Options", "nosniff");
+  res.setHeader("Referrer-Policy", "no-referrer");
+  res.setHeader("Cross-Origin-Resource-Policy", "same-origin");
+  res.setHeader("X-Frame-Options", "DENY");
+  const hosts = new Set([
+    `127.0.0.1:${port}`,
+    `localhost:${port}`,
+    `[::1]:${port}`,
+  ]);
+  if (!hosts.has(req.headers.host))
+    return void send(res, 403, { error: "只允许本机访问" });
+  const origin = `http://${req.headers.host}`;
+  if (
+    (req.headers.origin && req.headers.origin !== origin) ||
+    req.headers["sec-fetch-site"] === "cross-site"
+  )
+    return void send(res, 403, { error: "不允许跨站访问" });
+  let url;
+  try {
+    url = new URL(req.url, origin);
+  } catch {
+    return void send(res, 400, { error: "请求地址无效" });
+  }
+  if (url.origin !== origin || !url.pathname.startsWith(mount))
+    return void send(res, 404, { error: "未找到" });
+  return url;
+}
+
+/** The same anonymous, fixed-path transport in local and development modes. */
+export function createDanbooruProxy({ fetcher = fetch, timeout = 240_000 } = {}) {
+  const token = randomBytes(32).toString("hex"), expected = Buffer.from(token);
+  return {
+    runtime: `<script id="koma-tags-runtime" type="application/json">${JSON.stringify({ version: 1, token })}</script>`,
+    async handle(req, res, url, path) {
+      // Hash-addressed public images have no token in their URL; localRequest guards their origin.
+      if (!path.startsWith("media/")) {
+        const supplied = Buffer.from(typeof req.headers["x-koma-local-token"] === "string" ? req.headers["x-koma-local-token"] : "");
+        if (supplied.length !== expected.length || !timingSafeEqual(supplied, expected))
+          return send(res, 403, { error: "本地会话已失效，请刷新页面" });
+      }
+      return danbooruRead(req, res, url, path, fetcher, timeout);
+    },
+  };
+}
+
 /** A loopback-only static server and fixed-profile proxy. No upstream discovery or retries. */
 export function createLocalServer({
   env = process.env,
@@ -186,55 +234,24 @@ export function createLocalServer({
   const token = randomBytes(32).toString("hex"),
     tokenBytes = Buffer.from(token);
   const runtime = `<script id="koma-runtime" type="application/json">${JSON.stringify({ version: 1, mode: "local", token, image: !!gateway, reasoning: reasoning.map((c) => c.profileId) })}</script>`;
-  const tagToken = randomBytes(32).toString("hex"), tagTokenBytes = Buffer.from(tagToken);
-  const tagRuntime = `<script id="koma-tags-runtime" type="application/json">${JSON.stringify({ version: 1, token: tagToken })}</script>`;
+  const tags = createDanbooruProxy({ fetcher, timeout });
   const server = http.createServer(async (req, res) => {
-    res.setHeader("Cache-Control", "no-store");
-    res.setHeader("X-Content-Type-Options", "nosniff");
-    res.setHeader("Referrer-Policy", "no-referrer");
-    res.setHeader("Cross-Origin-Resource-Policy", "same-origin");
-    res.setHeader("X-Frame-Options", "DENY");
-    const address = server.address(),
-      port = typeof address === "object" && address?.port;
-    const hosts = new Set([
-      `127.0.0.1:${port}`,
-      `localhost:${port}`,
-      `[::1]:${port}`,
-    ]);
-    if (!hosts.has(req.headers.host))
-      return send(res, 403, { error: "只允许本机访问" });
-    const origin = `http://${req.headers.host}`;
-    if (
-      (req.headers.origin && req.headers.origin !== origin) ||
-      req.headers["sec-fetch-site"] === "cross-site"
-    )
-      return send(res, 403, { error: "不允许跨站访问" });
-    let url;
-    try {
-      url = new URL(req.url, origin);
-    } catch {
-      return send(res, 400, { error: "请求地址无效" });
-    }
-    if (url.origin !== origin || !url.pathname.startsWith(mount))
-      return send(res, 404, { error: "未找到" });
+    const address = server.address();
+    const url = localRequest(req, res, typeof address === "object" && address?.port, mount);
+    if (!url) return;
     const path = url.pathname.slice(mount.length);
     try {
       if (path.startsWith("api/")) {
         const tagRequest = path.startsWith("api/danbooru/");
         if (!configured && !tagRequest) return send(res, 503, { error: "本地网关尚未配置" });
-        // Public images must work in <img> without embedding a session token in the URL.
-        // Host/origin checks above and the CDN path whitelist still apply.
-        if (path.startsWith("api/danbooru/media/"))
-          return await danbooruRead(req, res, url, path.slice("api/danbooru/".length), fetcher, timeout);
+        if (tagRequest) return await tags.handle(req, res, url, path.slice("api/danbooru/".length));
         const supplied = Buffer.from(
           typeof req.headers["x-koma-local-token"] === "string"
             ? req.headers["x-koma-local-token"]
             : "",
         );
-        const expected = tagRequest ? tagTokenBytes : tokenBytes;
-        if (supplied.length !== expected.length || !timingSafeEqual(supplied, expected))
+        if (supplied.length !== tokenBytes.length || !timingSafeEqual(supplied, tokenBytes))
           return send(res, 403, { error: "本地会话已失效，请刷新页面" });
-        if (tagRequest) return await danbooruRead(req, res, url, path.slice("api/danbooru/".length), fetcher, timeout);
         const route = allowed.get(path.slice(3));
         if (!route) return send(res, 404, { error: "协议路径无效" });
         if (!route.config) return send(res, 503, { error: "该本地连接尚未配置" });
@@ -359,7 +376,7 @@ export function createLocalServer({
       let bytes = await readFile(file);
       if (relative === "index.html")
         bytes = Buffer.from(
-          bytes.toString("utf8").replace("</head>", `${tagRuntime}${configured ? runtime : ""}</head>`),
+          bytes.toString("utf8").replace("</head>", `${tags.runtime}${configured ? runtime : ""}</head>`),
         );
       res.writeHead(200, {
         "Content-Type": types[extname(file)] || "application/octet-stream",

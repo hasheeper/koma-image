@@ -2,6 +2,13 @@
 
 这里只记录正式发布中面向使用者的主要变化；完整验收证据见 [发布归档](docs/archive/README.md#发布与脱敏记录)。
 
+## [0.2.1] - 2026-11-02
+
+### 修复
+
+- TAGS 搜索结果页增加随屏幕高度调整的顶部留白，搜索栏与悬浮 Logo 保持间距。
+- `npm run dev` 接入与本地服务相同的 Danbooru 只读转发，支持帖子 JSON 与图片读取；静态部署仍直接访问原站。
+
 ## [0.2.0] - 2026-11-02
 
 ### 新增
@@ -20,3 +27,5 @@
 静态站的 Danbooru 读取仍受原站网络、跨域与站点验证限制；本地转发不随 Pages 部署。
 
 [0.2.0]: https://github.com/hasheeper/koma-image/tree/v0.2.0
+
+[0.2.1]: https://github.com/hasheeper/koma-image/compare/v0.2.0...v0.2.1

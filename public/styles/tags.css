@@ -45,11 +45,8 @@
 .tags-main[data-state="initial"] .tags-hero { grid-row: 2; }
 .tags-main[data-state="initial"] .tags-card { grid-row: 4; margin-top: 0; }
 .tags-main[data-state="initial"] .tags-foot { grid-row: 5; align-self: end; margin: 0; padding: 0; }
-/* Keep the full brand lockup clear of search when the content column narrows. */
-.tags-main[data-side]:not([data-state="initial"]) .tags-content { padding-top: 68px; }
-@media (max-width: 1100px) {
-  .tags-main:not([data-state="initial"]) .tags-content { padding-top: 68px; }
-}
+/* Give results breathing room below the floating logo, including on tall screens. */
+.tags-main:not([data-state="initial"]) .tags-content { padding-top: clamp(80px, 10dvh, 128px); }
 
 /* HOME's light: around the capsule at the start, from the top afterwards.
    Light themes set --ambient-ink to transparent and stay flat, as HOME does. */

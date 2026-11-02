@@ -1,6 +1,6 @@
 {
   "name": "koma-image",
-  "version": "0.2.0",
+  "version": "0.2.1",
   "private": true,
   "type": "module",
   "license": "SEE LICENSE IN LICENSE",
@@ -10,7 +10,7 @@
     "node": "26.x"
   },
   "scripts": {
-    "dev": "npm run fonts:build && vite",
+    "dev": "npm run fonts:build && node --use-env-proxy --env-file-if-exists=.env scripts/dev.mjs",
     "start": "node --use-env-proxy --env-file-if-exists=.env server.mjs",
     "typecheck": "vue-tsc --noEmit",
     "fonts:build": "node scripts/build-font-css.mjs",
