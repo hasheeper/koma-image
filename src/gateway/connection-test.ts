@@ -30,7 +30,7 @@ export async function testConnection(
     context.assertCurrent();
     const data = await response.json().catch(() => null);
     if (response.status === 401)
-      return { s: "err", text: "Key 无效" };
+      return { s: "err", text: "鉴权失败（401），请检查 API Key" };
     if (response.status === 403)
       return { s: "err", text: object(data).cloudflare_error === true
         ? errorMessage(data) : "访问被拒绝（403），请检查 Key 权限" };

@@ -348,9 +348,9 @@ test("settings: empty network default, connection/key input, model source contro
     await page
       .getByRole("button", { name: "展开 GPT Image 2 的来源", exact: true })
       .click();
-    assert.match(await page.locator(".sm-lines .cm use").getAttribute("href"), /#i-image$/);
+    assert.deepEqual(await page.locator(".sm-lines .sm-conn").allTextContents(), ["测试连接"]);
     await page
-      .getByRole("button", { name: "移除 测试连接 来源", exact: true })
+      .getByRole("switch", { name: "GPT Image 2 · 测试连接 来源", exact: true })
       .click();
     await page.waitForFunction(
       () =>
@@ -359,7 +359,7 @@ test("settings: empty network default, connection/key input, model source contro
         )[0]?.["gpt-image-2"]?.on === false,
     );
     await page
-      .getByRole("button", { name: "添加 测试连接 来源", exact: true })
+      .getByRole("switch", { name: "GPT Image 2 · 测试连接 来源", exact: true })
       .click();
     await page.getByRole("button", { name: "安全与备份", exact: true }).click();
     assert.equal(await page.getByRole("button", { name: "导出备份", exact: true }).isVisible(), true);
@@ -391,23 +391,29 @@ test("settings: source edits and sorting preserve lists, focus and catalogs; ref
     const { page } = t;
     await page.waitForFunction(() => document.querySelectorAll('.conn-card .st[data-s="ok"]').length === 2);
     const before = catalogs().length;
+    await page.getByRole("button", { name: "生图顺序", exact: true }).click();
     await page.getByRole("button", { name: "提高 第二连接 的优先级", exact: true }).click();
     await page.waitForFunction(() => JSON.parse(localStorage.getItem("koma.routing.v1")).order?.[0] === "second");
     await settle();
     assert.equal(catalogs().length, before, "sorting reuses raw catalogs");
+    assert.deepEqual(await page.locator('.order-name b').allTextContents(), ['第二连接', '第一连接']);
+    await page.keyboard.press('Escape');
+    await page.locator('.connection-order-dialog').waitFor({ state: 'hidden' });
+    assert.equal(await page.getByRole('button', { name: '生图顺序', exact: true }).evaluate(el => document.activeElement === el), true);
+    assert.deepEqual(await page.locator('.conn-card .conn-name b').allTextContents(), ['第一连接', '第二连接']);
     assert.equal(await page.locator('.conn-card .st[data-s="wait"]').count(), 0);
     await settings(page, "models");
     await page.getByRole("button", { name: "展开 GPT Image 2 的来源", exact: true }).click();
     await page.evaluate(() => {
       window.originalModelList = document.querySelector('#settingsPanel .sm');
-      window.originalSourceButton = [...document.querySelectorAll('.sm-line button')].find(b => b.getAttribute('aria-label') === '移除 第一连接 来源');
+      window.originalSourceButton = document.querySelector('.sm-line input[role="switch"][aria-label="GPT Image 2 · 第一连接 来源"]');
     });
-    await page.getByRole("button", { name: "移除 第一连接 来源", exact: true }).click();
+    await page.getByRole("switch", { name: "GPT Image 2 · 第一连接 来源", exact: true }).click();
     await page.waitForFunction(() => JSON.parse(localStorage.getItem("koma.routing.v1")).links.first?.["gpt-image-2"]?.on === false);
     await settle();
     assert.equal(await page.evaluate(() => originalModelList === document.querySelector('#settingsPanel .sm') && originalSourceButton.isConnected && document.activeElement === originalSourceButton), true);
-    await page.getByRole("button", { name: "添加 第一连接 来源", exact: true }).click();
-    await page.getByRole("button", { name: "移除 第二连接 来源", exact: true }).click();
+    await page.getByRole("switch", { name: "GPT Image 2 · 第一连接 来源", exact: true }).click();
+    await page.getByRole("switch", { name: "GPT Image 2 · 第二连接 来源", exact: true }).click();
     await page.waitForFunction(() => JSON.parse(localStorage.getItem("koma.routing.v1")).links.second?.["gpt-image-2"]?.on === false);
     await settle();
     assert.equal(catalogs().length, before, "source switches never re-fetch every provider");
@@ -419,7 +425,16 @@ test("settings: source edits and sorting preserve lists, focus and catalogs; ref
     await first.locator('.conn-models').click();
     await page.getByRole("searchbox", { name: "搜索模型" }).fill("custom");
     await page.evaluate(() => { window.originalDialogList = document.querySelector('#modelListDialog .md-list'); });
-    await page.getByRole("combobox", { name: "把 custom-image 用作", exact: true }).selectOption("gpt-image-1.5");
+    await page.getByRole("button", { name: "为 custom-image 关联模型", exact: true }).click();
+    const mapping = page.getByRole("menu", { name: "为 custom-image 关联模型", exact: true });
+    await mapping.waitFor();
+    await page.keyboard.press('Escape');
+    await mapping.waitFor({ state: 'hidden' });
+    assert.equal(await page.locator('#modelListDialog').evaluate(el => el.open), true);
+    const mapButton = page.getByRole("button", { name: "为 custom-image 关联模型", exact: true });
+    assert.equal(await mapButton.evaluate(el => el === document.activeElement), true);
+    await mapButton.press('Enter');
+    await mapping.getByRole("menuitem", { name: "GPT Image 1.5", exact: true }).press('Enter');
     await page.waitForFunction(() => JSON.parse(localStorage.getItem("koma.routing.v1")).links.first?.["gpt-image-1.5"]?.id === "custom-image");
     await settle();
     assert.equal(await page.getByRole("searchbox", { name: "搜索模型" }).inputValue(), "custom");

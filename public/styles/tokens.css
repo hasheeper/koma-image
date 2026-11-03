@@ -141,6 +141,7 @@
   --panel-well: var(--chrome);
   /* The full-page settings base: large and mostly empty, so light keeps it a step lighter than --canvas. */
   --settings-bg: var(--canvas);
+  --settings-dialog-bg: var(--chrome);
   --choice-bg: var(--raised);
   --choice-hover-bg: var(--choice-bg);
   --choice-active-bg: var(--a-dim);
@@ -386,6 +387,7 @@
   --thumb-backdrop-filter: saturate(.6) opacity(.18);
   --chrome: #fafafc;
   --settings-bg: var(--page-bg);
+  --settings-dialog-bg: var(--raised);
   --sunken: #fff;
   --raised: #fff;
   --hover: #efeff4;

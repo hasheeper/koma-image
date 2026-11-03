@@ -103,7 +103,46 @@
   box-shadow: 0 0 0 1px rgba(0, 0, 0, 0.55), inset 0 0 0 1px rgba(0, 0, 0, 0.35);
   pointer-events: none;
 }
-.editor-empty { position: absolute; inset: 0; margin: auto; height: max-content; }
+.editor-empty { position: absolute; inset: 0; margin: auto; height: max-content; gap: 0; }
+/* A small comic sheet echoes Koma's panels and the editor's crop marks. */
+.editor-empty-sheet {
+  position: relative; display: grid;
+  grid-template-columns: 1fr 34px; grid-template-rows: 1fr 1fr; gap: 5px;
+  box-sizing: content-box; width: 112px; height: 72px; padding: 6px;
+  margin-bottom: 18px;
+}
+.editor-empty-frame {
+  position: relative; overflow: hidden;
+  background: var(--raised); border: 1px solid var(--line); border-radius: 4px;
+}
+.editor-empty-frame-main { grid-row: 1 / span 2; }
+.editor-empty-frame-accent { background: var(--a-dim); border-color: var(--a-line); }
+.editor-empty-sun {
+  position: absolute; top: 12px; left: 16px;
+  width: 9px; height: 9px; border-radius: 50%;
+  background: color-mix(in oklab, var(--fg-3) 55%, transparent);
+}
+.editor-empty-hill {
+  position: absolute; bottom: 0;
+  background: color-mix(in oklab, var(--fg-3) 30%, transparent);
+}
+.editor-empty-hill-back {
+  left: 28px; right: -4px; height: 34px;
+  clip-path: polygon(0 100%, 55% 15%, 100% 100%);
+}
+.editor-empty-hill-front {
+  left: -6px; width: 64px; height: 26px;
+  background: color-mix(in oklab, var(--fg-3) 45%, transparent);
+  clip-path: polygon(0 100%, 50% 0, 100% 100%);
+}
+.editor-empty-crop { position: absolute; width: 9px; height: 9px; border: 0 solid var(--a-line); }
+.editor-empty-crop-tl { top: 0; left: 0; border-top-width: 1.5px; border-left-width: 1.5px; }
+.editor-empty-crop-tr { top: 0; right: 0; border-top-width: 1.5px; border-right-width: 1.5px; }
+.editor-empty-crop-bl { bottom: 0; left: 0; border-bottom-width: 1.5px; border-left-width: 1.5px; }
+.editor-empty-crop-br { bottom: 0; right: 0; border-bottom-width: 1.5px; border-right-width: 1.5px; }
+.editor-empty .blank-s { margin: 0 0 14px; }
+.editor-empty .editor-empty-open { min-width: 144px; min-height: 40px; margin-top: 0; padding-inline: 18px; }
+.editor-empty .editor-empty-open:disabled { color: var(--fg-4); background: var(--raised); border-color: var(--line); cursor: not-allowed; transform: none; }
 /* Picture identity stays above the mat; actions belong to the bottom toolbar. */
 .editor-info {
   position: absolute; top: 0; left: 0; right: 0; z-index: 3;
@@ -263,6 +302,8 @@
   .editor { overflow-y: auto; overscroll-behavior: contain; }
   .editor { display: block; }
   .editor-bar { position: sticky; top: 0; }
+  .editor-empty-sheet { width: 100px; height: 64px; grid-template-columns: 1fr 30px; margin-bottom: 16px; }
+  .editor-empty .editor-empty-open { min-width: 156px; min-height: 44px; padding-inline: 20px; }
   .editor-shell { display: flex; flex-direction: column; padding-bottom: var(--editor-foot, 64px); }
   .editor .splitter { display: none; }
 

@@ -32,6 +32,7 @@ fonts/index.css
 | 外观选择器 | `--appearance-bg/selected-bg/selected-shadow`；紧凑两等分、浅色白色浮片、深色亮一级浮片，中性选中文字；专用材质不改变其他分段控件 |
 | IMAGE 结果信息栏 | `--result-*`；亮色与右侧栏共用 `--chrome` 底板、不加顶部投影，参数名／数值分层，ID 浅紫、可复制 Seed 白色、只读参数极浅灰；下载实心紫白字、ASK 保留紫色图形配中性文字。暗色保留原材质，布局与尺寸归 `styles.css` 和 `ImageStage.vue` |
 | 卡片与分组 | `--card-bg/shadow`、`--group-bg/line`、历史栏空槽 `--ghost-tile-bg/ring`；亮色按明度分层，`--canvas` 最低、`--chrome` 高一级，白色只给控件与浮起表面 |
+| 设置子弹窗 | `--settings-dialog-bg` 统一供应商、模型目录、条目、来源参数与排序弹窗；暗色复用 `--chrome`，亮色复用白色 `--raised`。输入使用 `--sunken`，聚焦保留原底色、只改变边界；规则归 `settings.css` |
 | 共享菜单 | `--menu-*` 管表面、边界、磨砂与交互状态；暗色保持实底，亮色用接近实色的白色玻璃与浅紫选中底 |
 | ASK 玻璃、输入、悬停及高光边缘 | `--glass-*`；`AskDrawer.vue` 保留 `--ask-*` 别名和 HOME／手机实色覆盖 |
 | 遮罩、阴影及表面叠色 | `--scrim*`、`--lightbox-bg`、`--shadow-rgb/strength`、`--surface-tint`、`--specular` |
@@ -75,7 +76,11 @@ Koma 字标在亮色中为纯墨蓝，方块保留品牌紫，形状与字体不
 | --- | --- |
 | `SettingsOverlay.vue` | 设置导航、父 dialog、连接删除／测试／排序、配置导入导出、模型弹窗协调 |
 | `settings/SupplierDialog.vue` | 供应商字段、Key 显隐／保存选择、目标变更校验与保存事务；Key 只留在 DOM 输入和凭据服务，关闭清空 |
-| `settings/ConnectionsSection.vue` | 图像／文本分组、状态、额度、模型数量与优先级展示；仅通过事件请求业务操作 |
+| `settings/ConnectionsSection.vue` | 单连接卡、状态、额度、用途入口与生图顺位展示；仅通过事件请求业务操作 |
+| `settings/ConnectionOrderDialog.vue` | 生图连接顺序弹层、上下移动事件与关闭清理，复用原生 dialog |
+| `settings/ModelMappingMenu.vue` | 目录 ID 的模型关联菜单，复用 `PopoverMenu` 并完整显示模型名与参数参考 |
+| `settings/ModelParametersDialog.vue` | 按模型与来源编辑标量参数覆盖，目录刷新保留手动修改，复用设置页弹窗与配色 |
+| `shared/ModelParameterInput.vue` | CHAT／EDIT 按字段类型呈现选项或输入，空值跟随接口，校验用户输入 |
 | `settings/ConnectionMenu.vue` | 单张连接卡的菜单、唯一 ID 与关闭清理 |
 | `settings/use-connection-catalogs.ts` | 目录／额度读取、请求取消、陈旧响应丢弃、变更局部失效与订阅释放 |
 
@@ -125,9 +130,9 @@ NAI 提示词内底栏归 `NaiPromptOptions.vue`，档位菜单归 `NaiSelect.vu
 
 任务与配方审阅归 `DraftSlate.vue`，文件紧凑行与可读详情归 `DraftFiles.vue`；共用 DraftCard 的图标槽、缩进和颜色变量。完成记录复用 `AskToolGroup.vue`，外部来源以同行小字显示，详细来源按需展开；不添加全局补丁或独立草稿卡。
 
-连接图标由 `src/shared/ConnectionAvatar.vue` 统一展示，`src/domain/connection-icon.ts` 按官方 Profile／已识别官方地址选择 Logo，按 Profile 能力选择通用图标，复用已有模型 Logo 和站内 sprite；设置卡片、模型列表标题与来源行的图标容器、尺寸仍归 `settings.css`。
+连接图标由 `src/shared/ConnectionAvatar.vue` 统一展示，`src/domain/connection-icon.ts` 按官方 Profile／已识别官方地址选择 Logo，按 Profile 能力选择通用图标，复用已有模型 Logo 和站内 sprite；设置卡片和供应商模型列表标题的图标容器、尺寸仍归 `settings.css`；模型页来源行不重复图标。
 
-图像／文本分组标题、连接卡底行的优先级控件与模型来源顺序归 `settings.css`；不另套分组面板。顶栏实际来源的 Logo 与同行张数估算归 `ui.css`，不增加下方注释行。
+连接卡内的图像／文字用途行、已启用／已选计数、只读生图顺位和模型页的分组、来源、主题及响应式布局归 `settings.css`。模型页由 `ModelsSection.vue` 维护分组、标题右侧来源「＋」与保存，`ModelSourceRow.vue` 维护 ID 原位编辑、恢复自动匹配和开关交互，`ModelSourceAdd.vue` 维护按需显示的紧凑来源添加表单，`ModelEntryDialog.vue` 维护名称／默认参数与新增表单；生图排序弹层复用共享 `.modal`，列表专属样式归 `ConnectionOrderDialog.vue` 的 scoped 样式。顶栏实际来源的 Logo 与同行张数估算归 `ui.css`，不增加下方注释行。
 
 ### 高亮、Teleport 与公共结构
 

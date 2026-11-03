@@ -72,12 +72,16 @@ test("ASK settings: free creation off by default, empty vocabulary and replaceme
     await page.locator("#askPreference").fill("先说结论");
     await page.locator("#askPreference").blur();
     await page.waitForFunction(() => JSON.parse(localStorage.getItem("koma.ask.v1"))?.preference === "先说结论");
-    assert.deepEqual(await stored(page, "koma.ask.v1"), { version: 1, connectionId: "claude", model: "reasoning-a", models: { claude: ["reasoning-a", "Manual Model (Thinking)"] }, images: false, responseMode: "text", textAttachments: { chars: 50_000, totalChars: 100_000 }, compaction: { highWaterTokens: 220_000 }, preference: "先说结论", words: [], replacements: [], alwaysCodec: false });
+    assert.deepEqual(await stored(page, "koma.ask.v1"), { version: 1, connectionId: "claude", model: "reasoning-a", models: { claude: ["reasoning-a", "Manual Model (Thinking)"] }, images: false, responseMode: "text", textAttachments: { chars: 50_000, totalChars: 100_000 }, compaction: { highWaterTokens: 220_000 }, preference: "先说结论", words: [], wordEncoding: "alias", replacements: [], alwaysCodec: false });
 
     await page.locator('label[for="askAdult"]').click();
     await page.waitForFunction(() => localStorage.getItem("koma.ask.adult.v1") === "true");
     const words = adultGroup;
     await words.getByRole("switch", { name: "始终启用词表混淆" }).waitFor({ state: "attached" });
+    const encoding = words.getByRole("radiogroup", { name: "词条编码" });
+    assert.equal(await encoding.getByRole("radio", { name: "代号" }).isChecked(), true);
+    await encoding.getByText("Unicode", { exact: true }).click();
+    await page.waitForFunction(() => JSON.parse(localStorage.getItem("koma.ask.v1"))?.wordEncoding === "unicode");
     assert.equal(await words.getByRole("list", { name: "内置词条" }).count(), 0);
     assert.equal(await words.getByRole("list", { name: "自定义词条" }).count(), 0);
     assert.equal(await words.getByRole("list", { name: "文本替换", exact: true }).count(), 0);
@@ -119,6 +123,7 @@ test("ASK settings: free creation off by default, empty vocabulary and replaceme
     assert.equal(await page.locator("#askImages").isChecked(), false);
     await page.locator('label[for="askAdult"]').click();
     await words.getByRole("list", { name: "文本替换", exact: true }).waitFor();
+    assert.equal(await encoding.getByRole("radio", { name: "Unicode" }).isChecked(), true);
     assert.deepEqual((await stored(page, "koma.ask.v1")).replacements, [{ from: "保留的服装描述与光影设定", to: "replacement_clothing_and_lighting" }]);
 
     await route(page, "#/image/settings/general");
@@ -251,29 +256,94 @@ test("ASK composer: the model chip switches among picks across connections; a ru
   }
 });
 
+test("unified connections: separate IDs, shared model uses, image ordering and ASK selection stay independent on mobile", async () => {
+  const { page, context, requests, errors } = await open("/#/image/settings/connections", { width: 390, touch: true });
+  const card = id => page.locator(`.conn-card[data-connection="${id}"]`);
+  const cards = p => p.locator('.conn-card').evaluateAll(rows => rows.map(r => r.dataset.connection));
+  try {
+    await page.evaluate(async () => {
+      const p = document.body.__vue_app__._context.provides;
+      const services = p[Object.getOwnPropertySymbols(p).find(k => k.description === 'application-services')];
+      const next = structuredClone(services.connections.configuration);
+      // The same name and address still represent two independently configured connections.
+      next.connections.duplicate = { ...next.connections.image, id: 'duplicate' };
+      next.connections.image.profileId = 'openai-chat-images-v1';
+      await services.connections.save(next);
+    });
+    await page.waitForFunction(() => document.querySelectorAll('.conn-card .st[data-s="ok"]').length === 4);
+    const originalOrder = ['image', 'chat', 'claude', 'duplicate'];
+    assert.deepEqual(await cards(page), originalOrder);
+    assert.deepEqual(await card('image').locator('.conn-models').evaluateAll(rows => rows.map(r => r.dataset.kind)), ['image', 'llm']);
+    assert.equal(await card('image').getByRole('button', { name: '测试连接', exact: true }).count(), 1);
+    assert.equal(await card('duplicate').locator('[data-kind="llm"]').count(), 0);
+    assert.equal(await card('claude').locator('[data-kind="image"]').count(), 0);
+    await card('image').getByRole('button', { name: /文字模型/ }).tap();
+    const textList = page.locator('#askModelDialog');
+    // A multimodal ID may be picked for ASK as well as enabled for images.
+    await textList.getByRole('button', { name: '选用 gpt-image-1.5', exact: true }).tap();
+    await textList.getByRole('button', { name: '关闭', exact: true }).tap();
+    assert.equal(await card('image').locator('[data-kind="llm"] .conn-model-count').textContent(), '1');
+    assert.equal(await card('image').locator('[data-kind="image"] .conn-model-count').textContent(), '1');
+    const askBefore = await stored(page, 'koma.ask.v1');
+    const second = await context.newPage();
+    await second.goto(page.url());
+    await second.waitForFunction(() => document.querySelectorAll('.conn-card .st[data-s="ok"]').length === 4);
+    const before = requests.length;
+    const order = page.getByRole('dialog', { name: '生图顺序', exact: true });
+    await page.getByRole('button', { name: '生图顺序', exact: true }).tap();
+    assert.deepEqual(await order.locator('.order-row').evaluateAll(rows => rows.map(r => r.dataset.connection)), ['image', 'duplicate']);
+    await order.locator('[data-connection="duplicate"]').getByRole('button', { name: /提高/ }).tap();
+    await page.waitForFunction(() => JSON.parse(localStorage.getItem('koma.routing.v1')).order[0] === 'duplicate');
+    await second.locator('.conn-card[data-connection="duplicate"]').getByTitle('生图顺序第 1 位', { exact: true }).waitFor();
+    assert.deepEqual(await order.locator('.order-row').evaluateAll(rows => rows.map(r => r.dataset.connection)), ['duplicate', 'image']);
+    assert.equal(requests.length, before, 'sorting reuses the catalogs on both pages');
+    assert.deepEqual(await stored(page, 'koma.ask.v1'), askBefore);
+    assert.deepEqual(await cards(second), originalOrder);
+    await page.keyboard.press('Escape');
+    await order.waitFor({ state: 'hidden' });
+    assert.equal(await page.locator('#settingsPanel').evaluate(el => el.open), true);
+    assert.equal(await page.getByRole('button', { name: '生图顺序', exact: true }).evaluate(el => el === document.activeElement), true);
+    assert.deepEqual(await cards(page), originalOrder);
+    await card('image').getByRole('button', { name: /图像模型/ }).tap();
+    await page.locator('#modelListDialog[open]').waitFor();
+    await page.locator('#modelListDialog').getByRole('button', { name: '关闭', exact: true }).tap();
+    // A route change also dismisses the nested panel instead of leaving an invisible modal open.
+    await page.getByRole('button', { name: '生图顺序', exact: true }).tap();
+    await route(page, '#/image/settings/ask');
+    await order.waitFor({ state: 'hidden' });
+    await route(page, '#/image/settings/connections');
+    await page.reload();
+    await card('duplicate').getByTitle('生图顺序第 1 位', { exact: true }).waitFor();
+    assert.deepEqual(await cards(page), originalOrder);
+    assert.deepEqual(await stored(page, 'koma.ask.v1'), askBefore);
+    assert.deepEqual(generation(requests), []);
+    assert.deepEqual(errors, []);
+  } finally { await context.close(); }
+});
+
 test("ASK settings leave image work alone: cards, model sources and the protocol list", async () => {
   const { page, context, requests, errors } = await open("/#/image/settings/connections");
   try {
     await page.waitForFunction(() => [...document.querySelectorAll(".conn-card .st")].every((s) => s.dataset.s === "ok"));
     const card = (name) => page.locator(".conn-card", { hasText: name });
-    const imageGroup = page.getByRole("region", { name: "图像供应商", exact: true });
-    const llmGroup = page.getByRole("region", { name: "文本供应商", exact: true });
-    assert.equal(await imageGroup.locator(".conn-card").count(), 1);
-    assert.equal(await imageGroup.locator(".conn-priority").count(), 1);
-    assert.deepEqual(await llmGroup.locator(".conn-name b").allTextContents(), ["推理 Chat", "推理 Messages"]);
-    assert.equal(await llmGroup.locator(".conn-priority").count(), 0);
-    assert.equal(await llmGroup.locator(".conn-meters").count(), 0);
+    assert.deepEqual(await page.locator(".conn-card .conn-name b").allTextContents(), ["图像连接", "推理 Chat", "推理 Messages"]);
+    assert.equal(await card("图像连接").locator('[data-kind="image"]').count(), 1);
+    assert.equal(await page.locator('.conn-card [data-kind="llm"]').count(), 2);
+    for (const name of ["推理 Chat", "推理 Messages"]) {
+      assert.equal(await card(name).locator('[data-kind="image"]').count(), 0);
+      assert.equal(await card(name).locator('.conn-meters').count(), 0);
+    }
     for (const name of ["推理 Chat", "推理 Messages"])
       assert.match(await card(name).locator(".connection-avatar use").getAttribute("href"), /#i-chat$/);
     assert.match(await card("图像连接").locator(".connection-avatar use").getAttribute("href"), /#i-image$/);
 
-    assert.match(await card("推理 Chat").locator(".conn-models").textContent(), /ASK 模型\s*2 个 ID/);
-    // The card ASK uses names its model; the others keep their catalog count.
+    assert.equal(await card("推理 Chat").locator(".conn-models").getAttribute("aria-label"), "文字模型，已选 0 个");
+    // Every text entry counts picks, including the active ID; catalogs never become the count.
     await page.evaluate(() => localStorage.setItem("koma.ask.v1", JSON.stringify({ version: 1, connectionId: "claude", model: "reasoning-b", images: true, preference: "", words: [], alwaysCodec: false })));
     await page.evaluate(() => window.dispatchEvent(new StorageEvent("storage", { key: "koma.ask.v1" })));
-    await page.waitForFunction(() => /使用中 · reasoning-b/.test([...document.querySelectorAll(".conn-card")].find((c) => c.textContent.includes("推理 Messages"))?.querySelector(".conn-models")?.textContent ?? ""));
-    assert.match(await card("推理 Chat").locator(".conn-models").textContent(), /2 个 ID/);
-    assert.match(await card("图像连接").locator(".conn-models").textContent(), /模型\s*1\s*个可用/);
+    await page.waitForFunction(() => /ASK 当前使用：reasoning-b/.test([...document.querySelectorAll(".conn-card")].find((c) => c.textContent.includes("推理 Messages"))?.querySelector(".conn-models")?.getAttribute("title") ?? ""));
+    assert.equal(await card("推理 Chat").locator(".conn-model-count").textContent(), "0");
+    assert.equal(await card("图像连接").locator(".conn-model-count").textContent(), "1");
     // Like an image card, the row opens that connection's list, with ASK's picks ticked.
     await card("推理 Messages").locator(".conn-models").click();
     const list = page.locator("#askModelDialog");
@@ -285,20 +355,22 @@ test("ASK settings leave image work alone: cards, model sources and the protocol
     await page.waitForFunction(() => JSON.parse(localStorage.getItem("koma.ask.v1"))?.models?.claude?.length === 2);
     await page.keyboard.press("Escape");
     await list.waitFor({ state: "hidden" });
-    assert.match(await card("推理 Messages").locator(".conn-models").textContent(), /使用中 · reasoning-b/);
+    assert.equal(await card("推理 Messages").locator(".conn-model-count").textContent(), "2");
+    assert.equal(await card("推理 Messages").locator(".conn-models").getAttribute("title"), "ASK 当前使用：reasoning-b");
     // A connection ASK does not use shows how many it picked there.
     await page.evaluate(() => localStorage.setItem("koma.ask.v1", JSON.stringify({ version: 1, connectionId: "claude", model: "reasoning-b", models: { chat: ["reasoning-a"] }, images: true, preference: "", words: [], alwaysCodec: false })));
     await page.evaluate(() => window.dispatchEvent(new StorageEvent("storage", { key: "koma.ask.v1" })));
-    await page.waitForFunction(() => /已选 1 个/.test([...document.querySelectorAll(".conn-card")].find((c) => c.textContent.includes("推理 Chat"))?.querySelector(".conn-models")?.textContent ?? ""));
+    await page.waitForFunction(() => [...document.querySelectorAll(".conn-card")].find((c) => c.textContent.includes("推理 Chat"))?.querySelector(".conn-model-count")?.textContent === "1");
     // Expanded image models list their sources; reasoning connections are not among them.
     await route(page, "#/image/settings/models");
-    await page.getByRole("button", { name: /^展开 .+ 的来源$/ }).first().click();
+    await page.getByRole("button", { name: "展开 GPT Image 1.5 的来源", exact: true }).locator('.sm-chevron').click();
     await page.locator(".sm-lines .sm-conn").first().waitFor();
     assert.deepEqual([...new Set(await page.locator(".sm-lines .sm-conn").allTextContents())], ["图像连接"]);
     await route(page, "#/image/settings/connections");
     await page.getByRole("button", { name: "配置供应商", exact: true }).click();
     const labels = await page.locator("#connectionProtocol option").allTextContents();
-    assert.ok(labels.includes("OpenAI Chat 兼容 · ASK") && labels.includes("Anthropic Messages · ASK"));
+    assert.ok(labels.includes("OpenAI 兼容") && labels.includes("Anthropic Messages · ASK"));
+    assert.equal(labels.filter(label => label.startsWith("OpenAI")).length, 1);
     await page.keyboard.press("Escape");
     // The chat workspace catalog still comes only from the image connection.
     await route(page, "#/chat");

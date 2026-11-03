@@ -4,6 +4,7 @@ export interface Replacement {
   from: string;
   to: string;
 }
+export type WordEncoding = "alias" | "unicode";
 /** The stored spelling: NFKC, lower case, underscores as spaces. */
 export const wordForm = (text: string) =>
   text.normalize("NFKC").toLowerCase().replace(/[\s_]+/g, " ").trim();
@@ -68,9 +69,10 @@ export function codecFor(options: {
   enabled: boolean;
   words: readonly string[];
   replacements?: readonly Replacement[];
+  wordEncoding?: WordEncoding;
 }): Codec {
   return options.adult
-    ? createCodec(options.enabled ? options.words : [], options.replacements)
+    ? createCodec(options.enabled ? options.words : [], options.replacements, options.wordEncoding)
     : identityCodec;
 }
 
@@ -90,7 +92,9 @@ const escape = (text: string) => text.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
 // Boundaries are ASCII word characters, so codes sit flush against CJK text.
 const edge = (form: string) =>
   `${/^\w/.test(form) ? "(?<!\\w)" : ""}${escape(form)}${/\w$/.test(form) ? "(?!\\w)" : ""}`;
-export function createCodec(custom: readonly string[], rules: readonly Replacement[] = []): Codec {
+const unicodeEscape = (text: string) =>
+  Array.from({ length: text.length }, (_, i) => `\\u${text.charCodeAt(i).toString(16).padStart(4, "0")}`).join("");
+export function createCodec(custom: readonly string[], rules: readonly Replacement[] = [], wordEncoding: WordEncoding = "alias"): Codec {
   const words: string[] = [];
   for (const raw of custom) {
     const checked = checkWord(raw, words);
@@ -104,6 +108,7 @@ export function createCodec(custom: readonly string[], rules: readonly Replaceme
   if (!words.length && !replacements.length) return identityCodec;
   const surfaces = new Map<string, string>();
   const reverse = new Map<string, string>();
+  const unicodeTargets = new Set<string>();
   words.forEach((word, i) => {
     const n = String(i + 1).padStart(3, "0");
     for (const upper of [false, true])
@@ -112,15 +117,17 @@ export function createCodec(custom: readonly string[], rules: readonly Replaceme
           / /g,
           under ? "_" : " ",
         );
-        const alias = `@${upper ? "T" : "t"}_${n}${under ? "u" : ""}`;
+        const alias = wordEncoding === "unicode" ? unicodeEscape(form) : `@${upper ? "T" : "t"}_${n}${under ? "u" : ""}`;
         if (!surfaces.has(form)) surfaces.set(form, alias);
         reverse.set(alias, form);
+        if (wordEncoding === "unicode") unicodeTargets.add(alias);
       }
   });
   const literal = new Set(replacements.map((r) => r.from));
   for (const { from, to } of replacements) {
     surfaces.set(from, to);
     reverse.set(to, from);
+    unicodeTargets.delete(to);
   }
   const pattern = new RegExp(
     [...surfaces.keys()]
@@ -132,16 +139,19 @@ export function createCodec(custom: readonly string[], rules: readonly Replaceme
   const targets = [...reverse.keys()].sort((a, b) => b.length - a.length);
   const literalTargets = new Set(replacements.map((r) => r.to));
   const reversePattern = new RegExp(targets.map((s) =>
-    escape(s) + (literalTargets.has(s) ? "" : "(?![A-Za-z0-9_])"),
+    (unicodeTargets.has(s) ? escape(s).replace(/[a-f]/g, (c) => "[" + c + c.toUpperCase() + "]") : escape(s)) +
+      (literalTargets.has(s) || unicodeTargets.has(s) ? "" : "(?![A-Za-z0-9_])"),
   ).join("|"), "g");
-  const decode = (text: string) => text.replace(reversePattern, (m) => reverse.get(m) ?? m);
+  const original = (match: string) => reverse.get(match) ?? (wordEncoding === "unicode" ? reverse.get(match.toLowerCase()) : undefined) ?? match;
+  const decode = (text: string) => text.replace(reversePattern, original);
   const encode = (text: string) =>
     text.replace(pattern, (m) => surfaces.get(m) ?? m);
   const table = [
     "<codebook>",
     "以下映射用于传输。按原文理解替换文本，回复和草稿中保留替换文本（replacement）。",
-    ...(words.length ? ["代号代表原始标签；@T_ 为全大写写法，末尾 u 为下划线写法。"] : []),
-    ...words.map((word, i) => `@t_${String(i + 1).padStart(3, "0")} ${JSON.stringify(word).replace(/</g, "\\u003c")}`),
+    ...(words.length && wordEncoding === "unicode" ? ["文本中的 \\uXXXX 是 Unicode 转义，按原字符理解；回复和草稿中可保留转义写法。"] : []),
+    ...(words.length && wordEncoding === "alias" ? ["代号代表原始标签；@T_ 为全大写写法，末尾 u 为下划线写法。"] : []),
+    ...(wordEncoding === "alias" ? words.map((word, i) => `@t_${String(i + 1).padStart(3, "0")} ${JSON.stringify(word).replace(/</g, "\\u003c")}`) : []),
     ...replacements.map(({ from, to }) => JSON.stringify({ original: from, replacement: to }).replace(/</g, "\\u003c")),
     "</codebook>",
   ].join("\n");
@@ -160,7 +170,7 @@ export function createCodec(custom: readonly string[], rules: readonly Replaceme
           const text = held + chunk;
           let cut = text.length;
           for (let n = Math.min(longest, text.length); n > 0; n--)
-            if (prefixes.has(text.slice(-n))) { cut -= n; break; }
+            if (prefixes.has(text.slice(-n)) || wordEncoding === "unicode" && prefixes.has(text.slice(-n).toLowerCase())) { cut -= n; break; }
           // Match against the full chunk so alias boundaries and overlapping
           // literal pairs behave exactly like decoding a complete response.
           let out = "", cursor = 0;
@@ -168,7 +178,7 @@ export function createCodec(custom: readonly string[], rules: readonly Replaceme
             if (match.index >= cut) break;
             const end = match.index + match[0].length;
             cut = Math.max(cut, end);
-            out += text.slice(cursor, match.index) + reverse.get(match[0]);
+            out += text.slice(cursor, match.index) + original(match[0]);
             cursor = end;
           }
           held = text.slice(cut);

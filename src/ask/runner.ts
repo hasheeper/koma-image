@@ -1,5 +1,5 @@
 import { ProviderError } from "./messages.ts";
-import type { AskBlock, AskCall, AskEvent, AskRequest, AskResult, AskUsage } from "./messages.ts";
+import type { AskBlock, AskCall, AskEvent, AskRequest, AskResult, AskUsage, GeminiReplay } from "./messages.ts";
 import { LIMITS } from "./session.ts";
 import type { Turn } from "./session.ts";
 import type { ToolContext, ToolRegistry } from "./tools.ts";
@@ -68,6 +68,7 @@ export async function* run(options: RunOptions): AsyncGenerator<RunEvent, void> 
     let text = "",
       stop: "end" | "tool" | "length" | "refusal" | "other" = "other";
     const calls: AskCall[] = [];
+    let gemini: GeminiReplay | undefined;
     for await (const event of options.stream(
       { ...request, ...(completing ? { toolChoice: "none" as const } : {}), messages: turn.messages() },
       signal,
@@ -79,6 +80,7 @@ export async function* run(options: RunOptions): AsyncGenerator<RunEvent, void> 
       } else if (event.type === "call") calls.push(event.call);
       else {
         stop = event.stop;
+        gemini = event.gemini;
         turn.record(event.usage);
         if (event.usage) yield { type: "usage", usage: event.usage };
       }
@@ -87,7 +89,7 @@ export async function* run(options: RunOptions): AsyncGenerator<RunEvent, void> 
       ...(text.trim() ? [{ type: "text" as const, text }] : []),
       ...calls,
     ];
-    if (content.length) turn.push({ role: "assistant", content });
+    if (content.length) turn.push({ role: "assistant", content, ...(gemini ? { gemini } : {}) });
     if (completing) {
       if (calls.length) throw new ProviderError("protocol", "模型在补充说明时仍调用工具，本轮未完成");
       if (!hasText) throw new ProviderError("empty", "模型未补充回复说明，本轮未完成");

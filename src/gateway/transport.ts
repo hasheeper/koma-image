@@ -22,7 +22,7 @@ export function endpoint(
   if (profile.transport.rootPrefix && new URL(base).pathname === "/")
     base += profile.transport.rootPrefix;
   if (path.includes("{model}")) {
-    if (!model || !/^[a-zA-Z0-9][a-zA-Z0-9._:@-]{0,511}$/.test(model))
+    if (!model?.trim() || model.length > 512 || /[\x00-\x1f\x7f]/.test(model))
       throw new Error("模型 ID 无效");
     path = path.replace("{model}", encodeURIComponent(model));
   }
@@ -49,6 +49,7 @@ export async function readJson(
   response: Response,
 ): Promise<Record<string, unknown>> {
   const data = object(await response.json().catch(() => null));
+  if (response.status === 401) throw new Error("鉴权失败（401），请检查 API Key");
   if (!response.ok || data.error)
     throw new Error(errorMessage(data, `请求失败 (${response.status})`));
   return data;

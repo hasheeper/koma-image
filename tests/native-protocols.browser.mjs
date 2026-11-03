@@ -16,12 +16,17 @@ test("priority NAI: ordering, availability, actual source, wallet, quota fallbac
     await page.waitForFunction(() => [...document.querySelectorAll(".conn-card .st")].every(el => el.dataset.s === "ok"));
     const official = page.locator(".conn-card").filter({ hasText: "模拟协议" });
     const gateway = page.locator(".conn-card").filter({ hasText: "模拟网关" });
-    await official.getByRole("button", { name: "提高 模拟协议 的优先级", exact: true }).click();
+    await page.getByRole("button", { name: "生图顺序", exact: true }).click();
+    const order = page.getByRole("dialog", { name: "生图顺序", exact: true });
+    await order.getByRole("button", { name: "提高 模拟协议 的优先级", exact: true }).click();
     await page.waitForFunction(() => drawing.snapshot().model?.connection === "test" && drawing.snapshot().quota?.media.subscription?.usage?.percent === 68);
     assert.deepEqual(await page.evaluate(() => services.connections.configuration.order), ["test", "primary"]);
-    assert.match(await page.locator(".conn-card").first().textContent(), /模拟协议/);
-    assert.match(await official.locator(".st").textContent(), /当前使用/);
-    assert.match(await gateway.locator(".conn-models").textContent(), /模型\s*5\s*个可用/);
+    assert.deepEqual(await order.locator('.order-name b').allTextContents(), ["模拟协议", "模拟网关"]);
+    await order.getByRole("button", { name: "关闭生图顺序", exact: true }).click();
+    assert.deepEqual(await page.locator(".conn-card .conn-name b").allTextContents(), ["模拟网关", "模拟协议"]);
+    assert.equal(await official.locator(".conn-models").getAttribute("title"), "当前工作区的生图来源");
+    assert.equal(await official.locator(".conn-model-state").textContent(), "1");
+    assert.equal(await gateway.locator(".conn-model-count").textContent(), "5");
     assert.equal(await page.evaluate(() => Object.values(services.connections.configuration.links).some(links => Object.values(links).some(link => !link.on))), false);
 
     await official.locator(".conn-models").click();
@@ -31,7 +36,7 @@ test("priority NAI: ordering, availability, actual source, wallet, quota fallbac
     await page.locator(".set-nav button").filter({ hasText: "模型" }).click();
     await page.getByRole("button", { name: "展开 NAI Diffusion V5 Full 的来源", exact: true }).click();
     const sources = page.locator('[data-model="nai-diffusion-5-full"] .sm-lines');
-    assert.equal(await sources.locator('.md-act[aria-pressed="true"]').count(), 2);
+    assert.equal(await sources.getByRole('switch', { checked: true }).count(), 2);
 
     await page.locator("#settingsPanel .set-back").click();
     await page.evaluate(() => ui.notices.value.forEach(n => ui.dismissNotice(n.id)));

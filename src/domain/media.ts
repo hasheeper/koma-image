@@ -231,12 +231,6 @@ export function buildChatPayload(
   if (images.length > model.maxImages)
     throw new Error(`本模型最多带入 ${model.maxImages} 张图片（包含底图）`);
   const image_options = normalizeOptions(model, options);
-  if (operation === "edit" && model.family === "gemini") {
-    // Studio's edit endpoint uses output_size instead of generation's image_size.
-    image_options.output_size =
-      image_options.image_size?.toLowerCase() || "original";
-    delete image_options.image_size;
-  }
   const payload: PayloadBase & { image_options: Record<string, string> } = {
     model: model.id,
     prompt,

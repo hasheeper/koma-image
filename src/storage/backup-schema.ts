@@ -5,7 +5,7 @@ import { readReferences, encodingKey, referenceModel } from "../domain/nai-refer
 import type { ReferenceAsset, VibeEncoding } from "../domain/nai-references.ts";
 import { DEFAULTS, boardKeys } from "../domain/drawing.ts";
 import { names } from "./names.ts";
-import { validateRouting, validateModelLinks } from "../config/connections.ts";
+import { validateRouting, validateModelLinks, validateModels } from "../config/connections.ts";
 import { object } from "../domain/value.ts";
 import { readAskSettings } from "../ask/settings.ts";
 import type {
@@ -43,6 +43,7 @@ export const backupPreferences = Object.freeze({
   tagCart: names.tagCart,
   tagCategories: names.tagCategories,
   localModels: names.localModels,
+  localModelEntries: names.localModelEntries,
   ask: names.ask,
 });
 export type BackupPreferences = Partial<
@@ -82,6 +83,9 @@ const id = (v: unknown): v is string =>
 const ids = (v: unknown): v is string[] => Array.isArray(v) && v.every(id);
 const plain = (v: unknown) =>
   v !== null && typeof v === "object" && !Array.isArray(v);
+const nonnegative = (v: unknown): v is number => typeof v === "number" && Number.isFinite(v) && v >= 0;
+const nullableId = (v: unknown) => v === null || id(v);
+const quote = (v: unknown) => v === undefined || v === null || plain(v);
 export function readBackupPreferences(value: unknown): BackupPreferences {
   if (!plain(value)) throw bad();
   const values = object(value),
@@ -97,6 +101,8 @@ export function readBackupPreferences(value: unknown): BackupPreferences {
       out[key] = JSON.stringify(validateRouting(JSON.parse(text)));
     else if (key === "localModels")
       out[key] = JSON.stringify(validateModelLinks(JSON.parse(text)));
+    else if (key === "localModelEntries")
+      out[key] = JSON.stringify(validateModels(JSON.parse(text)));
     else if (key === "drawing") {
       const value = object(JSON.parse(text));
       if (value.boards !== undefined) {
@@ -180,30 +186,43 @@ export function validateConversation(value: unknown): ConversationRecord {
     !ids(c.attachments) ||
     !ids(c.keepIds) ||
     !ids(c.skipTurnIds) ||
+    !nullableId(c.headId) || !nullableId(c.mainId) ||
+    ![c.baseFollows, c.pinned, c.renamed].every(v => typeof v === "boolean") ||
+    !Number.isSafeInteger(c.selectionRevision) || Number(c.selectionRevision) < 0 ||
+    !nonnegative(c.updatedAt) ||
     !Array.isArray(c.turns)
   )
     throw bad();
-  const seen = new Set<string>();
+  const seen = new Set<string>(), versions = new Set<string>(), parents = new Map<string, string | null>();
   for (const item of c.turns) {
     const t = object(item),
       snapshot = object(t.snapshot);
     if (
       !id(t.id) ||
       seen.has(t.id) ||
+      !nullableId(t.parentId) || typeof t.prompt !== "string" || !plain(t.settings) ||
+      typeof snapshot.text !== "string" || !nullableId(snapshot.parentId) || !nullableId(snapshot.base) ||
+      !ids(snapshot.refs) || !ids(snapshot.dropped) ||
       !ids(snapshot.imageIds) ||
       !ids(snapshot.turnIds) ||
-      !Array.isArray(t.versions)
+      !Array.isArray(t.versions) || !t.versions.length ||
+      !Number.isSafeInteger(t.selectedVersion) || Number(t.selectedVersion) < 0 || Number(t.selectedVersion) >= t.versions.length
     )
       throw bad();
     seen.add(t.id);
+    parents.set(t.id, t.parentId as string | null);
     for (const item of t.versions) {
       const v = object(item);
       if (
-        !id(v.id) ||
+        !id(v.id) || versions.has(v.id) || !quote(v.quote) ||
+        v.error !== undefined && typeof v.error !== "string" ||
+        v.completedAt !== undefined && !nonnegative(v.completedAt) ||
+        v.via !== undefined && (!id(object(v.via).connection) || typeof object(v.via).upstreamId !== "string" || !String(object(v.via).upstreamId).length || String(object(v.via).upstreamId).length > 512) ||
         !Array.isArray(v.blocks) ||
         !["pending", "done", "error", "cancelled"].includes(String(v.status))
       )
         throw bad();
+      versions.add(v.id);
       for (const item of v.blocks) {
         const b = object(item);
         if (
@@ -214,6 +233,23 @@ export function validateConversation(value: unknown): ConversationRecord {
           throw bad();
       }
     }
+  }
+  if (c.headId !== null && !seen.has(String(c.headId)) || c.skipTurnIds.some((id: string) => !seen.has(id))) throw bad();
+  for (const raw of c.turns) {
+    const t = object(raw), snapshot = object(t.snapshot);
+    if (t.parentId !== null && !seen.has(String(t.parentId)) || snapshot.parentId !== null && !seen.has(String(snapshot.parentId)) ||
+      (snapshot.turnIds as string[]).some(key => key === t.id || !seen.has(key))) throw bad();
+  }
+  const settled = new Set<string>();
+  for (const start of seen) {
+    const path = new Set<string>();
+    let cursor: string | null = start;
+    while (cursor !== null && !settled.has(cursor)) {
+      if (path.has(cursor)) throw bad();
+      path.add(cursor);
+      cursor = parents.get(cursor) ?? null;
+    }
+    for (const key of path) settled.add(key);
   }
   return structuredClone(c) as unknown as ConversationRecord;
 }
@@ -265,7 +301,11 @@ export function validateBackupManifest(value: unknown): BackupManifest {
     seenAssets = new Set();
   for (const item of m.favorites) {
     const row = object(item);
-    if (!id(row.id) || seenFavorites.has(row.id)) throw bad();
+    const size = object(row.size);
+    if (!id(row.id) || seenFavorites.has(row.id) || !plain(row.params) ||
+      !nonnegative(row.createdAt) || !nonnegative(row.favoritedAt) ||
+      !Number.isSafeInteger(size.width) || Number(size.width) < 1 || !Number.isSafeInteger(size.height) || Number(size.height) < 1 ||
+      !quote(row.quote) || row.ms !== undefined && !nonnegative(row.ms)) throw bad();
     seenFavorites.add(row.id);
     if (row.entity_key !== undefined && !isEntityKey(row.entity_key) || row.favSeq !== undefined && (!Number.isSafeInteger(row.favSeq) || Number(row.favSeq)<1)) throw bad();
     favorites.push({

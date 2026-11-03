@@ -3,6 +3,7 @@ import type { Ui } from "../app/ui";
 import { message } from "../app/ui";
 import type { CatalogModel } from "../domain/catalog";
 import { normalizeOptions, resolveModel, selectCatalogSources } from "../domain/catalog";
+import { removedModel } from "../domain/models";
 import { buildChatPayload, chatModels } from "../domain/media.ts";
 import * as conversation from "../domain/conversation.ts";
 import { object } from "../domain/value";
@@ -190,6 +191,10 @@ export function createChat(services: ApplicationServices, ui: Ui) {
   }
   function normalize(c = current) {
     const wanted = String(c.settings.model || "");
+    if (removedModel(services.connections.configuration, wanted)) {
+      error = "模型已删除，请重新选择模型";
+      return;
+    }
     const m = resolveModel(models, wanted) || models[0];
     if (m)
       c.settings = {
@@ -298,11 +303,12 @@ export function createChat(services: ApplicationServices, ui: Ui) {
   function scheduleQuote() {
     cancelQuote();
     held = false;
-    error = "";
+    error = removedModel(services.connections.configuration, String(current.settings.model || ""))
+      ? "模型已删除，请重新选择模型" : "";
     emit();
     const c = current,
       rev = quoteRevision;
-    if (!mutable() || !ready || !c.prompt.trim() || busy || uploading) return;
+    if (error || !mutable() || !ready || !c.prompt.trim() || busy || uploading) return;
     quoteTimer = setTimeout(async () => {
       const controller = (quoteAbort = new AbortController());
       try {
@@ -843,7 +849,7 @@ export function createChat(services: ApplicationServices, ui: Ui) {
       if (!m) return;
       current.settings = {
         model: m.id,
-        options: normalizeOptions(m, chatOptions(current)),
+        options: normalizeOptions(m, current.settings.model === id ? chatOptions(current) : {}),
       };
       void services.preferences
         .set(names.chatSettings, current.settings)

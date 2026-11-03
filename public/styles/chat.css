@@ -310,14 +310,16 @@
 .model-panel > .editor-pop-list { min-height: 0; overflow-x: hidden; overflow-y: auto; overscroll-behavior: contain; }
 .model-group-head { display: flex; align-items: center; gap: 6px; }
 .model-group-head .ico, .model-group-head .vl { width: var(--ico-xs); height: var(--ico-xs); }
+.model-panel .editor-pop-item > .menu-check { margin-left: 0; }
+.model-source { flex: none; max-width: min(112px, 32vw); padding: 0 6px; overflow: hidden; text-overflow: ellipsis; line-height: 20px; background: var(--ghost-hover); border: 0; }
 .model-panel-foot { flex: none; margin: 4px -4px 0; padding: 4px 4px 0; border-top: 1px solid var(--line-2); }
 /* The radio covers its whole label, so the label is the click target and the
    radio still takes keyboard focus and arrow keys natively. */
 .chat-pop input[type="radio"] { position: absolute; inset: 0; width: 100%; height: 100%; margin: 0; opacity: 0; cursor: pointer; }
 .param-panel { max-width: min(400px, 100vw - 16px); }
 .param-rows { display: grid; gap: 8px; padding: 6px 6px 4px; }
-.param-row { display: grid; grid-template-columns: 40px minmax(0, 1fr); align-items: start; gap: 8px; }
-.param-name { padding-top: 6px; font-size: var(--fz-2xs); color: var(--fg-4); }
+.param-row { display: grid; grid-template-columns: minmax(64px, 24%) minmax(0, 1fr); align-items: start; gap: 8px; }
+.param-name { min-width: 0; padding-top: 6px; font-size: var(--fz-2xs); color: var(--fg-4); overflow-wrap: anywhere; }
 .param-chips { display: flex; flex-wrap: wrap; gap: 4px; }
 .param-chip { position: relative; display: inline-flex; align-items: center; min-height: 28px; padding: 0 9px; font-size: var(--fz-xs); color: var(--fg-3); background: var(--well); border-radius: var(--r1); transition: color var(--t1) var(--e), background var(--t1) var(--e); }
 .param-chip:hover { color: var(--fg); }
@@ -489,7 +491,6 @@
   .chat-pop::backdrop { background: color-mix(in srgb, var(--scrim-neutral) 45%, transparent); }
   .model-group-head { font-size: var(--fz-xs); }
   .editor-pop.chat-pop { animation-name: menuUp; }
-  .param-row { grid-template-columns: 48px minmax(0, 1fr); }
   .param-name { padding-top: 12px; font-size: var(--fz-xs); }
   .param-chip { min-height: 40px; padding: 0 14px; font-size: var(--fz-sm); }
   .chat-page .ibtn { width: 44px; height: 44px; }

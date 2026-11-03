@@ -8,9 +8,11 @@
 | 协议 | 模型与鉴权 | 基础生成与修改 | 费用与额度 | 当前边界 |
 | --- | --- | --- | --- | --- |
 | OpenAI Images | GET /v1/models；Bearer；读取 ID，由现有模型页匹配 | POST /v1/images/generations：JSON；POST /v1/images/edits：multipart，参考图使用 image[]；返回 data[].b64_json | 不假造预报价或账户余额；费用未知 | 对话页生图与参考图修改；不包含 Responses、流式部分图片、DALL·E、蒙版编辑或远程结果 URL 下载 |
-| Gemini 原生 | GET /v1beta/models?pageSize=1000，单次读取 ID；x-goog-api-key | POST /v1beta/models/{model}:generateContent；contents/parts/inlineData；generationConfig；读取文本和内嵌图片 | 不套用标准网关的积分；费用未知 | 对话页生图与参考图修改；沿用现有拼接上下文，每次请求独立，不宣称已经实现有状态的原生多轮和 thoughtSignature 续传 |
+| Gemini 原生 | GET /v1beta/models?pageSize=1000，单次读取 ID；x-goog-api-key | POST /v1beta/models/{model}:generateContent；contents/parts/inlineData；generationConfig；读取文本和内嵌图片 | 不套用标准网关的积分；费用未知 | 对话页生图与参考图修改；沿用现有拼接上下文，每次请求独立，图像链路未实现原生签名续传；ASK 文字链路另见[运行契约](../ask/runtime.md) |
 | NovelAI 官方 | 账户与图片统一为 image.novelai.net；Bearer；GET /user/subscription；未订阅不阻止 Key 识别 | POST /ai/generate-image；五型号文生图／img2img／普通 Enhance、V5 Max Enhance，V4.5 与 V5 Full High／Medium 的普通／聚焦 infill；POST /ai/upscale 提交独立 4× 放大，ZIP／原图解包；V4.5 官方来源接入 Vibe／Precise，Vibe 编码为 POST /ai/encode-vibe；六项 Director Tools 为 POST /ai/augment-image | 读取 Anlas、V5 百分比、基准约张数及加购百分比；本地 Anlas／参考／编码费估算及 Opus 判断，V5 用量仅基准近似；未知标签隐藏 | 模式／Effort／Complexity／预设／Rescale、Enhance 与参考链路已模拟核验，真实生成／编码／扣费待验；V5 Curated 无独立重绘接口；Focused Inpainting 已接入客户端裁切／放大／原尺寸合成，沿用单次 infill；Director Tools 已接独立工具请求、尺寸预处理与去背景三种结果；型号采样器／调度／数值边界已有统一校验，Max 使用独立服务端标记和输出尺寸校验，实际参数采用仍待真实核验 |
 | Koma 标准网关 | 原目录、统计与鉴权 | 原三条执行路线 | 650/400ms 报价、执行前重报、max_cost、涨价提示、批量最多提示一次、余额不足不提交 | 行为保持；新增协议不关闭此协议的报价保护 |
+
+OpenAI Chat + Images 共用一份地址和 Key，按 OpenAI `/v1` 基础地址拼接 `/chat/completions`、`/images/generations` 与 `/images/edits`，不重复已有 `/v1` 后缀。Chat 用于 ASK，Images 用于现有图像工作区；目录不会把所有 LLM 条目自动变成生图模型。Gemini 原生也可在同一连接开启文字和图像：ASK 使用 `streamGenerateContent?alt=sse` 并限制 TEXT 输出，图像工作区继续使用 `generateContent`。接口开关由用户指定，不自动发现或回退，不新增 Chat 生图或 Responses。
 
 这里的“协议”与连接名称、渠道无关。用户配置的兼容服务可以选择其真正提供的 OpenAI Images 或 Gemini 原生协议；不按域名推断，不在正式源码中内置私有服务名称、地址或 Key。新环境连接仍为空。
 
@@ -18,7 +20,7 @@
 
 ## 已落地的结构
 
-- `gateway/profile.ts` 统一登记四种图像协议及两种 ASK 推理协议，声明鉴权、目录、报价、额度和路径能力。新增连接和现有连接均显式选择协议；未知 Profile 继续拒绝。
+- `gateway/profile.ts` 统一登记四种图像协议、三种 ASK 推理协议及 OpenAI／Gemini 共用连接，声明鉴权、目录、报价、额度和路径能力。新增连接和现有连接均显式选择协议；未知 Profile 继续拒绝。
 - `gateway/native-protocols.ts` 分开处理原生 ID 列表与匹配后的执行能力；UI／领域层继续使用现有规范模型与参数。不要求目录返回 studio_features，不按 ID 的品牌前缀或 supportedGenerationMethods 筛掉模型；未匹配 ID 留在设置供用户选择，不自动变成可生图模型。
 - `gateway/transport.ts` 处理 Gemini 的安全模型路径、OpenAI 的 multipart 边界，以及官方 NAI 的固定主机请求。Gemini 单次请求最多 1000 条，不追读 nextPageToken；URL 不携带 Key，不跟随重定向，版本前缀不重复拼接。
 - 原生协议不支持报价时，对话与编辑不再把“没有报价接口”显示成连接错误；编辑执行条件仍校验所选模型、源图和操作能力。内部费用保留未知状态，绘图和编辑生成按钮暂不显示未知费用标签，不记录为免费。
@@ -28,9 +30,9 @@
 
 ## 模型目录与来源
 
-OpenAI／Gemini 每次拉取只发一次模型列表请求；Gemini 使用 `pageSize=1000`，不追读分页。列表只用来取得 ID，Gemini 去掉 `models/` 前缀；不按品牌、`studio_features` 或 `supportedGenerationMethods` 筛掉条目。未知 ID 留在设置中，用户可手动指定映射；仅有 ID 不自动成为可执行图像模型。
+OpenAI／Gemini 每次拉取只发一次模型列表请求；Gemini 使用 `pageSize=1000`，不追读分页。列表用于取得 ID，并保留兼容服务在 `image_capabilities.fields` 中提供的参数声明；Gemini 去掉 `models/` 前缀；不按品牌、`studio_features` 或 `supportedGenerationMethods` 筛掉条目。未知 ID 留在设置中，用户可手动指定映射；仅有 ID 不自动成为可执行图像模型。
 
-能力来自用户选择的规范模型，实际请求保留所选上游 ID。目录、匹配和执行能力分开；关闭来源后不能继续使用该来源。模型存在于本地目录不代表真实型号能力或账户权限已经核验。
+GPT／Gemini 参数能力按模型与来源独立管理，优先采用目录声明，缺失时以明确标注的参数参考起步；用户可补充或关闭标量字段，刷新保留手动覆盖。跟随接口时省略字段，数字和布尔值在请求边界转换；来源筛选校验实际字段和值。表单及扩展字段映射见[来源参数](../workspaces/settings-and-tags.md#连接目录与反馈)。条目可增删改，NAI 五型号固定。实际请求保留每个来源的完整上游 ID，包含空格、渠道后缀和非官方名称；Gemini 路径对整个 ID 编码，不允许控制字符或 URL 注入。手动 ID 不要求在目录中，Images／Gemini 原生目录不可用时仍可使用手动来源；标准网关仍校验目录中的报价保护声明，缺项 ID 可手动补充。目录、匹配和执行能力分开；关闭来源后不能继续使用该来源。模型存在于本地目录不代表真实型号能力或账户权限已经核验。
 
 可用来源和供应商优先级独立配置；同一模型、当前操作及参数先筛选可用来源，再按连接页顺序检查报价和余额。明确不足才顺位选择，余额未知仍按优先级；生成提交后不换源重试。NAI 官方不支持的工具可以由后面的兼容来源执行。排序、额度判定与同步规则见[设置](../workspaces/settings-and-tags.md#连接目录与反馈)。
 

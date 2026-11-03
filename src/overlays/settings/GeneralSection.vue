@@ -6,6 +6,8 @@ import type { ThemeChoice } from "../../app/theme";
 import { message, useUi } from "../../app/ui";
 import AppIcon from "../../shared/AppIcon.vue";
 import RepoLink from "../../shared/RepoLink.vue";
+defineProps<{ version: string; unread: boolean }>();
+defineEmits<{ updates: [] }>();
 const { drawing, view } = useDrawing();
 const theme = useTheme(), ui = useUi();
 const form = computed(() => view.value.form);
@@ -110,11 +112,20 @@ function change(
         </div>
       </div>
     </div>
-    <div class="sp-group">
+    <div class="sp-group" role="group" aria-label="关于">
+      <div class="s-row">
+        <div class="about-version">
+          <b>Koma Image</b>
+          <span class="type">v{{ version }}</span>
+        </div>
+        <button id="releaseNotesButton" class="btn btn-quiet btn-sm" type="button" @click="$emit('updates')">
+          <span v-if="unread" class="release-unread" role="img" aria-label="有未读更新"></span>
+          更新日志<AppIcon name="i-chevron" />
+        </button>
+      </div>
       <div class="s-row">
         <div>
-          <b>关于</b>
-          <p>Koma Image 源码仓库</p>
+          <b>源码仓库</b>
         </div>
         <RepoLink class="btn btn-quiet btn-sm"
           ><AppIcon name="i-github" />GitHub<AppIcon name="i-external"
@@ -123,3 +134,7 @@ function change(
     </div>
   </section>
 </template>
+<style scoped>
+.about-version { display: flex; align-items: center; gap: 8px; }
+.release-unread { flex: none; width: 6px; height: 6px; border-radius: 50%; background: var(--a); }
+</style>

@@ -31,7 +31,13 @@ async function setup(profile, fetcher, baseUrl = "https://gateway.example.test/p
 test("native protocols: explicit profiles, prefix normalization, safe model path and fixed official NAI host", async () => {
   assert.equal(endpoint("https://gateway.example.test/oai/v1", "/models", oai).href, "https://gateway.example.test/oai/v1/models");
   assert.equal(endpoint("https://gateway.example.test/google/v1beta", gemini.transport.paths.generate, gemini, "gemini-2.5-flash-image").pathname, "/google/v1beta/models/gemini-2.5-flash-image:generateContent");
-  for (const id of ["../private", "models/a", "x?key=a", "x#fragment", "https://other.test"])
+  for (const id of ["../private", "models/a", "x?key=a", "x#fragment", "https://other.test", "香蕉 渠道@v2"]) {
+    const url = endpoint("https://gateway.example.test", gemini.transport.paths.generate, gemini, id);
+    assert.equal(url.origin, "https://gateway.example.test");
+    assert.equal(url.pathname, `/v1beta/models/${encodeURIComponent(id)}:generateContent`);
+    assert.equal(url.search + url.hash, "");
+  }
+  for (const id of ["", " ", "bad\nmodel", "m".repeat(513)])
     assert.throws(() => endpoint("https://gateway.example.test", gemini.transport.paths.generate, gemini, id), /模型 ID/);
   const { routing } = await setup(nai, () => { throw new Error("no request expected"); });
   for (const path of [nai.transport.paths.catalog, nai.transport.paths.quota])
@@ -57,7 +63,7 @@ test("OpenAI Images: authenticated catalog, JSON generation, multipart reference
   let request = calls.at(-1);
   assert.equal(request.url.pathname, "/oai/v1/images/generations");
   assert.equal(request.init.headers.Authorization, "Bearer synthetic-native-key");
-  assert.deepEqual(JSON.parse(request.init.body), { model: "gpt-image-1.5", prompt: "exact prompt", n: 1, size: "auto", quality: "auto", output_format: "png" });
+  assert.deepEqual(JSON.parse(request.init.body), { model: "gpt-image-1.5", prompt: "exact prompt", n: 1 });
   await gateway.execute(buildChatPayload(model, "edit prompt", {}, [png, png]), r => r.json());
   request = calls.at(-1);
   assert.equal(request.url.pathname, "/oai/v1/images/edits");
@@ -99,7 +105,7 @@ test("Gemini native: one model-list request, API-key header, ordered inline refe
   assert.deepEqual(body.generationConfig, { responseModalities: ["TEXT", "IMAGE"], imageConfig: { aspectRatio: "16:9", imageSize: "2K" } });
   assert.equal(body.max_cost, undefined);
   assert.equal(output.quote, null);
-  assert.equal(payload.image_options.output_size, "2k");
+  assert.equal(payload.image_options.image_size, "2K");
 });
 
 test("native discovery keeps IDs despite repeated page tokens and still rejects malformed or empty lists", async () => {
@@ -274,12 +280,12 @@ test("NovelAI recognition: invalid credentials, malformed accounts and Cloudflar
     assert.equal((await testConnection(context, fetcher)).s, "err");
   }
   for (const [status, body, expected] of [
-    [401, { message: "Unauthorized" }, "Key 无效"],
+    [401, { message: "Unauthorized" }, "鉴权失败（401），请检查 API Key"],
     [403, { message: "Forbidden" }, "访问被拒绝（403），请检查 Key 权限"],
     [403, { cloudflare_error: true, error_code: 1010, status: 403, detail: "Browser signature blocked" }, "请求被 Cloudflare 拦截，请检查网络或浏览器"],
   ]) {
     const fetcher = async () => Response.json(body, { status }), { gateway, context } = await setup(nai, fetcher);
-    await assert.rejects(gateway.catalog(), body.cloudflare_error ? /Cloudflare/ : /Unauthorized|Forbidden/);
+    await assert.rejects(gateway.catalog(), status === 401 ? /鉴权失败（401）/ : body.cloudflare_error ? /Cloudflare/ : /Forbidden/);
     assert.deepEqual(await testConnection(context, fetcher), { s: "err", text: expected });
   }
 });

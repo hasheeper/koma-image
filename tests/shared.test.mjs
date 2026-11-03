@@ -136,7 +136,7 @@ test("backup ZIP: original bytes, CRC verification, SHA256 verification and unsu
     id = await hashImage(blob);
   const manifest = envelope({
     favorites: [
-      { id: "fav", image: { path: "favorites/0.png", type: "image/png" } },
+      { id: "fav", createdAt: 0, favoritedAt: 1, params: {}, size: { width: 1, height: 1 }, image: { path: "favorites/0.png", type: "image/png" } },
     ],
     assets: [
       {
@@ -389,7 +389,7 @@ test("connection diagnostic: a supported gateway is usable and the Key goes only
 });
 test("connection diagnostic: each failure says what to fix", async () => {
   const cases = [
-    [() => reply(401, { error: "bad key" }), "err", "Key 无效"],
+    [() => reply(401, { error: "bad key" }), "err", "鉴权失败（401），请检查 API Key"],
     [() => reply(403, { error: "forbidden" }), "err", "访问被拒绝（403），请检查 Key 权限"],
     [() => reply(404, "Not Found"), "err", "地址错误"],
     [() => reply(200, "<html>a page</html>"), "err", "地址错误"],

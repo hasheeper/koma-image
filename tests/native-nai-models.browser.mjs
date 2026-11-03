@@ -277,6 +277,9 @@ test("NovelAI V5 settings: independent usage, refreshed states without generatin
     }
     async function refresh(next) {
       Object.assign(account.body, next);
+      // Read and dismiss the previous result before testing again; hovering it pauses its timer.
+      for (const dismiss of await page.getByRole("button", { name: "关闭提示", exact: true }).all()) await dismiss.click();
+      await page.waitForFunction(() => !document.querySelector('.toast'));
       await page.getByRole("button", { name: "测试连接", exact: true }).click();
       await page.waitForFunction(() => !document.querySelector('.conn-acts button[aria-label="测试连接"]')?.disabled);
     }
@@ -336,7 +339,10 @@ test("native settings: user maps a returned custom ID and the chat submits that 
       await page.evaluate(() => { location.hash = "#/chat/settings/models"; });
       await page.locator("#settingsPanel[open]").waitFor();
       await page.getByRole("button", { name: `展开 ${name} 的来源`, exact: true }).click();
-      await page.getByRole("combobox", { name: `为 ${name} 指定 模拟协议 上的 ID`, exact: true }).selectOption(alias);
+      await page.getByRole("button", { name: `为 ${name} 添加来源`, exact: true }).click();
+      await page.getByRole("combobox", { name: `${name} 的上游 ID`, exact: true }).fill(alias);
+      await page.getByRole("button", { name: "保存来源", exact: true }).click();
+      await page.locator(".sm-new-source").waitFor({ state: "detached" });
       await page.waitForFunction(() => chat.snapshot().ready);
       await page.locator("#settingsPanel").getByRole("button", { name: "返回", exact: true }).click();
       await page.locator("#chatPrompt").fill("使用手动匹配的模型");
@@ -357,7 +363,8 @@ test("native connection settings: explicit protocol, saved selection, key input,
   try {
     await page.locator("#settingsPanel[open]").waitFor();
     await page.getByRole("button", { name: "配置供应商", exact: true }).click();
-    await page.locator("#connectionProtocol").selectOption("gemini-native-v1");
+    await page.locator("#connectionProtocol").selectOption("gemini");
+    await page.getByRole("checkbox", { name: "文字 · ASK", exact: true }).uncheck();
     await page.locator("#connectionName").fill("模拟原生连接");
     await page.locator("#connectionUrl").fill("https://gateway.example.test/google");
     await page.locator("#connectionKey").fill("synthetic-native-only");
@@ -375,12 +382,13 @@ test("native connection settings: explicit protocol, saved selection, key input,
     await page.getByRole("button", { name: "更多操作", exact: true }).click();
     await page.getByRole("menuitem", { name: "配置供应商", exact: true }).click();
     const form = page.locator("dialog[open]:has(#connectionTitle)"), protocol = form.getByRole("combobox", { name: "接口协议", exact: true });
-    assert.equal(await protocol.inputValue(), "gemini-native-v1");
+    assert.equal(await protocol.inputValue(), "gemini");
     await protocol.selectOption("nai-official-v1");
-    assert.equal(await protocol.inputValue(), "gemini-native-v1");
+    assert.equal(await protocol.inputValue(), "gemini");
     assert.match(await form.locator(".modal-error").textContent(), /单独配置 NovelAI 官方供应商/);
     assert.ok(t.requests.every(r => !r.path.includes("/user/subscription")));
-    await protocol.selectOption("openai-images-v1");
+    await protocol.selectOption("openai");
+    await form.getByRole("checkbox", { name: "文字 · ASK", exact: true }).uncheck();
     await page.locator("#connectionKey").fill("synthetic-openai-only");
     await form.getByRole("button", { name: "保存", exact: true }).click();
     await page.waitForFunction(() => services.connections.configuration.connections[Object.keys(services.connections.configuration.connections)[0]].profileId === "openai-images-v1" && document.querySelector(".conn-card .st")?.dataset.s === "ok");

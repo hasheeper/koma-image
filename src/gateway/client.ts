@@ -16,6 +16,7 @@ import { executionRoute, toNativePayload, toStandardPayload } from "./routes.ts"
 import type { ImagePayload } from "./routes.ts";
 import { nativeCatalog, nativeMappedCatalog, nativeRequest } from "./native-protocols.ts";
 import { naiCost } from "../domain/nai-cost.ts";
+import { requestOptions } from "../domain/model-parameters.ts";
 
 export class QuoteUnsupported extends Error {
   constructor() {
@@ -58,17 +59,36 @@ export function createGateway(
   ): Promise<Catalog> {
     context.assertCurrent();
     if (cached && !force && mappedRaw === catalogCache.raw) return cached;
-    const raw = await rawCatalog(force, signal);
+    let raw: Record<string, unknown>;
+    try { raw = await rawCatalog(force, signal); }
+    catch (error) {
+      signal?.throwIfAborted();
+      context.assertCurrent();
+      // Standard gateways must still advertise their quote-protection contract before use.
+      if (profile.protocol !== "openai-images" && profile.protocol !== "gemini-native") throw error;
+      // A user's manual image mapping can run without discovery; rawCatalog still reports its error to settings.
+      const manual = nativeMappedCatalog(profile, { models: {} }, context.routing, context.connection.id);
+      if (!Object.keys(manual.models as object).length) throw error;
+      raw = { models: {} };
+    }
     const mapped = nativeMappedCatalog(profile, raw, context.routing, context.connection.id);
     cached = normalizeCatalog(mapped, context.routing, context.connection.id, profile);
-    mappedRaw = raw;
+    // Cache manual-only resolution too; discovery failures must not repeat on every quote or submission.
+    mappedRaw = catalogCache.raw;
     return cached;
   }
   function wire(payload: ImagePayload): ImagePayload {
     const model = cached?.models.find((m) => m.id === payload.model);
+    const options = model && payload.image_options ? requestOptions(model.fields, payload.image_options) : undefined;
+    if (options && (!profile.protocol || profile.protocol === "standard") && payload.tool === "image-edit" && model?.family === "gemini" && typeof options.image_size === "string") {
+      // Studio's edit endpoint uses output_size; keep logical options unchanged until the source is chosen.
+      options.output_size = options.image_size.toLowerCase();
+      delete options.image_size;
+    }
     return {
       ...structuredClone(payload),
       model: model?.upstreamId ?? payload.model,
+      ...(options ? { image_options: options } : {}),
     };
   }
   async function estimateWire(

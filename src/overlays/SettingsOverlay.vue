@@ -17,6 +17,7 @@ import { useUi, message } from "../app/ui";
 import { useDialog } from "./use-dialog";
 import BrandMark from "../shared/BrandMark.vue";
 import AppIcon from "../shared/AppIcon.vue";
+import ThemeToggle from "../shared/ThemeToggle.vue";
 import { useConnectionCatalogs } from "./settings/use-connection-catalogs";
 import ConnectionsSection from "./settings/ConnectionsSection.vue";
 import SupplierDialog from "./settings/SupplierDialog.vue";
@@ -24,20 +25,23 @@ import ModelsSection from "./settings/ModelsSection.vue";
 import ModelListDialog from "./settings/ModelListDialog.vue";
 import BackupSection from "./settings/BackupSection.vue";
 import GeneralSection from "./settings/GeneralSection.vue";
+import UpdatesSection from "./settings/UpdatesSection.vue";
+import { appVersion, releaseNotes } from "../config/releases";
 import AskSection from "./settings/AskSection.vue";
 import AskModelDialog from "./settings/AskModelDialog.vue";
 import type { SettingsSection } from "../app/routes";
 import type { Routing } from "../config/connections.ts";
 import {
-  validateRouting,
+  prepareRoutingImport,
   validateModelLinks,
+  validateModels,
   LOCAL_CONNECTION_ID,
   orderedConnections,
   imageConnections,
 } from "../config/connections.ts";
 import { testConnection } from "../gateway/connection-test.ts";
-import { MODELS } from "../domain/models.ts";
-import { catalogEntries, modelSource } from "../domain/catalog.ts";
+import { configuredModels } from "../domain/models.ts";
+import { modelSource } from "../domain/catalog.ts";
 import { download } from "../shared/files";
 import { names } from "../storage/names.ts";
 import { readAskSettings } from "../ask/settings.ts";
@@ -84,13 +88,38 @@ const sections: { id: SettingsSection; label: string; icon: string }[] = [
 const activeSection = computed(() =>
   router.route.value.section === "backup"
     ? "security"
-    : router.route.value.section,
+    : router.route.value.section === "updates"
+      ? "general"
+      : router.route.value.section,
 );
+const seenRelease = ref(preferences.get<string>(names.releaseSeen, ""));
+const unreadRelease = computed(() => seenRelease.value !== appVersion && releaseNotes.some(release => release.version === appVersion));
+async function readRelease() {
+  if (!unreadRelease.value) return;
+  try { await preferences.set(names.releaseSeen, appVersion); }
+  catch (error) { ui.toast(message(error), "err"); }
+}
+async function goBack() {
+  if (router.route.value.section !== "updates") {
+    requestClose();
+    return;
+  }
+  router.selectSection("general");
+  await nextTick();
+  document.getElementById("releaseNotesButton")?.focus();
+}
+function cancelSettings(event: Event) {
+  if (router.route.value.section === "updates") {
+    event.preventDefault();
+    void goBack();
+  } else cancel(event);
+}
 const mode = computed(() => {
   version.value;
   return vault.mode();
 });
-const activeModels = (id: string) => MODELS.filter(m => modelSource(routing.value, raw.value, m) === id).map(m => m.id);
+const modelEntries = computed(() => configuredModels(routing.value));
+const activeModels = (id: string) => modelEntries.value.filter(m => modelSource(routing.value, raw.value, m) === id).map(m => m.id);
 const imageSources = computed(() => imageConnections(routing.value));
 const priorityIndex = (id: string) => imageSources.value.findIndex(c => c.id === id);
 async function moveConnection(id: string, delta: number) {
@@ -107,17 +136,13 @@ async function moveConnection(id: string, delta: number) {
 // A reasoning card says whether ASK uses it, with which model ID, or how many it picked there.
 const readAsk = () => readAskSettings(preferences.get(names.ask, null));
 const askUse = shallowRef(readAsk());
-const unask = preferences.subscribe((key) => {
+const unpreferences = preferences.subscribe((key) => {
   if (!key || key === names.ask) askUse.value = readAsk();
+  if (!key || key === names.releaseSeen) seenRelease.value = preferences.get<string>(names.releaseSeen, "");
 });
-const askModels = (id: string) => {
-  const picked = askUse.value.models[id]?.length;
-  return askUse.value.connectionId === id
-    ? askUse.value.model ? `使用中 · ${askUse.value.model}` : "使用中"
-    : picked ? `已选 ${picked} 个`
-    : raw.value[id] ? `${catalogEntries(raw.value[id]).length} 个 ID` : "—";
-};
-const askLabels = computed(() => Object.fromEntries(Object.keys(routing.value.connections).map(id => [id, askModels(id)])));
+const askCounts = computed(() => Object.fromEntries(
+  Object.entries(askUse.value.models).map(([id, models]) => [id, models.length]),
+));
 // The ASK list loads only its own connection, wherever it opens; cards keep their own pass.
 async function loadAsk(force = false) {
   const c = askList.value ? routing.value.connections[askList.value] : undefined;
@@ -146,6 +171,7 @@ watch(
       listConnection.value = null;
       askList.value = null;
       supplier.value?.close();
+      modelsSection.value?.close();
       return;
     }
     await nextTick();
@@ -158,7 +184,7 @@ watch(
 onBeforeUnmount(() => {
   stopChecks();
   unvault();
-  unask();
+  unpreferences();
   supplier.value?.close();
 });
 async function commit(value: Routing) {
@@ -236,6 +262,7 @@ function exportConfig() {
                 kind: "local-models",
                 version: 1,
                 links: routing.value.links[LOCAL_CONNECTION_ID] || {},
+                models: routing.value.models,
               }
             : { app: "koma-image", kind: "routing", ...routing.value },
           null,
@@ -265,8 +292,9 @@ async function importConfig(event: Event) {
       ? {
           ...routing.value,
           links: { [LOCAL_CONNECTION_ID]: validateModelLinks(parsed.links) },
+          ...(parsed.models === undefined ? {} : { models: validateModels(parsed.models) }),
         }
-      : validateRouting(parsed);
+      : prepareRoutingImport(parsed, routing.value);
     await connections.save(value);
     ui.toast("配置已导入", "ok");
   } catch (error) {
@@ -292,7 +320,7 @@ async function reveal(id: string) {
     id="settingsPanel"
     class="settings set-ui"
     aria-labelledby="settingsTitle"
-    @cancel="cancel"
+    @cancel="cancelSettings"
     @close="closed"
   >
     <header class="topbar set-bar">
@@ -303,18 +331,14 @@ async function reveal(id: string) {
         data-tip="返回 · Esc"
         autofocus
         :disabled="busy"
-        @click="requestClose"
+        @click="goBack"
       >
         <AppIcon name="i-back" />
       </button>
       <h2 id="settingsTitle" class="brand set-title" aria-label="设置">
         <BrandMark surface="settings" subtitle="SETTINGS" />
       </h2>
-      <span class="set-saved"
-        ><AppIcon name="i-check" /><span
-          >改动即时保存，已同步到打开的页面</span
-        ></span
-      >
+      <div class="topbar-end"><ThemeToggle /></div>
     </header>
     <div class="set-lay">
       <nav class="set-nav" aria-label="设置">
@@ -331,7 +355,7 @@ async function reveal(id: string) {
             section.id === "connections"
               ? Object.keys(routing.connections).length
               : section.id === "models"
-                ? MODELS.length
+                ? modelEntries.length
                 : ""
           }}</small>
         </button>
@@ -341,21 +365,27 @@ async function reveal(id: string) {
           <ConnectionsSection
             :active="router.route.value.overlay === 'settings' && activeSection === 'connections'"
             :local="local" :busy="busy" :testing="testing" :routing="routing" :raw="raw" :balances="balances"
-            :statuses="statuses" :current-connection="currentModel?.connection" :ask-labels="askLabels"
+            :statuses="statuses" :current-connection="currentModel?.connection" :ask-counts="askCounts"
+            :current-ask-connection="askUse.connectionId" :current-ask-model="askUse.model"
             @add="supplier?.add()" @edit="supplier?.edit($event)" @remove="remove" @test="test"
             @models="listConnection = $event" @ask-models="openAskModels" @move="moveConnection"
           />
           <ModelsSection
             v-show="router.route.value.section === 'models'"
             ref="modelsSection"
+            :active="router.route.value.overlay === 'settings' && router.route.value.section === 'models'"
             :routing="routing"
             :raw="raw"
             :statuses="statuses"
             :current-model="currentModel"
-            @change="commit"
-            @reload="load(true)"
+            @reload="load(true, $event ? [$event] : undefined)"
           />
-          <GeneralSection v-show="activeSection === 'general'" />
+          <GeneralSection
+            v-show="router.route.value.section === 'general'"
+            :version="appVersion" :unread="unreadRelease"
+            @updates="router.selectSection('updates')"
+          />
+          <UpdatesSection v-if="router.route.value.section === 'updates'" @read="readRelease" />
           <AskSection
             v-show="activeSection === 'ask'"
             :routing="routing"
@@ -420,8 +450,8 @@ async function reveal(id: string) {
                     <p>
                       {{
                         local
-                          ? "仅包含模型来源。"
-                          : "连接和模型来源，不含 Key。"
+                          ? "包含模型条目、默认参数和来源。"
+                          : "连接、模型条目、默认参数和来源，不含 Key。"
                       }}
                     </p>
                   </div>
@@ -440,8 +470,8 @@ async function reveal(id: string) {
                     <p>
                       {{
                         local
-                          ? "仅更新模型来源，连接由服务端管理。"
-                          : "不覆盖已保存的 Key。"
+                          ? "更新模型条目和来源，连接由服务端管理。"
+                          : "不覆盖已保存的 Key；地址或协议变更后需重新填写。"
                       }}
                     </p>
                   </div>

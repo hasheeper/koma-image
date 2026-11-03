@@ -1,5 +1,9 @@
 import { object } from "../domain/value.ts";
-import { profileFor, NOVELAI_IMAGE_URL } from "../gateway/profile.ts";
+import { profileFor, NOVELAI_IMAGE_URL, isOpenAIConnection, isGeminiConnection } from "../gateway/profile.ts";
+import { editablePresets, parameterLabels } from "../domain/models.ts";
+import type { ManagedModel } from "../domain/models.ts";
+import { validateParameterOverrides } from "../domain/model-parameters.ts";
+import type { ParameterOverrides } from "../domain/model-parameters.ts";
 
 export interface Connection {
   id: string;
@@ -13,6 +17,7 @@ export interface ModelLink {
   id: string;
   manual: boolean;
   on: boolean;
+  parameters?: ParameterOverrides;
 }
 export interface Routing {
   version: 1;
@@ -20,6 +25,8 @@ export interface Routing {
   links: Record<string, Record<string, ModelLink>>;
   /** Higher entries take priority for the models/operations they provide. */
   order?: string[];
+  /** Omitted means the initial presets; an empty array preserves deletion of every editable entry. */
+  models?: ManagedModel[];
 }
 export const emptyRouting = (): Routing => ({
   version: 1,
@@ -29,22 +36,47 @@ export const emptyRouting = (): Routing => ({
 export const LOCAL_CONNECTION_ID = "local-gateway";
 export function validateModelLinks(value: unknown): Record<string, ModelLink> {
   const links: Record<string, ModelLink> = {};
+  const claimed = new Set<string>();
   for (const [model, raw] of Object.entries(object(value))) {
     const link = object(raw);
     if (
       !validId(model) ||
       typeof link.id !== "string" ||
       !link.id.trim() ||
-      link.id.length > 512
+      link.id.length > 512 || /[\x00-\x1f\x7f]/.test(link.id)
     )
       throw new Error("模型来源配置无效");
+    if (claimed.has(link.id)) throw new Error("同一供应商的模型 ID 不能重复关联");
+    claimed.add(link.id);
     links[model] = {
       id: link.id,
       manual: link.manual === true,
       on: link.on !== false,
+      ...(link.parameters !== undefined ? { parameters: validateParameterOverrides(link.parameters) } : {}),
     };
   }
   return links;
+}
+
+export function validateModels(value: unknown): ManagedModel[] {
+  if (!Array.isArray(value) || value.length > 256) throw new Error("模型条目配置无效");
+  const ids = new Set<string>();
+  return value.map(raw => {
+    const entry = object(raw);
+    if (!validId(entry.id) || (!entry.id.startsWith("model-") && !editablePresets.some(m => m.id === entry.id)) || ids.has(entry.id) ||
+      typeof entry.name !== "string" || !entry.name.trim() || entry.name.length > 128 ||
+      !editablePresets.some(m => m.id === entry.templateId)) throw new Error("模型条目配置无效");
+    if (entry.defaults !== undefined && (!entry.defaults || typeof entry.defaults !== "object" || Array.isArray(entry.defaults)))
+      throw new Error("模型默认参数无效");
+    ids.add(entry.id);
+    const defaults: Record<string, string> = {};
+    for (const [key, value] of Object.entries(object(entry.defaults))) {
+      if (!Object.hasOwn(parameterLabels, key) || typeof value !== "string" || !value.trim() || value.length > 128 || /[\x00-\x1f\x7f]/.test(value))
+        throw new Error("模型默认参数无效");
+      defaults[key] = value.trim();
+    }
+    return { id: entry.id, name: entry.name.trim(), templateId: String(entry.templateId), defaults };
+  });
 }
 
 export function validId(value: unknown): value is string {
@@ -90,6 +122,7 @@ export function validateRouting(value: unknown): Routing {
   )
     throw new Error("连接配置格式无效");
   const out = emptyRouting();
+  if (input.models !== undefined) out.models = validateModels(input.models);
   for (const [id, raw] of Object.entries(object(input.connections))) {
     const c = object(raw);
     if (
@@ -132,6 +165,24 @@ export function validateRouting(value: unknown): Routing {
 export const orderedConnections = (routing: Readonly<Routing>): Connection[] =>
   [...new Set([...(routing.order ?? []), ...Object.keys(routing.connections)])]
     .flatMap(id => Object.hasOwn(routing.connections, id) ? [routing.connections[id]!] : []);
+
+/** Imported references may retain a local Key only for its existing destination. */
+export function prepareRoutingImport(value: unknown, current: unknown): Routing {
+  const next = validateRouting(value);
+  let previous = emptyRouting();
+  try { previous = validateRouting(current); } catch { /* A corrupt local config grants no credential binding. */ }
+  for (const connection of Object.values(next.connections)) {
+    const known = previous.connections[connection.id];
+    const sameProtocol = known && (known.profileId === connection.profileId ||
+      isOpenAIConnection(known.profileId) && isOpenAIConnection(connection.profileId) ||
+      isGeminiConnection(known.profileId) && isGeminiConnection(connection.profileId));
+    if (!known || known.credentialRef !== connection.credentialRef || known.baseUrl !== connection.baseUrl || !sameProtocol) {
+      connection.credentialRef = `key-${crypto.randomUUID()}`;
+      connection.revision = crypto.randomUUID();
+    }
+  }
+  return next;
+}
 /** Image catalogs, quotes and generation only use connections whose protocol declares image work. */
 export const imageConnections = (routing: Readonly<Routing>): Connection[] =>
   orderedConnections(routing).filter(c => profileFor(c.profileId).image);

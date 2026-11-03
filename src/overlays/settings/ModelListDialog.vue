@@ -7,12 +7,13 @@ import {
   useTemplateRef,
   watch,
 } from "vue";
-import { MODELS } from "../../domain/models.ts";
+import { configuredModels } from "../../domain/models.ts";
 import {
   catalogEntries,
   linkFor,
   sourceState,
-  shownId,
+  supportsModel,
+  sourceEntries,
 } from "../../domain/catalog.ts";
 import type { Routing } from "../../config/connections.ts";
 import { object, strings } from "../../domain/value.ts";
@@ -20,6 +21,7 @@ import ModelIcon from "../../shared/ModelIcon.vue";
 import ConnectionAvatar from "../../shared/ConnectionAvatar.vue";
 import ModelCapabilities from "../../shared/ModelCapabilities.vue";
 import AppIcon from "../../shared/AppIcon.vue";
+import ModelMappingMenu from "./ModelMappingMenu.vue";
 const props = defineProps<{
   connection: string | null;
   routing: Routing;
@@ -53,21 +55,21 @@ const rows = computed(() => {
   const c = props.connection ?? "",
     entries = catalogEntries(props.raw);
   const claimed = new Map(
-    MODELS.flatMap((m) => {
+    configuredModels(props.routing).flatMap((m) => {
       const l = linkFor(props.routing, c, m, entries);
       return l ? [[l.id, m] as const] : [];
     }),
   );
-  return Object.entries(object(object(props.raw).models)).map(([id, raw]) => {
-    const m = object(raw),
+  return sourceEntries(props.routing, c, props.raw).map(({ id }) => {
+    const m = object(object(object(props.raw).models)[id]),
       to = claimed.get(id),
       on = to && sourceState(props.routing, c, to, entries) === "on";
-    const family = String(m.editor_family || to?.family || "other");
+    const family = String(to?.family || m.editor_family || "other");
     const operations = strings(m.operations),
       tools = strings(m.tools);
     return {
       id,
-      name: String(m.name || "").replace(/ · fal$/, ""),
+      name: String(to?.name || m.name || "").replace(/ · fal$/, ""),
       to,
       on,
       active: !!to && props.activeModels.includes(to.id),
@@ -79,8 +81,9 @@ const rows = computed(() => {
         (tools.includes("upscale") ? "u" : ""),
       free: to
         ? []
-        : MODELS.filter(
+        : configuredModels(props.routing).filter(
             (model) =>
+              supportsModel(props.routing, c, model) &&
               (!m.editor_family || model.family === m.editor_family) &&
               ["miss", "gone"].includes(
                 sourceState(props.routing, c, model, entries),
@@ -211,11 +214,11 @@ function use(id: string, model: string) {
             class="md-row"
           >
             <span class="vtile"><ModelIcon :family="family" /></span>
-            <div class="md-id">
-              <b>{{ r.name || shownId(r.id) }}</b
-              ><code v-if="r.name">{{ shownId(r.id) }}</code>
+            <div class="md-id md-catalog-id">
+              <b :title="r.name || r.id">{{ r.name || r.id }}</b>
+              <code v-if="r.name && r.name !== r.id" :title="r.id">{{ r.id }}</code>
             </div>
-            <ModelCapabilities :value="r.caps" />
+            <ModelCapabilities :value="r.caps" label="目录声明的操作类型" />
             <button
               v-if="r.to"
               class="lamp"
@@ -225,17 +228,13 @@ function use(id: string, model: string) {
               :aria-label="`${r.active ? '优先来源' : r.on ? '可用来源' : '已对应，未添加'} ${r.to.name}`"
               @click="emit('reveal', r.to.id)"
             ></button>
-            <select
+            <ModelMappingMenu
               v-else-if="r.free.length"
-              class="md-map"
-              :aria-label="`把 ${shownId(r.id)} 用作`"
-              @change="use(r.id, ($event.target as HTMLSelectElement).value)"
-            >
-              <option value="">用作…</option>
-              <option v-for="m in r.free" :key="m.id" :value="m.id">
-                {{ m.name }}
-              </option></select
-            ><span v-else class="md-act-gap"></span></div
+              :active="!!connection"
+              :label="`为 ${r.id} 关联模型`"
+              :models="r.free"
+              @select="use(r.id, $event)"
+            /><span v-else class="md-act-gap"></span></div
         ></template>
       </div>
       <div v-if="!shown.length" class="md-empty">

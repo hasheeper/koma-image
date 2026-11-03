@@ -27,6 +27,7 @@ import type {
 import { idbRequest, transactionDone } from "../storage/databases.ts";
 import type { openDatabases } from "../storage/databases.ts";
 import { names } from "../storage/names.ts";
+import { prepareRoutingImport } from "../config/connections.ts";
 import type { DataLease } from "./data-lease.ts";
 type Progress = (done: number, total: number) => void;
 export interface CheckedBackup {
@@ -382,7 +383,12 @@ export function createBackupService({
         for (const field of Object.keys(
           backupPreferences,
         ) as (keyof BackupPreferences)[]) {
-          const value = backup.preferences[field];
+          let value = backup.preferences[field];
+          if (field === "routing" && value !== undefined) {
+            let previous: unknown;
+            try { previous = JSON.parse(storage.getItem(names.routing) || "null"); } catch { /* No valid local credential binding. */ }
+            value = JSON.stringify(prepareRoutingImport(JSON.parse(value), previous));
+          }
           if (value !== undefined)
             storage.setItem(
               backupPreferences[field],

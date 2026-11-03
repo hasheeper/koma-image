@@ -30,6 +30,7 @@ import type { AppRouter } from "../app/router";
 import type { Drawing } from "./drawing";
 import type { Chat } from "./chat";
 import { normalizeOptions, resolveModel } from "../domain/catalog";
+import { removedModel } from "../domain/models";
 import type { SourceSelection } from "./source-priority.ts";
 import type { CatalogModel } from "../domain/catalog";
 import {
@@ -365,6 +366,10 @@ export function createEditor(
   }
   function normalize() {
     for (const mode of ["img2img", "inpaint", "upscale"] as const) {
+      if (removedModel(services.connections.configuration, current.chosen[mode])) {
+        current.error = "模型已删除，请重新选择模型";
+        continue;
+      }
       const list = editorModels({ models }, mode);
       if (!list.some((m) => m.id === current.chosen[mode]))
         current.chosen[mode] =

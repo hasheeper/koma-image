@@ -147,7 +147,7 @@ test("ASK tool schemas: required properties survive a relay recursively strippin
 });
 
 test("reasoning profiles: registry, address rules, auth headers and capability filters", async () => {
-  assert.deepEqual(connectionProfiles.filter((p) => p.reasoning).map((p) => p.id), ["openai-chat-v1", "anthropic-messages-v1"]);
+  assert.deepEqual(connectionProfiles.filter((p) => p.reasoning).map((p) => p.id), ["openai-chat-v1", "anthropic-messages-v1", "openai-chat-images-v1", "gemini-chat-v1", "gemini-chat-images-v1"]);
   for (const p of [chat, anthropic]) {
     assert.equal(profileFor(p.id), p);
     assert.equal(p.image, false);
@@ -168,7 +168,7 @@ test("reasoning profiles: registry, address rules, auth headers and capability f
   assert.equal(endpoint("https://relay.example.test/anthropic", "/messages", anthropic).href, "https://relay.example.test/anthropic/v1/messages");
   assert.equal(endpoint("https://api.example.test", "/models", anthropic).href, "https://api.example.test/v1/models?limit=1000");
   const routing = { version: 1, links: {}, connections: Object.fromEntries(connectionProfiles.map((p) => [p.id, { id: p.id, name: p.label, baseUrl: "https://x.example.test", profileId: p.id, credentialRef: p.id, revision: "r" }])) };
-  assert.deepEqual(reasoningConnections(routing).map((c) => c.id), [chat.id, anthropic.id]);
+  assert.deepEqual(reasoningConnections(routing).map((c) => c.id), [chat.id, anthropic.id, "openai-chat-images-v1", "gemini-chat-v1", "gemini-chat-images-v1"]);
   assert.equal(imageConnections(routing).some((c) => c.id === chat.id || c.id === anthropic.id), false);
   const requests = [],
     models = async (url, init) => {
@@ -256,6 +256,38 @@ test("codec at the edge: outbound strings encoded with the codebook last; inboun
   const events = await collect(provider.stream(request, { codec }));
   assert.equal(events.filter((e) => e.type === "text").map((e) => e.text).join(""), "去掉 nsfw 即可");
   assert.deepEqual(events.find((e) => e.type === "call").call.input, { remove: "large breasts" });
+});
+
+for (const profile of [chat, anthropic]) test("Unicode word encoding survives " + profile.id + " JSON transport and streamed tool output", async () => {
+  const codec = createCodec(["柔光"], [], "unicode"), encoded = "\\u67d4\\u5149";
+  const request = { ...turn1, messages: [user("{}", "增加柔光")] };
+  let body;
+  const input = { text: encoded + "效果" };
+  const { provider } = await setup(profile, async (_url, init) => {
+    body = JSON.parse(init.body);
+    return stream(profile === chat ? [
+      ...sse({ choices: [{ delta: { content: "增加" + encoded.slice(0, 7) } }] }),
+      ...sse({ choices: [{ delta: { content: encoded.slice(7) } }] }),
+      ...sse({ choices: [{ delta: { tool_calls: [{ index: 0, id: "draft", function: { name: "propose_draft", arguments: JSON.stringify(input) } }] }, finish_reason: "tool_calls" }] }),
+      ...sse("[DONE]"),
+    ] : named(
+      { type: "message_start", message: { usage: { input_tokens: 100 } } },
+      { type: "content_block_start", index: 0, content_block: { type: "text", text: "增加" + encoded.slice(0, 7) } },
+      { type: "content_block_delta", index: 0, delta: { type: "text_delta", text: encoded.slice(7) } },
+      { type: "content_block_stop", index: 0 },
+      { type: "content_block_start", index: 1, content_block: { type: "tool_use", id: "draft", name: "propose_draft", input: {} } },
+      { type: "content_block_delta", index: 1, delta: { type: "input_json_delta", partial_json: JSON.stringify(input) } },
+      { type: "content_block_stop", index: 1 },
+      { type: "message_delta", delta: { stop_reason: "tool_use" }, usage: { output_tokens: 20 } },
+      { type: "message_stop" },
+    ));
+  });
+  const events = await collect(provider.stream(request, { codec }));
+  assert.equal(JSON.stringify(body).includes("柔光"), false);
+  const userMessage = body.messages.find(m => m.role === "user");
+  assert.equal(JSON.stringify(userMessage).includes(JSON.stringify(encoded).slice(1, -1)), true);
+  assert.equal(events.filter(e => e.type === "text").map(e => e.text).join(""), "增加柔光");
+  assert.deepEqual(events.find(e => e.type === "call").call.input, { text: "柔光效果" });
 });
 
 for (const profile of [chat, anthropic]) test(`text replacements at the edge: ${profile.id} sends B and restores streamed prose and draft fields to A`, async () => {

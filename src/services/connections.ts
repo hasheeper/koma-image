@@ -2,6 +2,7 @@ import {
   emptyRouting,
   validateRouting,
   validateModelLinks,
+  validateModels,
   LOCAL_CONNECTION_ID,
   imageConnections,
 } from "../config/connections.ts";
@@ -49,15 +50,17 @@ export function createConnections(
     if (!c || (!local && !keys.has(c.credentialRef))) return null;
     return JSON.stringify([endpointIdentity(c), keys.get(c.credentialRef)?.revision ?? "local-runtime-v1"]);
   }
-  const imageSignature = () => JSON.stringify(imageConnections(routing).map(c => [
+  const imageSignature = () => JSON.stringify([routing.models, imageConnections(routing).map(c => [
     c.id, catalogKey(c.id), routing.links[c.id] ?? {},
-  ]));
+  ])]);
   function reload(refresh = true) {
     configurationEpoch++;
     try {
       if (local) {
+        const entries = storage.getItem(names.localModelEntries);
         routing = {
           version: 1,
+          ...(entries === null ? {} : { models: validateModels(JSON.parse(entries)) }),
           connections: managedConnections(),
           links: {
             [LOCAL_CONNECTION_ID]: validateModelLinks(
@@ -120,12 +123,13 @@ export function createConnections(
           managed.some((c) => (Object.keys(c) as (keyof Connection)[]).some((key) => next.connections[c.id]?.[key] !== c[key]))
         )
           throw new Error("本地连接由服务端环境变量管理");
-        await write(() =>
+        await write(() => {
           storage.setItem(
             names.localModels,
             JSON.stringify(next.links[LOCAL_CONNECTION_ID] || {}),
-          ),
-        );
+          );
+          if (next.models !== undefined) storage.setItem(names.localModelEntries, JSON.stringify(next.models));
+        });
         reload(false);
         return;
       }

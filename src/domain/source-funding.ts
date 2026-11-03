@@ -11,6 +11,7 @@ import { imageDimensions } from "../native/image-dimensions.ts";
 import { validateEditorSource } from "./media.ts";
 import { supportsNaiEnhance, naiEnhanceSize } from "./nai-enhance.ts";
 import { directorRequest } from "./director-tools.ts";
+import { acceptsParameter } from "./model-parameters.ts";
 
 /** Only positive evidence of insufficient funds may advance the priority list. */
 export function insufficientFunds(model: CatalogModel, quota: QuotaStatus | null, quote: Quote | null, payload?: ImagePayload): string | null {
@@ -75,5 +76,5 @@ export function supportsSourcePayload(model: CatalogModel, payload?: ImagePayloa
     if (validateEditorSource(mode, model, imageDimensions(payload.init_image))) return false;
   }
   return Object.entries(object(payload.image_options)).every(([key, value]) =>
-    !model.fields[key] || model.fields[key].options.includes(String(value)));
+    value === "" || !!model.fields[key] && acceptsParameter(model.fields[key], String(value)));
 }

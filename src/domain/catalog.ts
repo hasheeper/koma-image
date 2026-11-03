@@ -1,9 +1,12 @@
-import { MODELS, findModel } from "./models.ts";
+import { configuredModels, findModel } from "./models.ts";
 import type { ModelIdentity } from "./models.ts";
 import type { Routing } from "../config/connections.ts";
 import { imageConnections } from "../config/connections.ts";
 import { object, strings } from "./value.ts";
 import type { GatewayProfile } from "../gateway/profile.ts";
+import { profileFor } from "../gateway/profile.ts";
+import { acceptsParameter, applyParameterOverrides, declaredParameterFields } from "./model-parameters.ts";
+import type { ParameterFields } from "./model-parameters.ts";
 
 export interface CatalogEntry { id: string; family?: string }
 export interface CatalogModel {
@@ -12,7 +15,8 @@ export interface CatalogModel {
   sourceRevision?: string;
   id: string; upstreamId: string; connection: string; name: string; description: string; provider: string; family?: string;
   quotaGroup?: string; maxPixels: number; operations: string[]; tools: string[]; replaces: string[];
-  fields: Record<string, { options: string[]; default: string }>;
+  fields: ParameterFields;
+  parameterSource?: "declared" | "reference";
   sourceMaxPixels: number; maxImages: number; chat: boolean; transparentBackground: boolean; unmetered: boolean;
 }
 export const bareId = (id: string) => id.replace(/@[^@/]+$/, "").replace(/^.*\//, "").toLowerCase();
@@ -25,14 +29,33 @@ export function autoMatch(entries: CatalogEntry[], model: ModelIdentity) {
   return entries.find(e => bareId(e.id) === model.id && (!e.family || e.family === model.family))?.id ?? null;
 }
 export function linkFor(routing: Routing, connection: string, model: ModelIdentity, entries: CatalogEntry[]) {
+  if (!supportsModel(routing, connection, model)) return null;
   const records = routing.links[connection] ?? {};
   if (records[model.id]) return records[model.id];
   const id = autoMatch(entries, model);
   return id && !Object.values(records).some(link => link.id === id) ? { id, manual: false, on: true } : null;
 }
+export function supportsModel(routing: Routing, connection: string, model: ModelIdentity) {
+  const c = routing.connections[connection];
+  if (!c) return false;
+  const profile = profileFor(c.profileId);
+  return profile.image && (profile.protocol === "novelai" ? model.family === "novelai"
+    : ["openai-images", "gemini-native"].includes(profile.protocol ?? "") ? model.family !== "novelai" : true);
+}
 export function sourceState(routing: Routing, connection: string, model: ModelIdentity, entries: CatalogEntry[]) {
   const link = linkFor(routing, connection, model, entries);
-  return !link ? "miss" : !entries.some(e => e.id === link.id) ? "gone" : link.on ? "on" : "off";
+  return !link ? "miss" : (!link.manual || model.family === "novelai") && !entries.some(e => e.id === link.id)
+    ? "gone" : !link.on ? "off" : "on";
+}
+/** The settings list also includes manually configured IDs absent from discovery. */
+export function sourceEntries(routing: Routing, connection: string, raw: unknown): CatalogEntry[] {
+  const entries = catalogEntries(raw);
+  for (const model of configuredModels(routing)) {
+    const link = linkFor(routing, connection, model, entries);
+    if (model.family !== "novelai" && link?.manual && !entries.some(e => e.id === link.id))
+      entries.push({ id: link.id, family: model.family });
+  }
+  return entries;
 }
 export function firstSource(routing: Routing, available: readonly string[]) {
   return imageConnections(routing).find(c => available.includes(c.id))?.id;
@@ -65,7 +88,7 @@ export function normalizeCatalog(raw: unknown, routing: Routing, connection: str
   const value = object(raw), features = object(value.studio_features);
   const contextImages = Number(features.max_context_images) || 15;
   const entries = catalogEntries(value), claimed = new Map<string, ModelIdentity>();
-  for (const model of MODELS) {
+  for (const model of configuredModels(routing)) {
     const link = linkFor(routing, connection, model, entries);
     if (link) claimed.set(link.id, model);
   }
@@ -74,11 +97,12 @@ export function normalizeCatalog(raw: unknown, routing: Routing, connection: str
     const meta = object(rawModel), entry = claimed.get(upstreamId);
     if (entry && routing.links[connection]?.[entry.id]?.on === false) continue;
     if (!entry && findModel(bareId(upstreamId))) continue;
-    const id = entry?.id ?? upstreamId, fields: CatalogModel["fields"] = {};
-    for (const key of ["quality", "size", "aspect_ratio", "image_size", "output_format"]) {
-      const field = object(object(object(meta.image_capabilities).fields)[key]), options = strings(field.options);
-      if (options.length) fields[key] = { options, default: typeof field.default === "string" && options.includes(field.default) ? field.default : options[0] };
-    }
+    // Once the editable list is saved, GPT/Gemini directory entries require a configured mapping.
+    // This prevents deleted entries resurfacing under a supplier's alias; other gateway tools remain available.
+    if (!entry && routing.models && (["gpt", "gemini"].includes(String(meta.editor_family)) ||
+      ["openai", "gemini"].includes(String(meta.provider_id ?? meta.provider)))) continue;
+    const id = entry?.id ?? upstreamId;
+    let fields = declaredParameterFields(object(meta.image_capabilities).fields);
     const provider = entry?.provider ?? String(meta.provider_id ?? meta.provider ?? "");
     // Preserve the format restriction of the model family.
     if (provider === "fal" && /upscal|super[-_ ]?resolution/i.test(`${id} ${meta.name ?? ""}`) && fields.output_format?.options.includes("jpg")) {
@@ -87,18 +111,17 @@ export function normalizeCatalog(raw: unknown, routing: Routing, connection: str
       if (!f.options.includes(f.default)) f.default = f.options[0];
       if (!f.options.length) delete fields.output_format;
     }
-    for (const [key, allowed] of Object.entries(entry?.options ?? {})) {
-      const field = fields[key];
-      if (!field) continue;
-      const options = field.options.filter(v => allowed.includes(v));
-      if (options.length) fields[key] = { options, default: options.includes(field.default) ? field.default : options[0] };
-      else delete fields[key];
+    for (const [key, value] of Object.entries(entry?.defaults ?? {})) {
+      if (fields[key] && acceptsParameter(fields[key], value)) fields[key] = { ...fields[key], default: value };
     }
+    if (entry?.family !== "novelai") fields = applyParameterOverrides(fields, routing.links[connection]?.[id]?.parameters);
     const native = profile?.protocol && profile.protocol !== "standard";
-    models.push({ id, upstreamId, connection, sourceRevision: routing.connections[connection]?.revision, ...(profile ? { profileId: profile.id } : {}), name: String(meta.name || entry?.name || id), description: String(meta.description || ""),
+    models.push({ id, upstreamId, connection, sourceRevision: routing.connections[connection]?.revision, ...(profile ? { profileId: profile.id } : {}), name: String(entry?.name || meta.name || id), description: String(meta.description || ""),
       provider, family: entry?.family ?? (typeof meta.editor_family === "string" ? meta.editor_family : undefined),
       quotaGroup: typeof meta.quota_group === "string" ? meta.quota_group : undefined,
-      maxPixels: Number(meta.max_resolution) || 1_048_576, operations: strings(meta.operations), fields, replaces: strings(meta.replaces), tools: strings(meta.tools),
+      maxPixels: Number(meta.max_resolution) || 1_048_576, operations: strings(meta.operations), fields,
+      parameterSource: object(meta.image_capabilities).source === "reference" ? "reference" : "declared",
+      replaces: strings(meta.replaces), tools: strings(meta.tools),
       sourceMaxPixels: Number(object(meta.generation_references).max_pixels) || 32_000_000,
       maxImages: Math.min(entry?.inputImages ?? 16, native ? Number(meta.max_context_images) || 16 : contextImages), chat: entry?.chat === true || !!native && meta.chat === true,
       transparentBackground: entry?.transparentBackground === true, unmetered: meta.unmetered === true });
@@ -113,4 +136,5 @@ export function resolveModel(models: CatalogModel[], wanted: string) {
   return matches.length === 1 ? matches[0] : null;
 }
 export const normalizeOptions = (model: CatalogModel, values: Record<string, string> = {}) => Object.fromEntries(
-  Object.entries(model.fields).map(([key, field]) => [key, field.options.includes(values[key]) ? values[key] : field.default]));
+  Object.entries(model.fields).map(([key, field]) => [key,
+    values[key] === "" || acceptsParameter(field, values[key] ?? "") ? values[key] : field.default]));

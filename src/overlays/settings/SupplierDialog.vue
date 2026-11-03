@@ -5,7 +5,7 @@ import { message } from "../../app/ui";
 import AppIcon from "../../shared/AppIcon.vue";
 import type { Routing } from "../../config/connections";
 import { normalizeBaseUrl, validateRouting } from "../../config/connections";
-import { STANDARD_PROFILE_ID, connectionProfiles, profileFor, NOVELAI_IMAGE_URL } from "../../gateway/profile";
+import { STANDARD_PROFILE_ID, connectionProfiles, profileFor, NOVELAI_IMAGE_URL, isOpenAIConnection, OPENAI_SHARED_PROFILE_ID, isGeminiConnection, GEMINI_CHAT_PROFILE_ID, GEMINI_SHARED_PROFILE_ID } from "../../gateway/profile";
 const props = defineProps<{ routing: Routing }>();
 const { connections, vault } = useServices();
 const local = connections.local, routing = computed(() => props.routing);
@@ -22,6 +22,34 @@ const formTarget = ref<string | null>(null),
   formBusy = ref(false),
   formKeyVisible = ref(false),
   formRemember = ref(true);
+const formChat = ref(false), formImages = ref(true);
+const openAI = computed(() => isOpenAIConnection(formProfile.value));
+const gemini = computed(() => isGeminiConnection(formProfile.value));
+const dual = computed(() => openAI.value || gemini.value);
+// One visible entry per protocol family; profiles describe enabled uses.
+const protocols = connectionProfiles.flatMap(p => isOpenAIConnection(p.id)
+  ? p.id === "openai-images-v1" ? [{ id: "openai", label: "OpenAI 兼容" }] : []
+  : isGeminiConnection(p.id) ? p.id === "gemini-native-v1" ? [{ id: "gemini", label: "Gemini 原生" }] : []
+    : [{ id: p.id, label: p.label }]);
+const formProtocol = computed({
+  get: () => openAI.value ? "openai" : gemini.value ? "gemini" : formProfile.value,
+  set: (value: string) => { formProfile.value = value === "openai" ? OPENAI_SHARED_PROFILE_ID : value === "gemini" ? GEMINI_SHARED_PROFILE_ID : value; },
+});
+function syncInterfaces() {
+  const profile = profileFor(formProfile.value);
+  formChat.value = !!profile.reasoning;
+  formImages.value = profile.image;
+}
+function setInterfaces() {
+  if (!formChat.value && !formImages.value) {
+    formError.value = "请至少开启文字或图像";
+    return;
+  }
+  formError.value = "";
+  formProfile.value = gemini.value
+    ? formChat.value && formImages.value ? GEMINI_SHARED_PROFILE_ID : formChat.value ? GEMINI_CHAT_PROFILE_ID : "gemini-native-v1"
+    : formChat.value && formImages.value ? OPENAI_SHARED_PROFILE_ID : formChat.value ? "openai-chat-v1" : "openai-images-v1";
+}
 let formKeyTouched = false, formKeyFromSaved = false;
 const formHasKey = computed(() => {
   version.value;
@@ -62,6 +90,7 @@ function add() {
   formName.value = "";
   formUrl.value = "";
   formProfile.value = STANDARD_PROFILE_ID;
+  syncInterfaces();
   formRemember.value = true;
   formError.value = "";
   wipeKey();
@@ -74,16 +103,19 @@ function edit(id: string) {
   formName.value = c.name;
   formUrl.value = c.baseUrl;
   formProfile.value = c.profileId;
+  syncInterfaces();
   formRemember.value = vault.key(c.credentialRef) ? vault.remembered(c.credentialRef) : true;
   formError.value = "";
   wipeKey();
   form.value?.showModal();
 }
 function selectProtocol() {
+  syncInterfaces();
   formError.value = "";
   const target = formTarget.value ? routing.value.connections[formTarget.value] : undefined;
   if (target && profileFor(formProfile.value).protocol === "novelai" && target.baseUrl !== NOVELAI_IMAGE_URL) {
     formProfile.value = target.profileId;
+    syncInterfaces();
     formError.value = "请单独配置 NovelAI 官方供应商，并填写对应 Key";
     return;
   }
@@ -97,12 +129,14 @@ async function saveForm() {
   let stagedRef: string | undefined;
   try {
     const name = formName.value.trim();
+    if (dual.value && !formChat.value && !formImages.value) throw new Error("请至少开启文字或图像");
     if (!name) throw new Error("请填写供应商名称");
     const baseUrl = normalizeBaseUrl(formUrl.value), next = structuredClone(routing.value);
     const previous = formTarget.value ? next.connections[formTarget.value] : undefined;
     if (formTarget.value && !previous) throw new Error("供应商已被删除，请重新配置");
     const input = formKeyFromSaved ? "" : formKey.value?.value.trim() ?? "", oldKey = previous ? vault.key(previous.credentialRef) : null;
-    const endpointChanged = previous && (previous.baseUrl !== baseUrl || previous.profileId !== formProfile.value);
+    const sameFamily = previous && ((isOpenAIConnection(previous.profileId) && openAI.value) || (isGeminiConnection(previous.profileId) && gemini.value));
+    const endpointChanged = previous && (previous.baseUrl !== baseUrl || (previous.profileId !== formProfile.value && !sameFamily));
     if (endpointChanged && !input) throw new Error("地址或协议已更改，请重新填写对应的 API Key");
     if (!input && !oldKey) throw new Error("请填写 API Key");
     const id = previous?.id ?? `connection-${crypto.randomUUID()}`;
@@ -110,7 +144,7 @@ async function saveForm() {
     const replaceKey = !previous || Boolean(input && input !== oldKey) || endpointChanged;
     const credentialRef = replaceKey ? `key-${crypto.randomUUID()}` : previous.credentialRef;
     next.connections[id] = { id, name, baseUrl, profileId: formProfile.value, credentialRef, revision: previous?.revision ?? crypto.randomUUID() };
-    if (previous && previous.profileId !== formProfile.value) next.links[id] = {};
+    if (previous && previous.profileId !== formProfile.value && !sameFamily) next.links[id] = {};
     const validated = validateRouting(next);
     if (replaceKey) {
       await vault.setKey(credentialRef, input || oldKey!, formRemember.value);
@@ -156,10 +190,25 @@ defineExpose({ add, edit, close: dismiss, busy: formBusy });
       <div class="modal-body">
         <div class="fld">
           <label for="connectionProtocol">接口协议</label>
-          <select id="connectionProtocol" v-model="formProfile" :disabled="formBusy" @change="selectProtocol">
-            <option v-for="p in connectionProfiles" :key="p.id" :value="p.id">{{ p.label }}</option>
+          <select id="connectionProtocol" v-model="formProtocol" :disabled="formBusy" @change="selectProtocol">
+            <option v-for="p in protocols" :key="p.id" :value="p.id">{{ p.label }}</option>
           </select>
         </div>
+        <fieldset v-if="dual" class="supplier-interfaces" :disabled="formBusy">
+          <legend>开启接口</legend>
+          <div class="supplier-interface-options">
+            <label class="check supplier-interface">
+              <input v-model="formChat" type="checkbox" aria-label="文字 · ASK" @change="setInterfaces" />
+              <span aria-hidden="true" />
+              <span class="supplier-interface-copy">文字</span>
+            </label>
+            <label class="check supplier-interface">
+              <input v-model="formImages" type="checkbox" aria-label="图像 · 生图与编辑" @change="setInterfaces" />
+              <span aria-hidden="true" />
+              <span class="supplier-interface-copy">图像</span>
+            </label>
+          </div>
+        </fieldset>
         <div class="fld">
           <label for="connectionName">名称</label
           ><input
@@ -196,8 +245,9 @@ defineExpose({ add, edit, close: dismiss, busy: formBusy });
             </button>
           </div>
         </div>
-        <label class="connection-remember">
+        <label class="check connection-remember">
           <input v-model="formRemember" type="checkbox" :disabled="formBusy" />
+          <span aria-hidden="true" />
           <span>在此浏览器保存 Key</span>
         </label>
       </div>
@@ -260,17 +310,50 @@ defineExpose({ add, edit, close: dismiss, busy: formBusy });
   height: calc(100% - 4px);
   border-radius: var(--r2);
 }
+.supplier-form .check {
+  position: relative;
+}
+.supplier-form .check > input {
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  margin: 0;
+  cursor: inherit;
+}
 .connection-remember {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  color: var(--fg-2);
   font-size: var(--fz-xs);
 }
-.connection-remember input {
-  width: 14px;
-  height: 14px;
+.supplier-interfaces {
+  min-inline-size: 0;
+  border: 0;
+  padding: 0;
   margin: 0;
-  accent-color: var(--a);
+}
+.supplier-interfaces legend {
+  padding: 0;
+  margin-bottom: 5px;
+  color: var(--fg-3);
+  font-size: var(--fz-xs);
+  font-weight: var(--fw-medium);
+  letter-spacing: 0.01em;
+}
+.supplier-interface-options {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0 var(--sp-5);
+}
+.supplier-interface {
+  min-width: 0;
+  min-height: 28px;
+}
+.supplier-interface-copy {
+  color: var(--fg);
+  line-height: 1.4;
+}
+@media (max-width: 480px) {
+  .supplier-interface {
+    min-height: 44px;
+  }
 }
 </style>

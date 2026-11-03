@@ -11,7 +11,7 @@
 | 浏览器 Canvas 与图片 API | 图片解码、预览缩放、蒙版、画布指针、参考图处理和本地对比合成；高频更新由原生驱动承担 |
 | IndexedDB + 本地偏好存储 | 图片收藏、CHAT、已收藏 ASK、Slate 和协同映射分别持久化；页面临时历史与撤销记录保持独立生命周期 |
 | Web Locks + BroadcastChannel | 图像任务、数据租约、任务清单和目录同步的同源互斥及轻量跨页通知；不保证外部进程的文件互斥 |
-| Fetch + 流式协议适配 | Gateway Profile 负责鉴权、请求和能力；ASK 的 OpenAI Chat／Anthropic Messages 适配器处理流式文本与工具调用 |
+| Fetch + 流式协议适配 | Gateway Profile 负责鉴权、请求和能力；ASK 的 OpenAI Chat／Anthropic Messages／Gemini 原生适配器处理流式文本与工具调用 |
 | Web Crypto | 图片、资料与交付文件的 SHA-256 校验；Key 不随构建注入浏览器 |
 | File System Access API | 用户授权后的协同目录读写与句柄恢复；无该 API 时可手动导入／下载 JSON，Todo 不依赖此能力 |
 | 本地 NAI tokenizer Worker | 按型号加载 T5／Qwen3.5 许可词表；有界缓存与空闲终止，不外发提示词，不阻塞主线程分词 |
@@ -44,11 +44,13 @@ Photopea 首次打开后保留单 iframe，每编辑画板拥有独立分层文�
 
 依赖方向为工作区 → domain／services → Gateway Profile → transport。Profile 声明目录、鉴权、报价、额度、路线及图像／推理能力，不按连接名称或域名分支。
 
-登记表包含六种协议：Koma 标准网关、OpenAI Images、Gemini 原生、NovelAI 官方、OpenAI Chat 兼容和 Anthropic Messages。前四种服务图像工作区，后两种仅服务 ASK 推理、命名和压缩。实现边界见[图像协议](integrations/image-protocols.md)和[ASK 运行契约](ask/runtime.md)。
+登记表包含 Koma 标准网关、OpenAI Images、Gemini 原生、NovelAI 官方、OpenAI Chat 兼容和 Anthropic Messages，OpenAI 与 Gemini 原生均可共用连接开启文字和图像入口。图像与推理入口按各自能力筛选；共用 Profile 维护一份地址和 Key，图像客户端和 ASK 分别使用对应协议适配器。实现边界见[图像协议](integrations/image-protocols.md)和[ASK 运行契约](ask/runtime.md)。
 
 标准网关保留防抖报价、执行前重报、`max_cost`、原生／Studio／工具分流和余额检查。无报价能力保留未知费用状态，与报价失败、零值、加载分开；生成按钮暂不展示未知费用标签。没有协议自动回退或生成自动重试。
 
-图像模型的可用来源与供应商优先级分开保存。连接页按配置能力分为图像与文本两区，综合供应商的两类接口分别显示。仅图像区通过上移／下移排序，非秘密配置为 `Routing.order`；未排序时保持原连接顺序，文本始终保持添加顺序。绘图／CHAT／编辑共用 `services/source-priority.ts`，按同一模型和当前操作筛选可用来源，只在明确额度不足时继续检查下一来源；余额未知仍按优先级使用。执行前重新检查报价和余额，提交生成后不因失败或取消换源重试。原生目录只提供 ID，规范模型匹配与手动来源由用户配置；ASK 仍手动选模，不参与图像优先级分流。
+GPT／Gemini 初始预设可新增、编辑和删除，稳定的内部身份和参数参考保存在非秘密的 `Routing.models`（兼容读取已有默认值）；各来源上游 ID 和参数覆盖独立保存在 `Routing.links`。参数先读目录声明，缺失时标注参考预设，手动覆盖与刷新声明分开。未保存条目列表时使用初始预设，显式空列表保留删除状态；NAI 五型号固定。
+
+图像模型的可用来源与供应商优先级分开保存。连接页每个连接 ID 仅显示一张卡，按开启用途提供图像／文字模型入口；主列表保持原添加顺序，不按名称或地址合并。独立「生图顺序」弹层仅对图像连接上移／下移，继续保存到非秘密配置 `Routing.order`；未排序时沿用原连接顺序。绘图／CHAT／编辑共用 `services/source-priority.ts`，按同一模型和当前操作筛选可用来源，只在明确额度不足时继续检查下一来源；余额未知仍按优先级使用。执行前重新检查报价和余额，提交生成后不因失败或取消换源重试。原生目录只提供 ID，规范模型匹配与手动来源由用户配置；ASK 仍手动选模，不参与图像优先级分流。
 
 新环境连接为空；启动保留目标工作区，空配置或缺 Key 不自动打开设置或配置窗。用户在设置中通过统一「配置供应商」弹窗一次保存名称、协议、地址与 Key，配置 URL／Key 后才能请求。Key 按供应商选择浏览器保存或仅本次会话，不再使用口令和独立 Key 弹窗；凭据不进入普通备份。兼容服务不内置私有地址，NovelAI 官方可以固定公开官方主机。直连依赖服务支持 CORS。
 
@@ -64,7 +66,7 @@ Photopea 首次打开后保留单 iframe，每编辑画板拥有独立分层文�
 | ASK OpenAI Chat | `KOMA_ASK_OPENAI` | 固定目录与流式推理路径 |
 | ASK Anthropic Messages | `KOMA_ASK_ANTHROPIC` | 固定目录与流式推理路径 |
 
-每组 URL／Key 成对设置；可只配置 ASK。网页只获得运行模式和临时令牌，服务端地址与 Key 不注入浏览器，不进入 `VITE_*`。只读运行时连接和令牌不持久化；图像模型来源另存 `koma.local.models.v1`。原生图像三协议目前仅浏览器直连。运行与打包步骤见[发布说明](release-guide.md)。
+每组 URL／Key 成对设置；可只配置 ASK。网页只获得运行模式和临时令牌，服务端地址与 Key 不注入浏览器，不进入 `VITE_*`。只读运行时连接和令牌不持久化；图像模型来源另存 `koma.local.models.v1`，可编辑条目另存 `koma.local.model-entries.v1`。原生图像三协议目前仅浏览器直连。运行与打包步骤见[发布说明](release-guide.md)。
 
 
 ## 调度与数据

@@ -1,6 +1,6 @@
 import { object } from "../domain/value.ts";
 import { checkReplacement, checkWord } from "./codec.ts";
-import type { Replacement } from "./codec.ts";
+import type { Replacement, WordEncoding } from "./codec.ts";
 import { DEFAULT_HIGH_WATER, highWater } from "./compact/trigger.ts";
 
 export interface TextAttachmentLimits { chars: number; totalChars: number }
@@ -28,6 +28,7 @@ export interface AskSettings {
   compaction: { highWaterTokens: number };
   preference: string;
   words: string[];
+  wordEncoding: WordEncoding;
   replacements: Replacement[];
   alwaysCodec: boolean;
 }
@@ -45,6 +46,7 @@ export const defaultAskSettings = (): AskSettings => ({
   compaction: { highWaterTokens: DEFAULT_HIGH_WATER },
   preference: "",
   words: [],
+  wordEncoding: "alias",
   replacements: [],
   alwaysCodec: false,
 });
@@ -100,6 +102,7 @@ export function readAskSettings(value: unknown): AskSettings {
       const checked = checkWord(item, out.words);
       if ("word" in checked) out.words.push(checked.word);
     }
+  if (v.wordEncoding === "unicode") out.wordEncoding = "unicode";
   if (typeof v.alwaysCodec === "boolean") out.alwaysCodec = v.alwaysCodec;
   if (Array.isArray(v.replacements))
     for (const item of v.replacements) {

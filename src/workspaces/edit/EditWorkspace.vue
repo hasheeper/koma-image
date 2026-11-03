@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import ModelParameterInput from "../../shared/ModelParameterInput.vue";
 import {
   computed,
   defineAsyncComponent,
@@ -10,7 +11,6 @@ import {
   onBeforeUnmount,
 } from "vue";
 
-import { useAsk, AskMark } from "../../app/ask";
 import { useEditor } from "../../app/editor";
 import { useShell } from "../../app/shell";
 import { useAskPresentation } from "../../ask/presentation";
@@ -67,7 +67,6 @@ const inpaintMode = shallowRef<InstanceType<typeof EditToolMode>>();
 const upscaleMode = shallowRef<InstanceType<typeof EditToolMode>>();
 const directorPanel = shallowRef<InstanceType<typeof DirectorTools>>();
 const bottomPanel = shallowRef<InstanceType<typeof DrawingBottomPanel>>();
-const ask = useAsk();
 const photopea = shallowRef<ReturnType<typeof editor.beginExternalEdit>>();
 const photopeaCreated = shallowRef(false);
 const tab = ref<"prompt" | "negative_prompt">("prompt"),
@@ -505,7 +504,10 @@ async function closePhotopea() {
   if (photopea.value) editor.cancelExternalEdit(photopea.value.id);
   photopea.value = undefined;
   await nextTick();
-  if (view.value.open) { await activate(); canvas?.fit(); document.getElementById("editorPhotopea")?.focus({ preventScroll: true }); }
+  if (view.value.open) {
+    await activate(); canvas?.fit();
+    dialog.value?.querySelector<HTMLButtonElement>(".editor-bar-end button:not([hidden])")?.focus({ preventScroll: true });
+  }
 }
 watch([() => view.value.contextId, () => view.value.open], () => {
   if (photopea.value && (!view.value.open || photopea.value.id !== view.value.externalId)) void closePhotopea();
@@ -710,18 +712,8 @@ async function copyReference(v: EditorVersion) {
     <header class="topbar editor-bar" :hidden="!!photopea" :inert="!!photopea">
       <WorkspaceSwitch workspace="edit" />
       <div class="topbar-end editor-bar-end" role="group" aria-label="工具">
-        <button class="ibtn" type="button" aria-label="打开 ASK" @click="ask.show()"><AskMark :thinking="ask.running.value" /></button>
-        <button id="editorPhotopea" class="ibtn" type="button" aria-label="高级编辑" data-tip="高级编辑 · Photopea" :disabled="locked || !view.viewed" @click="openPhotopea"><span class="editor-photopea-logo" aria-hidden="true" /></button>
+        <button id="editorPhotopea" class="ibtn" type="button" aria-label="高级编辑" data-tip="高级编辑 · Photopea" :hidden="narrow" :disabled="locked || !view.viewed" @click="openPhotopea"><span class="editor-photopea-logo" aria-hidden="true" /></button>
         <button
-          class="ibtn"
-          type="button"
-          aria-label="打开图片"
-          data-tip="打开图片"
-          :disabled="locked"
-          @click="pick"
-        >
-          <AppIcon name="i-upload" /></button
-        ><button
           class="ibtn"
           type="button"
           aria-label="版本栏"
@@ -948,15 +940,27 @@ async function copyReference(v: EditorVersion) {
             </div>
           </div>
           <div class="blank editor-empty" :hidden="!!view.base">
-            <AppIcon class="ico-xl" name="i-image" />
+            <div class="editor-empty-sheet" aria-hidden="true">
+              <span class="editor-empty-crop editor-empty-crop-tl"></span>
+              <span class="editor-empty-crop editor-empty-crop-tr"></span>
+              <span class="editor-empty-crop editor-empty-crop-bl"></span>
+              <span class="editor-empty-crop editor-empty-crop-br"></span>
+              <div class="editor-empty-frame editor-empty-frame-main">
+                <span class="editor-empty-sun"></span>
+                <span class="editor-empty-hill editor-empty-hill-back"></span>
+                <span class="editor-empty-hill editor-empty-hill-front"></span>
+              </div>
+              <div class="editor-empty-frame"></div>
+              <div class="editor-empty-frame editor-empty-frame-accent"></div>
+            </div>
             <p class="blank-s">拖入或粘贴图片</p>
             <button
-              class="btn btn-quiet btn-sm"
+              class="btn btn-quiet editor-empty-open"
               type="button"
               :disabled="locked"
               @click="pick"
             >
-              <AppIcon name="i-upload" />打开图片
+              <AppIcon name="i-upload" />{{ narrow ? '选择图片' : '打开图片' }}
             </button>
           </div>
           <div class="editor-cursor" id="editorCursor" hidden></div>
@@ -1229,20 +1233,15 @@ async function copyReference(v: EditorVersion) {
           class="editor-pop-option"
         >
           <label :for="`editorOption-${key}`">{{
-            optionLabels[key] || key
+            field.label || optionLabels[key] || key
           }}</label
-          ><select
+          ><ModelParameterInput
             :id="`editorOption-${key}`"
             :value="upOptions[key]"
+            :field="field"
             :disabled="locked"
-            @change="
-              editor.setOption(key, ($event.target as HTMLSelectElement).value)
-            "
-          >
-            <option v-for="value in field.options" :key="value" :value="value">
-              {{ value.toUpperCase() }}
-            </option>
-          </select>
+            @change="editor.setOption(key, $event)"
+          />
         </div>
       </div>
       <textarea

@@ -6,6 +6,7 @@ import { defaultAskSettings, readAskSettings } from "../src/ask/settings.ts";
 test("codec: defaults have no vocabulary, replacement rules or codebook", () => {
   const settings = defaultAskSettings();
   assert.deepEqual(settings.words, []);
+  assert.equal(settings.wordEncoding, "alias");
   assert.deepEqual(settings.replacements, []);
   assert.equal(settings.alwaysCodec, false);
   assert.equal(createCodec([]), identityCodec);
@@ -75,6 +76,35 @@ test("codec: free creation gates pairs, while automatic aliases retain their own
   const pairsOnly = codecFor({ adult: true, enabled: false, words: ["night"], replacements: rules });
   assert.equal(pairsOnly.encode("A night"), "B night");
   assert.equal(codecFor({ adult: true, enabled: true, words: ["night"], replacements: rules }).encode("A night"), "B @t_001");
+});
+
+test("codec: Unicode word encoding round-trips text, tool arguments and fragmented streams", () => {
+  const codec = createCodec(["soft light", "柔光", "猫🐱"], [{ from: "red coat", to: "azure dress" }], "unicode");
+  const unicode = "\\u0073\\u006f\\u0066\\u0074\\u0020\\u006c\\u0069\\u0067\\u0068\\u0074";
+  assert.equal(codec.encode("soft light"), unicode);
+  assert.equal(codec.decode(unicode + "and"), "soft lightand");
+  assert.equal(codec.table().includes("soft light"), false);
+  assert.match(codec.table(), /Unicode/);
+  for (const source of ["SOFT_LIGHT, soft light", "柔光效果，猫🐱", "red coat, 柔光", "midnight"]) {
+    const encoded = codec.encode(source);
+    assert.equal(codec.decode(encoded), source);
+    assert.deepEqual(codec.decodeDeep(codec.encodeDeep({ text: source })), { text: source });
+    for (let i = 0; i <= encoded.length; i++) {
+      const stream = codec.stream();
+      assert.equal(stream.push(encoded.slice(0, i)) + stream.push(encoded.slice(i)) + stream.flush(), source);
+    }
+  }
+  assert.equal(codec.decode("\\u0041\\u0042"), "\\u0041\\u0042");
+  const mixedCase = "\\u67D4\\u5149";
+  assert.equal(codec.decode(mixedCase), "柔光");
+  for (let i = 0; i <= mixedCase.length; i++) {
+    const stream = codec.stream();
+    assert.equal(stream.push(mixedCase.slice(0, i)) + stream.push(mixedCase.slice(i)) + stream.flush(), "柔光");
+  }
+  assert.equal(codecFor({ adult: false, enabled: true, words: ["柔光"], wordEncoding: "unicode" }), identityCodec);
+  assert.equal(codecFor({ adult: true, enabled: false, words: ["柔光"], wordEncoding: "unicode" }), identityCodec);
+  assert.equal(readAskSettings({ wordEncoding: "unicode" }).wordEncoding, "unicode");
+  assert.equal(readAskSettings({ wordEncoding: "unknown" }).wordEncoding, "alias");
 });
 
 test("codec: streamed restoration equals complete restoration across every split, overlapping targets and alias boundaries", () => {

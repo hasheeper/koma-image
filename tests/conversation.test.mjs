@@ -168,7 +168,7 @@ test("chat: list sections follow local days, search covers every prompt, cover f
   con.headId = first.id;
   assert.equal(c.coverImage(con), "a");
 });
-test("media: generation/edit fields, Gemini output_size and strict count/text limits", () => {
+test("media: generation/edit logical options and strict count/text limits", () => {
   assert.equal(buildChatPayload(model, "word", {}, []).tool, undefined);
   const p = buildChatPayload(model, "exact text", { image_size: "2K" }, [
     "a",
@@ -177,7 +177,7 @@ test("media: generation/edit fields, Gemini output_size and strict count/text li
   assert.equal(p.tool, "image-edit");
   assert.equal(p.init_image, "a");
   assert.deepEqual(p.additional_images, ["b"]);
-  assert.deepEqual(p.image_options, { output_size: "2k" });
+  assert.deepEqual(p.image_options, { image_size: "2K" });
   assert.equal(p.transform_prompt, false);
   assert.throws(
     () => buildChatPayload(model, "a", {}, ["a", "b", "c"]),

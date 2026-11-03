@@ -487,7 +487,7 @@ test("backup roundtrip merges conflicts, remaps turn links, preserves bytes and 
           parentId,
           base: null,
           refs: [],
-          dropped: 0,
+          dropped: [],
         },
         selectedVersion: 0,
         versions: [

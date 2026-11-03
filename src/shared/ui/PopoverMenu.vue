@@ -2,7 +2,7 @@
 import { nextTick, onBeforeUnmount, onDeactivated, shallowRef } from "vue";
 import { menuKeys } from "../popover";
 import { usePopover } from "./use-popover";
-const props = defineProps<{ id: string; label: string; side: "left" | "right" | "up"; escape?: () => boolean; compact?: boolean; menuClass?: string }>();
+const props = defineProps<{ id: string; label: string; side: "left" | "right" | "up"; escape?: () => boolean; compact?: boolean; menuClass?: string; closeOnScroll?: "outside" | "all" }>();
 const emit = defineEmits<{ closed: []; opened: [] }>();
 defineSlots<{ trigger(props: { open: boolean; toggle: () => void }): unknown; default(props: { close: (refocus?: boolean) => void }): unknown }>();
 const visible = shallowRef(false), wrap = shallowRef<HTMLElement>(), menu = shallowRef<HTMLElement>();
@@ -26,6 +26,7 @@ function closed() {
 }
 const popover = usePopover(menu, {
   position: place, resize: "place", observe: () => [menu.value, wrap.value],
+  closeOnScroll: props.closeOnScroll,
   visualViewport: true, afterResizeFrame: true,
   onOpen() { menu.value?.querySelector<HTMLButtonElement>('button:not(:disabled)')?.focus({ preventScroll: true }); },
   onClose: closed,

@@ -91,6 +91,30 @@ export const openaiChatProfile: GatewayProfile = freeze({
   auth: { kind: "bearer" },
   transport: { apiPrefix: "", rootPrefix: "/v1", paths: { catalog: "/models", reasoning: "/chat/completions" }, nativeHeaders: {} },
 });
+export const OPENAI_SHARED_PROFILE_ID = "openai-chat-images-v1";
+/** One credential and base URL; the image client and ASK keep their existing wire adapters. */
+export const openaiSharedProfile: GatewayProfile = freeze({
+  ...openaiImagesProfile, id: OPENAI_SHARED_PROFILE_ID, label: "OpenAI Chat + Images",
+  reasoning: { cache: "implicit" },
+  transport: { ...openaiImagesProfile.transport,
+    paths: { ...openaiImagesProfile.transport.paths, reasoning: "/chat/completions" } },
+});
+export const isOpenAIConnection = (id: string) => ["openai-chat-v1", "openai-images-v1", OPENAI_SHARED_PROFILE_ID].includes(id);
+export const GEMINI_CHAT_PROFILE_ID = "gemini-chat-v1";
+export const GEMINI_SHARED_PROFILE_ID = "gemini-chat-images-v1";
+export const geminiChatProfile: GatewayProfile = freeze({
+  ...geminiProfile, ...reasoningOnly, id: GEMINI_CHAT_PROFILE_ID, label: "Gemini 原生 · ASK",
+  reasoning: { cache: "implicit" },
+  transport: { ...geminiProfile.transport,
+    paths: { catalog: "/models", reasoning: "/models/{model}:streamGenerateContent?alt=sse" } },
+});
+export const geminiSharedProfile: GatewayProfile = freeze({
+  ...geminiProfile, id: GEMINI_SHARED_PROFILE_ID, label: "Gemini 原生 · 文字与图像",
+  reasoning: { cache: "implicit" },
+  transport: { ...geminiProfile.transport,
+    paths: { ...geminiProfile.transport.paths, reasoning: "/models/{model}:streamGenerateContent?alt=sse" } },
+});
+export const isGeminiConnection = (id: string) => ["gemini-native-v1", GEMINI_CHAT_PROFILE_ID, GEMINI_SHARED_PROFILE_ID].includes(id);
 export const ANTHROPIC_VERSION = "2023-06-01";
 export const anthropicMessagesProfile: GatewayProfile = freeze({
   ...reasoningOnly, id: "anthropic-messages-v1", protocol: "anthropic-messages", label: "Anthropic Messages · ASK",
@@ -99,7 +123,7 @@ export const anthropicMessagesProfile: GatewayProfile = freeze({
   auth: { kind: "anthropic-key", headers: { "anthropic-version": ANTHROPIC_VERSION, "anthropic-dangerous-direct-browser-access": "true" } },
   transport: { apiPrefix: "/v1", paths: { catalog: "/models", reasoning: "/messages" }, nativeHeaders: {} },
 });
-export const connectionProfiles: readonly GatewayProfile[] = freeze([standardProfile, openaiImagesProfile, geminiProfile, novelaiProfile, openaiChatProfile, anthropicMessagesProfile]);
+export const connectionProfiles: readonly GatewayProfile[] = freeze([standardProfile, openaiImagesProfile, geminiProfile, novelaiProfile, openaiChatProfile, anthropicMessagesProfile, openaiSharedProfile, geminiChatProfile, geminiSharedProfile]);
 /** Only locally registered protocols can be selected or restored. */
 const profiles: Readonly<Record<string, GatewayProfile>> = freeze(Object.fromEntries(connectionProfiles.map(profile => [profile.id, profile])));
 

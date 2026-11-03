@@ -7,9 +7,14 @@
 | 协议 | 路径 | 缓存 |
 | --- | --- | --- |
 | `openai-chat` | `/chat/completions`，根地址补 `/v1`，已带版本路径则保留 | 上游隐式前缀缓存，不增加显式缓存参数 |
+| `gemini-native` | `/v1beta/models/{model}:streamGenerateContent?alt=sse`，整个模型 ID 编码 | 上游隐式缓存，不增加显式缓存参数 |
 | `anthropic-messages` | `/v1/messages`，保留服务前缀、不重复版本 | 显式 `cache_control: { type: "ephemeral" }` |
 
-只通过能力匹配的显式连接访问，不使用 OpenAI Responses 或 Gemini 原生多轮工具协议。实际模型能力由用户界定。浏览器直连依赖 CORS；本地代理使用两组独立可选环境变量，固定目录／推理路径，支持流式与停止，不转发任意 URL。
+只通过能力匹配的显式连接访问，不使用 OpenAI Responses。Gemini 原生使用 `x-goog-api-key`、`contents/parts`、`systemInstruction`、JSON Schema 工具声明及 `functionCall/functionResponse`，强制文字输出；模型 ID 可手动填写，目录不限制用途。实际模型能力由用户界定。Gemini 原生当前仅浏览器直连，依赖 CORS；本地代理仍仅提供 OpenAI／Anthropic 两组独立可选环境变量，固定目录／推理路径，支持流式与停止，不转发任意 URL。
+
+Gemini 成功响应的原生 parts 和 thoughtSignature 作为不透明重放元数据随成功轮次保留，只向相同模型的 Gemini 原生适配器回传，不经词表转换、不作为回复正文展示。保留 part 边界、调用顺序及上游提供的调用 ID；省略 ID 的调用使用本地身份关联结果，回传不伪造上游 ID。切换模型或从其他协议接续时，既有工具轨迹作为文字资料发送，新工具调用再按原生协议续传。收藏、分支保留重放元数据，失败轮次不提交；压缩继续按完整轮次归档。
+
+用量取 `usageMetadata`：输入包含缓存，输出为候选内容加思考 token；缓存读取缺失显示未报告。错误、取消和截断不执行未完成工具，不自动重试。协议字段依据 [Google GenerateContent API](https://aistudio.google.com/api-reference/generate-content/generate-content) 与 [streamGenerateContent](https://aistudio.google.com/api-reference/generate-content/stream-generate-content)。
 
 ## 消息、前缀与状态
 
@@ -33,7 +38,7 @@ Anthropic 断点位于 tools 末尾、实际最后一个 System 块、最新消�
 
 ### 工具正文模式
 
-设置 → ASK → 创作提供默认关闭的「工具正文模式」（`responseMode`），不依赖「自由创作」开关。开启后，普通 ASK 请求附带 `submit_response({ content })` 传输信封和一句引导词；不强制工具选择。协议接收层增量解码正文并经 codec 还原，直接输出普通 text，历史仍为标准 assistant 文本；信封不注册为业务工具、不占调用次数、不生成工具卡或虚拟回执。命名和压缩请求不启用。
+设置 → ASK → 创作提供默认关闭的「工具正文模式」（`responseMode`），不依赖「自由创作」开关。开启后，普通 ASK 请求附带 `submit_response({ content })` 传输信封和一句引导词；不强制工具选择。协议接收层增量解码正文并经 codec 还原，直接输出普通 text，历史正文仍为标准 assistant 文本；信封不注册为业务工具、不占调用次数、不生成工具卡。Gemini 为保持签名对应，在原生重放元数据中保留信封 part，并仅在协议请求内补齐该信封的 functionResponse；该回执不进入业务历史或 UI。命名和压缩请求不启用。
 
 普通文本回复照常成功；信封与草稿／查询同返时，正文作为说明，业务工具按原流程处理。为去重，开启时同次响应的普通文本先暂存，优先流式显示信封正文；没有可用信封时，在响应结束显示普通文本。重复信封取第一份非空正文，不制造未遵循模式或混合冲突错误。原网络、拒绝、取消和长度截断处理保持；开关按轮次冻结，显式重试读取当时配置。下游收藏、历史、压缩和跨协议回放无需感知信封，见[实现方案与验收范围](../archive/ask/2026-11-02-ask-tool-response-plan.md)。
 
@@ -163,4 +168,4 @@ Vue 仅持有低频摘要与选择状态；原始 JSON 和图片字节留在普�
 
 ### 验证边界
 
-两种模拟协议验证实际 fetch body 与记录一致，含 codec 后捕获、工具循环、图片预览、命名、压缩、压缩后首次、缓存缺失／无效／零值、复制导出和资源回收。原始调试保留实际冻结字节，UI 账本可显示后续状态，两者用途不同。模拟不证明真实缓存命中或推理质量。
+OpenAI／Anthropic 模拟验证实际 fetch body 与记录一致，含 codec 后捕获、工具循环、图片预览、命名、压缩、压缩后首次、缓存缺失／无效／零值、复制导出和资源回收。原始调试保留实际冻结字节，UI 账本可显示后续状态，两者用途不同。Gemini 专题模拟另覆盖原生路径、模型 ID、签名工具回合、图片、工具正文、会话恢复、错误、取消和调试结构。模拟不证明真实缓存命中或推理质量。

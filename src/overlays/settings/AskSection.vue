@@ -55,7 +55,7 @@ const sources = computed(() => reasoningConnections(props.routing)),
 const protocol = (c: Connection) =>
   profileFor(c.profileId).protocol === "anthropic-messages"
     ? "Anthropic Messages"
-    : "OpenAI Chat 兼容";
+    : profileFor(c.profileId).protocol === "gemini-native" ? "Gemini 原生" : "OpenAI Chat 兼容";
 const word = ref(""),
   wordError = ref("");
 const replacementFrom = ref(""), replacementTo = ref(""),
@@ -306,7 +306,7 @@ async function removeReplacement(rule: Replacement) {
       </section>
       <section class="sp-sec" aria-label="创作">
         <div class="sp-sec-head"><h3>创作</h3></div>
-        <div class="sp-group">
+        <div class="sp-group s-appearance-group">
           <div class="s-row">
             <div>
               <b><label for="askAdult">自由创作</label></b>
@@ -338,6 +338,13 @@ async function removeReplacement(rule: Replacement) {
                 />
                 <span class="switch" aria-hidden="true"></span>
               </label>
+            </div>
+            <div class="s-row s-appearance">
+              <div><b id="askWordEncodingLabel">词条编码</b></div>
+              <div class="seg s-theme" role="radiogroup" aria-labelledby="askWordEncodingLabel">
+                <label><input type="radio" name="askWordEncoding" value="alias" :checked="settings.wordEncoding === 'alias'" @change="save({ wordEncoding: 'alias' })" /><span>代号</span></label>
+                <label><input type="radio" name="askWordEncoding" value="unicode" :checked="settings.wordEncoding === 'unicode'" @change="save({ wordEncoding: 'unicode' })" /><span>Unicode</span></label>
+              </div>
             </div>
             <div class="s-row s-block">
               <div class="s-head">

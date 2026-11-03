@@ -959,7 +959,7 @@ export function createAsk(deps: {
   }
   async function compact(owner: Conversation, provider: ReturnType<typeof createProvider>, abort: AbortController) {
     const config = settings.value;
-    const codec = codecFor({ adult: adult.value, enabled: codecActive.value, words: config.words, replacements: config.replacements });
+    const codec = codecFor({ adult: adult.value, enabled: codecActive.value, words: config.words, replacements: config.replacements, wordEncoding: config.wordEncoding });
     compactingOwner = owner.id; compacting.value = true; notice.value = "";
     say("正在压缩上下文");
     let call = 0;
@@ -978,7 +978,7 @@ export function createAsk(deps: {
         ...(owner.favorite ? { persist } : {}), observe(event) {
           if (event.type === "request") call = callLog.start({ conversation: owner.id, turn: 0, step: 1,
             question: "压缩上下文", purpose: "compaction", connection: config.connectionId,
-            protocol: provider!.profile.protocol === "anthropic-messages" ? "anthropic-messages" : "openai-chat",
+            protocol: provider!.protocol,
             model: config.model, promptVersion }, event.body);
           else if (call) callLog.finish(call, event);
         } });
@@ -1010,7 +1010,7 @@ export function createAsk(deps: {
     const config = settings.value,
       turnAnchor = options.anchor !== undefined ? options.anchor : [...question.matchAll(idPattern)][0]?.[0] ?? anchor.value,
       metadataOnly = !!options.metadataOnly || !config.images,
-      codec = codecFor({ adult: adult.value, enabled: codecActive.value, words: config.words, replacements: config.replacements });
+      codec = codecFor({ adult: adult.value, enabled: codecActive.value, words: config.words, replacements: config.replacements, wordEncoding: config.wordEncoding });
     await deps.editor?.prepareAsk();
     abort.signal.throwIfAborted();
     // The snapshot is fixed for the whole turn; get_state appends newer ones.
@@ -1098,7 +1098,7 @@ export function createAsk(deps: {
         for await (const event of provider.stream(request, { codec, signal, allowEmpty: turn.budget.toolCalls > 0, observe(event) {
           if (event.type === "request") call = callLog.start({ conversation: owner.id, turn: working.id, step: turn.budget.requests, question,
             ...(owner.session.takeAfterCompaction() ? { afterCompaction: true } : {}),
-            connection: config.connectionId, protocol: provider.profile.protocol === "anthropic-messages" ? "anthropic-messages" : "openai-chat",
+            connection: config.connectionId, protocol: provider.protocol,
             model: request.model, promptVersion }, event.body);
           else { observedUsage = event.usage; if (call) callLog.finish(call, event); }
         } })) { if (event.type === "done") done = true; yield event; }
@@ -1295,11 +1295,11 @@ export function createAsk(deps: {
       if (!reasoningConnections(routing.value).some(c => c.id === choice.connectionId) || !choice.model)
         throw new Error("请先在设置 → ASK 配置命名模型或当前 ASK 模型");
       const provider = createProvider(connections.context(choice.connectionId), deps.fetch),
-        codec = codecFor({ adult: adult.value, enabled: codecActive.value, words: config.words, replacements: config.replacements });
+        codec = codecFor({ adult: adult.value, enabled: codecActive.value, words: config.words, replacements: config.replacements, wordEncoding: config.wordEncoding });
       let text = "";
       for await (const event of provider.stream(request, { signal: abort.signal, codec, observe(event) {
         if (event.type === "request") call = callLog.start({ conversation: owner?.id ?? `board:${target.id}`, turn: 0, step: 1, question: `AI 命名 · ${owner ? "ASK" : "画板"}`,
-          connection: choice.connectionId, protocol: provider.profile.protocol === "anthropic-messages" ? "anthropic-messages" : "openai-chat", model: choice.model, promptVersion: namingPromptVersion }, event.body);
+          connection: choice.connectionId, protocol: provider.protocol, model: choice.model, promptVersion: namingPromptVersion }, event.body);
         else if (call) callLog.finish(call, event);
       } })) {
         if (event.type === "text") text += event.text;

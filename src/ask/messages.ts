@@ -38,7 +38,13 @@ export interface AskResult {
   readonly error?: boolean;
 }
 export type AskBlock = AskText | AskImage | AskCall | AskResult;
+/** Native signed response parts, replayed only to the same Gemini model. Never decoded or displayed as prose. */
+export interface GeminiReplay {
+  readonly model: string;
+  readonly parts: readonly Readonly<Record<string, unknown>>[];
+}
 export interface AskMessage {
+  readonly gemini?: GeminiReplay;
   readonly role: "user" | "assistant";
   readonly content: readonly AskBlock[];
   /** Local marker for the fourth Anthropic breakpoint; never inferred from user prose. */
@@ -77,7 +83,7 @@ export type AskStop = "end" | "tool" | "length" | "refusal" | "other";
 export type AskEvent =
   | { readonly type: "text"; readonly text: string }
   | { readonly type: "call"; readonly call: AskCall }
-  | { readonly type: "done"; readonly stop: AskStop; readonly usage: AskUsage | null };
+  | { readonly type: "done"; readonly stop: AskStop; readonly usage: AskUsage | null; readonly gemini?: GeminiReplay };
 
 export type ProviderErrorKind =
   | "auth"

@@ -97,7 +97,7 @@ https://koma-image.pages.dev/skills/koma-bridge/SKILL.md
 | OpenAI Images | `CHAT` 图像生成与多参考图修改 |
 | Gemini 原生 | `CHAT` 多模态图文生成与参考图修改 |
 | Koma 标准网关 | `IMAGE` / `CHAT` / `EDIT` 统一目录、预报价与生成路由 |
-| OpenAI Chat / Anthropic | `ASK` 流式推理、工具调用、自动命名与上下文压缩 |
+| OpenAI Chat / Anthropic / Gemini 原生 | `ASK` 流式推理、工具调用、自动命名与上下文压缩 |
 
 详情见[图像协议说明](docs/integrations/image-protocols.md)与[当前状态](docs/status.md)。
 

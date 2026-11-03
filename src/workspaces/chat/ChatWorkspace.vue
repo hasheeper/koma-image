@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import ModelParameterInput from "../../shared/ModelParameterInput.vue";
 import { computed, shallowRef, ref, watch, nextTick, onDeactivated } from "vue";
 import { useShell } from "../../app/shell";
 import { useAskPresentation } from "../../ask/presentation";
@@ -71,14 +72,20 @@ const starters = [
 ];
 const summary = computed(() =>
     Object.entries(view.value.model?.fields || {})
-      .filter(([k, f]) => options.value[k] !== f.default)
+      .filter(([k, f]) => options.value[k] && options.value[k] !== f.default)
       .map(([k]) => chatOptionLabel(options.value[k] || ""))
       .join(" · "),
   );
+const sourceConnections = shallowRef(services.connections.configuration.connections);
 const groups = computed(() =>
   [...new Set(view.value.models.map((m) => m.provider))].map((provider) => ({
     provider,
-    models: view.value.models.filter((m) => m.provider === provider),
+    models: view.value.models
+      .filter((m) => m.provider === provider)
+      .map((m) => ({
+        ...m,
+        sourceName: sourceConnections.value[m.connection]?.name.trim() || "",
+      })),
   })),
 );
 const life = useWorkspaceLifecycle("chat", [scroll]);
@@ -249,6 +256,11 @@ function rail() {
 }
 life.whileActive((signal) => {
   active = true;
+  const syncSources = () => {
+    sourceConnections.value = services.connections.configuration.connections;
+  };
+  syncSources();
+  signal.addEventListener("abort", services.connections.subscribe(syncSources), { once: true });
   shell.chat.railCollapsed =
     services.preferences.get<string>(names.chatRail, "expanded") ===
     "collapsed";
@@ -715,7 +727,11 @@ onDeactivated(() => {
                   : g.provider
             }}</span>
           </p>
-          <label v-for="m in g.models" :key="m.id" class="menu-item editor-pop-item"
+          <label
+            v-for="m in g.models"
+            :key="m.id"
+            class="menu-item editor-pop-item"
+            :title="m.sourceName ? `${m.name}\n当前参数来源：${m.sourceName}。生成时自动选择兼容来源。` : m.name"
             ><input
               type="radio"
               name="chatModel"
@@ -728,8 +744,10 @@ onDeactivated(() => {
                 }
               "
               @keydown.enter="modelPop?.hidePopover()"
-            /><span class="menu-label">{{ m.name }}</span
-            ><AppIcon class="menu-check" name="i-check" /></label
+            /><span class="menu-label">{{ m.name }}</span>
+            <AppIcon class="menu-check" name="i-check" />
+            <span v-if="m.sourceName" class="chip model-source">{{ m.sourceName }}</span>
+            </label
           >
         </div>
       </div>
@@ -759,11 +777,12 @@ onDeactivated(() => {
           v-for="(field, key) in view.model?.fields"
           :key="key"
           class="param-row"
-          role="radiogroup"
+          :role="field.options.length && !field.allowCustom && field.type !== 'number' ? 'radiogroup' : undefined"
           :aria-label="chatOptionNames[key] || key"
         >
-          <span class="param-name">{{ chatOptionNames[key] || key }}</span>
-          <div class="param-chips">
+          <label class="param-name" :for="`chatOption-${key}`">{{ field.label || chatOptionNames[key] || key }}</label>
+          <div v-if="field.options.length && !field.allowCustom && field.type !== 'number'" class="param-chips">
+            <label class="param-chip"><input type="radio" :name="`chatOption-${key}`" :checked="!options[key]" @change="chat.setOption(key, '')" /><span>跟随接口</span></label>
             <label
               v-for="value in field.options"
               :key="value"
@@ -773,9 +792,10 @@ onDeactivated(() => {
                 :name="`chatOption-${key}`"
                 :checked="options[key] === value"
                 @change="chat.setOption(key, value)"
-              /><span>{{ chatOptionLabel(value) }}</span></label
+              /><span>{{ field.type === 'boolean' ? value === 'true' ? '开启' : '关闭' : chatOptionLabel(value) }}</span></label
             >
           </div>
+          <ModelParameterInput v-else :id="`chatOption-${key}`" :field="field" :value="options[key]" :disabled="!!view.busy" @change="chat.setOption(key, $event)" />
         </div>
       </div>
     </div></Teleport

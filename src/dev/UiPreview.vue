@@ -55,7 +55,7 @@ const balances = { demo: { credits: { remaining: 120 }, images: { openai: { rema
         <template #default="slot"><button class="menu-item" role="menuitem" @click="notice = '已选择操作'; slot.close(true)"><AppIcon name="i-check" />选择操作</button><button class="menu-item" role="menuitem" disabled>不可用操作</button></template>
       </PopoverMenu>
     </section>
-    <section class="preview-section set-ui"><h2>连接列表</h2><ConnectionsSection active :local="false" :busy="disabled" :testing="state === 'loading' ? 'demo' : null" :routing="routing" :raw="raw" :balances="balances" :statuses="statuses" :ask-labels="{}" @add="notice = '配置供应商（预览）'" @edit="notice = '编辑供应商（预览）'" @remove="notice = '删除供应商（预览）'" @test="notice = '测试连接（预览，不发送请求）'" @models="notice = '查看模型（预览）'" @ask-models="notice = 'ASK 模型（预览）'" @move="notice = '调整顺序（预览）'" /></section>
+    <section class="preview-section set-ui"><h2>连接列表</h2><ConnectionsSection active :local="false" :busy="disabled" :testing="state === 'loading' ? 'demo' : null" :routing="routing" :raw="raw" :balances="balances" :statuses="statuses" :ask-counts="{}" current-ask-connection="" current-ask-model="" @add="notice = '配置供应商（预览）'" @edit="notice = '编辑供应商（预览）'" @remove="notice = '删除供应商（预览）'" @test="notice = '测试连接（预览，不发送请求）'" @models="notice = '查看模型（预览）'" @ask-models="notice = 'ASK 模型（预览）'" @move="notice = '调整顺序（预览）'" /></section>
     <p class="preview-notice" role="status">{{ notice }}</p>
     <section class="preview-section"><h2>维护入口</h2><p>通用行为：<code>shared/ui</code>；画板呈现：<code>shared/boards</code>；NAI 组合控件：<code>shared/nai</code>；设置专用组件：<code>overlays/settings</code>。完整归属见 <code>docs/engineering/ui-maintenance.md</code>。</p></section>
   </main>

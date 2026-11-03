@@ -1,24 +1,27 @@
 <script setup lang="ts">
-import { computed } from "vue";
+import { computed, useTemplateRef, watch } from "vue";
 import AppIcon from "../../shared/AppIcon.vue";
 import ModelIcon from "../../shared/ModelIcon.vue";
 import ConnectionAvatar from "../../shared/ConnectionAvatar.vue";
 import ConnectionMenu from "./ConnectionMenu.vue";
+import ConnectionOrderDialog from "./ConnectionOrderDialog.vue";
 import type { Connection, Routing } from "../../config/connections";
 import type { ConnectionStatus } from "./use-connection-catalogs";
-import { imageConnections, reasoningConnections } from "../../config/connections";
+import { imageConnections } from "../../config/connections";
 import { profileFor } from "../../gateway/profile";
 import { object } from "../../domain/value";
 import { novelaiUsage } from "../../domain/quota";
-import { MODELS } from "../../domain/models";
+import { configuredModels } from "../../domain/models";
 import { catalogEntries, sourceState } from "../../domain/catalog";
 const props = defineProps<{
   active: boolean; local: boolean; busy: boolean; testing: string | null;
   routing: Routing; raw: Record<string, unknown>; balances: Record<string, Record<string, unknown>>;
-  statuses: Record<string, ConnectionStatus>; currentConnection?: string; askLabels: Record<string, string>;
+  statuses: Record<string, ConnectionStatus>; currentConnection?: string; askCounts: Record<string, number>;
+  currentAskConnection: string; currentAskModel: string;
 }>();
 const emit = defineEmits<{ add: []; edit: [id: string]; remove: [id: string]; test: [id: string]; models: [id: string]; askModels: [id: string]; move: [id: string, delta: number] }>();
 const routing = computed(() => props.routing), raw = computed(() => props.raw), balances = computed(() => props.balances);
+const orderDialog = useTemplateRef<InstanceType<typeof ConnectionOrderDialog>>("orderDialog");
 const endpoint = (url: string) => url.replace(/^https:\/\//, "");
 // A healthy status shows its first clause ("可用"); the full text stays in the tooltip. Problems show in full.
 const statusLabel = (status?: { s: string; text: string }) =>
@@ -69,147 +72,102 @@ function meters(c: Connection): Meter[] {
   ];
 }
 function availableModels(id: string) {
-  return MODELS.filter(
+  return configuredModels(routing.value).filter(
     (m) =>
       sourceState(routing.value, id, m, catalogEntries(raw.value[id])) === "on",
   );
 }
 const imageSources = computed(() => imageConnections(routing.value));
-// Independent capability lists: a supplier with both configured interfaces belongs in both sections.
-const connectionGroups = computed(() => [
-  { id: "image", label: "图像", icon: "i-image", connections: imageSources.value },
-  { id: "llm", label: "文本", icon: "i-chat", connections: reasoningConnections(routing.value) },
-]);
+// Card order follows the connection records; only the image routing list uses Routing.order.
+const connectionList = computed(() => Object.values(routing.value.connections));
 const priorityIndex = (id: string) => imageSources.value.findIndex(c => c.id === id);
+watch(() => props.active, active => { if (!active) orderDialog.value?.close(); });
 </script>
 <template>
-          <section
-            v-show="active"
-            class="sp-sec"
-            aria-label="连接"
-          >
-            <div class="sp-sec-head conn-sec-head">
-              <h3>连接</h3>
-              <button
-                v-if="!local && Object.keys(routing.connections).length"
-                class="btn btn-quiet btn-sm"
-                type="button"
-                @click="emit('add')"
-              >
-                <AppIcon name="i-plus" />配置供应商
-              </button>
-              <p v-if="local">连接由本地服务管理，模型来源可在此调整。</p>
-            </div>
-            <div
-              v-if="!Object.keys(routing.connections).length"
-              class="sp-empty conn-empty"
+  <section v-show="active" class="sp-sec" aria-label="连接">
+    <div class="sp-sec-head conn-sec-head">
+      <h3>连接</h3>
+      <div v-if="!local && connectionList.length" class="conn-head-actions">
+        <button v-if="imageSources.length > 1" class="btn btn-quiet btn-sm" type="button" aria-haspopup="dialog" @click="orderDialog?.open()">
+          <AppIcon name="i-swap" />生图顺序
+        </button>
+        <button class="btn btn-quiet btn-sm" type="button" @click="emit('add')">
+          <AppIcon name="i-plus" />配置供应商
+        </button>
+      </div>
+      <p v-if="local">连接由本地服务管理，模型来源可在此调整。</p>
+    </div>
+    <div v-if="!connectionList.length" class="sp-empty conn-empty">
+      <ConnectionAvatar /><span>尚未配置连接</span>
+      <button v-if="!local" class="btn btn-quiet btn-sm" type="button" @click="emit('add')">配置供应商</button>
+    </div>
+    <div v-else class="conn-list">
+      <article v-for="c in connectionList" :key="c.id" class="conn-card" :data-connection="c.id">
+        <header class="conn-top">
+          <ConnectionAvatar :connection="c" />
+          <div class="conn-name">
+            <b>{{ c.name }}</b><span class="type">{{ profileFor(c.profileId).label }}</span>
+          </div>
+          <span class="conn-meta" :title="local ? undefined : c.baseUrl">{{ local ? "本机同源代理" : endpoint(c.baseUrl) }}</span>
+          <span class="st" :data-s="testing === c.id ? 'wait' : statuses[c.id]?.s || 'wait'" :title="statuses[c.id]?.text">
+            {{ testing === c.id ? "测试中…" : statusLabel(statuses[c.id]) }}
+          </span>
+          <div class="conn-acts">
+            <button class="btn btn-quiet btn-sm conn-test" type="button" :disabled="Boolean(testing)" aria-label="测试连接" @click="emit('test', c.id)">
+              <AppIcon name="i-retry" /><span>测试</span>
+            </button>
+            <ConnectionMenu v-if="!local" :id="`connection-menu-${c.id}`" :name="c.name" :active="active" @edit="emit('edit', c.id)" @remove="emit('remove', c.id)" />
+          </div>
+        </header>
+        <div v-if="profileFor(c.profileId).image && meters(c).length" class="conn-meters">
+          <div v-for="m in meters(c)" :key="m.key" class="conn-meter">
+            <span
+              ><ModelIcon v-if="m.family" :family="m.family" /><AppIcon
+                v-else
+                name="i-credit"
+              />{{ m.label }}</span
             >
-              <ConnectionAvatar /><span>尚未配置连接</span
-              ><button class="btn btn-quiet btn-sm" type="button" @click="emit('add')">
-                配置供应商
-              </button>
+            <div class="conn-meter-value">
+              <b>{{ m.value }}<i v-if="m.limit">/{{ m.limit }}</i></b>
+              <small
+                v-if="m.estimatedImages !== undefined"
+                class="conn-meter-estimate"
+                title="按官方基准估算：23 步、约 1MP，100% 约 1,730 张；实际随尺寸、步数和 Effort 变化。"
+              >约 {{ amount(m.estimatedImages) }} 张</small>
             </div>
-            <template v-else>
-            <section v-for="group in connectionGroups" :key="group.id" class="conn-group" :aria-label="`${group.label}供应商`" :data-kind="group.id">
-              <h4 class="conn-group-title"><AppIcon :name="group.icon" />{{ group.label }}<small>{{ group.connections.length }}</small></h4>
-              <div v-if="!group.connections.length" class="conn-group-empty">尚未配置{{ group.label }}供应商</div>
-              <article
-              v-for="c in group.connections"
-              :key="c.id"
-              class="conn-card"
-            >
-              <header class="conn-top">
-                <ConnectionAvatar :connection="c" />
-                <div class="conn-name">
-                  <b>{{ c.name }}</b
-                  ><span class="type">{{ profileFor(c.profileId).label }}</span>
-                </div>
-                <span class="conn-meta" :title="local ? undefined : c.baseUrl">{{
-                  local ? "本机同源代理" : endpoint(c.baseUrl)
-                }}</span>
-                <span
-                  class="st"
-                  :data-s="testing === c.id ? 'wait' : statuses[c.id]?.s || 'wait'"
-                  :title="statuses[c.id]?.text"
-                  >{{ testing === c.id ? "测试中…" : statusLabel(statuses[c.id]) }}<template v-if="group.id === 'image' && currentConnection === c.id"> · 当前使用</template></span
-                >
-                <div class="conn-acts">
-                  <button
-                    class="btn btn-quiet btn-sm conn-test"
-                    type="button"
-                    :disabled="Boolean(testing)"
-                    aria-label="测试连接"
-                    @click="emit('test', c.id)"
-                  >
-                    <AppIcon name="i-retry" /><span>测试</span>
-                  </button>
-                  <ConnectionMenu v-if="!local" :id="`connection-menu-${group.id}-${c.id}`" :name="c.name" :active="active" @edit="emit('edit', c.id)" @remove="emit('remove', c.id)" />
-                </div>
-              </header>
-              <div v-if="group.id === 'image' && meters(c).length" class="conn-meters">
-                <div v-for="m in meters(c)" :key="m.key" class="conn-meter">
-                  <span
-                    ><ModelIcon v-if="m.family" :family="m.family" /><AppIcon
-                      v-else
-                      name="i-credit"
-                    />{{ m.label }}</span
-                  >
-                  <div class="conn-meter-value">
-                    <b>{{ m.value }}<i v-if="m.limit">/{{ m.limit }}</i></b>
-                    <small
-                      v-if="m.estimatedImages !== undefined"
-                      class="conn-meter-estimate"
-                      title="按官方基准估算：23 步、约 1MP，100% 约 1,730 张；实际随尺寸、步数和 Effort 变化。"
-                    >约 {{ amount(m.estimatedImages) }} 张</small>
-                  </div>
-                  <span
-                    v-if="m.ratio !== undefined"
-                    class="conn-bar"
-                    :style="{ '--p': `${m.ratio * 100}%` }"
-                  ></span>
-                  <small v-for="hint in m.hints" :key="hint" class="conn-meter-hint">{{ hint }}</small>
-                </div>
-              </div>
-              <!-- Reasoning connections serve ASK only; their list picks ASK's IDs. -->
-              <div v-if="group.id === 'llm'" class="conn-source-row">
-              <button
-                class="conn-models"
-                type="button"
-                @click="emit('askModels', c.id)"
-              >
-                <span class="conn-model-label">ASK 模型</span
-                ><span>{{ askLabels[c.id] }}</span
-                ><AppIcon name="i-chevron" />
-              </button>
-              </div>
-              <div v-else class="conn-source-row">
-                <button
-                  class="conn-models"
-                  type="button"
-                  :disabled="!raw[c.id]"
-                  :aria-label="raw[c.id] ? `查看 ${c.name} 的模型列表：共 ${catalogEntries(raw[c.id]).length} 个，可用 ${availableModels(c.id).length} 个` : `${c.name} 模型列表尚未加载`"
-                  @click="emit('models', c.id)"
-                >
-                  <span class="conn-model-label">模型</span>
-                  <span class="conn-model-count">
-                    <template v-if="raw[c.id]">
-                      <b>{{ availableModels(c.id).length === catalogEntries(raw[c.id]).length
-                        ? catalogEntries(raw[c.id]).length
-                        : `${availableModels(c.id).length}/${catalogEntries(raw[c.id]).length}` }}</b>
-                      {{ availableModels(c.id).length === catalogEntries(raw[c.id]).length ? '个可用' : '可用' }}
-                    </template>
-                    <template v-else>—</template>
-                  </span>
-                  <AppIcon name="i-chevron" />
-                </button>
-                <div class="conn-priority" role="group" :aria-label="`优先级，当前第 ${priorityIndex(c.id) + 1} 位`" :title="`优先级 ${priorityIndex(c.id) + 1}，越靠上越优先；明确额度不足时使用下一来源`">
-                  <small>优先级 <b>{{ priorityIndex(c.id) + 1 }}</b></small>
-                  <button class="md-act" type="button" :aria-label="`提高 ${c.name} 的优先级`" title="提高优先级" :disabled="local || busy || priorityIndex(c.id) === 0" @click="emit('move', c.id, -1)"><AppIcon name="i-up" /></button>
-                  <button class="md-act" type="button" :aria-label="`降低 ${c.name} 的优先级`" title="降低优先级" :disabled="local || busy || priorityIndex(c.id) === imageSources.length - 1" @click="emit('move', c.id, 1)"><AppIcon name="i-down" /></button>
-                </div>
-              </div>
-            </article>
-            </section>
-            </template>
-          </section>
+            <span
+              v-if="m.ratio !== undefined"
+              class="conn-bar"
+              :style="{ '--p': `${m.ratio * 100}%` }"
+            ></span>
+            <small v-for="hint in m.hints" :key="hint" class="conn-meter-hint">{{ hint }}</small>
+          </div>
+        </div>
+        <button
+          v-if="profileFor(c.profileId).image"
+          class="conn-models" data-kind="image" type="button"
+          :aria-label="`图像模型，已启用 ${availableModels(c.id).length} 个，生图顺序第 ${priorityIndex(c.id) + 1} 位`"
+          :title="currentConnection === c.id ? '当前工作区的生图来源' : undefined"
+          @click="emit('models', c.id)"
+        >
+          <AppIcon name="i-image" />
+          <span class="conn-model-detail"><span class="conn-model-label">图像模型</span><span class="conn-model-count" :title="`已启用 ${availableModels(c.id).length} 个图像模型`">{{ availableModels(c.id).length }}</span></span>
+          <span class="conn-model-state" :title="`生图顺序第 ${priorityIndex(c.id) + 1} 位`">{{ priorityIndex(c.id) + 1 }}</span>
+          <AppIcon name="i-chevron" />
+        </button>
+        <button
+          v-if="profileFor(c.profileId).reasoning"
+          class="conn-models" data-kind="llm" type="button"
+          :aria-label="`文字模型，已选 ${askCounts[c.id] ?? 0} 个`"
+          :title="currentAskConnection === c.id && currentAskModel ? `ASK 当前使用：${currentAskModel}` : undefined"
+          @click="emit('askModels', c.id)"
+        >
+          <AppIcon name="i-chat" />
+          <span class="conn-model-detail"><span class="conn-model-label">文字模型</span><span class="conn-model-count" :title="`已选 ${askCounts[c.id] ?? 0} 个文字模型`">{{ askCounts[c.id] ?? 0 }}</span></span>
+          <AppIcon name="i-chevron" />
+        </button>
+      </article>
+    </div>
+    <ConnectionOrderDialog ref="orderDialog" :connections="imageSources" :busy="busy || local" @move="(id, delta) => emit('move', id, delta)" />
+  </section>
 </template>

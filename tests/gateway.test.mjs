@@ -4,7 +4,7 @@ import { createConnections } from "../src/services/connections.ts";
 import { createGateway, QuoteUnsupported } from "../src/gateway/client.ts";
 import { standardProfile, profileFor, profilePath } from "../src/gateway/profile.ts";
 import { apiBase } from "../src/gateway/transport.ts";
-import { validateRouting, normalizeBaseUrl, imageConnections, reasoningConnections } from "../src/config/connections.ts";
+import { validateRouting, prepareRoutingImport, normalizeBaseUrl, imageConnections, reasoningConnections } from "../src/config/connections.ts";
 import { createCostNotice } from "../src/domain/quote.ts";
 import { normalizeQuota, quotaGauge, creditBalance } from "../src/domain/quota.ts";
 import { normalizeCatalog, sourceState, validateCatalog, selectCatalogSources, modelSource } from "../src/domain/catalog.ts";
@@ -15,6 +15,32 @@ import { toNativePayload, toStandardPayload } from "../src/gateway/routes.ts";
 const connection = (id = "primary") => ({ id, name: "测试连接", baseUrl: "https://gateway.example.test", profileId: standardProfile.id,
   credentialRef: `key-${id}`, revision: "initial" });
 const config = (id = "primary") => ({ version: 1, connections: { [id]: connection(id) }, links: {} });
+
+test("imported routing retains local credentials only for the existing destination and protocol family", async () => {
+  const current = config();
+  assert.equal(prepareRoutingImport({ ...current, order: ["primary"], connections: { primary: { ...connection(), name: "renamed" } } }, current).connections.primary.credentialRef, "key-primary");
+  const native = { ...current, connections: { primary: { ...connection(), profileId: "openai-images-v1" } } };
+  const shared = { ...native, connections: { primary: { ...native.connections.primary, profileId: "openai-chat-images-v1" } } };
+  assert.equal(prepareRoutingImport(shared, native).connections.primary.credentialRef, "key-primary");
+  const changes = [
+    { baseUrl: "https://gateway.example.test/other" },
+    { profileId: "openai-images-v1" },
+    { credentialRef: "key-someone-else" },
+  ];
+  for (const change of changes) {
+    const next = prepareRoutingImport({ ...current, connections: { primary: { ...connection(), ...change } } }, current);
+    assert.notEqual(next.connections.primary.credentialRef, "key-primary");
+    assert.notEqual(next.connections.primary.revision, "initial");
+  }
+  for (const previous of [null, {}, "broken"]) {
+    assert.notEqual(prepareRoutingImport(current, previous).connections.primary.credentialRef, "key-primary");
+  }
+  const { connections } = await setup(async () => { throw new Error("must not request"); });
+  const snapshot = connections.context("primary");
+  await connections.save(prepareRoutingImport({ ...current, connections: { primary: { ...connection(), baseUrl: "https://gateway.example.test/other" } } }, current));
+  assert.throws(snapshot.assertCurrent, /改变/);
+  assert.throws(() => connections.context("primary"), /Key/);
+});
 const raw = { studio_features: { version: 2, max_cost: true, max_context_images: 15 },
   models: { "nai-diffusion-5-full@local": { provider: "novelai", operations: ["generate", "edit"], tools: ["upscale"] } } };
 const json = (data, status = 200) => new Response(JSON.stringify(data), { status, headers: { "Content-Type": "application/json" } });
@@ -261,7 +287,7 @@ test("catalog auto/manual/disabled mappings and per-model limits preserve the so
   const lite = normalizeCatalog({ ...raw, models: { "gemini-3.1-flash-lite-image": {
     editor_family: "gemini", image_capabilities: { fields: { image_size: { options: ["1K", "2K", "4K"], default: "4K" } } },
   } } }, config(), "primary").models[0];
-  assert.deepEqual(lite.fields.image_size.options, ["1K"]);
+  assert.deepEqual(lite.fields.image_size.options, ["1K", "2K", "4K"], "source declarations take priority over reference preset limits");
   assert.equal(lite.maxImages, 1);
 });
 

@@ -1,4 +1,4 @@
-import { profileFor, profilePath } from "../gateway/profile.ts";
+import { profileFor, profilePath, OPENAI_SHARED_PROFILE_ID } from "../gateway/profile.ts";
 import type { GatewayProfile } from "../gateway/profile.ts";
 import { createTransport } from "../gateway/transport.ts";
 import type { ConnectionContext } from "../services/connections.ts";
@@ -8,13 +8,15 @@ import { classify, ProviderError } from "./messages.ts";
 import type { AskBlock, AskEvent, AskRequest, AskStop, AskUsage, CacheUsage } from "./messages.ts";
 import { createSseParser } from "./adapters/sse.ts";
 import * as openaiChat from "./adapters/openai-chat.ts";
+import * as geminiNative from "./adapters/gemini-native.ts";
 import * as anthropicMessages from "./adapters/anthropic-messages.ts";
 import type { ResponseEvent } from "./response-stream.ts";
 
 export * from "./messages.ts";
 const adapterFor = (profile: GatewayProfile) => {
-  if (profile.protocol === "openai-chat") return openaiChat;
+  if (profile.protocol === "openai-chat" || profile.id === OPENAI_SHARED_PROFILE_ID) return openaiChat;
   if (profile.protocol === "anthropic-messages") return anthropicMessages;
+  if (profile.protocol === "gemini-native" && profile.reasoning) return geminiNative;
   throw new ProviderError("config", "该连接不支持 ASK");
 };
 /**
@@ -102,6 +104,7 @@ export function createProvider(
           body: adapter.body(encodeRequest(request, codec)),
           signal: linked,
           stream: true,
+          model: request.model,
         });
       } catch (error) {
         throw failed(error);
@@ -118,7 +121,7 @@ export function createProvider(
       if (linked.aborted) cancel();
       const decoder = new TextDecoder(),
         parser = createSseParser(),
-        events = adapter.reader(unwrapResponse);
+        events = profile.protocol === "gemini-native" ? geminiNative.reader(unwrapResponse, request.model) : adapter.reader(unwrapResponse);
       let output = false,
         done = false;
       // Only normalized prose leaves this boundary; the envelope never reaches history.
@@ -190,5 +193,6 @@ export function createProvider(
       cancel();
     }
   }
-  return { profile, stream };
+  const protocol = profile.protocol === "gemini-native" ? "gemini-native" : profile.protocol === "anthropic-messages" ? "anthropic-messages" : "openai-chat";
+  return { profile, protocol, stream } as const;
 }

@@ -55,7 +55,7 @@ const usage = computed(() => {
 const facts = computed(() => {
   const r = record.value, i = inspection.value;
   if (!r || !i) return [];
-  const cache = r.protocol === "openai-chat" ? "自动前缀" : i.breakpoints.length ? `显式标记 ${i.breakpoints.length} 处` : "无断点";
+  const cache = r.protocol !== "anthropic-messages" ? "自动前缀" : i.breakpoints.length ? `显式标记 ${i.breakpoints.length} 处` : "无断点";
   return ([["耗时", r.ended === null ? "" : `${((r.ended - r.started) / 1000).toFixed(2)} s`], ["大小", kb(r.bytes)], ["结束", r.stop ?? ""], ["版本", r.promptVersion], ["缓存", cache]] as const).filter(([, v]) => v);
 });
 

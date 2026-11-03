@@ -4,6 +4,7 @@ export const settingsSections = [
   "connections",
   "models",
   "general",
+  "updates",
   "security",
   "backup",
   "ask",

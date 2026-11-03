@@ -100,7 +100,7 @@ export function createApplicationServices(deps: {
   function onStorage(event: Event) {
     if (data.phase !== "ready") return;
     const key = (event as StorageEvent).key;
-    if (key === names.routing || key === names.localModels || key === null)
+    if (key === names.routing || key === names.localModels || key === names.localModelEntries || key === null)
       connections.reload(false);
     if (!connections.local && (key === names.credentials || key === null))
       void vault.reload().catch(() => {});

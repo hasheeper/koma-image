@@ -7,6 +7,7 @@ export function createPreferences(
   const allowed = new Set<string>([
     names.preferences,
     names.theme,
+    names.releaseSeen,
     names.home,
     names.chatSettings,
     names.chatCurrent,

@@ -8,7 +8,7 @@ export interface CallInfo {
   readonly step: number;
   readonly question: string;
   readonly connection: string;
-  readonly protocol: "openai-chat" | "anthropic-messages";
+  readonly protocol: "openai-chat" | "anthropic-messages" | "gemini-native";
   readonly model: string;
   readonly promptVersion: string;
   readonly purpose?: "compaction";
@@ -89,12 +89,12 @@ export interface DebugImage { readonly path: string; readonly url: string; reado
 const asArray = (value: unknown): readonly unknown[] => Array.isArray(value) ? value : [];
 const withoutCache = (_key: string, value: unknown) => _key === "cache_control" ? undefined : value;
 const encoder = new TextEncoder();
-const owner = (path: string) => /^(?:tools|system\[\d+\]|messages\[\d+\])/.exec(path)?.[0] ?? path;
+const owner = (path: string) => /^(?:tools|systemInstruction|system\[\d+\]|messages\[\d+\]|contents\[\d+\])/.exec(path)?.[0] ?? path;
 const excerpt = (text: string) => text.replace(/<\/?[a-z_]+>/g, " ").replace(/\s+/g, " ").trim().slice(0, 160);
 /** The question follows the state snapshot and any `<data>` attachments. */
 const asked = (text: string) => excerpt(text.slice(Math.max(0, ...["</workspace_state>", "</data>"].map(tag => { const at = text.lastIndexOf(tag); return at < 0 ? 0 : at + tag.length; }))) || text);
 const texts = (content: unknown): string => typeof content === "string" ? content
-  : asArray(content).map(b => { const o = object(b); return o.type === "text" && typeof o.text === "string" ? o.text : o.type === "tool_result" ? texts(o.content) : ""; }).filter(Boolean).join("\n\n");
+  : asArray(content).map(b => { const o = object(b); return typeof o.text === "string" ? o.text : o.type === "tool_result" ? texts(o.content ?? o.parts) : ""; }).filter(Boolean).join("\n\n");
 const args = (input: unknown) => Object.entries(object(input)).map(([k, v]) => `${k}: ${typeof v === "string" ? v : JSON.stringify(v)}`).join(" · ");
 // Tool results are usually a JSON object inside <data>; read them like call arguments.
 function result(text: string) {
@@ -106,25 +106,30 @@ function units(body: Record<string, unknown>) {
   if (body.tools) out.push({ path: "tools", value: body.tools });
   for (const [i, value] of asArray(body.system).entries()) out.push({ path: `system[${i}]`, value });
   for (const [i, value] of asArray(body.messages).entries()) out.push({ path: `messages[${i}]`, value });
+  if (body.systemInstruction) out.push({ path: "systemInstruction", value: body.systemInstruction });
+  for (const [i, value] of asArray(body.contents).entries()) out.push({ path: `contents[${i}]`, value });
   return out;
 }
 type Shape = Pick<ContextPart, "name" | "tool" | "gist" | "role" | "wireRole"> & { kind: "context" | "question" | "call" | "result" };
 /** Names a unit by what it carries in either wire protocol. */
 function shape(path: string, value: unknown, tools: ReadonlyMap<string, string>, compaction: boolean, last: boolean): Shape {
-  if (path === "tools") return { kind: "context", name: "工具定义", tool: null, gist: `${asArray(value).length} 项`, role: "definition", wireRole: null };
+  if (path === "tools") return { kind: "context", name: "工具定义", tool: null, gist: `${asArray(value).flatMap(v => Array.isArray(object(v).functionDeclarations) ? asArray(object(v).functionDeclarations) : [v]).length} 项`, role: "definition", wireRole: null };
   const o = object(value), wireRole = typeof o.role === "string" ? o.role : null;
-  if (path.startsWith("system") || wireRole === "system") return { kind: "context", name: "系统提示词", tool: null, gist: excerpt(texts(o.content ?? [o])), role: "system", wireRole };
-  const blocks = asArray(o.content).map(object);
-  if (wireRole === "assistant") {
+  if (path.startsWith("system") || wireRole === "system") return { kind: "context", name: "系统提示词", tool: null, gist: excerpt(texts(o.content ?? o.parts ?? [o])), role: "system", wireRole };
+  const blocks = asArray(o.content ?? o.parts).map(object);
+  if (wireRole === "assistant" || wireRole === "model") {
     const calls = [...asArray(o.tool_calls).map(c => { const f = object(object(c).function); let input: unknown = f.arguments; try { input = JSON.parse(String(f.arguments)); } catch { /* shown raw */ } return { name: String(f.name), input }; }),
-      ...blocks.filter(b => b.type === "tool_use").map(b => ({ name: String(b.name), input: b.input }))];
+      ...blocks.filter(b => b.type === "tool_use").map(b => ({ name: String(b.name), input: b.input })),
+      ...blocks.filter(b => b.functionCall).map(b => ({ name: String(object(b.functionCall).name), input: object(b.functionCall).args }))];
     return calls.length ? { kind: "call", name: "调用", tool: calls.map(c => c.name).join(" · "), gist: args(calls[0]!.input), role: "model", wireRole }
-      : { kind: "context", name: "回复", tool: null, gist: excerpt(texts(o.content)), role: "model", wireRole };
+      : { kind: "context", name: "回复", tool: null, gist: excerpt(texts(o.content ?? o.parts)), role: "model", wireRole };
   }
-  if (wireRole === "tool") return { kind: "result", name: "结果", tool: tools.get(String(o.tool_call_id)) ?? null, gist: result(texts(o.content)), role: "tool", wireRole };
+  if (wireRole === "tool") return { kind: "result", name: "结果", tool: tools.get(String(o.tool_call_id)) ?? null, gist: result(texts(o.content ?? o.parts)), role: "tool", wireRole };
+  const nativeResults = blocks.filter(b => b.functionResponse).map(b => object(b.functionResponse));
+  if (nativeResults.length) return { kind: "result", name: "结果", tool: nativeResults.map(r => String(r.name)).join(" · "), gist: excerpt(args(nativeResults[0]!.response)), role: "tool", wireRole };
   const results = blocks.filter(b => b.type === "tool_result");
   if (results.length) return { kind: "result", name: "结果", tool: results.map(b => tools.get(String(b.tool_use_id)) ?? "").filter(Boolean).join(" · ") || null, gist: result(texts(blocks)), role: "tool", wireRole };
-  const text = texts(o.content), image = /^tool_result (\S+)$/.exec(String(blocks[0]?.text ?? ""));
+  const text = texts(o.content ?? o.parts), image = /^tool_result (\S+)$/.exec(String(blocks[0]?.text ?? ""));
   if (image) return { kind: "result", name: "结果图片", tool: null, gist: `${tools.get(image[1]!) ?? "tool_result"} · ${image[1]}`, role: "tool", wireRole };
   if (text.startsWith("<session_memory>")) return { kind: "context", name: "会话记忆", tool: null, gist: "压缩后冻结的记忆", role: "user", wireRole };
   if (compaction && last) return { kind: "question", name: "压缩指令", tool: null, gist: excerpt(text), role: "user", wireRole };
@@ -142,7 +147,8 @@ export function inspectCall(record: CallRecord, previous?: CallRecord) {
     return Object.fromEntries(Object.entries(o).map(([key, val]) => {
       const location = path ? `${path}.${key}` : key;
       const data = typeof val === "string" && key === "url" && val.startsWith("data:image/") ? val
-        : key === "data" && typeof val === "string" && o.type === "base64" && typeof o.media_type === "string" ? `data:${o.media_type};base64,${val}` : null;
+        : key === "data" && typeof val === "string" && o.type === "base64" && typeof o.media_type === "string" ? `data:${o.media_type};base64,${val}`
+          : key === "data" && typeof val === "string" && typeof o.mimeType === "string" && o.mimeType.startsWith("image/") ? `data:${o.mimeType};base64,${val}` : null;
       if (!data) return [key, walk(val, location)];
       const base64 = data.slice(data.indexOf(",") + 1), padding = base64.endsWith("==") ? 2 : base64.endsWith("=") ? 1 : 0;
       found.push({ path: location, url: data, bytes: Math.max(0, Math.floor(base64.length * .75) - padding), part: owner(location) });
@@ -174,7 +180,7 @@ export function inspectCall(record: CallRecord, previous?: CallRecord) {
       comparison: !previous ? "none" : same ? "same" : before ? "changed" : "new", prefix };
   });
   const images: DebugImage[] = found.map(f => ({ ...f, source: parts.find(p => p.path === f.part)?.role === "tool" ? "tool" : "user" }));
-  const { tools: _tools, system: _system, messages: _messages, ...parameters } = readable;
+  const { tools: _tools, system: _system, messages: _messages, systemInstruction: _instruction, contents: _contents, ...parameters } = readable;
   return { parts, images, breakpoints, parameters: JSON.stringify(parameters, null, 2), parameterBytes: encoder.encode(JSON.stringify(parameters)).length,
     turns: parts.filter((p, i) => p.section === "history" && shapes[i]!.kind === "question").length,
     previous: previous?.id ?? null, prefix: parts.filter(p => p.prefix).length };
