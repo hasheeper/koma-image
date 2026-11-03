@@ -1,6 +1,6 @@
 # 历史文档索引
 
-更新：2026-11-03。这里只保存当时的方案、设计确认与验收证据。现行行为从[文档索引](../README.md)进入；历史的测试数量、供应商结果、发布记录和授权只适用于其注明范围。公开前匿名化历史作者邮箱后，文内提交号同步映射到对应新提交；过程和验收事实保持原意。
+更新：2026-11-04。这里只保存当时的方案、设计确认与验收证据。现行行为从[文档索引](../README.md)进入；历史的测试数量、供应商结果、发布记录和授权只适用于其注明范围。公开前匿名化历史作者邮箱后，文内提交号同步映射到对应新提交；过程和验收事实保持原意。
 
 ## 目录与早期基线
 
@@ -11,7 +11,7 @@
 ## 工程与连接维护
 
 - [供应商接口用途样式咨询](engineering/2026-11-04-supplier-interface-consult.md)：Opus 5.5 原稿与主 Agent 代码核对，复用公共复选框及局部排版建议。
-- [模型与供应商连接调整规划](workspaces/2026-11-03-models-and-connections-plan.md)：已完成本地实现与模拟验收，未推送或部署；范围为 GPT／Gemini 条目管理与任意上游 ID、Chat／Images 共用连接、NAI 混列与 401 提示修复。
+- [模型与供应商连接调整规划](workspaces/2026-11-03-models-and-connections-plan.md)：已随 v0.4.0 发布；范围为 GPT／Gemini 条目管理与任意上游 ID、Chat／Images 共用连接、NAI 混列与 401 提示修复。
 - [公共 UI 与设置拆分](engineering/2026-11-01-ui-components.md)：共用画板、菜单基础行为、设置职责、开发预览与本地检查。
 
 - [文档整理记录](engineering/documentation-maintenance.md)：10-28 专题收拢与 10-29 目录重整、四组合并和链接校验。
@@ -68,6 +68,8 @@
 - [EDIT 独立页面、编辑画板与收口](workspaces/2026-10-28-edit-workspace-verification.md)。
 
 ## 发布与脱敏记录
+
+- [v0.4.0 发布](releases/2026-11-04-v0.4.0-release.md)：模型与连接管理、来源参数、Gemini ASK、更新日志及导入安全修复，记录本地检查、脱敏与 Git／Pages 核验。
 
 - [v0.3.4 发布](releases/2026-11-02-v0.3.4-release.md)：修复 TAGS 打开设置时顶栏被裁切，记录检查、脱敏与线上桌面／手机核验。
 - [v0.3.3 发布](releases/2026-11-02-v0.3.3-release.md)：撤回 Danbooru 示例图与帖子导入，记录本地检查、脱敏及 Git／Pages 交付核验。
