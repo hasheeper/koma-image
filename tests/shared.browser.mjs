@@ -722,9 +722,15 @@ test("dictionary and prompt: weighted handoff once, picker toggle, highlight, au
     );
     await page.keyboard.press("Enter");
     assert.equal(await page.locator("#prompt").inputValue(), "blue hair, ");
+    const weighted = "<artist>\n0.75::artist:sample::, 1.1::sample::\n</artist>, {blue}, [soft]";
+    await page.locator("#prompt").fill(weighted);
+    const mirror = page.locator("#prompt").locator("..").locator(".hl-mirror");
+    assert.equal(await mirror.textContent(), weighted);
+    assert.ok(await mirror.locator('[data-w="0.75"]').count());
+    assert.ok(await mirror.locator('[data-w="1.10"]').count());
     await page.locator("#prompt").fill("<img src=x onerror=alert(1)>, {blue}");
-    assert.equal(await page.locator(".hl-mirror img").count(), 0);
-    assert.ok((await page.locator(".hl-mirror span").count()) > 0);
+    assert.equal(await mirror.locator("img").count(), 0);
+    assert.ok(await mirror.locator('[data-w="1.05"]').count());
     assert.equal(await page.locator("#settingsPrefs").count(), 0);
     await settings(page, "general");
     await page.locator('label[for="tagSuggest"]').click();

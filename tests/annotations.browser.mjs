@@ -511,12 +511,15 @@ test('EDIT uses the shared plain prompt control and treats an empty instruction 
   assert.equal(await t.page.evaluate(()=>editor.snapshot().edit.error),'');
   const text='只改 [右眼]，保持 {发型} 与 <衣领> 原样。';
   await t.page.getByRole('textbox',{name:'修改说明',exact:true}).fill(text);
+  assert.equal(await t.page.locator('#editorImagePromptBox .hl-mirror .w').count(),0);
   await t.page.waitForFunction(()=>editor.snapshot().edit.canRun);
   assert.equal(await t.page.evaluate(()=>editor.session.fields.prompt),text);
   await t.page.evaluate(()=>editor.setModel('nai-diffusion-4-5-full'));
   assert.equal(await t.page.locator('#editorPrompt').inputValue(),text);
+  assert.ok(await t.page.locator('#editorPromptBox .hl-mirror [data-w]').count());
   await t.page.evaluate(()=>editor.setModel('gpt-image-2'));
   assert.equal(await t.page.getByRole('textbox',{name:'修改说明',exact:true}).inputValue(),text);
+  assert.equal(await t.page.locator('#editorImagePromptBox .hl-mirror .w').count(),0);
   await t.page.getByRole('textbox',{name:'修改说明',exact:true}).fill('');
   await t.page.evaluate(()=>editor.retry('edit',true));
   assert.equal(await t.page.locator('#editorRun').isEnabled(),false);

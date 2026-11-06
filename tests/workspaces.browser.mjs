@@ -702,6 +702,9 @@ test("M6 transferred long prompts keep text and highlight together on tab reveal
     await p.locator(`#${id}`).waitFor({ state: "visible" });
     await p.evaluate(() => document.fonts.ready);
     assert.equal(await p.locator(`#${id}`).inputValue(), expected);
+    const mirror = p.locator(`#${id}`).locator("..").locator(".hl-mirror");
+    assert.equal(await mirror.textContent(), expected);
+    assert.ok(await mirror.locator("[data-w]").count());
   }
   try {
     await p.evaluate(
@@ -731,6 +734,15 @@ test("M6 transferred long prompts keep text and highlight together on tab reveal
       .click();
     await checkInput("editorNegative", negative);
     await p.locator("#imageEditor").getByRole("tab", { name: /Prompt/ }).click();
+    await p.locator("#imageEditor").getByRole("button", { name: "添加角色", exact: true }).click();
+    const character = p.locator("#imageEditor .mc-body"),
+      rolePrompt = "{silver hair}, 0.75::blue eyes::",
+      roleNegative = "[blurry], -2::bad anatomy::";
+    await character.locator("textarea").fill(rolePrompt);
+    await checkInput(await character.locator("textarea").getAttribute("id"), rolePrompt);
+    await character.getByRole("tab", { name: /Negative/ }).click();
+    await character.locator("textarea").fill(roleNegative);
+    await checkInput(await character.locator("textarea").getAttribute("id"), roleNegative);
     await closeEditor(p);
     await p.locator("#editBtn").click();
     await checkInput("editorPrompt", prompt);

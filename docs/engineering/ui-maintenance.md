@@ -138,7 +138,7 @@ NAI 提示词内底栏归 `NaiPromptOptions.vue`，档位菜单归 `NaiSelect.vu
 
 - `.hl-wrap`、textarea 和镜像的指标保留原全局选择器，使绘图／对话／编辑的上下文高度与边框覆盖继续生效。组件仍由 Vue 创建节点，原生测量与滚动逻辑不变。
 - `v-html` 生成的权重标记使用 `:where(.hl-mirror) .w`／`.w-mark`，限定在镜像中，同时保留原选择器权重。自动补全的单行布局归组件，表面、行状态与入场取共享菜单，不再依赖绘图样式。
-- 当前编辑器仅使用高亮输入，没有启用自动补全；保持这一行为。共用同一组件不代表开启所有可选功能。
+- `HighlightInput` 的 `highlight` 显式默认为 `true`，保留 IMAGE／EDIT 的 NAI 正负词及角色权重高亮；仅通用 EDIT 修改说明传入 `false`。NAI 编辑器未启用自动补全；共用同一组件不代表开启所有可选功能。
 - Tag 选择器、自动补全和 Toast 的 scoped 属性随节点进入 Teleport 宿主；规则不依赖原工作区的父节点。Toast 仍可进入原生 dialog 的顶层，不改变层级或焦点行为。
 - `.stage`／`.viewport`／`.print`、图片栏／缩略图、组合面板和 `.result-actions` 存在编辑或对话消费者，因此继续共享；仅图片结果的元数据、参数、Seed 和关联容器查询归入绘图 CSS。
 

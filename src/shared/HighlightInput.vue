@@ -24,7 +24,8 @@ import type { TagItem } from "../domain/tags.ts";
 import { useServices } from "../app/services";
 import { message } from "../app/ui";
 import { placeSuggestions } from "./caret-layout";
-const props = defineProps<{
+// Vue casts omitted Boolean props to false; weight highlighting is opt-out.
+const props = withDefaults(defineProps<{
     id: string;
     label: string;
     title?: string;
@@ -35,7 +36,7 @@ const props = defineProps<{
     readonly?: boolean;
     maxLength?: number;
     highlight?: boolean;
-  }>(),
+  }>(), { highlight: true }),
   value = defineModel<string>({ required: true });
 const { tags } = useServices(),
   textarea = useTemplateRef<HTMLTextAreaElement>("textarea"),
