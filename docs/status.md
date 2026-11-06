@@ -4,7 +4,7 @@
 
 2026-11-06 已将图片批注、通用 EDIT 三图比较与局部回贴、ASK 批注卡片和编号裁切、连续对话与输入检查修复，以及 CHAT／EDIT 工具栏随 **v0.5.0** 推送 `main` 和附注标签并发布 Pages。生产版本、工作区导航与静态资源已核对，main／标签的 GitHub CI 均通过；见[发布记录](archive/releases/2026-11-06-v0.5.0-release.md)。
 
-v0.5.0 后续修复 NAI 语法权重高亮回归：`HighlightInput` 显式默认开启高亮，通用 EDIT 修改说明仍单独关闭。按用户要求继续归入 0.5.0，保留原附注标签；现行约定见[高亮输入](engineering/ui-maintenance.md#高亮teleport-与公共结构)。
+v0.5.0 后续修复 NAI 语法权重高亮回归：`HighlightInput` 显式默认开启高亮，通用 EDIT 修改说明仍单独关闭。按用户要求继续归入 0.5.0，保留原附注标签；已推送 `main` 并重新部署 Pages，见[发布核验](archive/releases/2026-11-06-v0.5.0-release.md#后续修复nai-权重高亮)。现行约定见[高亮输入](engineering/ui-maintenance.md#高亮teleport-与公共结构)。
 
 2026-11-04 已将本轮模型与连接管理、来源参数、Gemini ASK、更新日志和界面调整随 **v0.4.0** 推送 `main` 并发布 Pages；检查与线上核对见[发布记录](archive/releases/2026-11-04-v0.4.0-release.md)。JSON／ZIP 配置导入改变地址或协议时断开旧 Key 关联，普通备份增加必要图片字段与对话结构校验；真实供应商兼容仍待验证。
 
