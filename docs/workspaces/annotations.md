@@ -1,6 +1,6 @@
 # 图片区域批注与局部回贴
 
-更新：2026-11-06。共享批注、ASK、EDIT 转换与 CHAT 双图交接已完成本地实现；尚未发布，真实供应商的多区域理解、位置保持和接缝质量仍待核验。原始调研及范围决策见[规划归档](../archive/workspaces/2026-11-04-region-annotations-research-plan.md)。
+更新：2026-11-06。共享批注、ASK、EDIT 转换与 CHAT 双图交接已随 [v0.5.0](../archive/releases/2026-11-06-v0.5.0-release.md) 推送并发布 Pages；真实供应商的多区域理解、位置保持和接缝质量仍待核验。原始调研及范围决策见[规划归档](../archive/workspaces/2026-11-04-region-annotations-research-plan.md)。
 
 ## 入口与选区
 

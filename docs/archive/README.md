@@ -10,7 +10,7 @@
 
 ## 工程与连接维护
 
-- [未发布版本本地收口](engineering/2026-11-06-unreleased-closeout.md)：运行包依赖、批注 ZIP 往返、HTML 定稿与提示词迁入，以及推送前文档／产物复核；仅本地模拟验收，未发布。
+- [未发布版本本地收口](engineering/2026-11-06-unreleased-closeout.md)：运行包依赖、批注 ZIP 往返、HTML 定稿与提示词迁入，以及推送前文档／产物复核；记录当时的本地模拟验收；后续随 v0.5.0 发布。
 - [供应商接口用途样式咨询](engineering/2026-11-04-supplier-interface-consult.md)：Opus 5.5 原稿与主 Agent 代码核对，复用公共复选框及局部排版建议。
 - [模型与供应商连接调整规划](workspaces/2026-11-03-models-and-connections-plan.md)：已随 v0.4.0 发布；范围为 GPT／Gemini 条目管理与任意上游 ID、Chat／Images 共用连接、NAI 混列与 401 提示修复。
 - [公共 UI 与设置拆分](engineering/2026-11-01-ui-components.md)：共用画板、菜单基础行为、设置职责、开发预览与本地检查。
@@ -65,13 +65,15 @@
 
 ## HOME 与独立 EDIT
 
-- [图片区域批注勘探与规划](workspaces/2026-11-04-region-annotations-research-plan.md)：已本地实现，未发布；共享批注、ASK、EDIT 转换和 CHAT 双图，GPT／Gemini 结果经人工审核后应用本地回贴；NAI 复用现有能力，不接 OpenAI Mask。
+- [图片区域批注勘探与规划](workspaces/2026-11-04-region-annotations-research-plan.md)：后续随 v0.5.0 发布；共享批注、ASK、EDIT 转换和 CHAT 双图，GPT／Gemini 结果经人工审核后应用本地回贴；NAI 复用现有能力，不接 OpenAI Mask。
 - [HOME 设计与实施规划](workspaces/2026-10-28-home-plan.md)：保留原章节和概念稿差异，当前契约已收拢到 [HOME 工作区](../workspaces/home.md)。
 - [HD 页面形态确认](workspaces/2026-10-27-home-hd-confirmation.md)、[头部与 ASK 停靠确认](workspaces/2026-10-28-home-head-ask-confirmation.md)。
 - [HM1 数据](workspaces/2026-10-28-home-hm1-verification.md)、[HM2 页面](workspaces/2026-10-28-home-hm2-verification.md)、[HM3 ASK 与动效](workspaces/2026-10-28-home-hm3-verification.md)。
 - [EDIT 独立页面、编辑画板与收口](workspaces/2026-10-28-edit-workspace-verification.md)。
 
 ## 发布与脱敏记录
+
+- [v0.5.0 发布](releases/2026-11-06-v0.5.0-release.md)：图片批注、EDIT 通用图像模型、ASK 联动与诊断修复；记录 CI、脱敏和生产资源核验。
 
 - [v0.4.0 发布](releases/2026-11-04-v0.4.0-release.md)：模型与连接管理、来源参数、Gemini ASK、更新日志及导入安全修复，记录本地检查、脱敏与 Git／Pages 核验。
 
