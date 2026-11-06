@@ -2,14 +2,15 @@
 import { nextTick, onBeforeUnmount, onDeactivated, shallowRef } from "vue";
 import { menuKeys } from "../popover";
 import { usePopover } from "./use-popover";
-const props = defineProps<{ id: string; label: string; side: "left" | "right" | "up"; escape?: () => boolean; compact?: boolean; menuClass?: string; closeOnScroll?: "outside" | "all" }>();
+const props = defineProps<{ id: string; label: string; side: "left" | "right" | "up"; escape?: () => boolean; compact?: boolean; menuClass?: string; closeOnScroll?: "outside" | "all"; pointerFocus?: "menu" | "first-item"; orientation?: "vertical" | "horizontal"; retainOnClose?: boolean }>();
 const emit = defineEmits<{ closed: []; opened: [] }>();
-defineSlots<{ trigger(props: { open: boolean; toggle: () => void }): unknown; default(props: { close: (refocus?: boolean) => void }): unknown }>();
+defineSlots<{ trigger(props: { open: boolean; toggle: (event?: Event) => void }): unknown; default(props: { close: (refocus?: boolean) => void }): unknown }>();
 const visible = shallowRef(false), wrap = shallowRef<HTMLElement>(), menu = shallowRef<HTMLElement>();
-let revision = 0;
+let revision = 0, focusMenuOnOpen = false;
 function place() {
   const el = menu.value, anchor = wrap.value?.getBoundingClientRect(); if (!el || !anchor) return;
-  const box = el.getBoundingClientRect(), gap = 4, edge = 8;
+  // Layout size stays stable while the consumer animates its surface with transform.
+  const box = { width: el.offsetWidth, height: el.offsetHeight }, gap = 4, edge = 8;
   const x = props.side === 'right' ? anchor.right - box.width : anchor.left;
   let y = props.side === 'up' ? anchor.top - gap - box.height : anchor.bottom + gap;
   if (y < edge) y = anchor.bottom + gap;
@@ -28,7 +29,10 @@ const popover = usePopover(menu, {
   position: place, resize: "place", observe: () => [menu.value, wrap.value],
   closeOnScroll: props.closeOnScroll,
   visualViewport: true, afterResizeFrame: true,
-  onOpen() { menu.value?.querySelector<HTMLButtonElement>('button:not(:disabled)')?.focus({ preventScroll: true }); },
+  onOpen() {
+    const target = focusMenuOnOpen ? menu.value : menu.value?.querySelector<HTMLButtonElement>('button:not(:disabled)');
+    target?.focus({ preventScroll: true });
+  },
   onClose: closed,
 });
 function close(refocus = false) {
@@ -36,8 +40,11 @@ function close(refocus = false) {
   popover.close(); closed();
   if (wasVisible && refocus) wrap.value?.querySelector<HTMLElement>("[aria-haspopup]")?.focus({ preventScroll: true });
 }
-async function toggle() {
+async function toggle(event?: Event) {
   if (visible.value) return close();
+  // Pointer opening can focus the menu shell without making its first action look selected.
+  // Keyboard/programmatic opening keeps the existing first-item focus behavior.
+  focusMenuOnOpen = props.pointerFocus === "menu" && event instanceof MouseEvent && event.detail > 0;
   const current = ++revision;
   visible.value = true;
   await nextTick();
@@ -60,7 +67,8 @@ defineExpose({ close, escape });
 <template>
   <span ref="wrap" class="popover-menu-host">
     <slot name="trigger" :open="visible" :toggle="toggle" />
-    <div v-if="visible" :id="id" ref="menu" class="menu popover-menu" :class="[side, menuClass, { compact }]" popover="auto" role="menu" :aria-label="label" @beforetoggle="popover.beforeToggle" @toggle="popover.toggled" @keydown="keys"><slot :close="close" /></div>
+    <!-- Retained native popovers can finish CSS display/overlay exit transitions. -->
+    <div v-if="visible || retainOnClose" :id="id" ref="menu" class="menu popover-menu" :class="[side, menuClass, { compact }]" popover="auto" role="menu" :aria-orientation="orientation" :tabindex="pointerFocus === 'menu' ? -1 : undefined" :aria-label="label" @beforetoggle="popover.beforeToggle" @toggle="popover.toggled" @keydown="keys"><slot :close="close" /></div>
   </span>
 </template>
 <style scoped>

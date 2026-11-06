@@ -56,7 +56,7 @@ const facts = computed(() => {
   const r = record.value, i = inspection.value;
   if (!r || !i) return [];
   const cache = r.protocol !== "anthropic-messages" ? "自动前缀" : i.breakpoints.length ? `显式标记 ${i.breakpoints.length} 处` : "无断点";
-  return ([["耗时", r.ended === null ? "" : `${((r.ended - r.started) / 1000).toFixed(2)} s`], ["大小", kb(r.bytes)], ["结束", r.stop ?? ""], ["版本", r.promptVersion], ["缓存", cache]] as const).filter(([, v]) => v);
+  return ([["耗时", r.ended === null ? "" : `${((r.ended - r.started) / 1000).toFixed(2)} s`], ["大小", kb(r.bytes)], ["结束", r.response?.finishReason ?? r.stop ?? ""], ["版本", r.promptVersion], ["缓存", cache]] as const).filter(([, v]) => v);
 });
 
 const sections: readonly { key: PartSection; name: string }[] = [{ key: "tools", name: "工具" }, { key: "system", name: "系统" }, { key: "history", name: "历史" }, { key: "current", name: "本轮" }];
@@ -185,6 +185,8 @@ onBeforeUnmount(() => { clearTimeout(copiedTimer); dialog.value?.close(); });
                 </span>
               </div>
             </dl>
+            <p v-if="record.response" class="debug-note" aria-label="响应诊断">{{ record.response.httpStatus === null ? '未收到 HTTP 响应' : `HTTP ${record.response.httpStatus}` }} · {{ record.response.contentType ?? '未报告类型' }} · 流数据 {{ kb(record.response.bytes) }} · {{ record.response.events }} 个事件 · 正文 {{ record.response.textChars }} 字符 · {{ record.response.calls }} 次工具调用</p>
+            <p v-if="record.error" class="debug-note" aria-label="失败原因">{{ record.error }}</p>
             <p v-if="turnStatus" class="debug-note">{{ turnStatus }}；调用记录仍保留供检查。</p>
             <div class="debug-use">
               <template v-if="usage">

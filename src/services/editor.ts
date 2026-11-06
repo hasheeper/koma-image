@@ -1,3 +1,14 @@
+import { imageEditContext } from '../domain/edit-image-context.ts';
+import type { ComparisonDisplay } from '../domain/edit-image-context.ts';
+import { annotationAlignment, annotationPrompt, canMaskAnnotations, validateAnnotationSnapshot, validateAnnotationAreas, regionUnion } from "../domain/region-annotation.ts";
+import type { AnnotationSnapshot } from "../domain/region-annotation.ts";
+import { annotationMask, annotationPreview, unionMasks } from "../native/annotation-canvas.ts";
+import { decodeImage } from "./image-response.ts";
+import { fitReference } from "./handoff.ts";
+import { buildChatPayload } from "../domain/media.ts";
+import type { AnnotationReview } from "./annotations.ts";
+import { imageEditSettings, prepareEditorImageEdit } from "./editor-image-edit.ts";
+import type { EditorComparison, ImageEditSettings } from "./editor-image-edit.ts";
 import { canonical } from "../ask/canonical.ts";
 import { naiAccountSnapshot, naiSourceKey } from "./nai-awareness.ts";
 import type { MaskSummary } from "../domain/mask-summary.ts";
@@ -35,6 +46,7 @@ import type { SourceSelection } from "./source-priority.ts";
 import type { CatalogModel } from "../domain/catalog";
 import {
   editorModels,
+  isGenerativeEditorModel,
   validateEditorSource,
   buildEditorPayload,
 } from "../domain/media.ts";
@@ -52,7 +64,7 @@ import { imageOrigin, chatImageOrigin, chatImageId } from "../domain/image-origi
 import { consumeMedia } from "./media-response";
 import { dataUrl } from "./assets";
 import { imageConnections } from "../config/connections.ts";
-import { composeInpaint } from "../native/inpaint-result.ts";
+import { composeInpaint, composeMaskedResult } from "../native/inpaint-result.ts";
 import { directorName, directorSize, emptyDirectorSettings, isDirectorTool, directorEmotions } from "../domain/director-tools.ts";
 import type { DirectorSettings, DirectorTool, DirectorVariant } from "../domain/director-tools.ts";
 import { prepareDirectorImage, consumeDirector } from "../native/director-tools.ts";
@@ -63,6 +75,8 @@ export const modeNames = {
   director: "工具处理",
 };
 export interface EditorVersion {
+  comparison?: EditorComparison;
+  annotation?: { snapshot: AnnotationSnapshot; sourceId: number; rawId?: number; compositeId?: number };
   entity_key: string;
   lineage?: ImageLineage;
   sourceRecord?: ImageRecord;
@@ -111,6 +125,7 @@ export interface EditorSession {
   focus: { on: boolean; rect: FocusRect | null };
   enhance: { on: boolean; scale: EnhanceScale; magnitude: number | null; strength: number; noise: number };
   options: Record<string, Record<string, string>>;
+  imageEdit: ImageEditSettings;
   director: DirectorSettings;
   directorChoices: Record<string, number>;
   characters: Character[];
@@ -158,6 +173,7 @@ const session = (
   focus: { on: false, rect: null },
   enhance: { on: false, scale: 2, magnitude: 3, strength: .5, noise: 0 },
   options: {},
+  imageEdit: imageEditSettings(),
   director: emptyDirectorSettings(), directorChoices: {},
   characters: [], placement: "auto", nextCharacterId: 1, naiReferences: emptyReferences(), provenance: {},
   fields: {
@@ -204,6 +220,8 @@ export function createEditor(
   const sessions = new Map<string, EditorSession>(),
     listeners = new Set<() => void>();
   let nextBoard = 2;
+  let annotationReader: ((boardId: string, versionId: number) => AnnotationSnapshot | undefined) | undefined;
+  let comparisonReader: ((boardId:string,versionId:number)=>ComparisonDisplay|undefined) | undefined;
   let current = session(crypto.randomUUID(), "edit");
   let taskOwner: EditorSession | undefined;
   const locked = () => (busy || preparing) && taskOwner === current;
@@ -279,12 +297,15 @@ export function createEditor(
     const m=catalog.find(m=>m.id===config.chosen[config.upscaleOpen?'upscale':config.mode]);
     const j=s===current?jobs[config.upscaleOpen?'upscale':'edit']:undefined;
     return {sourceKey:s.sourceKey,recordIds:s.versions.map(v=>v.recordId),id:s.id,name:s.name,boardSeq:s.boardSeq,present:true,ready:!!v,baseId:s.baseId,viewId:s.viewId,maskRevision:s.maskRevision,
+      imageEditing:imageEditContext(s,annotationReader?.(s.id,s.baseId),comparisonReader?.(s.id,s.viewId)),
+      connectionNames:Object.fromEntries(Object.values(services.connections.configuration.connections).map(c=>[c.id,c.name])),
       source:v?{width:v.width,height:v.height,bytes:v.blob.size,recordId:v.recordId}:null,sourceTag:v?qualifiedEditLabel(s,v):undefined,viewing:viewing?{width:viewing.width,height:viewing.height,bytes:viewing.blob.size,recordId:viewing.recordId}:null,config,nextCharacterId:s.nextCharacterId,
       pricing:{sourceKey:canonical(m?[m.id,naiSourceKey(m),m.upstreamId]:null),configKey:j?.configKey??"",quoteAt:j?.quoteAt,quote:j?.quote?{status:"ready",quote:structuredClone(j.quote)}:undefined,account:m===quotaModel?naiAccountSnapshot(quota?.media.subscription):undefined,accountAt:m===quotaModel?quotaAt:undefined,referenceCosts:Object.fromEntries(catalog.map(m=>[m.id,services.references.cachedCost(s.naiReferences,m.id)]))},
       models:structuredClone(catalog),samplers:[...samplers],mask:maskSummary(s),photopeaUsed:photopeaUsed.has(s),
       blocked:preparing&&taskOwner===s?'正在准备生成，请稍后应用':s===current&&external||s.externalPending?'请先完成高级编辑回传':s===current&&maskPort?.isDrawing()?'请完成当前蒙版笔画':''};
   }
   const saves = new Map<EditorVersion, Promise<void>>();
+  const previews = new WeakMap<EditorVersion, Promise<Blob>>();
   let external: {
     id: string; context: string; owner: EditorSession; source: EditorVersion;
     baseId: number; maskRevision: number; recipe: Fields; mask: MaskState;
@@ -302,9 +323,12 @@ export function createEditor(
   const base = () => current.versions.find((v) => v.id === current.baseId),
     viewed = () =>
       current.versions.find((v) => v.id === current.viewId) || base();
-  const focusing = () => current.mode === "inpaint" && current.focus.on;
+  const generative = () => isGenerativeEditorModel(models.find(m => m.id === current.chosen[current.mode]));
+  const hasEditInstructions = () => !!current.fields.prompt.trim() ||
+    !!annotationReader?.(current.id, current.baseId)?.regions.some(region => region.comment.trim());
+  const focusing = () => !generative() && current.mode === "inpaint" && current.focus.on;
   const focusAvailable = () => models.some(m => m.id === current.chosen.inpaint && supportsFocusedInpaint(m));
-  const enhancing = () => current.mode === "img2img" && current.enhance.on;
+  const enhancing = () => !generative() && current.mode === "img2img" && current.enhance.on;
   const enhanceAvailable = () => models.some(m => m.id === current.chosen.img2img && supportsNaiEnhance(m));
   const selected = (mode: EditorMode = current.mode) =>
     (mode === "inpaint" && focusing() ? models.find(m => m.id === current.chosen[mode] && supportsFocusedInpaint(m)) : undefined) ??
@@ -337,7 +361,7 @@ export function createEditor(
   const contextId = () => `${current.id}:${openSequence}`;
   const warning = (key: Job) => {
     const v = source(key);
-    if (key === "edit" && (referenceProblem() || characterProblem())) return referenceProblem() || characterProblem();
+    if (key === "edit" && !generative() && (referenceProblem() || characterProblem())) return referenceProblem() || characterProblem();
     if (key === "edit" && focusing()) {
       if (!focusAvailable()) return "聚焦重绘仅支持 NovelAI 官方连接，设置已保留";
       if (!current.focus.rect) return "请框选聚焦范围，包含蒙版与周边参考";
@@ -384,7 +408,7 @@ export function createEditor(
     samplers = modelSamplers(m, m
       ? connectionSamplers.get(m.connection) || ["k_euler_ancestral"]
       : ["k_euler_ancestral"]);
-    if (!naiCapabilities(m?.id ?? "").medium && !samplers.includes(current.fields.sampler))
+    if (!generative() && !naiCapabilities(m?.id ?? "").medium && !samplers.includes(current.fields.sampler))
       current.fields.sampler = samplers[0];
   }
   async function catalog() {
@@ -454,6 +478,16 @@ export function createEditor(
     if (!v || !m) throw new Error("请先选择底图和模型");
     const w = warning(key);
     if (w) throw new Error(w);
+    if (key === 'edit' && isGenerativeEditorModel(m)) {
+      maskPort?.save();
+      const owner = current, state = owner.mode === 'inpaint' && owner.maskFor === v.id && owner.mask ? copyMaskState(owner.mask) : undefined;
+      const prompt = owner.fields.prompt, options = normalizeOptions(m, owner.options[m.id]), settings = structuredClone(owner.imageEdit);
+      const annotation = annotationReader?.(owner.id, v.id);
+      const painted = state ? await maskStateBitmap(state) : undefined;
+      const prepared = await prepareEditorImageEdit(v, m, prompt, options, settings, painted, annotation);
+      if (mode === 'inpaint' && !prepared.comparison.mask) throw new Error('请先涂抹或选择需要修改的区域');
+      return { payload: prepared.request as ImagePayload, comparison: prepared.comparison, model: m, parent: v, mode, owner, focusOriginal: undefined, settings: {} };
+    }
     const owner = current, characters = structuredClone(current.characters), placement = current.placement;
     const focus = mode === "inpaint" && focusing() && current.focus.rect ? inpaintFocusPlan(v, current.focus.rect) : undefined;
     const enhance = mode === "img2img" && enhancing() ? { ...current.enhance } : undefined;
@@ -501,7 +535,7 @@ export function createEditor(
     };
     validateNaiText(request);
     return {
-      payload: request, model: m, parent: v, mode, owner, focusOriginal,
+      payload: request, comparison: undefined, model: m, parent: v, mode, owner, focusOriginal,
       settings: { ...compiled, noiseSchedule: f.noiseSchedule, localCharacters: characters, placement, naiReferences: references,
         ...provenance, randomSeed: isRandom },
     };
@@ -524,6 +558,7 @@ export function createEditor(
       external ||
       !m ||
       !v ||
+      (key === 'edit' && generative() && !hasEditInstructions()) ||
       warning(key) ||
       maskPort?.isDrawing() ||
       services.data.phase !== "ready"
@@ -606,6 +641,7 @@ export function createEditor(
     const lineage: ImageLineage = data.kind === "source" ? sourceRecord?.lineage ?? {via:s.origin === "chat" ? "chat" : "upload"} : { via, ...(parent ? { parent_record_id: parent.recordId, parent_entity_key: parent.entity_key } : {}), ...(data.director ? { tool_detail: `${data.director.tool}${data.director.variant ? `:${data.director.variant}` : ""}` } : data.params?.inpaintFocus ? { tool_detail: "focused-inpaint" } : {}) };
     const v: EditorVersion = {
       ...data, entity_key, lineage, sourceRecord,
+      ...(data.comparison ? { comparison: { ...data.comparison, rawId: data.comparison.rawId ?? s.nextId } } : {}),
       sourceId: data.sourceId ?? `${data.kind === "source" ? "source" : "edit"}:${String(data.params?.editId ?? crypto.randomUUID())}`,
       id: s.nextId++, sequence, recordId, createdAt: Date.now(),
       url: URL.createObjectURL(data.blob),
@@ -623,14 +659,17 @@ export function createEditor(
     // Keep complete groups and live inputs, even when they alone exceed the limit.
     const newest = s.versions.at(-1);
     const protectedVersion = (v: EditorVersion) => v.sequence === 1 || v.id === s.baseId || v.id === s.viewId ||
-      v === newest || v === external?.source || saves.has(v);
+      v === newest || v === external?.source || saves.has(v) ||
+      s.versions.some(p => p.annotation && [p.annotation.sourceId, p.annotation.rawId, p.annotation.compositeId].includes(v.id) || p.comparison?.sourceId === v.id);
     const protectedGroups = new Set(s.versions.filter(protectedVersion).flatMap(v => v.director ? [v.director.group] : []));
     while (s.versions.length > limit) {
       const old = s.versions.find(
-        (v) => !protectedVersion(v) && (!v.director || !protectedGroups.has(v.director.group)),
+        (v) => !protectedVersion(v) && (!v.director || !protectedGroups.has(v.director.group)) &&
+          (!v.comparison || !s.versions.some(p => p.comparison?.rawId === v.comparison!.rawId && protectedVersion(p))),
       );
       if (!old) break;
-      const removed = old.director ? s.versions.filter(p => p.director?.group === old.director!.group) : [old];
+      const removed = old.director ? s.versions.filter(p => p.director?.group === old.director!.group)
+        : old.comparison ? s.versions.filter(p => p.comparison?.rawId === old.comparison!.rawId) : [old];
       s.versions = s.versions.filter(p => !removed.includes(p));
       for (const item of removed) URL.revokeObjectURL(item.url);
       if (old.director) delete s.directorChoices[old.director.group];
@@ -812,7 +851,7 @@ export function createEditor(
     maskPort?.save();
     current.viewId = id;
     if (v.director) current.directorChoices[v.director.group] = id;
-    alignMask(current, v);
+    if (!v.comparison && !v.annotation) alignMask(current, v);
     emit();
     if (upscaleOpen) scheduleQuote("upscale");
     if (directorOpen) scheduleDirectorQuote();
@@ -836,8 +875,8 @@ export function createEditor(
       if (s.origin === "chat" && s.conversationId) {
         const c = chat.snapshot().conversations.find(c => c.id === s.conversationId);
         const asset = [...chat.assets.assets.values()].find(a => a.blob === blob);
-        const turn = c && [...c.turns].reverse().find(t => t.versions.some(v => v.blocks.some(b => b.type === "image" && b.assetId === asset?.id)));
-        const version = turn?.versions.find(v => v.blocks.some(b => b.type === "image" && b.assetId === asset?.id));
+        const turn = c && [...c.turns].reverse().find(t => t.versions.some(v => (v.blocks.some(b => b.type === "image" && b.assetId === asset?.id) || Object.values(v.composites??{}).includes(asset?.id??''))));
+        const version = turn?.versions.find(v => (v.blocks.some(b => b.type === "image" && b.assetId === asset?.id) || Object.values(v.composites??{}).includes(asset?.id??'')));
         if (c && turn && version && asset) {
           sourceId ??= chatImageId(c.id, turn.id, version.id, asset.id);
           sourceRecord = await chat.favoriteRecord(c.id,turn.id,version.id,asset.id);
@@ -921,7 +960,7 @@ export function createEditor(
       busy ||
       preparing ||
       reading ||
-      !canRun(key) ||
+      !canRun(key, !(key === 'edit' && generative())) ||
       services.data.phase !== "ready"
     )
       return;
@@ -1024,7 +1063,9 @@ export function createEditor(
             if (block.type !== "image") continue;
             const { init_image, mask_image, referencePlan, preparedReferences, ...settings } = p.payload;
             const params: Fields =
-              p.mode === "upscale"
+              p.comparison
+                ? { model: p.model.id, tool: 'image-edit', prompt: String(p.payload.prompt ?? ''), image_options: (p.payload.image_options ?? {}) as Record<string, string>, width: block.size.width, height: block.size.height, via: output.via }
+                : p.mode === "upscale"
                 ? { model: p.model.id, tool: "upscale", via: output.via, width: block.size.width, height: block.size.height,
                   ...(p.model.profileId === "nai-official-v1" ? { upscaleModel: NAI_OFFICIAL_UPSCALE.model, upscaleFactor: NAI_OFFICIAL_UPSCALE.factor } : {}) }
                 : ({ ...p.settings, ...settings, width: block.size.width, height: block.size.height,
@@ -1040,6 +1081,7 @@ export function createEditor(
               parentId: p.parent.id,
               mode: p.mode,
               model: p.model,
+              comparison: p.comparison,
               quote: output.quote ?? undefined,
               params,
               name: `${stem(p.parent.name)}-${p.payload.enhance ? p.payload.enhanceScale === "max" ? "Enhance-Max" : "Enhance" : p.focusOriginal ? "聚焦重绘" : modeNames[p.mode]}-${++p.owner.resultCount}.${block.blob.type === "image/jpeg" ? "jpg" : block.blob.type.split("/")[1]}`,
@@ -1055,8 +1097,10 @@ export function createEditor(
               ui.toast("放大后尺寸没有变化", "warn");
             p.owner.viewId = last.id;
             if (current === p.owner) maskPort?.save();
-            alignMask(p.owner, last);
-            if (p.mode === "inpaint") p.owner.appliedMaskRevision = p.owner.maskRevision;
+            if (!p.comparison) {
+              alignMask(p.owner, last);
+              if (p.mode === "inpaint") p.owner.appliedMaskRevision = p.owner.maskRevision;
+            }
             emit();
           }
         },
@@ -1139,14 +1183,19 @@ export function createEditor(
     }
   };
   window.addEventListener("beforeunload", leave);
-  function canRun(key: Job) {
+  function canRun(key: Job, requireQuote = true) {
     if (external || busy || preparing) return false;
     const m = selected(key === "upscale" ? "upscale" : current.mode);
     if (!m) return false;
+    if (key === 'edit' && generative() && !hasEditInstructions()) return false;
+    if (key === 'edit' && maskPort?.isDrawing()) return false;
     if (key === "edit" && current.mode === "inpaint" &&
-        (current.maskFor !== current.baseId || !maskPort || maskPort.isDrawing() || !maskPort.getMask())) return false;
+        (current.maskFor !== current.baseId || !maskPort || !maskPort.getMask()) &&
+        !(generative() && canMaskAnnotations(annotationReader?.(current.id, current.baseId)?.regions ?? []))) return false;
     const profile = profileFor(m.profileId || STANDARD_PROFILE_ID);
-    return draftPaused.has(current) || !!jobs[key].quote || !profile.quote.supported && !profile.costCeiling;
+    // Saving an open annotation invalidates the preview quote during submit.
+    // Explicit generic edits still re-estimate and check balance inside task.execute.
+    return !requireQuote || draftPaused.has(current) || !!jobs[key].quote || !profile.quote.supported && !profile.costCeiling;
   }
   return {
     askSnapshot,
@@ -1204,6 +1253,7 @@ export function createEditor(
         strength: { ...current.strength },
         noise: { ...current.noise },
         enhance: { ...current.enhance },
+        imageEdit: structuredClone(current.imageEdit),
         focus: { on: current.focus.on, rect: current.focus.rect ? { ...current.focus.rect } : null },
         options: { ...current.options },
         director: structuredClone(current.director), directorChoices: { ...current.directorChoices },
@@ -1218,6 +1268,7 @@ export function createEditor(
       models,
       samplers,
       model: selected(),
+      generative: generative(),
       focusing: focusing(),
       focusAvailable: focusAvailable(),
       enhancing: enhancing(),
@@ -1269,6 +1320,44 @@ export function createEditor(
     setMaskPort(port: typeof maskPort) {
       maskPort = port;
     },
+    readAnnotations(boardId: string, versionId: number) { return annotationReader?.(boardId, versionId); },
+    setAnnotationReader(reader: typeof annotationReader) { annotationReader = reader; },
+    setComparisonReader(reader: typeof comparisonReader) { comparisonReader = reader; },
+    annotationsChanged(boardId: string, versionId: number) {
+      if (current.id === boardId && current.baseId === versionId && generative()) scheduleQuote('edit');
+    },
+    async previewComparison(boardId: string, versionId: number, signal?: AbortSignal) {
+      const owner = sessions.get(boardId), version = owner?.versions.find(v => v.id === versionId), info = version?.comparison;
+      const source = owner?.versions.find(v => v.id === info?.sourceId), raw = owner?.versions.find(v => v.id === info?.rawId);
+      if (!source || !raw || !info?.mask) throw new Error('此结果没有冻结蒙版');
+      signal?.throwIfAborted();
+      let pending = previews.get(raw);
+      if (!pending) {
+        pending = composeMaskedResult(source.blob, raw.blob, info.mask, info.edges).catch(error => { previews.delete(raw); throw error; });
+        previews.set(raw, pending);
+      }
+      const output = await pending; signal?.throwIfAborted(); return output;
+    },
+    async applyComparison(boardId: string, versionId: number) {
+      const owner = sessions.get(boardId), version = owner?.versions.find(v => v.id === versionId), info = version?.comparison;
+      const source = owner?.versions.find(v => v.id === info?.sourceId), raw = owner?.versions.find(v => v.id === info?.rawId);
+      if (!owner || owner !== current || !source || !raw || !info?.mask) throw new Error('编辑来源已变化');
+      if (busy || preparing || reading || external || maskPort?.isDrawing()) throw new Error('请先完成当前编辑操作');
+      const existing = owner.versions.find(v => v.id === raw.comparison?.compositeId);
+      if (existing) { owner.viewId = existing.id; emit(); return existing; }
+      if (!annotationAlignment(source, raw)) throw new Error('方向或宽高比不符，无法应用蒙版');
+      reading = true; emit();
+      try {
+        const blob = await this.previewComparison(boardId, versionId);
+        if (disposed || !sessions.has(owner.id) || !owner.versions.includes(raw) || !owner.versions.includes(source)) throw new Error('编辑版本已移除');
+        const merged = await addVersion(owner, { kind: 'result', mode: 'inpaint', parentId: source.id, model: raw.model,
+          blob, width: source.width, height: source.height, comparison: { ...info },
+          name: `${stem(raw.name)}-蒙版替换.png`, params: { ...raw.params, width: source.width, height: source.height,
+            localComposite: true, editId: crypto.randomUUID(), editParent: parentIdentity(source) } });
+        raw.comparison!.compositeId = merged.id; merged.comparison!.compositeId = merged.id;
+        owner.viewId = merged.id; emit(); return merged;
+      } finally { reading = false; emit(); requote(); }
+    },
     changed,
     run,
     runDirector,
@@ -1318,9 +1407,85 @@ export function createEditor(
       current.externalPending = pending;
       external = undefined; readSequence++; openSequence++; reading = false; emit(); requote(0);
     },
+    async applyAnnotations(target: {boardId: string; versionId: number}, value: AnnotationSnapshot, append: boolean, focus: boolean) {
+      validateAnnotationSnapshot(value);
+      validateAnnotationAreas(value.regions);
+      const s=sessions.get(target.boardId),v=s?.versions.find(v=>v.id===target.versionId);
+      if (!s || s!==current || !v || v.id!==s.baseId || v.id!==s.viewId) throw new Error("请先将批注图片设为当前底图");
+      if (locked() || reading || external || maskPort?.isDrawing()) throw new Error("请先完成当前编辑操作");
+      if (v.entity_key!==value.image.entity_key || v.width!==value.width || v.height!==value.height) throw new Error("批注底图已变化");
+      if (focus && !focusAvailable()) throw new Error("当前型号不支持聚焦重绘");
+      maskPort?.save();const revision=s.maskRevision;reading=true;emit();
+      try {
+        const previous=s.mask??emptyMask(v.width,v.height);
+        let bitmap=annotationMask(value);
+        if (append) bitmap=unionMasks(await maskStateBitmap(previous),bitmap);
+        const box=regionUnion(value.regions),rect=snapFocusRect(v,{x:box.x*v.width,y:box.y*v.height,width:box.w*v.width,height:box.h*v.height});
+        if(focus)inpaintFocusPlan(v,rect);
+        if(s!==current || s.baseId!==v.id || s.viewId!==v.id || s.maskRevision!==revision) throw new Error("编辑现场已变化，未写入蒙版");
+        writeMask(s,withMaskBitmap(previous,bitmap),false);s.maskRevision++;
+        s.mode='inpaint';s.focus={on:focus,rect:focus?rect:s.focus.rect};
+        // Comments remain user-authored instructions; never compile them as region-specific NAI parameters.
+        const comments=value.regions.map(r=>r.comment.trim()).filter(Boolean).join('\n');
+        if(comments)s.fields.prompt=[s.fields.prompt,comments].filter(Boolean).join('\n');
+        changed(0);
+      } finally {reading=false;emit();requote(0);}
+    },
+    async runAnnotations(target: {boardId:string;versionId:number}, input: AnnotationSnapshot, modelId: string, values?: Record<string,string>) {
+      validateAnnotationSnapshot(input);
+      const owner=sessions.get(target.boardId), parent=owner?.versions.find(v=>v.id===target.versionId);
+      if(!owner || owner!==current || !parent || parent.entity_key!==input.image.entity_key) throw new Error("批注图片已变化");
+      if(busy || preparing || reading || external || maskPort?.isDrawing()) throw new Error("请先完成当前编辑操作");
+      const snapshot=structuredClone(input);
+      let model=chat.snapshot().models.find(m=>m.id===modelId&&m.provider!=='novelai'&&m.maxImages>=2);
+      if(!model)throw new Error("请选择支持双图的改图模型");
+      taskOwner=owner;preparing=true;owner.error='';emit();
+      const controller=taskAbort=new AbortController();
+      try {
+        const guide=await annotationPreview(parent.blob,snapshot);
+        const clean=await fitReference(parent.blob,parent.name), marked=await fitReference(guide,'编号定位图.png');
+        const options=normalizeOptions(model,values??owner.options[model.id]);
+        owner.options[model.id]=options;
+        const request=buildChatPayload(model,annotationPrompt(snapshot.regions,true,owner.fields.prompt),options,await Promise.all([dataUrl(clean.blob),dataUrl(marked.blob)]));
+        controller.signal.throwIfAborted();preparing=false;busy=true;running='inpaint';runningEnhance=false;startedAt=Date.now();
+        cancelQuote('edit');cancelQuote('upscale');cancelQuote('director');emit();
+        const result=await services.runTask({id:crypto.randomUUID(),workspace:'editor',sessionId:owner.id,snapshot:request},async task=>{
+          const output=await task.execute(model!,request,(r,n,signal)=>consumeMedia(r,n,signal,request),{signal:task.signal,onNotice:n=>ui.toast(n),onSource:source=>{model=source.model;}});
+          for(const block of output.value){
+            if(block.type!=='image')continue;task.signal.throwIfAborted();
+            const v=await addVersion(owner,{kind:'result',parentId:parent.id,mode:'inpaint',blob:block.blob,...block.size,model,quote:output.quote??undefined,
+              annotation:{snapshot,sourceId:parent.id},name:`${stem(parent.name)}-批注直出-${++owner.resultCount}.${block.blob.type==='image/jpeg'?'jpg':block.blob.type.split('/')[1]}`,
+              params:{model:model!.id,prompt:request.prompt,image_options:request.image_options??{},tool:'inpaint',width:block.size.width,height:block.size.height,via:output.via,editId:crypto.randomUUID(),editParent:parentIdentity(parent)}});
+            owner.viewId=v.id; // Raw result is visible; base and binary mask stay unchanged until user action.
+          }
+          emit();
+        },controller.signal);
+        if(result.status!=='completed')throw new Error(result.status==='busy'?'另一个绘图任务正在进行':'数据维护中，请稍后再试');
+      } catch(e){owner.error=failure(e);throw e;} finally {preparing=false;busy=false;taskOwner=undefined;taskAbort=undefined;emit();requote();}
+    },
+    annotationReview(boardId: string, versionId: number): AnnotationReview {
+      const owner=sessions.get(boardId), v=owner?.versions.find(v=>v.id===versionId), info=v?.annotation;
+      const source=owner?.versions.find(v=>v.id===info?.sourceId), raw=owner?.versions.find(p=>p.id===(info?.rawId??v?.id));
+      if(!owner||!v||!info||!source||!raw)throw new Error("批注改图来源已失效");
+      const snapshot=structuredClone(info.snapshot);
+      validateAnnotationAreas(snapshot.regions);
+      return {source:source.blob,raw:raw.blob,snapshot,title:'审核批注改图',apply:async(blob)=>{
+        if(disposed||!sessions.has(owner.id)||!owner.versions.includes(raw)||!owner.versions.includes(source))throw new Error("编辑版本已变化");
+        if(busy||preparing||reading||external)throw new Error("请先完成当前编辑操作");
+        if(!annotationAlignment(snapshot,raw))throw new Error("模型直出的方向或宽高比不符，无法应用蒙版");
+        reading=true;emit();
+        try {
+          const size=await decodeImage(blob);if(blob.type!=='image/png'||size.width!==snapshot.width||size.height!==snapshot.height)throw new Error("回贴结果尺寸或格式无效");
+          if(!owner.versions.includes(raw)||disposed)throw new Error("编辑版本已移除");
+          const merged=await addVersion(owner,{kind:'result',mode:'inpaint',parentId:source.id,blob,width:snapshot.width,height:snapshot.height,name:`${stem(raw.name)}-回贴.png`,model:raw.model,params:{...raw.params,editId:crypto.randomUUID(),editParent:parentIdentity(source),width:snapshot.width,height:snapshot.height,localComposite:true},annotation:{snapshot,sourceId:source.id,rawId:raw.id}});
+          raw.annotation={snapshot,sourceId:source.id,compositeId:merged.id};owner.viewId=merged.id;
+        } finally { reading=false;emit(); }
+      }};
+    },
     importMask,
     writeMask,
-    saveFavorite() { return saveFavorite(); },
+    saveFavorite(version?: EditorVersion) { return saveFavorite(version); },
+    isFavorite(version?: EditorVersion) { return !!version && drawing.snapshot().favorites.some(r => r.id === version.recordId); },
     reference(v: EditorVersion) { const board=[...sessions.values()].find(s=>s.versions.includes(v)); return board ? qualifiedEditLabel(board,v) : ""; },
     records,
     record(id: string) { return records().find(r => r.id === id); },
@@ -1343,6 +1508,7 @@ export function createEditor(
         settings?: Fields;
         conversationId?: string;
         sourceId?: string;
+        viewSource?: boolean;
       } = {},
     ) {
       if (preparing || reading || external || maskPort?.isDrawing()) {
@@ -1359,9 +1525,18 @@ export function createEditor(
         open = true; router.switchWorkspace("edit"); emit();
         await catalog();
         if (revision !== openSequence || current !== existing || !open) return;
+        if (options.viewSource && blob) {
+          const source = current.versions.find(v => v.blob === blob || sourceKey && (v.sourceId === sourceKey || sourceKey === `record:${v.recordId}` || v.params?.editId && sourceKey === `edit:${v.params.editId}`));
+          if (!source) return;
+          view(source.id);
+          if (viewed() !== source || locked() || reading || external) return;
+          upscaleOpen = directorOpen = false;
+          emit();
+        }
         if (options.mode === "img2img" || options.mode === "inpaint") this.setMode(options.mode);
         if (options.mode === "upscale") { upscaleOpen = true; emit(); scheduleQuote("upscale", 0); }
-        return;
+        const version = viewed();
+        return version ? { boardId: current.id, versionId: version.id } : undefined;
       }
       maskPort?.save();
       const next = !current.versions.length && taskOwner !== current ? current : session(crypto.randomUUID(), origin, conversationId, nextBoard++);
@@ -1445,6 +1620,8 @@ export function createEditor(
         scheduleQuote("upscale", 0);
       }
       requote(0);
+      const version = viewed();
+      return version ? { boardId: current.id, versionId: version.id } : undefined;
     },
     activate() {
       if (!open) {
@@ -1490,8 +1667,10 @@ export function createEditor(
     },
     setMode(mode: EditMode) {
       if (locked() || reading) return;
-      if (mode === "inpaint" && current.viewId !== current.baseId)
-        setBase(current.viewId);
+      if (generative()) {
+        current.chosen[mode] = current.chosen[current.mode];
+        if (mode === 'inpaint' && current.viewId !== current.baseId) view(current.baseId);
+      } else if (mode === "inpaint" && current.viewId !== current.baseId) setBase(current.viewId);
       current.mode = mode;
       normalize();
       changed(0);
@@ -1542,14 +1721,19 @@ export function createEditor(
       normalize();
       changed(mode === "upscale" ? 0 : 400);
     },
-    setOption(key: string, value: string) {
-      const m = selected("upscale");
+    setOption(key: string, value: string, mode: EditorMode = 'upscale') {
+      const m = selected(mode);
       if (!m || locked()) return;
       current.options[m.id] = {
         ...(current.options[m.id] || normalizeOptions(m)),
         [key]: value,
       };
       changed();
+    },
+    setImageEdit(values: Partial<ImageEditSettings>) {
+      if (locked() || reading) return;
+      if (values.edges && ![values.edges.dilate, values.edges.feather].every(n => Number.isFinite(n) && n >= 0 && n <= .025)) return;
+      current.imageEdit = { ...current.imageEdit, ...structuredClone(values) }; changed();
     },
     upscaleToggle(value: boolean) {
       upscaleOpen = value;
@@ -1569,7 +1753,15 @@ export function createEditor(
       if (!v) return;
       const removed = v.director ? current.versions.filter(item => item.director?.group === v.director!.group) : [v];
       if (removed.some(item => item.id === current.baseId)) return;
+      if (current.versions.some(item => !removed.includes(item) && item.annotation && removed.some(r => r.id === item.annotation!.sourceId || r.id === item.annotation!.rawId))) {
+        ui.toast('此版本仍用于批注回贴，请先移除关联结果'); return;
+      }
+      if (current.versions.some(item => !removed.includes(item) && item.comparison && removed.some(r => r.id === item.comparison!.sourceId || r.id === item.comparison!.rawId))) {
+        ui.toast('此版本仍用于蒙版替换，请先移除关联结果'); return;
+      }
       current.versions = current.versions.filter(item => !removed.includes(item));
+      for (const item of current.versions) if (item.annotation && removed.some(r => r.id === item.annotation!.compositeId)) delete item.annotation.compositeId;
+      for (const item of current.versions) if (item.comparison && removed.some(r => r.id === item.comparison!.compositeId)) delete item.comparison.compositeId;
       for (const item of removed) URL.revokeObjectURL(item.url);
       if (v.director) delete current.directorChoices[v.director.group];
       if (current.mask && removed.some(item => current.mask!.anchor === item.id || current.mask!.strokes.some(e => "bitmap" in e && e.baseId === item.id))) {
@@ -1579,8 +1771,16 @@ export function createEditor(
       if (removed.some(item => item.id === current.viewId)) { current.viewId = current.baseId; const v = base(); if (v) alignMask(current, v); }
       changed();
     },
-    async useResult() {
-      const owner = current, v = viewed(), conversationId = owner.conversationId;
+    /** The live CHAT conversation this board came from, with the turn/image when the version still names them. */
+    chatSource(versionId = current.viewId) {
+      const id = current.origin === "chat" ? current.conversationId : undefined;
+      if (!id || !chat.snapshot().conversations.some(c => c.id === id)) return;
+      const v = current.versions.find(v => v.id === versionId), p: Fields = v?.params?.chatConversationId === id ? v.params : {};
+      const text = (value: unknown) => typeof value === "string" && value ? value : undefined;
+      return { conversationId: id, turnId: text(p.chatTurnId), versionId: text(p.chatVersionId), assetId: text(p.chatAssetId) };
+    },
+    async useResult(versionId = current.viewId) {
+      const owner = current, v = owner.versions.find(v => v.id === versionId), conversationId = owner.conversationId;
       if (!v || owner.origin !== "chat" || !conversationId || locked()) return;
       try {
         await chat.useEditorResult(conversationId, {

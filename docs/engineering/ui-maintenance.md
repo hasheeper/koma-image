@@ -124,7 +124,7 @@ NAI 提示词内底栏归 `NaiPromptOptions.vue`，档位菜单归 `NaiSelect.vu
 
 组件私有规则归对应 Vue，不保留第二份全局副本。
 
-菜单的表面、行高、状态、分组标题、右侧附注、分隔线与入场只写在 `controls.css`；`switch-menu`（ui）、`conv-menu`／`model-panel`（chat）、`editor-mini`（editor）、`conn-menu`（settings）与各组件菜单只保留宽度、定位和特殊部件，例如画板行内 ⋯ 与底栏、模型分组、编辑参数输入。ASK 与原有任务菜单在触屏保持 32px 行的例外由 `PopoverMenu.vue` 的 `compact` 属性启用。
+通用菜单的表面、行高、状态、分组标题、右侧附注、分隔线与入场写在 `controls.css`；`switch-menu`（ui）、`conv-menu`／`model-panel`（chat）、`conn-menu`（settings）与各组件菜单只保留宽度、定位和特殊部件，例如画板行内 ⋯ 与底栏、模型分组、编辑参数输入。EDIT 画布工具弹窗的玻璃材质例外统一归 `editor.css` 的 `.editor-flyout`，与底部工具胶囊共用表面。ASK 与原有任务菜单在触屏保持 32px 行的例外由 `PopoverMenu.vue` 的 `compact` 属性启用。
 
 外部协同目录标签归 `src/bridge/DirectoryChip.vue`，锚定菜单的定位和焦点清理归 `shared/ui/PopoverMenu.vue`；ASK 内通过 `AskMenu.vue` 注册关闭层，HOME 直接使用通用菜单，材质取共享菜单；手动 JSON 兜底归 `BridgeSettings.vue`，在已有设置 ASK 页面内复用共享设置行。无资料选择或独立导出弹窗。
 
@@ -146,9 +146,13 @@ NAI 提示词内底栏归 `NaiPromptOptions.vue`，档位菜单归 `NaiSelect.vu
 
 EDIT 已独立，版本栏由 `editor.css` 的 `--editor-rail` 管理，不再继承底下工作区的尺寸。画板菜单呈现归 `src/shared/boards/BoardMenu.vue`，`src/workspaces/edit/EditBoards.vue` 只负责编辑画板业务接线。重绘／放大共用 `EditToolMode.vue` 的分体入口、尺寸对齐、类型菜单定位及生命周期，表面与菜单行复用共享样式；原生／外部放大的模型与参数过滤归 `EditWorkspace.vue`，不改放大服务链路。模板内范围覆盖层归 `EditWorkspace.vue` 的 scoped 样式，尺寸角标与指针几何由 `src/native/focus-region.ts` 更新，不新增公共 Canvas 补丁。
 
-Director 魔棒、工具条、强度分段与选项菜单的私有规则归 `DirectorTools.vue`；放大与 Director 共用 `editor.css` 的 `.editor-mini-*` 行和动作布局，定位归 `src/workspaces/edit/panels.ts`，面板位于工具栏上方 6px 并限制到视口内。NovelAI Upscale 与其他模型文字使用 `--sans`／`--fw-semibold`，不改共享菜单字重。
+Director 魔棒、工具条、强度分段与选项菜单的私有规则归 `DirectorTools.vue`；批注、重绘、放大与 Director 弹窗共用 `.editor-flyout` 材质、菜单行和反馈，放大与 Director 参数共用 `.editor-mini-*` 行和动作布局。倍率、尺寸和执行按钮保持单行，放大面板按内容宽度展开并受视口限制，不将按钮挤到下一行。根弹窗定位归 `src/workspaces/edit/panels.ts`，位于主编辑胶囊上方 8px 并限制到视口内；打开时隐藏上方画笔／批注操作胶囊但保留占位，关闭后原位恢复。NovelAI Upscale 与其他模型文字使用 `--sans`／`--fw-semibold`，不改共享菜单字重。
 
-EDIT 底部工具栏保持单行，宽度不足时将图片操作显示为上方左对齐的独立胶囊。布局材质归 `editor.css`，实际宽度测量与溢出标记归 `src/native/editor-toolbar.ts`；不搬移 Vue 节点，页面隐藏时暂停 Observer 与 rAF，恢复时重新测量，卸载时清理。
+EDIT 底部按编辑、视图、图片操作分为三个同高玻璃胶囊，复用发送胶囊的材质与亮暗悬停；移动端同样绝对定位在画布内，不增加独立底板，宽度不足时按整组居中换行，蒙版画笔按需展开在上方。工具尺寸使用 `--editor-tool-size`，鼠标 32px、触屏 36px；主生成按钮的尺寸规则限定在 `.composer-foot`，不得影响弹窗。布局归 `editor.css`，`src/native/editor-toolbar.ts` 只测量整体高度，为画布与对比控件留位；不搬移 Vue 节点，页面隐藏时暂停 Observer 与 rAF，恢复时重新测量，卸载时清理。
+
+EDIT 右上角发送操作带的横向布局、胶囊玻璃与亮色悬停归 `editor.css`，行为见[批注交接](../workspaces/annotations.md#edit选区与交接)。它复用 `PopoverMenu` 的开闭与焦点策略，并显式开启横向键盘导航和关闭后保留节点，以支持原生 `display/overlay` 过渡；其他菜单保持原行为。
+
+批注覆盖层与专用工具栏归 `shared/annotations/RegionAnnotator.vue`，指针与临时几何归 `native/region-annotator.ts`；共享 `AnnotationCard.vue` 在 ASK 使用 `usePopover` 列表，在 CHAT 内联展开。控件沿用主题变量与图标库，图像上的线框／编号采用独立媒体强调色，不追加全局样式覆盖。
 
 版本栏使用 132px／中等宽度 112px 及原有窄屏断点；主动折叠用 `.editor[data-rail="off"]` 设置为 0，不读取其他工作区的 `--hist`。
 

@@ -42,7 +42,7 @@ function placeChoices() {
   if (!choices.value || !choiceTrigger) return;
   const r = choiceTrigger.getBoundingClientRect(), p = choices.value;
   p.style.left = `${Math.round(Math.max(8, Math.min(r.right - p.offsetWidth, document.documentElement.clientWidth - p.offsetWidth - 8)))}px`;
-  p.style.top = `${Math.round(Math.max(8, r.top - p.offsetHeight - 4))}px`; p.dataset.placement = "top";
+  p.style.top = `${Math.round(Math.max(8, r.top - p.offsetHeight - 8))}px`; p.dataset.placement = "top";
 }
 async function openChoices(kind: "emotion" | "level", e: Event) {
   if (choiceOpen.value && choice.value === kind) { choices.value?.hidePopover(); return; }
@@ -71,7 +71,7 @@ defineExpose({ close });
     <button ref="trigger" id="editorDirector" class="editor-tool director-op" type="button" aria-label="Director Tools" data-tip="Director Tools" aria-haspopup="dialog" aria-controls="editorDirectorPanel" popovertarget="editorDirectorPanel" :aria-expanded="view.directorOpen" :disabled="locked || !view.viewed">
       <AppIcon name="i-dt-wand" /><AppIcon name="i-chevron" class="editor-caret" />
     </button>
-    <section ref="panel" id="editorDirectorPanel" class="menu editor-mini director-panel" popover role="dialog" aria-label="Director Tools" @beforetoggle="beforeToggle" @toggle="toggled" @keydown="panelKey">
+    <section ref="panel" id="editorDirectorPanel" class="menu editor-flyout editor-mini director-panel" popover role="dialog" aria-label="Director Tools" @beforetoggle="beforeToggle" @toggle="toggled" @keydown="panelKey">
       <div v-if="s.tool === 'colorize' || s.tool === 'emotion'" class="editor-mini-params">
         <div v-if="s.tool === 'colorize'" class="editor-mini-row">
           <span class="editor-mini-label" title="减轻过强的色彩与噪点">Defry</span>
@@ -93,7 +93,7 @@ defineExpose({ close });
       <div class="director-strip" role="radiogroup" aria-label="Director Tools 工具" @keydown="stripKey">
         <button v-for="t in directorTools" :key="t.id" class="editor-tool" type="button" role="radio" :aria-checked="s.tool === t.id" :aria-pressed="s.tool === t.id" :tabindex="s.tool === t.id ? 0 : -1" :disabled="locked" @click="selectTool(t.id)"><AppIcon :name="t.icon" /><span>{{ t.name }}</span></button>
       </div>
-      <div ref="choices" id="editorDirectorChoices" class="menu director-choices" popover role="menu" :aria-label="choice === 'emotion' ? '表情' : '表情强度'" @toggle="choiceOpen = ($event as ToggleEvent).newState === 'open'" @keydown="choiceKey">
+      <div ref="choices" id="editorDirectorChoices" class="menu editor-flyout director-choices" popover role="menu" :aria-label="choice === 'emotion' ? '表情' : '表情强度'" @toggle="choiceOpen = ($event as ToggleEvent).newState === 'open'" @keydown="choiceKey">
         <button v-for="item in items" :key="item.value" class="menu-item" type="button" role="menuitemradio" :aria-checked="selected === item.value" @click="choose(item.value)"><span class="menu-label">{{ item.label }}</span><AppIcon class="menu-check" name="i-check" /></button>
       </div>
     </section>
@@ -102,21 +102,15 @@ defineExpose({ close });
 
 <style scoped>
 .editor-director-tool { display: flex; flex: none; }
-.director-op { display: grid; grid-template-columns: 32px 14px; width: 46px; padding: 0; gap: 0; justify-items: center; }
+.director-op { display: grid; grid-template-columns: var(--editor-tool-size) var(--editor-tool-arrow-size); width: calc(var(--editor-tool-size) + var(--editor-tool-arrow-size)); padding: 0; gap: 0; justify-items: center; }
 .director-panel { width: max-content; }
 .director-num.seg { grid-auto-flow: column; grid-auto-columns: 26px; gap: 2px; padding: 2px; }
 .director-num.seg span { padding: 3px 0; font: 500 var(--fz-xs)/1.4 var(--mono); }
-.director-prompt { width: 100%; height: 32px; padding: 0 10px; font-size: var(--fz-xs); }
-.director-strip { display: flex; flex: none; gap: 2px; margin: 0 -4px -4px; padding: 4px; border-top: 1px solid var(--line-2); overflow-x: auto; scrollbar-width: none; }
+.director-prompt { width: 100%; height: 32px; padding: 0 10px; font-size: var(--fz-sm); }
+.director-strip { display: flex; flex: none; gap: 4px; margin: 0; padding: 8px 0 0; border-top: 1px solid var(--line-2); overflow-x: auto; scrollbar-width: none; }
+.director-strip .editor-tool { height: 32px; gap: 6px; padding-inline: 8px; border-radius: 8px; --ico: var(--ico-sm); }
 .director-strip .editor-tool[aria-pressed="false"] { color: var(--fg-2); }
-.director-strip .editor-tool:hover { color: var(--fg); background: var(--hover); }
+.director-strip .editor-tool:is(:hover, :focus-visible) { color: var(--fg); background: var(--editor-flyout-hover); box-shadow: var(--editor-flyout-hover-shadow); }
+.director-strip .editor-tool[aria-pressed="true"] { color: var(--a); background: var(--a-dim); box-shadow: none; }
 .director-choices { width: 148px; max-height: min(280px, calc(100vh - 16px)); }
-@media (max-width: 860px) {
-  .director-op { grid-template-columns: 40px 18px; width: 58px; height: 40px; }
-  .director-num.seg { grid-auto-columns: 30px; }
-  .director-num.seg span { padding: 6px 0; }
-  .director-prompt { height: 38px; }
-  .director-strip { mask-image: linear-gradient(90deg, #000 calc(100% - 20px), transparent); }
-}
-@media (max-width: 420px) { .director-num.seg { grid-auto-columns: 26px; } }
 </style>

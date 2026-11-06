@@ -52,7 +52,7 @@ export interface AskMessage {
 }
 /**
  * Payload order follows the cache layout: tools, system block 1 (constitution,
- * workspace, all-model knowledge), system block 2 (preferences, codebook),
+ * workspace, all-model knowledge), system block 2 (preferences, codec notation),
  * history, then the current turn with its workspace state at the tail.
  */
 export interface AskRequest {
@@ -80,6 +80,16 @@ export interface CacheUsage {
 export const reportedCount = (value: unknown): number | null =>
   typeof value === "number" && Number.isFinite(value) && value >= 0 ? value : null;
 export type AskStop = "end" | "tool" | "length" | "refusal" | "other";
+/** Response facts only: no headers, body, hidden reasoning or upstream address. */
+export interface ResponseDiagnostics {
+  readonly httpStatus: number | null;
+  readonly contentType: string | null;
+  readonly bytes: number;
+  readonly events: number;
+  readonly textChars: number;
+  readonly calls: number;
+  readonly finishReason: string | null;
+}
 export type AskEvent =
   | { readonly type: "text"; readonly text: string }
   | { readonly type: "call"; readonly call: AskCall }

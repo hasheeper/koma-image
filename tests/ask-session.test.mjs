@@ -39,6 +39,7 @@ function script(...steps) {
       for (const event of events) {
         signal.throwIfAborted();
         if (event === "fail") throw new ProviderError("rejected", "blocked by filter", 400);
+        if (event === "empty") throw new ProviderError("protocol", "上游已结束响应，但未收到可识别的正文或工具调用（未提供结束原因）");
         if (event === "hold") await new Promise((_, reject) => signal.addEventListener("abort", () => reject(signal.reason)));
         else yield event;
       }
@@ -72,6 +73,31 @@ async function drain(generator) {
   for await (const event of generator) events.push(event);
   return events;
 }
+
+test('runner: an empty stream fails after one request and rolls back without using the next response', async () => {
+  const model=script(['empty'],[{type:'text',text:'不应自动请求'},done()]);
+  const {turn,options,session}=setup(model);
+  await assert.rejects(drain(run(options)),e=>e.kind==='protocol'&&/未提供结束原因/.test(e.message));
+  assert.equal(model.requests.length,1);assert.equal(turn.budget.requests,1);
+  turn.rollback();assert.equal(session.turns,0);assert.deepEqual(session.messages,[]);
+});
+
+test('runner: refusals and partial text/tool errors never retry', async () => {
+  for (const events of [['fail'],[{type:'text',text:'partial'},'empty'],[call('partial'),'empty']]) {
+    const model=script(events),{turn,options}=setup(model);
+    await assert.rejects(drain(run(options)),ProviderError);
+    assert.equal(model.requests.length,1);turn.rollback();
+  }
+});
+
+test('runner: an empty stream after a tool fails without a retry or prose continuation', async () => {
+  const model=script([call('read'),done('tool')],['empty'],[{type:'text',text:'不应自动请求'},done()]);
+  const {options,turn,states,session}=setup(model);
+  await assert.rejects(drain(run(options)),e=>e.kind==='protocol');
+  assert.equal(states.length,1);assert.equal(turn.budget.toolCalls,1);assert.equal(turn.budget.requests,2);
+  assert.equal(model.requests.length,2);
+  turn.rollback();assert.equal(session.turns,0);
+});
 
 test("session: a turn joins the history only when committed; failures leave nothing", async () => {
   const session = createSession();
@@ -121,22 +147,116 @@ test("runner: text turns, tool rounds appended at the tail, and the snapshot loc
   assert.equal(turn.budget.requests, 2);
 });
 
-test("runner: six tool calls at most, unknown tools answered, a model that never stops fails the turn", async () => {
-  const greedy = Array.from({ length: 12 }, (_, i) => [call(`c${i}`), done("tool")]);
+test("runner: 24 reads leave a final answer round; persistent calls stop before further reads", async () => {
+  assert.equal(LIMITS.toolCalls, 24);
+  const reads = Array.from({ length: LIMITS.toolCalls }, (_, i) => [call(`r${i}`), done("tool")]);
+  const polite = script(...reads, [{ type: 'text', text: '基于现有信息的结论。' }, done()]);
+  const first = setup(polite);
+  assert.equal((await drain(run(first.options))).at(-1).reason, 'end');
+  assert.equal(first.states.length, 24);
+  assert.equal(first.turn.budget.toolCalls, 24);
+  assert.equal(polite.requests.length, 25);
+  assert.match(polite.requests.at(-1).messages.at(-1).content[0].text, /仍可调用一次 propose_draft/);
+
+  const greedy = Array.from({ length: LIMITS.requests }, (_, i) => [call(`c${i}`), done("tool")]);
   const { turn, options, states } = setup(script(...greedy));
   await assert.rejects(drain(run(options)), (error) => error instanceof ProviderError && error.kind === "protocol");
   assert.equal(states.length, LIMITS.toolCalls);
-  assert.equal(turn.budget.requests, LIMITS.requests + 1);
-  const results = turn.messages().filter((m) => m.role === "user").slice(1).map((m) => m.content[0]);
-  assert.equal(results.filter((r) => !r.error).length, 6);
-  assert.match(results[6].content[0].text, /已达上限/);
+  assert.equal(turn.budget.requests, LIMITS.requests);
+  const results = turn.messages().flatMap(m => m.content.filter(b => b.type === 'result'));
+  assert.equal(results.filter((r) => !r.error).length, 24);
+  assert.match(results[24].content[0].text, /读取阶段已结束/);
   turn.rollback();
+});
 
+test("runner: unknown tools receive a recoverable error", async () => {
   const polite = script([call("x", "no_such_tool"), done("tool")], [call("y"), done("tool")], [{ type: "text", text: "好" }, done()]);
   const second = setup(polite);
   const events = await drain(run(second.options));
   assert.deepEqual(events.filter((e) => e.type === "tool-end").map((e) => e.ok), [false, true]);
   assert.match(polite.requests[1].messages.at(-1).content[0].content[0].text, /没有名为 no_such_tool 的工具/);
+});
+
+test('runner: a full read budget still permits one final draft and its explanation', async () => {
+  let drafts = 0;
+  const tools = new Map(createTools());
+  tools.set('propose_draft', { ...tools.get('propose_draft'), run: () => {
+    drafts++;
+    return { content: [{ type: 'text', text: '草稿待确认' }], draft: { title: '调整词文' } };
+  } });
+  const reads = Array.from({ length: LIMITS.toolCalls }, (_, i) => [call(`r${i}`), done('tool')]);
+  const model = script(...reads, [call('draft', 'propose_draft'), done('tool')], [{ type: 'text', text: '草稿已整理，请确认。' }, done()]);
+  const { options, turn, states } = setup(model, { tools });
+  const events = await drain(run(options));
+  assert.equal(drafts, 1);
+  assert.equal(states.length, 24);
+  assert.equal(turn.budget.toolCalls, 25);
+  assert.equal(model.requests.length, 26);
+  assert.equal(model.requests.at(-1).toolChoice, 'none');
+  assert.ok(events.filter(e => e.type === 'tool-end').every(e => e.ok));
+  assert.equal(events.at(-1).reason, 'final');
+});
+
+test('runner: an invalid reserved draft cannot loop; remaining reads are blocked and prose still completes', async () => {
+  let drafts = 0;
+  const tools = new Map(createTools());
+  tools.set('propose_draft', { ...tools.get('propose_draft'), run: () => {
+    drafts++;
+    return { error: true, content: [{ type: 'text', text: '草稿字段缺失' }] };
+  } });
+  const model = script([
+    ...Array.from({ length: LIMITS.toolCalls }, (_, i) => call(`r${i}`)),
+    call('draft1', 'propose_draft'), call('draft2', 'propose_draft'), call('extra'), done('tool'),
+  ], [{ type: 'text', text: '草稿未完成，现有结论如下。' }, done()]);
+  const { options, states, turn } = setup(model, { tools });
+  const events = await drain(run(options));
+  assert.equal(drafts, 1);
+  assert.equal(states.length, 24);
+  assert.equal(turn.budget.toolCalls, 25);
+  assert.equal(model.requests[1].toolChoice, 'none');
+  assert.equal(events.at(-1).reason, 'end');
+});
+
+test('runner: failed recall can be tried again; repeated successful reads cannot loop forever', async () => {
+  let reads = 0;
+  const calls = Array.from({ length: LIMITS.toolCalls }, (_, i) => [call(`c${i}`, 'get_turn', { turns: ['T1'] }), done('tool')]);
+  const model = script(...calls, [call('extra', 'get_turn', { turns: ['T1'] }), done('tool')], [{ type: 'text', text: '已取得原文。' }, done()]);
+  const { options, turn } = setup(model);
+  options.context.recall = () => {
+    if (++reads <= 2) throw new Error('临时读取失败');
+    return { turns: [{ turnId: 'T1', reply: '原文' }] };
+  };
+  const events = await drain(run(options));
+  assert.equal(reads, 3);
+  assert.equal(turn.budget.toolCalls, 3);
+  assert.equal(model.requests.length, LIMITS.requests);
+  assert.equal(model.requests.at(-1).toolChoice, 'none');
+  assert.equal(events.at(-1).reason, 'end');
+});
+
+test('runner: recall reuse keeps full history and different attachment pages independent', async () => {
+  const model = script([
+    call('default', 'get_turn', { turns: ['T1'] }),
+    call('draft', 'get_turn', { turns: ['T1'], include: 'draft' }),
+    call('full', 'get_turn', { turns: ['T1'], include: 'full' }),
+    call('invalid', 'get_turn', { turns: ['T1'], include: null }),
+    call('page1', 'get_turn', { attachments: ['text-1'], offset: 0 }),
+    call('page2', 'get_turn', { attachments: ['text-1'], offset: 8000 }), done('tool'),
+  ]);
+  const { options, turn } = setup(model), reads = [];
+  options.context.recall = input => {
+    reads.push(input);
+    if (input.include === null) throw new Error('include 需为 draft 或 full');
+    return input;
+  };
+  await drain(run(options));
+  assert.equal(reads.length, 5);
+  assert.equal(turn.budget.toolCalls, 5);
+  const results = model.requests[1].messages.at(-1).content;
+  assert.match(results[2].content[0].text, /"include":"full"/);
+  assert.equal(results[3].error, true, 'invalid input must not match the default cache entry');
+  assert.match(results[4].content[0].text, /"offset":0/);
+  assert.match(results[5].content[0].text, /"offset":8000/);
 });
 
 test("runner: a final tool ends the turn after its result; aborting stops mid-stream", async () => {
@@ -197,7 +317,7 @@ test("runner: a silent final draft gets one prose-only completion, never a secon
 
 test("runner: completed blank post-tool endings request prose once; repeated silence cannot succeed", async () => {
   for (const empty of [[{ type: "text", text: " \n" }, done()], [done()]]) {
-    const model = script([call("r1"), done("tool")], empty, [{ type: "text", text: "已读取表单，尚未看图。" }, done()]);
+    const model = script([{ type: 'text', text: '先检查。' }, call("r1"), done("tool")], empty, [{ type: "text", text: "已读取表单，尚未看图。" }, done()]);
     const { options, turn } = setup(model);
     const events = await drain(run(options));
     assert.equal(model.requests.length, 3);
@@ -206,11 +326,25 @@ test("runner: completed blank post-tool endings request prose once; repeated sil
     assert.ok(turn.messages().filter(m => m.role === "assistant").every(m => m.content.some(b => b.type !== "text" || b.text.trim())));
     assert.equal(events.at(-1).reason, "end");
   }
-  const silent = setup(script([call("r1"), done("tool")], [done()], [done()]));
+  const silent = setup(script([{ type: 'text', text: '先检查。' }, call("r1"), done("tool")], [done()], [done()]));
   await assert.rejects(drain(run(silent.options)), e => e.kind === "empty");
   assert.equal(silent.turn.budget.requests, 3);
   silent.turn.rollback();
   assert.deepEqual(silent.session.messages, []);
+});
+
+test('runner: earlier commentary cannot substitute for an explanation after a later silent draft', async () => {
+  const tools = new Map(createTools());
+  tools.set('propose_draft', { ...tools.get('propose_draft'), run: () => ({ content: [{ type: 'text', text: '待确认' }] }) });
+  const model = script(
+    [{ type: 'text', text: '先看当前表单。' }, call('read'), done('tool')],
+    [call('draft', 'propose_draft'), done('tool')],
+    [{ type: 'text', text: '草稿中已调整眼睛颜色，其他词文保持。' }, done()],
+  );
+  const { options } = setup(model, { tools });
+  assert.equal((await drain(run(options))).at(-1).reason, 'final');
+  assert.equal(model.requests.length, 3);
+  assert.equal(model.requests[2].toolChoice, 'none');
 });
 
 test("runner: prose completion failures and aborts keep transaction semantics; unexpected tools never run", async () => {

@@ -1,5 +1,9 @@
 <script setup lang="ts">
 import { defineAsyncComponent, provide, shallowRef, onScopeDispose, watch } from "vue";
+import type { Component, ShallowRef } from "vue";
+import AnnotationReview from "../shared/annotations/AnnotationReview.vue";
+import { createAnnotations } from "../services/annotations.ts";
+import { annotationsKey } from "./annotations.ts";
 import { createRouter } from "./router";
 import { createShell, shellKey } from "./shell";
 import { usePresentation } from "./presentation";
@@ -58,6 +62,9 @@ provide(homeNavigationKey, createHomeNavigation({ router, home, drawing, chat, e
 onScopeDispose(() => { void home.dispose(); });
 const ask = createAsk({ services, router, drawing, chat, ui, slates, home, editor });
 provide(askKey, ask);
+const annotations = createAnnotations({ ask, editor, chat, router });
+provide(annotationsKey, annotations);
+onScopeDispose(() => annotations.dispose());
 provide(askPresentationKey, createAskPresentation(ask, router));
 function syncHomeActivity() {
   const plan = ask.draftPlan.value, activity: HomeActivity[] = [];
@@ -82,12 +89,32 @@ onScopeDispose(() => { void bridge.dispose(); });
 usePresentation(shell, ui);
 const editCreated = shallowRef(router.route.value.workspace === "edit");
 watch(() => router.route.value.workspace, w => { if (w === "edit") editCreated.value = true; });
-const SettingsOverlay = defineAsyncComponent(() => import("../overlays/SettingsOverlay.vue"));
+const SettingsOverlay: ShallowRef<Component | null> = shallowRef(null);
 const SlatePanel = defineAsyncComponent(() => import("../slate/SlatePanel.vue"));
-const settingsCreated = shallowRef(router.route.value.overlay === "settings");
-watch(() => router.route.value.overlay, overlay => {
-  if (overlay === "settings") settingsCreated.value = true;
-});
+let settingsLoading = false, disposed = false;
+let settingsRequest: Promise<{ default: Component }> | undefined;
+onScopeDispose(() => { disposed = true; });
+watch(() => router.route.value.overlay, async overlay => {
+  if (overlay !== "settings" || SettingsOverlay.value || settingsLoading) return;
+  settingsLoading = true;
+  try {
+    // Keep a rejected request too: retrying Vite's cached CSS preload can skip
+    // the failed stylesheet and mount an unstyled dialog on the next attempt.
+    const module = await (settingsRequest ??= import("../overlays/SettingsOverlay.vue"));
+    if (!disposed) SettingsOverlay.value = module.default;
+  } catch (error) {
+    if (disposed) return;
+    console.warn("设置界面加载失败", error);
+    if (router.route.value.overlay === "settings") {
+      // A rebuild can remove the chunk still referenced by this document.
+      // Never auto-refresh: EDIT and uncollected ASK work live only in this page.
+      router.closeOverlay();
+      ui.toast("设置资源加载失败，可能是页面已更新或网络中断。请先保存当前工作，再刷新页面。", "err");
+    }
+  } finally {
+    settingsLoading = false;
+  }
+}, { immediate: true });
 // Stable workspace keys, regardless of overlay or query ticket. Components stay non-reactive.
 const workspaces = {
   home: HomeWorkspace,
@@ -105,8 +132,9 @@ const workspaces = {
     />
   </KeepAlive>
   <AskDrawer />
+  <AnnotationReview v-if="annotations.review.value" />
   <SlatePanel v-if="slates.visible.value" />
-  <SettingsOverlay v-if="settingsCreated" />
+  <component :is="SettingsOverlay" v-if="SettingsOverlay" />
   <!-- Keep the iframe in place: KeepAlive DOM moves would reload Photopea. -->
   <EditWorkspace v-if="editCreated" v-show="router.route.value.workspace === 'edit'" />
   <ConfirmSheet />

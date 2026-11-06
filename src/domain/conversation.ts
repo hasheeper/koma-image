@@ -1,3 +1,5 @@
+import { annotationPrompt } from './region-annotation.ts';
+import { assetRefs as storedAssetRefs } from "../storage/records.ts";
 import type {
   ConversationRecord,
   ConversationTurn,
@@ -84,6 +86,7 @@ export function duplicateConversation(conversation: ConversationRecord): Convers
     ...conversation,
     prompt: "",
     attachments: [],
+    pendingAnnotation: undefined,
   });
   const ids = new Map<string | null, string>(source.turns.map((t) => [t.id, id()]));
   for (const turn of source.turns) {
@@ -117,7 +120,7 @@ export function duplicateConversation(conversation: ConversationRecord): Convers
    replaced. Membership is a decision, not a fact about the image, so it lives
    here while `origin` (upload vs result) stays on the asset itself. */
 export function retainImage(conversation: ConversationRecord, assetId: string): void {
-  if (!assetId) return;
+  if (!assetId || isAnnotationGuide(conversation,assetId)) return;
   if (!conversation.keepIds.includes(assetId))
     conversation.keepIds.push(assetId);
 }
@@ -127,6 +130,7 @@ export function attachUpload(conversation: ConversationRecord, assetId: string):
     conversation.attachments.push(assetId);
 }
 export function forgetImage(conversation: ConversationRecord, assetId: string): void {
+  if(conversation.pendingAnnotation && [conversation.pendingAnnotation.inputAssetId,conversation.pendingAnnotation.guideAssetId].includes(assetId)) clearPendingAnnotation(conversation);
   // A held base is held to this picture; once it leaves, nothing is held.
   if (conversation.mainId === assetId)
     Object.assign(conversation, { mainId: null, baseFollows: true });
@@ -138,6 +142,7 @@ export function forgetImage(conversation: ConversationRecord, assetId: string): 
   conversation.keepIds = conversation.keepIds.filter((x) => x !== assetId);
 }
 export function reorderRefs(conversation: ConversationRecord, order: string[]): void {
+  order=order.filter(id=>!isAnnotationGuide(conversation,id));
   const known = new Set(order);
   conversation.keepIds = [
     ...order,
@@ -164,7 +169,7 @@ export function conversationImages(conversation: ConversationRecord): Conversati
     turn.snapshot.imageIds.forEach((assetId) => note(assetId, turn.id, false));
     for (const version of turn.versions)
       for (const block of version.blocks)
-        if (block.type === "image") note(block.assetId, turn.id, true);
+        if (block.type === "image") { note(block.assetId, turn.id, true); if(version.composites?.[block.assetId]) note(version.composites[block.assetId],turn.id,true); }
   }
   [
     conversation.mainId,
@@ -183,28 +188,13 @@ export function coverImage(conversation: ConversationRecord): string | null {
       ...[...turn.versions].reverse(),
     ]) {
       const block = version?.blocks.find((b) => b.type === "image");
-      if (block?.type === "image") return block.assetId;
+      if (block?.type === "image") return version.composites?.[block.assetId] ?? block.assetId;
     }
   return conversationImages(conversation)[0]?.assetId ?? null;
 }
 /* Every image a conversation still needs: what it will send next, and what
    each turn sent and returned. Nothing else needs to be kept. */
-export function assetRefs(conversations: ConversationRecord[]): Set<string> {
-  const used = new Set<string>();
-  for (const c of conversations) {
-    [c.mainId, ...c.attachments, ...c.keepIds]
-      .filter((id): id is string => Boolean(id))
-      .forEach((id) => used.add(id));
-    for (const t of c.turns) {
-      t.snapshot.imageIds.forEach((id) => used.add(id));
-      t.versions
-        .flatMap((v) => v.blocks)
-        .filter((b) => b.type === "image")
-        .forEach((b) => used.add(b.assetId));
-    }
-  }
-  return used;
-}
+export function assetRefs(conversations: ConversationRecord[]): Set<string> { return storedAssetRefs(conversations); }
 /* A conversation as it comes back from storage. A generation that was still
    running when the page closed will never report back, so it is marked
    interrupted instead of waiting forever. Fields added after the record was
@@ -215,6 +205,7 @@ export function reviveConversation(
   hasAsset: (id: string) => boolean = () => true,
 ): ConversationRecord {
   const conversation = { ...newConversation(record.settings), ...record };
+  if(conversation.pendingAnnotation && [conversation.pendingAnnotation.sourceAssetId, conversation.pendingAnnotation.inputAssetId, conversation.pendingAnnotation.guideAssetId].some(id=>!hasAsset(id))) clearPendingAnnotation(conversation);
   for (const turn of conversation.turns)
     for (const version of turn.versions) {
       if (version.status === "pending")
@@ -267,29 +258,32 @@ export function contextSnapshot(
 ): ConversationTurn["snapshot"] {
   const skip = new Set(conversation.skipTurnIds);
   const turns = branchTurns(conversation).filter((t) => !skip.has(t.id));
-  const base = conversation.mainId || null;
+  const annotation = conversation.pendingAnnotation;
+  const base = annotation?.inputAssetId || conversation.mainId || null;
   // The user's own uploads stay in context across turns: a result image should
   // not silently evict the original everything is being edited from.
   const refs = [
     ...new Set(
-      [...conversation.keepIds, ...conversation.attachments].filter(
-        (assetId) => assetId && assetId !== base,
+      [...(annotation && !annotation.singleImage ? [annotation.guideAssetId] : []), ...conversation.keepIds, ...conversation.attachments].filter(
+        (assetId) => assetId && assetId !== base && (!annotation?.singleImage || assetId !== annotation.guideAssetId),
       ),
     ),
   ];
   const wanted = [...(base ? [base] : []), ...refs];
   const imageIds = wanted.slice(0, Math.max(0, limit));
   const dropped = wanted.slice(imageIds.length);
+  const instruction = annotation ? annotationPrompt(annotation.snapshot.regions, !annotation.singleImage, annotation.text ? prompt.replace(annotation.text, "").trim() : prompt) : prompt;
   const text = turns.length
     ? [
         "此前的绘图要求（按顺序）：",
-        ...turns.map((t, i) => `${i + 1}. ${t.prompt}`),
+        ...turns.map((t, i) => { const a=t.snapshot.annotation; const text=a ? [t.prompt.replace(a.text,'').trim(), ...a.snapshot.regions.map(r=>r.comment.trim())].filter(Boolean).join('；') : t.prompt; return `${i + 1}. ${text}`; }),
         "",
         "本轮要求（以本轮修改为准）：",
-        prompt,
+        instruction,
       ].join("\n")
-    : prompt;
+    : instruction;
   return {
+    ...(annotation ? { annotation: structuredClone(annotation) } : {}),
     text,
     imageIds,
     base: imageIds[0] ?? null,
@@ -315,11 +309,12 @@ export function beginTurn(
     versions: [],
   };
   conversation.turns.push(turn);
+  delete conversation.pendingAnnotation;
   // Sending spends the uploads: from here on the turn's reference strip owns
   // them, so failure or cancellation must not put them back in the composer.
   const sent = new Set(snapshot.imageIds);
   conversation.attachments = conversation.attachments.filter(
-    (assetId) => !sent.has(assetId),
+    (assetId) => !sent.has(assetId) && assetId !== snapshot.annotation?.guideAssetId,
   );
   conversation.updatedAt = Date.now();
   if (conversation.turns.length === 1 && !conversation.renamed)
@@ -356,12 +351,13 @@ export function completeVersion(
     conversation.headId = turn.id;
     // A held base stays put while the text moves on; with nothing to hold,
     // the result becomes the base as usual.
-    if (conversation.baseFollows || !conversation.mainId)
+    if (!turn.snapshot.annotation && (conversation.baseFollows || !conversation.mainId))
       conversation.mainId = image.assetId;
   }
   return true;
 }
 export function selectSource(conversation: ConversationRecord, turn: ConversationTurn, assetId: string): void {
+  clearPendingAnnotation(conversation);
   conversation.headId = turn.id;
   conversation.mainId = assetId;
   conversation.selectionRevision += 1;
@@ -374,5 +370,15 @@ export function chatSelection(c: ConversationRecord): ChatSelection {
 /** Includes context/version changes and generation completions, excludes cosmetic titles. */
 export function chatDraftKey(c: ConversationRecord): string {
   return JSON.stringify([c.id, chatSelection(c), c.selectionRevision, c.keepIds, c.attachments, c.settings,
-    c.turns.map((t) => [t.id, t.parentId, t.prompt, t.selectedVersion, t.versions.map((v) => [v.id, v.status, v.blocks.filter((b) => b.type === "image").map((b) => b.assetId)])])]);
+    c.turns.map((t) => [t.id, t.parentId, t.prompt, t.selectedVersion, t.versions.map((v) => [v.id, v.status, v.blocks.filter((b) => b.type === "image").map((b) => b.assetId), v.composites])])]);
 }
+
+/** Guide is a one-turn instruction asset, never a persistent reference. */
+export function clearPendingAnnotation(c: ConversationRecord): void {
+  const a=c.pendingAnnotation;if(!a)return;
+  c.attachments=c.attachments.filter(id=>id!==a.guideAssetId);
+  c.keepIds=c.keepIds.filter(id=>id!==a.guideAssetId);
+  if(a.text) c.prompt=c.prompt.replace(a.text,'').trim();delete c.pendingAnnotation;
+}
+
+export function isAnnotationGuide(c: ConversationRecord, id: string): boolean { return c.pendingAnnotation?.guideAssetId === id || c.turns.some(t=>t.snapshot.annotation?.guideAssetId===id); }

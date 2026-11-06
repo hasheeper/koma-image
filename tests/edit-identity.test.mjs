@@ -15,7 +15,7 @@ function fixture() {
   const a = { id: 'board-a', ref: 'eb1', boardSeq:1, name: 'A', baseId: 1, viewId: 3,
     versions: [version(1, 1), version(2, 2, 'masked'), version(3, 2, 'generated'), version(4, 2, 'blend')], directorChoices: { g: 3 } };
   const b = { ...a, id: 'board-b', ref: 'eb2', boardSeq:2, name: 'B', versions: [{ ...version(1, 1), recordId: 'edit:board-b:1' }], directorChoices: {}, viewId: 1 };
-  const editor = { session: a, boards: () => [a, b], records: () => [a, b].flatMap(s => s.versions.map(v => ({
+  const editor = { session: a, boards: () => [a, b], readAnnotations: () => undefined, records: () => [a, b].flatMap(s => s.versions.map(v => ({
     id: v.recordId, blob, size: { width: 512, height: 512 }, createdAt: v.createdAt,
     params: { editBoardId: s.id, editVersion: v.sequence, editVariant: v.director?.variant, seed: 7 },
   }))) };

@@ -19,7 +19,7 @@ export function systemCore(options: { adult: boolean }) {
     ...(options.adult ? [constitution.adult] : []),
   ].join("\n\n");
 }
-/** System block 2 opens with the user's preferences; the codec appends its table. */
+/** System block 2 opens with preferences; the codec appends static notation guidance. */
 export function systemPreferences(text: string) {
   const value = text.trim();
   return value

@@ -2,6 +2,7 @@ import { test } from "node:test";
 import assert from "node:assert/strict";
 
 import { constitution } from "../src/ask/prompts/constitution.ts";
+import { manuals } from "../src/ask/prompts/manuals.ts";
 import { useAskFixture, submitAsk, reasoning, open, openai, text, tool, end, anthropic, askSettings, generation, bind, addImage, drawer, toolReply, textReply, patchStep, form, openConversations, attachText, scripted, wireStates } from "./helpers/ask-fixture.mjs";
 
 useAskFixture();
@@ -116,9 +117,10 @@ for (const connectionId of ["chat", "claude"]) test(`ASK prompts: ${connectionId
     await drawer(page).locator('.ask-turn[data-status="done"]').waitFor();
     assert.equal(calls.length,2);assert.equal(system(calls[0]),system(calls[1]));
     assert.equal(system(calls[0]).includes(constitution.adult),false);
-    assert.doesNotMatch(calls[0].raw,/分格逐一描述地点/);
-    assert.match(calls[1].raw,/分格逐一描述地点/);
-    assert.match(await drawer(page).locator(".ask-tool").textContent(),/已查阅\s*NAI 多格漫画与画中文字/);
+    const manual=manuals['nai5-comics'];
+    assert.ok(!calls[0].raw.includes(manual.body.split('\n')[0]));
+    assert.ok(calls[1].raw.includes(manual.body.split('\n')[0]));
+    assert.ok((await drawer(page).locator(".ask-tool").textContent()).includes(manual.title));
 
     llm.push({body:answer()});await send("继续讨论构图");
     await drawer(page).locator('.ask-turn[data-status="done"]').nth(1).waitFor();
@@ -132,7 +134,7 @@ for (const connectionId of ["chat", "claude"]) test(`ASK prompts: ${connectionId
   } finally {release?.();await context.close();}
 });
 
-for (const connection of ['chat','claude']) test(`ASK clean context: ${connection} fresh conversations and shortcut have no implicit image; silent drafts complete with prose`, async()=>{
+for (const connection of ['chat','claude']) test(`ASK clean context: ${connection} fresh conversations and explicit clearing have no implicit image; silent drafts complete with prose`, async()=>{
   const {page,context,llm,calls,requests,errors}=await open('/#/image',{ready:'.switcher',ask:askSettings({connectionId:connection})});
   try {
     await bind(page);
@@ -152,6 +154,8 @@ for (const connection of ['chat','claude']) test(`ASK clean context: ${connectio
     assert.equal(await page.locator('.ask-capsule').count(),0);
     await page.evaluate(()=>{ask.show({anchor:'#h4'});ask.hide();});
     await page.keyboard.press('Control+j');await drawer(page).waitFor();
+    assert.equal(await page.locator('.ask-capsule-id').textContent(),'#h4','reopening the same conversation keeps its selected anchor');
+    await page.evaluate(()=>ask.clearAnchor());
     assert.equal(await page.locator('.ask-capsule').count(),0);
     await attachText(page,'魔法少女绘奈：新角色，粉色短发，星形发饰，月光花园。','魔法少女绘奈.md');
     const rewritten='pink hair, star hair ornament, magical girl, moonlit garden';
@@ -181,6 +185,121 @@ for (const connection of ['chat','claude']) test(`ASK clean context: ${connectio
     await page.locator('.ask-turn[data-status=done]').nth(1).waitFor();
     assert.equal(wireStates(calls[3].body).at(-1).anchor,'#h2');
     assert.equal(wireStates(calls[3].body).at(-1).image.history.mode,'A');
+    assert.deepEqual(generation(requests),[]);assert.deepEqual(errors,[]);
+  } finally {await context.close();}
+});
+
+test('ASK continued anchor: EDIT follow-ups and forks retain the same full image metadata', {timeout:60000}, async()=>{
+  const {page,context,llm,calls,requests,errors}=await open('/#/image',{ready:'.switcher',ask:askSettings()});
+  try {
+    await bind(page);
+    for(let i=1;i<=4;i++) {
+      const id=await addImage(page,`synthetic scene ${i}`);
+      await page.evaluate(id=>drawing.toggleFavorite(drawing.snapshot().history.find(r=>r.id===id)),id);
+    }
+    await page.evaluate(async()=>{
+      const source=drawing.snapshot().current;
+      await editor.open('image',source.blob,'synthetic.png',{sourceId:'record:'+source.id,settings:source.params});
+      ask.show();
+    });
+    await page.waitForSelector('#imageEditor[data-active=true]');
+    llm.push({body:openai(tool('look','view_image',{id:'#f4',spec:'look'}),end('tool_calls'))},textReply('这张图的画面已查看。'));
+    await page.locator('#askPrompt').fill('说说 #f4 现在的画面');await submitAsk(page);
+    await page.waitForFunction(()=>!ask.running.value&&ask.entries.value.at(-1)?.turn.status==='done');
+    const source=await page.evaluate(()=>({id:ask.conversationId.value,turn:ask.entries.value[0].id}));
+    const first=wireStates(calls[0].body).at(-1);
+    assert.equal(first.workspace,'edit');assert.equal(first.anchor,'#f4');assert.equal(first.image.history.mode,'A');
+    assert.equal(first.image.current.prompt,'synthetic scene 4');
+    assert.equal(await page.evaluate(()=>ask.anchor.value),'#f4');
+    for(const question of ['那么都有什么调整方向？请你罗列一下方案','方向四呢？']) {
+      await page.evaluate(()=>{ask.hide();ask.show();});
+      llm.push(textReply('直接使用已有参数列出方案。'));
+      await page.locator('#askPrompt').fill(question);await submitAsk(page);
+      await page.waitForFunction(()=>!ask.running.value&&ask.entries.value.at(-1)?.turn.status==='done');
+      const state=wireStates(calls.at(-1).body).at(-1);
+      assert.equal(state.anchor,'#f4');assert.equal(state.image.history.mode,'A');
+      assert.deepEqual(state.image.current,first.image.current);
+      assert.deepEqual(state.image.history.anchor,first.image.history.anchor);
+      assert.ok(state.conversation_history.retained_verbatim.includes('T1'));
+    }
+    assert.equal(calls.length,4,'one visual tool round, then two ordinary requests');
+    assert.match(calls.at(-1).body.messages[0].content,/retained_verbatim.*prompt \/ negative.*无需.*get_meta/);
+    await page.evaluate(id=>ask.forkTurn(id),source.turn);
+    llm.push(textReply('分支使用同一组参数。'));
+    await page.locator('#askPrompt').fill('同样罗列调整方案');await submitAsk(page);
+    await page.waitForFunction(()=>!ask.running.value&&ask.entries.value.at(-1)?.turn.status==='done');
+    const fork=wireStates(calls.at(-1).body).at(-1);
+    assert.equal(fork.anchor,'#f4');assert.deepEqual(fork.image.history.anchor,first.image.history.anchor);
+    await page.evaluate(id=>ask.selectConversation(id),source.id);
+    llm.push(textReply('改看另一张图。'));
+    await page.locator('#askPrompt').fill('现在分析 #h2');await submitAsk(page);
+    await page.waitForFunction(()=>!ask.running.value&&ask.entries.value.at(-1)?.turn.status==='done');
+    assert.equal(wireStates(calls.at(-1).body).at(-1).anchor,'#h2');
+    assert.equal(await page.evaluate(()=>ask.anchor.value),'#h2');
+    await page.evaluate(()=>ask.newConversation());
+    assert.equal(await page.evaluate(()=>ask.anchor.value),null);
+    await page.evaluate(id=>ask.selectConversation(id),source.id);
+    assert.equal(await page.evaluate(()=>ask.anchor.value),'#h2','anchor belongs to its conversation');
+    await page.evaluate(()=>ask.clearAnchor());
+    llm.push(textReply('取消图片引用后回答。'));
+    await page.locator('#askPrompt').fill('聊个别的话题');await submitAsk(page);
+    await page.waitForFunction(()=>!ask.running.value&&ask.entries.value.at(-1)?.turn.status==='done');
+    assert.equal(wireStates(calls.at(-1).body).at(-1).anchor,null,'explicit clearing must not fall back to an earlier turn');
+    assert.deepEqual(generation(requests),[]);assert.deepEqual(errors,[]);
+  } finally {await context.close();}
+});
+
+test('ASK continued anchor: failed selections do not replace it and inaccessible images expire', async()=>{
+  const {page,context,llm,calls,requests,errors}=await open('/#/image',{ready:'.switcher',ask:askSettings({images:false})});
+  try {
+    await bind(page);
+    const first=await addImage(page,'first scene');await addImage(page,'second scene');
+    await page.evaluate(()=>ask.show());
+    llm.push(textReply('第一张图。'));
+    await page.locator('#askPrompt').fill('分析 #h1');await submitAsk(page);
+    await page.waitForFunction(()=>!ask.running.value&&ask.entries.value.at(-1)?.turn.status==='done');
+    llm.push({body:'data: [DONE]\n\n'});
+    await page.locator('#askPrompt').fill('改看 #h2');await submitAsk(page);
+    await page.waitForFunction(()=>!ask.running.value&&ask.entries.value.at(-1)?.turn.status==='failed');
+    assert.equal(await page.evaluate(()=>ask.anchor.value),'#h1');
+    llm.push(textReply('继续第一张。'));
+    await page.locator('#askPrompt').fill('继续上一轮的方案');await submitAsk(page);
+    await page.waitForFunction(()=>!ask.running.value&&ask.entries.value.at(-1)?.turn.status==='done');
+    assert.equal(wireStates(calls.at(-1).body).at(-1).anchor,'#h1');
+    await page.evaluate(id=>drawing.remove(id),first);
+    llm.push(textReply('原图已不可访问。'));
+    await page.locator('#askPrompt').fill('继续检查');await submitAsk(page);
+    await page.waitForFunction(()=>!ask.running.value&&ask.entries.value.at(-1)?.turn.status==='done');
+    const state=wireStates(calls.at(-1).body).at(-1);
+    assert.equal(state.anchor,null);assert.equal(state.image.history.mode,'B');
+    assert.equal(await page.evaluate(()=>ask.anchor.value),null);
+    assert.deepEqual(generation(requests),[]);assert.deepEqual(errors,[]);
+  } finally {await context.close();}
+});
+
+test('ASK continued anchor: EDIT shorthand cannot drift, but a new explicit selection can replace it', async()=>{
+  const {page,context,llm,calls,requests,errors}=await open('/#/image',{ready:'.switcher',ask:askSettings({images:false})});
+  try {
+    await bind(page);
+    const first=await addImage(page,'first editor source'), second=await addImage(page,'second editor source');
+    const openBoard=id=>page.evaluate(async id=>{
+      const source=drawing.snapshot().history.find(r=>r.id===id);
+      await editor.open('image',source.blob,'synthetic.png',{sourceId:'record:'+source.id,settings:source.params});
+    },id);
+    const send=async question=>{
+      llm.push(textReply('已检查当前引用。'));
+      await page.locator('#askPrompt').fill(question);await submitAsk(page);
+      await page.waitForFunction(()=>!ask.running.value&&ask.entries.value.at(-1)?.turn.status==='done');
+      return wireStates(calls.at(-1).body).at(-1);
+    };
+    await openBoard(first);await page.evaluate(()=>ask.show({anchor:'#e1'}));
+    assert.equal((await send('看看这张图')).anchor,'#e1');
+    const old=await page.evaluate(()=>ask.entries.value.at(-1).turn.pictureRefs['#e1'].record_id);
+    await openBoard(second);
+    assert.equal((await send('继续上一张图的话题')).anchor,null,'the same shorthand now names a different board');
+    await page.evaluate(()=>ask.show({anchor:'#e1'}));
+    assert.equal((await send('分析我重新选择的这张图')).anchor,'#e1');
+    assert.notEqual(await page.evaluate(()=>ask.entries.value.at(-1).turn.pictureRefs['#e1'].record_id),old);
     assert.deepEqual(generation(requests),[]);assert.deepEqual(errors,[]);
   } finally {await context.close();}
 });

@@ -1,7 +1,8 @@
 <script setup lang="ts">
 import { onBeforeUnmount, shallowRef, watch } from "vue";
 import AppIcon from "../../shared/AppIcon.vue";
-import { menuKeys, placeMenu } from "../../shared/popover";
+import { menuKeys } from "../../shared/popover";
+import { placeEditorPanel } from "./panels";
 
 const props = defineProps<{
   id: string; label: string; ariaLabel?: string; icon: string; active: boolean; disabled: boolean;
@@ -17,7 +18,7 @@ let keyboard = false;
 function place() {
   if (!trigger.value || !menu.value) return;
   menu.value.style.width = `${Math.min(176, document.documentElement.clientWidth - 16)}px`;
-  placeMenu(menu.value, trigger.value.getBoundingClientRect());
+  placeEditorPanel(menu.value, trigger.value);
 }
 function close(restoreFocus = false) {
   menu.value?.hidePopover();
@@ -37,6 +38,11 @@ function toggled(e: Event) {
   place();
   if (keyboard && document.activeElement === trigger.value) focusChoice();
   events = new AbortController();
+  const sizing = new ResizeObserver(place);
+  sizing.observe(menu.value!);
+  const toolbar = trigger.value?.closest(".editor-toolbar");
+  if (toolbar) sizing.observe(toolbar);
+  events.signal.addEventListener("abort", () => sizing.disconnect(), { once: true });
   window.addEventListener("resize", place, { signal: events.signal });
   document.addEventListener("scroll", place, { capture: true, passive: true, signal: events.signal });
 }
@@ -69,7 +75,7 @@ defineExpose({ close });
       <AppIcon :name="icon" />
     </button>
     <button ref="trigger" :id="`${id}Toggle`" class="editor-tool editor-tool-arrow" type="button" :aria-label="`选择${menuLabel}`" aria-haspopup="menu" :popovertarget="`${id}Menu`" :aria-controls="`${id}Menu`" :aria-expanded="expanded" :disabled="disabled" @pointerdown="keyboard = false" @keydown="triggerKey"><AppIcon name="i-chevron" class="editor-caret" /></button>
-    <div ref="menu" :id="`${id}Menu`" class="menu editor-tool-menu" popover role="menu" :aria-label="menuLabel" @beforetoggle="beforeToggle" @toggle="toggled" @keydown="menuKey">
+    <div ref="menu" :id="`${id}Menu`" class="menu editor-flyout editor-tool-menu" popover role="menu" :aria-label="menuLabel" @beforetoggle="beforeToggle" @toggle="toggled" @keydown="menuKey">
       <button v-for="option in options" :key="option.value" type="button" tabindex="-1" class="menu-item" role="menuitemradio" :aria-checked="value === option.value" :disabled="disabled || option.disabled" @click="choose(option.value)">
         <AppIcon :name="option.icon" /><span class="menu-label">{{ option.label }}</span><AppIcon class="menu-check" name="i-check" />
       </button>
@@ -78,9 +84,8 @@ defineExpose({ close });
 </template>
 
 <style scoped>
-.editor-tool-mode { display: inline-grid; grid-template-columns: 32px 14px; flex: none; align-items: stretch; border-radius: var(--r2); }
-.editor-tool-mode > .editor-tool-main { justify-content: center; padding: 0; border-radius: var(--r2) 0 0 var(--r2); }
-.editor-tool-mode > .editor-tool-arrow { width: 100%; padding: 0; justify-content: center; border-radius: 0 var(--r2) var(--r2) 0; }
-.editor-tool-mode[data-active="true"] > .editor-tool-arrow { color: var(--a); background: var(--a-dim); }
-@media (max-width: 860px) { .editor-tool-mode { grid-template-columns: 40px 18px; } }
+.editor-tool-mode { display: inline-grid; grid-template-columns: var(--editor-tool-size) var(--editor-tool-arrow-size); flex: none; align-items: stretch; border-radius: 999px; }
+.editor-tool-mode > .editor-tool-main { justify-content: center; padding: 0; }
+.editor-tool-mode > .editor-tool-arrow { width: 100%; padding: 0; justify-content: center; }
+.editor-tool-mode[data-active="true"] > .editor-tool-arrow { color: var(--a); }
 </style>

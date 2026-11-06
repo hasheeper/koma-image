@@ -1,3 +1,7 @@
+import { annotationAlignment, validateRegions, validateAnnotationSnapshot, validateAnnotationAreas } from "../domain/region-annotation.ts";
+import type { AnnotationSnapshot } from "../domain/region-annotation.ts";
+import { decodeImage } from "./image-response.ts";
+import type { AnnotationReview, AnnotationTarget } from "./annotations.ts";
 import type { ApplicationServices } from "./application";
 import type { Ui } from "../app/ui";
 import { message } from "../app/ui";
@@ -283,9 +287,16 @@ export function createChat(services: ApplicationServices, ui: Ui) {
       ? structuredClone(turn.snapshot)
       : conversation.contextSnapshot(c, c.prompt, model.maxImages);
     const prompt = turn ? turn.prompt : c.prompt.trim();
-    if (!prompt) throw new Error("请填写描述或修改要求");
+    if (!prompt && !snapshot.annotation) throw new Error("请填写描述或修改要求");
     if (snapshot.imageIds.length > model.maxImages)
       throw new Error(`该模型最多使用 ${model.maxImages} 张图（含底图）`);
+    const annotation = snapshot.annotation;
+    if(annotation) {
+      validateAnnotationSnapshot(annotation.snapshot);
+      if(snapshot.imageIds[0]!==annotation.inputAssetId || !annotation.singleImage && snapshot.imageIds[1]!==annotation.guideAssetId)
+        throw new Error("批注改图需要原图和编号图，请换用支持双图的模型，或选择仅方位文字");
+      if(!assets.assets.has(annotation.sourceAssetId)) throw new Error("批注原图已失效");
+    }
     const images = await assets.encode(snapshot.imageIds);
     return {
       payload: buildChatPayload(
@@ -308,7 +319,7 @@ export function createChat(services: ApplicationServices, ui: Ui) {
     emit();
     const c = current,
       rev = quoteRevision;
-    if (error || !mutable() || !ready || !c.prompt.trim() || busy || uploading) return;
+    if (error || !mutable() || !ready || (!c.prompt.trim() && !c.pendingAnnotation) || busy || uploading) return;
     quoteTimer = setTimeout(async () => {
       const controller = (quoteAbort = new AbortController());
       try {
@@ -398,7 +409,7 @@ export function createChat(services: ApplicationServices, ui: Ui) {
       !ready ||
       busy ||
       uploading ||
-      (!existing && !current.prompt.trim())
+      (!existing && !current.prompt.trim() && !current.pendingAnnotation)
     )
       return;
     const c = current,
@@ -627,7 +638,7 @@ export function createChat(services: ApplicationServices, ui: Ui) {
     async favoriteRecord(conversationId: string, turnId: string, versionId: string, assetId: string): Promise<ImageRecord> {
       const c = conversations.find(c => c.id === conversationId), turn = c?.turns.find(t => t.id === turnId);
       const version = turn?.versions.find(v => v.id === versionId), asset = assets.assets.get(assetId);
-      if (!c || !turn || !version || version.status !== "done" || !asset || !version.blocks.some(b => b.type === "image" && b.assetId === assetId))
+      if (!c || !turn || !version || version.status !== "done" || !asset || (!version.blocks.some(b => b.type === "image" && b.assetId === assetId) && !Object.values(version.composites??{}).includes(assetId)))
         throw new Error("这张对话图片已不可用");
       const params: Fields = { ...chatImageOrigin(c, turn, version, assetId), tool: "chat", model: String(turn.settings.model ?? ""),
         modelName: models.find(m => m.id === turn.settings.model)?.name ?? String(turn.settings.model ?? ""),
@@ -718,7 +729,68 @@ export function createChat(services: ApplicationServices, ui: Ui) {
       }
       return applied;
     },
-    /** Like →对话: the blank conversation is reused, otherwise a new one opens. Nothing is sent. */
+    /** Into the image's own conversation while it exists; otherwise the blank one is reused or a new one opens. Nothing is sent. */
+    async prepareAnnotations(source: Blob, guide: Blob, snapshot: AnnotationSnapshot, origin?: AnnotationTarget['chat']) {
+      validateAnnotationSnapshot(snapshot);await warm();
+      if(!mutable()||uploading||busy)throw new Error("请等待对话处理完成");
+      const from=current, revision=from.selectionRevision;
+      let target:ConversationRecord|undefined, before:ConversationRecord|undefined;
+      uploading++;hold();emit();
+      try {
+        const original=await assets.add(source,'批注原图',{width:snapshot.width,height:snapshot.height},'image');
+        if(original.entity_key!==snapshot.image.entity_key)throw new Error("批注原图身份不一致");
+        const fitted=await fitReference(source,'批注原图.png'), preview=await fitReference(guide,'编号定位图.png');
+        const input=await assets.add(fitted.blob,fitted.name,undefined,'image'), marked=await assets.add(preview.blob,preview.name,undefined,'image');
+        if(!mutable()||from!==current||from.selectionRevision!==revision)throw new Error("对话已切换，未写入批注");
+        target=conversations.find(c=>c.id===origin?.conversationId) ?? conversations.find(conversation.isBlank);
+        if(target)before=structuredClone(target);else{target=conversation.newConversation(current.settings);conversations.push(target);}
+        conversation.clearPendingAnnotation(target);
+        const text="";
+        target.pendingAnnotation={snapshot:structuredClone(snapshot),sourceAssetId:original.id,inputAssetId:input.id,guideAssetId:marked.id,text};
+        target.mainId=input.id;
+        if(origin?.turnId&&target.turns.some(t=>t.id===origin.turnId))target.headId=origin.turnId;
+        target.attachments=[...target.attachments.filter(id=>id!==marked.id&&id!==input.id),marked.id];
+        target.keepIds=target.keepIds.filter(id=>id!==marked.id&&id!==input.id);
+        target.selectionRevision++;target.updatedAt=Date.now();
+        show(target);emit();await flush();
+      } catch(e) {
+        if(target){if(before){delete target.pendingAnnotation;Object.assign(target,before);}else conversations=conversations.filter(c=>c!==target);if(conversations.includes(from))show(from);}
+        throw e;
+      } finally {uploading--;collect();save();emit();}
+    },
+    annotationTextOnly(on: boolean) {
+      if(!mutable()||busy||uploading)return;const a=current.pendingAnnotation;if(!a)return;
+      if(a.text) current.prompt=current.prompt.replace(a.text,'').trim();
+      a.text='';a.singleImage=on;changed(true);
+    },
+    annotationComment(key: string, comment: string) {
+      if(!mutable()||busy||uploading)return;const a=current.pendingAnnotation;if(!a)return;
+      const regions=a.snapshot.regions.map(r=>r.key===key?{...r,comment}:r);validateRegions(regions);
+      if(a.text) current.prompt=current.prompt.replace(a.text,'').trim();
+      a.text='';a.snapshot={...a.snapshot,regions};changed(true);
+    },
+    clearAnnotations(){if(!mutable()||busy||uploading)return;conversation.clearPendingAnnotation(current);changed(true);},
+    annotationReview(conversationId:string,turnId:string,versionId:string,assetId:string):AnnotationReview {
+      const c=conversations.find(c=>c.id===conversationId),turn=c?.turns.find(t=>t.id===turnId),v=turn?.versions.find(v=>v.id===versionId),a=turn?.snapshot.annotation;
+      if(!c||!turn||!v||v.status!=='done'||!a||!v.blocks.some(b=>b.type==='image'&&b.assetId===assetId))throw new Error("批注改图记录已失效");
+      validateAnnotationAreas(a.snapshot.regions);
+      const raw=assets.get(assetId),source=assets.get(a.sourceAssetId),snapshot=structuredClone(a.snapshot),revision=c.selectionRevision;
+      return {source:source.blob,raw:raw.blob,snapshot,title:'审核批注改图',apply:async(blob)=>{
+        if(!mutable()||busy||uploading||!conversations.includes(c))throw new Error("对话暂不可写入");
+        if(!annotationAlignment(snapshot,raw))throw new Error("模型直出的方向或宽高比不符，无法应用蒙版");
+        uploading++;emit();
+        const old=v.composites?.[assetId],previousMain=c.mainId,previousHead=c.headId;
+        try{
+          const size=await decodeImage(blob);if(blob.type!=='image/png'||size.width!==snapshot.width||size.height!==snapshot.height)throw new Error("回贴结果尺寸或格式无效");
+          const result=await assets.add(blob,`${raw.name}-回贴.png`,{width:snapshot.width,height:snapshot.height});
+          if(!mutable()||!conversations.includes(c)||!turn.versions.includes(v))throw new Error("改图记录已变化");
+          v.composites={...v.composites,[assetId]:result.id};
+          if(current===c&&c.selectionRevision===revision&&c.baseFollows){c.mainId=result.id;c.headId=turn.id;c.selectionRevision++;}
+          c.updatedAt=Date.now();await flush();emit();
+        }catch(e){if(old)v.composites={...v.composites,[assetId]:old};else if(v.composites)delete v.composites[assetId];if(c.mainId!==previousMain&&c.selectionRevision===revision+1){c.mainId=previousMain;c.headId=previousHead;c.selectionRevision=revision;}throw e;}
+        finally{uploading--;collect();save();emit();}
+      }};
+    },
     async writeHandoffDraft(draft: {
       model: string;
       options: Readonly<Record<string, string>>;
@@ -876,7 +948,7 @@ export function createChat(services: ApplicationServices, ui: Ui) {
     locateImage(conversationId: string, turnId: string, versionId: string, assetId: string) {
       if (!mutable()) return false;
       const c=conversations.find(c=>c.id===conversationId), t=c?.turns.find(t=>t.id===turnId), index=t?.versions.findIndex(v=>v.id===versionId) ?? -1;
-      if (!c || !t || index<0 || !t.versions[index].blocks.some(b=>b.type==="image" && b.assetId===assetId)) return false;
+      if (!c || !t || index<0 || (!t.versions[index].blocks.some(b=>b.type==="image" && b.assetId===assetId) && !Object.values(t.versions[index].composites??{}).includes(assetId))) return false;
       switchConversation(c); t.selectedVersion=index; c.headId=t.id; changed(true); return true;
     },
     rename(c: ConversationRecord, title: string) {
@@ -934,11 +1006,13 @@ export function createChat(services: ApplicationServices, ui: Ui) {
     mutate(fn: (c: ConversationRecord) => void, selection = false) {
       if (!mutable()) return;
       fn(current);
+      if(current.pendingAnnotation && current.mainId!==current.pendingAnnotation.inputAssetId) conversation.clearPendingAnnotation(current);
       changed(selection);
     },
     setBase(id: string) {
-      if (!mutable()) return;
+      if (!mutable() || conversation.isAnnotationGuide(current,id)) return;
       const old = current.mainId;
+      if(current.pendingAnnotation && current.pendingAnnotation.inputAssetId!==id) conversation.clearPendingAnnotation(current);
       current.mainId = id;
       if (old && old !== id && (selected()?.maxImages ?? Infinity) > 1)
         conversation.retainImage(current, old);
@@ -951,7 +1025,7 @@ export function createChat(services: ApplicationServices, ui: Ui) {
       }
     },
     placeRef(id: string, to: number) {
-      if (!mutable()) return;
+      if (!mutable() || conversation.isAnnotationGuide(current,id)) return;
       const full = conversation.contextSnapshot(current),
         order = full.refs.filter((x) => x !== id);
       order.splice(Math.max(0, Math.min(to, order.length)), 0, id);

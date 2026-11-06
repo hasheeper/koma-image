@@ -25,7 +25,7 @@ export interface ChatDraftSnapshot {
   readonly selection: ChatSelection;
   readonly sources: readonly ChatSource[];
 }
-const finished = (v: ConversationVersion | undefined) => v?.status === "done" ? v.blocks.flatMap((b) => b.type === "image" ? [b.assetId] : []) : [];
+const finished = (v: ConversationVersion | undefined) => v?.status === "done" ? v.blocks.flatMap((b) => b.type === "image" ? [v.composites?.[b.assetId] ?? b.assetId] : []) : [];
 export function chatSnapshot(state: ReturnType<Chat["snapshot"]>): ChatDraftSnapshot {
   const c = state.current;
   return { key: chatDraftKey(c), selection: chatSelection(c), sources: ancestry(c).map((t, i) => ({

@@ -16,15 +16,16 @@ async function setup(t) {
    if(localStorage.getItem('koma.routing.v1'))return;
    localStorage.setItem('koma.prefs.v1',JSON.stringify({tagSuggest:false}));
    const c=(id,url,profileId)=>({id,name:id,baseUrl:url,profileId,credentialRef:id+'-key',revision:'r1'});
-   localStorage.setItem('koma.routing.v1',JSON.stringify({version:1,connections:{nai:c('nai','https://image.novelai.net','nai-official-v1'),reason:c('reason','https://reason.example.test/v1','openai-chat-v1'),chat:c('chat','https://image.example.test/v1','openai-images-v1')},links:{}}));
+   localStorage.setItem('koma.routing.v1',JSON.stringify({version:1,connections:{nai:c('nai','https://image.novelai.net','nai-official-v1'),reason:c('reason','https://reason.example.test/v1','openai-chat-v1'),chat:c('chat','https://image.example.test/v1','openai-images-v1'),banana:c('banana','https://banana.example.test/v1beta','gemini-native-v1')},links:{}}));
    localStorage.setItem('koma.ask.v1',JSON.stringify({version:1,connectionId:'reason',model:'test',models:{reason:['test']},images:true}));
-   sessionStorage.setItem('koma.session.keys',JSON.stringify({'nai-key':'synthetic','reason-key':'synthetic','chat-key':'synthetic'}));
+   sessionStorage.setItem('koma.session.keys',JSON.stringify({'nai-key':'synthetic','reason-key':'synthetic','chat-key':'synthetic','banana-key':'synthetic'}));
  });
  await ctx.route('**/*',async route=>{
    const req=route.request(),u=new URL(req.url());if(u.origin===origin)return route.continue();
    requests.push(u.href);
    if(u.pathname==='/user/subscription')return route.fulfill({json:{active:true,tier:3,usage:{isNegative:false},trainingStepsLeft:{fixedTrainingStepsLeft:1000,purchasedTrainingSteps:0}}});
-   if(u.pathname==='/v1/models')return route.fulfill({json:{data:[{id:u.hostname.startsWith('reason')?'test':'gpt-image-1.5'}]}});
+   if(u.pathname==='/v1/models')return route.fulfill({json:{data:(u.hostname.startsWith('reason')?['test']:['gpt-image-1.5','gpt-image-2']).map(id=>({id}))}});
+   if(u.pathname==='/v1beta/models')return route.fulfill({json:{models:[{name:'models/gemini-3-pro-image',supportedGenerationMethods:['generateContent']}]}});
    if(u.pathname==='/v1/chat/completions'){const b=req.postDataJSON();calls.push(b);return route.fulfill({contentType:'text/event-stream',body:(()=>{const next=queue.shift();return typeof next==='function'?next(b):response(b,next);})()});}
    errors.push('unexpected '+u.href);return route.abort();
  });
@@ -54,12 +55,52 @@ async function askDraft(t,steps) {
  const issues=await t.page.evaluate(()=>ask.draftPlan.value.steps.filter(s=>s.issue).map(s=>s.issue));
  assert.deepEqual(issues,[]);
 }
+test('ASK describes generic EDIT parameters without NAI budgets and only applies a prompt draft',async t=>{
+ const f=await setup(t),{page}=f;
+ await page.waitForFunction(()=>editor.snapshot().models.some(m=>m.id==='gpt-image-1.5'));
+ await page.evaluate(()=>{editor.setModel('gpt-image-1.5');editor.session.enhance.on=true;editor.session.focus.on=true;});
+ await askDraft(f,[{kind:'prompt_patch',target:'edit.prompt',mode:'rewrite',text:'make the eyes softer'}]);
+ const state=wireState(f.calls[0]);assert.equal(state.edit.input_budget.status,'not_applicable');
+ assert.equal(state.edit.capabilities.api_mask,false);assert.equal(state.edit.capabilities.local_mask_composition,true);
+ for(const field of ['sampler','steps','scale','strength','enhance','negative'])assert.equal(state.edit.form[field],undefined,field);
+ const before=await page.evaluate(()=>editor.askSnapshot().config);
+ await page.evaluate(()=>ask.applyDraft(ask.draftPlan.value.fingerprint));
+ assert.equal(await page.evaluate(()=>editor.session.fields.prompt),'make the eyes softer');
+ await page.evaluate(()=>ask.undoDraft(ask.undoId.value));assert.deepEqual(await page.evaluate(()=>editor.askSnapshot().config),before);
+ const issue=await page.evaluate(async()=>{const {configureEdit}=await import('/src/ask/draft/edit.ts');try{configureEdit(editor.askSnapshot(),{strength:.5});return '';}catch(e){return e.message;}});
+ assert.match(issue,/NAI 参数/);assert.deepEqual(f.errors,[]);
+});
+for(const [model,values] of [['gpt-image-2',{quality:'low',size:'1024x1024'}],['gemini-3-pro-image',{image_size:'1K',aspect_ratio:'1:1'}]])
+test(`ASK generic EDIT ${model} source options apply and undo without generation`,async t=>{
+ const f=await setup(t),{page}=f;
+ await page.waitForFunction(id=>editor.snapshot().models.some(m=>m.id===id),model);
+ await page.evaluate(id=>editor.setModel(id),model);
+ await page.evaluate(async()=>{
+   const p=document.body.__vue_app__._instance.provides,a=p[Object.getOwnPropertySymbols(p).find(k=>k.description==='annotations')],v=editor.snapshot().base;
+   await a.open({workspace:'edit',inline:true,blob:v.blob,name:v.name,recordId:v.recordId,tag:editor.reference(v),edit:{boardId:editor.session.id,versionId:v.id}});
+   a.update([{key:'point',shape:'point',bbox:{x:.3,y:.4,w:0,h:0},comment:'检查眉毛'}]);a.close();
+ });
+ const before=await page.evaluate(()=>editor.askSnapshot().config), start=f.requests.length;
+ await askDraft(f,[{kind:'params_patch',params:{image_options:values}},{kind:'prompt_patch',target:'edit.prompt',mode:'rewrite',text:'只修改眉毛，保持原图构图与线条'}]);
+ const state=wireState(f.calls[0]).edit;
+ assert.equal(state.form.model,model);assert.equal(state.source.upstream_id,model);
+ assert.ok(state.capabilities.draft_fields.includes('image_options'));assert.ok(Object.keys(state.effective.image_options).length);
+ assert.equal(state.input_budget.status,'not_applicable');assert.ok(state.image_edit.settings.edges);
+ assert.deepEqual(state.image_edit.annotations.regions[0],{n:1,shape:'point',x:.3,y:.4,comment:'检查眉毛'});
+ await page.evaluate(()=>ask.applyDraft(ask.draftPlan.value.fingerprint));
+ assert.deepEqual(await page.evaluate(id=>editor.session.options[id],model),values);
+ assert.equal(await page.evaluate(()=>editor.session.fields.prompt),'只修改眉毛，保持原图构图与线条');
+ await page.evaluate(()=>ask.undoDraft(ask.undoId.value));
+ assert.deepEqual(await page.evaluate(()=>editor.askSnapshot().config),before);
+ assert.deepEqual(f.requests.slice(start).filter(u=>!u.includes('/chat/completions')),[]);
+ assert.deepEqual(f.errors,[]);
+});
 test('EA0–EA2 actual ASK turn freezes EDIT, counts tokens, applies/undoes presets without requests or base/mask changes', {timeout:90000},async t=>{
  const f=await setup(t),{page}=f;
  await page.evaluate(async()=>{editor.setMode('inpaint');const c=new OffscreenCanvas(512,512),x=c.getContext('2d');x.fillStyle='white';x.fillRect(64,64,64,64);x.fillRect(320,320,32,32);await editor.importMask(await c.convertToBlob({type:'image/png'}),'alpha');editor.setMode('img2img');});
  await page.waitForTimeout(650);const start=f.requests.length;
  await askDraft(f,[{kind:'params_patch',params:{editMode:'inpaint',inpaintKind:'focused',strength:1,focusRect:{x:0,y:0,w:.75,h:.75}}},{kind:'prompt_patch',target:'edit.prompt',mode:'rewrite',text:'detailed hands'},{kind:'director_patch',tool:'emotion',emotion:'smug',defry:3}]);
- const state=wireState(f.calls[0]);assert.equal(state.workspace,'edit');assert.equal(state.edit.mask.region_count,2);assert.equal(state.edit.input_budget.status,'ready');assert.ok(state.edit.source_version.id.startsWith('#e'));assert.equal(state.image.input_budget.status,'ready');assert.doesNotMatch(JSON.stringify(state),/synthetic|base64|blob:/);
+ const state=wireState(f.calls[0]);assert.equal(state.workspace,'edit');assert.equal(state.edit.mask.region_count,2);assert.equal(state.edit.input_budget.status,'ready');assert.ok(state.edit.source_version.id.startsWith('#e'));assert.equal(state.image.input_budget,undefined);assert.equal(state.image.form,undefined);assert.equal(state.edit.capabilities.emotions,undefined);assert.equal(state.edit.capabilities.models,undefined);assert.doesNotMatch(JSON.stringify(state),/synthetic|base64|blob:/);
  const before=await page.evaluate(()=>({mask:JSON.stringify(editor.session.mask),base:editor.session.baseId,prompt:drawing.snapshot().form.prompt,config:editor.askSnapshot().config}));
  await page.evaluate(()=>ask.applyDraft(ask.draftPlan.value.fingerprint));
  assert.deepEqual(await page.evaluate(()=>[editor.session.mode,editor.session.fields.prompt,editor.snapshot().directorOpen]),['inpaint','detailed hands',true]);
@@ -126,18 +167,106 @@ test('EA3 #e handoff to CHAT keeps bytes/lineage after reload; existing edit boa
  assert.deepEqual(f.errors,[]);
 });
 
-test('EA0 candidate tool counts the frozen whole input without creating a draft or spending requests', {timeout:90000},async t=>{
+const toolReply = (calls, content) => 'data: '+JSON.stringify({choices:[{index:0,delta:{...(content?{content}:{}),tool_calls:calls.map(([id,name,input],index)=>({index,id,type:'function',function:{name,arguments:JSON.stringify(input)}}))},finish_reason:'tool_calls'}]})+'\n\ndata: [DONE]\n\n';
+const reportOf = message => JSON.parse(message.content.match(/<data>\n([\s\S]*?)\n<\/data>/)[1]);
+test('ASK can view the current EDIT version directly with an empty IMAGE history', async t=>{
+ const f=await setup(t),{page}=f;
+ const expected=await page.evaluate(async()=>{
+   drawing.remove(source.id);
+   const original=editor.session.baseId, token=editor.beginExternalEdit();
+   await editor.applyExternalEdit(token.id,{mode:'image',image:await makeImage('#884466')});
+   const latest=editor.session.viewId;
+   editor.setBase(original);editor.view(latest);
+   editor.patch({prompt:'完整编辑说明，保留当前构图',negative_prompt:'完整负面词文'});
+   return {viewing:editor.reference(editor.snapshot().viewed),source:editor.reference(editor.snapshot().base),form:editor.askSnapshot().config.fields};
+ });
+ await page.waitForTimeout(650);
+ const start=f.requests.length;
+ f.queue.push(b=>toolReply([['look','view_image',{id:wireState(b).edit.viewing_version.id,spec:'look'}]]),b=>response(b));
+ await page.evaluate(()=>{ask.show();ask.input.value='说说当前图的画面';});await page.evaluate(()=>ask.send());
+ await page.waitForFunction(()=>!ask.running.value&&ask.entries.value.at(-1)?.turn.status==='done');
+ assert.equal(f.calls.length,2);
+ const state=wireState(f.calls[0]);
+ assert.equal(state.workspace,'edit');assert.equal(state.anchor,null);
+ assert.equal(state.image.current,null);assert.equal(state.image.history.latest_id,null);
+ assert.equal(state.edit.viewing_version.id,expected.viewing);assert.equal(state.edit.source_version.id,expected.source);
+ assert.notEqual(expected.viewing,expected.source,'viewing a result does not mean viewing the base');
+ assert.equal(state.edit.form.prompt,expected.form.prompt);assert.equal(state.edit.form.negative,expected.form.negative_prompt);
+ const look=reportOf(f.calls[1].messages.find(m=>m.role==='tool'));
+ assert.equal(look.id,expected.viewing);assert.equal(look.spec,'look');assert.ok(look.bytes>0);
+ const pictures=f.calls[1].messages.flatMap(m=>Array.isArray(m.content)?m.content:[]).filter(b=>b.type==='image_url');
+ assert.equal(pictures.length,1);
+ const pixel=await page.evaluate(async url=>{
+   const bitmap=await createImageBitmap(await(await fetch(url)).blob()),canvas=new OffscreenCanvas(bitmap.width,bitmap.height),x=canvas.getContext('2d');
+   x.drawImage(bitmap,0,0);bitmap.close();return [...x.getImageData(50,50,1,1).data];
+ },pictures[0].image_url.url);
+ assert.ok(pixel[0]>pixel[1]&&pixel[0]>pixel[2],'visual output is the red EDIT result, not the blue original');
+ const tools=f.calls[1].messages.flatMap(m=>m.tool_calls??[]).map(c=>c.function.name);
+ assert.deepEqual(tools,['view_image']);
+ assert.deepEqual(f.requests.slice(start).filter(u=>!u.includes('/chat/completions')),[]);assert.deepEqual(f.errors,[]);
+});
+
+test('EA0 proposing a draft automatically counts the complete frozen input without writes or a separate tool', {timeout:90000},async t=>{
  const f=await setup(t),{page}=f;
  const before=await page.evaluate(()=>JSON.stringify(editor.askSnapshot().config)),nextId=await page.evaluate(()=>editor.session.nextCharacterId),start=f.requests.length;
- f.queue.push(b=>'data: '+JSON.stringify({choices:[{index:0,delta:{tool_calls:[{index:0,id:'check',type:'function',function:{name:'check_nai_input',arguments:JSON.stringify({base_hash:wireState(b).base_hash,steps:[{kind:'prompt_patch',target:'edit.prompt',mode:'rewrite',text:'blue sky'},{kind:'character_edit',op:'add',prompt:'1girl, white hair'}]})}}]},finish_reason:'tool_calls'}]})+'\n\ndata: [DONE]\n\n');
+ f.queue.push(b=>toolReply([['draft','propose_draft',{base_hash:wireState(b).base_hash,draft_title:'候选修改',steps:[{kind:'prompt_patch',target:'edit.prompt',mode:'rewrite',text:'blue sky'},{kind:'character_edit',op:'add',prompt:'1girl, white hair'}]}]]));
  f.queue.push(b=>response(b));
- await page.evaluate(()=>{ask.show();ask.input.value='检查候选输入';});await page.evaluate(()=>ask.send());
- await page.waitForFunction(()=>!ask.running.value);
- const result=f.calls.at(-1).messages.filter(m=>m.role==='tool').at(-1).content;
- const checked=JSON.parse(result.replace(/^<data>\n/, '').replace(/\n<\/data>$/, ''));
- assert.equal(checked.input_budget.status,'ready');assert.equal(checked.input_budget.positive.used,9);assert.equal(checked.input_budget.negative.used,2);
- assert.equal(await page.evaluate(()=>!!ask.draftPlan.value),false);
+ await page.evaluate(()=>{ask.show();ask.input.value='准备修改';});await page.evaluate(()=>ask.send());
+ await page.waitForFunction(()=>!ask.running.value&&!!ask.draftPlan.value);
+ assert.equal(f.calls.length,2);
+ assert.ok(f.calls.every(b=>b.tools.every(t=>t.function.name!=='check_nai_input')));
+ const checked=reportOf(f.calls.at(-1).messages.filter(m=>m.role==='tool').at(-1));
+ assert.equal(checked.ok,true);assert.equal(checked.input_budget.status,'ready');assert.equal(checked.input_budget.positive.used,9);assert.equal(checked.input_budget.negative.used,2);
+ assert.equal(checked.input_budget.positive.remaining,503);assert.equal(checked.capabilities,undefined);
  assert.equal(await page.evaluate(()=>JSON.stringify(editor.askSnapshot().config)),before);assert.equal(await page.evaluate(()=>editor.session.nextCharacterId),nextId);
+ assert.deepEqual(f.requests.slice(start).filter(u=>!u.includes('/chat/completions')),[]);assert.deepEqual(f.errors,[]);
+});
+
+test('ASK automatic NAI validation rejects Text overflow, permits correction after eight reads and completes the answer', {timeout:90000},async t=>{
+ const f=await setup(t),{page}=f;
+ const before=await page.evaluate(()=>JSON.stringify(editor.askSnapshot().config)),start=f.requests.length;
+ const candidate=(b,text)=>({base_hash:wireState(b).base_hash,draft_title:'调整词文',steps:[{kind:'prompt_patch',target:'edit.prompt',mode:'rewrite',text}]});
+ f.queue.push(
+   ()=>toolReply(Array.from({length:8},(_,i)=>['state'+i,'get_state',{}]),'先读当前状态。'),
+   b=>toolReply([['bad','propose_draft',candidate(b,'Text: '+'x'.repeat(119))]]),
+   b=>toolReply([['fixed','propose_draft',candidate(b,'blue sky, Text: Hello')]]),
+   b=>response(b),
+ );
+ await page.evaluate(()=>{ask.show();ask.input.value='请调整词文并说明改动';});await page.evaluate(()=>ask.send());
+ await page.waitForFunction(()=>!ask.running.value&&!!ask.draftPlan.value,{},{timeout:30000});
+ assert.equal(f.calls.length,4);
+ assert.deepEqual(wireState(f.calls[0]).conversation_history,{archived_through:null,retained_verbatim:[]});
+ assert.equal(f.calls.at(-1).tool_choice,'none');
+ const rejected=reportOf(f.calls[2].messages.filter(m=>m.role==='tool').at(-1));
+ assert.equal(rejected.ok,false);assert.equal(rejected.input_budget.text.used,119);assert.equal(rejected.input_budget.text.limit,118);
+ assert.equal(typeof rejected.input_budget.positive.used,'number');
+ const accepted=reportOf(f.calls[3].messages.filter(m=>m.role==='tool').at(-1));assert.equal(accepted.ok,true);assert.equal(accepted.input_budget.text.used,5);
+ assert.match(await page.locator('.ask-turn').last().textContent(),/已整理修改，等待确认/);
+ assert.equal(await page.evaluate(()=>JSON.stringify(editor.askSnapshot().config)),before);
+ assert.deepEqual(f.requests.slice(start).filter(u=>!u.includes('/chat/completions')),[]);assert.deepEqual(f.errors,[]);
+});
+
+test('get_state automatically counts other IMAGE and EDIT boards and latest state without changing the frozen draft target', {timeout:90000},async t=>{
+ const f=await setup(t),{page}=f;
+ const ids=await page.evaluate(async()=>{
+   const original=drawing.snapshot().activeBoardId,board=await drawing.createBoard(false);
+   await drawing.patch({model:'nai-diffusion-4-5-full',prompt:'blue sky'});await drawing.switchBoard(original);
+   await editor.open('edit',await makeImage('#884466'),'other.png',{sourceId:'state-other'});const edit=editor.session.id;editor.switchBoard(originalBoard);
+   return {board,edit,originalEdit:originalBoard};
+ });
+ await page.waitForTimeout(650);const start=f.requests.length;
+ f.queue.push(()=>toolReply([['board','get_state',{board_id:ids.board}],['edit','get_state',{edit_board_id:ids.edit}],['latest','get_state',{scope:'latest'}]]),b=>response(b));
+ await page.evaluate(()=>{ask.show();ask.input.value='比较画板状态';});await page.evaluate(()=>ask.send());await page.waitForFunction(()=>!ask.running.value);
+ const results=f.calls.at(-1).messages.filter(m=>m.role==='tool'),board=JSON.parse(results[0].content),edit=JSON.parse(results[1].content).edit,latest=JSON.parse(results[2].content.match(/<workspace_state>\n([\s\S]*?)\n<\/workspace_state>/)[1]);
+ for(const state of [board,edit,latest.edit]){assert.equal(state.input_budget.status,'ready');assert.equal(typeof state.input_budget.positive.used,'number');assert.ok(state.capabilities);}
+ for(const state of [wireState(f.calls[0]),latest]) {
+   assert.equal(state.workspace,'edit');
+   assert.deepEqual(Object.keys(state.image).sort(),['active_board_id','boards','current','favorites','history']);
+   assert.equal(state.edit.form.prompt,'1girl, blue hair');
+   assert.equal(state.edit.capabilities.models,undefined);assert.equal(state.edit.capabilities.emotions,undefined);
+ }
+ assert.equal(board.form.prompt,'blue sky');assert.equal(board.draft_base_hash,wireState(f.calls[0]).base_hash);
+ assert.equal(latest.edit.active_board_id,ids.originalEdit);assert.equal(await page.evaluate(()=>!!ask.draftPlan.value),false);
  assert.deepEqual(f.requests.slice(start).filter(u=>!u.includes('/chat/completions')),[]);assert.deepEqual(f.errors,[]);
 });
 

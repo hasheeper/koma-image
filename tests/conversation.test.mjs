@@ -8,6 +8,7 @@ import {
   buildUpscalePayload,
   validateEditorSource,
   editorModels,
+  isGenerativeEditorModel,
 } from "../src/domain/media.ts";
 const model = {
   id: "gemini-3-pro-image",
@@ -20,6 +21,18 @@ const model = {
   maxPixels: 1048576,
   sourceMaxPixels: 32000000,
 };
+test('editor: arbitrary upstream image-edit models use their input limits, independently of NAI output sizes', () => {
+  const custom = { ...model, id: 'supplier/custom-editor', chat: true };
+  const unsupported = { ...custom, id: 'text-only', tools: [] };
+  assert.equal(isGenerativeEditorModel(custom), true);
+  assert.equal(isGenerativeEditorModel(unsupported), false);
+  for (const mode of ['img2img', 'inpaint']) {
+    assert.deepEqual(editorModels({ models: [custom, unsupported] }, mode), [custom]);
+    assert.equal(validateEditorSource(mode, custom, { width: 2400, height: 2400, bytes: 1024 }), null);
+    assert.ok(validateEditorSource(mode, custom, { width: 6000, height: 6000, bytes: 1024 }));
+  }
+  assert.deepEqual(editorModels({ models: [custom] }, 'upscale'), []);
+});
 function done(con, prompt, id) {
   con.prompt = prompt;
   const { turn, version } = c.beginTurn(

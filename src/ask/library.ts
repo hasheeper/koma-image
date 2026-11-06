@@ -1,3 +1,4 @@
+import type { ImageAnnotations } from '../domain/region-annotation.ts';
 import type { ImageTagBinding } from "../domain/image-identity.ts";
 import { readInpaintFocus } from "../domain/inpaint-focus.ts";
 import { referenceSummary } from "../domain/nai-references.ts";
@@ -19,6 +20,7 @@ export interface PictureOrigin {
   readonly order: number;
 }
 export interface Picture extends DigestImage {
+  readonly annotations?: ImageAnnotations;
   readonly scope?: ImageTagBinding["scope"];
   readonly bindings?: Readonly<Record<string,ImageTagBinding>>;
   readonly label: string;

@@ -98,7 +98,7 @@ test("ASK drawer: Ctrl+J toggles, a scripted tool turn streams and is announced 
     const [first, second] = calls;
     assert.equal(first.headers.authorization, "Bearer synthetic-chat");
     assert.equal(first.body.model, "reasoning-a");
-    assert.deepEqual(first.body.tools.map((t) => t.function.name), ["get_state", "check_nai_input", "search_history", "get_meta", "diff_meta", "view_image", "view_sheet", "search_tags", "get_chat_context", "get_model_manual", "propose_draft", "get_turn", "read_ref"]);
+    assert.deepEqual(first.body.tools.map((t) => t.function.name), ["get_state", "search_history", "get_meta", "diff_meta", "view_image", "view_sheet", "search_tags", "get_chat_context", "get_model_manual", "propose_draft", "get_turn", "read_ref"]);
     assert.match(first.body.messages[0].content, /你是 Koma ASK[\s\S]*<user_preferences>\n先说结论\n<\/user_preferences>/);
     const question = first.body.messages.at(-1).content;
     // Text-only user turns flatten to one string: the locked state, then the question.
@@ -211,7 +211,8 @@ test("ASK drawer: Esc closes the popover, then stops the turn, then the drawer; 
     const encoded = calls.at(-1);
     assert.equal(encoded.raw.includes("nsfw 还是被拦截"), false);
     assert.ok(encoded.body.messages.at(-1).content.endsWith("\n\n@t_001 还是被拦截"));
-    assert.match(encoded.body.messages[0].content, /<codebook>/);
+    assert.match(encoded.body.messages[0].content, /本地保留标签/);
+    assert.doesNotMatch(encoded.raw, /<codebook>|nsfw/i);
     assert.match(await drawer(page).locator(".ask-turn").last().locator(".ask-q").textContent(), /nsfw 还是被拦截/);
     assert.match(await drawer(page).locator(".ask-turn").last().locator("p").last().textContent(), /^nsfw 本身没问题。$/);
     assert.equal(await page.evaluate(() => ask.codecActive.value), true);

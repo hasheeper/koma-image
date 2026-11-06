@@ -15,8 +15,50 @@ import { useEditor } from "../../app/editor";
 import { useShell } from "../../app/shell";
 import { useAskPresentation } from "../../ask/presentation";
 const { fullscreen: askFullscreen } = useAskPresentation();
+const annotations = useAnnotations(), ask = useAsk();
+const selection = shallowRef<InstanceType<typeof RegionAnnotator>>();
+const selectionHost = shallowRef<AnnotationViewport>();
+const annotationToolbar = shallowRef<HTMLElement>();
+const sendingSelection = shallowRef(false);
+const selecting = computed(() => !!annotations.active.value?.target.inline && annotations.active.value.target.edit?.boardId === editor.session.id && annotations.active.value.target.edit?.versionId === view.value.viewed?.id);
+function closeSelection() { if (annotations.active.value?.target.inline) { selection.value?.saveComment(false); annotations.close(); } }
+/** CHAT goes to the board's own conversation unless `fresh`; a clean picture there joins as a reference. */
+async function sendSelection(action: 'ask' | 'chat', fresh = false) {
+  const v=shown.value; if (!v || unsavedPreview.value || sendingSelection.value) return;
+  sendingSelection.value=true;
+  try {
+    selection.value?.saveComment(false);
+    if (selecting.value && annotations.active.value!.snapshot.regions.length) { await annotations.act(action, fresh); return; }
+    if (action === 'ask') { await ask.addFiles([new File([v.blob], v.name || '编辑图片.png', {type:v.blob.type})]); ask.show(); }
+    else if (!fresh && chatSource.value) await editor.useResult(v.id);
+    else {
+      const ticket=await createHandoff(services).queue(v.blob,v.name);
+      const url=new URL(location.href);url.searchParams.set('image',ticket);history.replaceState(history.state,'',url);
+      router.switchWorkspace('chat');ui.imageDelivery.value++;
+    }
+    closeSelection();
+  } catch(e) { ui.toast(message(e),'err'); }
+  finally { sendingSelection.value=false; }
+}
+async function annotate(initialTool: AnnotationShape = 'point') {
+  if (selecting.value) { selection.value?.choose(initialTool); return; }
+  const v=view.value.viewed;if(!v)return;
+  saveMask();focusRegion?.cancel();focusTool.value=false;canvas?.setHand(false);syncMaskLock();
+  try { await annotations.open({blob:v.blob,name:v.name,recordId:v.recordId,tag:editor.reference(v),workspace:'edit',initialTool,inline:true,edit:{boardId:editor.session.id,versionId:v.id}}); }
+  catch(e){ui.toast(message(e),'err');}
+}
+function reviewAnnotations(){const v=view.value.viewed;if(!v)return;try{annotations.editorReview(editor.session.id,v.id);}catch(e){ui.toast(message(e),'err');}}
+
+import { useAsk } from "../../app/ask";
+import { useChat } from "../../app/chat";
+import { createHandoff } from "../../services/handoff";
+import type { AnnotationShape } from "../../domain/region-annotation";
+import { annotationAlignment, canMaskAnnotations } from "../../domain/region-annotation";
+import type { AnnotationViewport } from "../../native/region-annotator";
+import RegionAnnotator from "../../shared/annotations/RegionAnnotator.vue";
+import { useAnnotations } from "../../app/annotations.ts";
 import { useServices } from "../../app/services";
-import { useUi } from "../../app/ui";
+import { useUi, message } from "../../app/ui";
 import type { EditorSession, EditorVersion } from "../../services/editor";
 import { modeNames } from "../../services/editor";
 import { editorModels } from "../../domain/media.ts";
@@ -42,6 +84,7 @@ import DirectorTools from "./DirectorTools.vue";
 import { placeEditorPanel } from "./panels";
 import { directorName, directorTools, directorVariantNames } from "../../domain/director-tools";
 import AppIcon from "../../shared/AppIcon.vue";
+import PopoverMenu from "../../shared/ui/PopoverMenu.vue";
 import WalletDisplay from "../../shared/WalletDisplay.vue";
 import HighlightInput from "../../shared/HighlightInput.vue";
 import { provideNaiComposer } from "../../app/nai-composer";
@@ -50,6 +93,7 @@ import NaiPromptOptions from "../../shared/nai/NaiPromptOptions.vue";
 import CharactersEditor from "../../shared/nai/CharactersEditor.vue";
 import DrawingBottomPanel from "../../shared/nai/DrawingBottomPanel.vue";
 import EditorParameters from "../../overlays/EditorParameters.vue";
+import EditImageParameters from "./EditImageParameters.vue";
 const PhotopeaPanel = defineAsyncComponent(() => import("../../overlays/PhotopeaPanel.vue"));
 const { editor, view } = useEditor(),
   { router, narrow } = useShell(),
@@ -79,6 +123,48 @@ const tab = ref<"prompt" | "negative_prompt">("prompt"),
   rail = ref(true),
   canvasFullscreen = ref(false),
   drop = ref("");
+const comparisonMode = shallowRef<'source' | 'raw' | 'composite'>('raw'), previewImage = shallowRef<EditorVersion>();
+const previewBusy = shallowRef(false), previewError = shallowRef('');
+let previewController: AbortController | undefined;
+const comparison = computed(() => {
+  const info = view.value.viewed?.comparison;
+  if (!info) return;
+  const versions = view.value.session.versions;
+  const source = versions.find(v => v.id === info.sourceId), raw = versions.find(v => v.id === info.rawId), composite = versions.find(v => v.id === info.compositeId);
+  if (source && raw) return { source, raw, composite, info, compatible: !!annotationAlignment(source, raw) };
+});
+const unsavedPreview = computed(() => !!comparison.value && comparisonMode.value === 'composite' && !comparison.value.composite);
+const { chat, view: chatView } = useChat();
+const chatSource = computed(() => { const id = s.value.origin === 'chat' ? s.value.conversationId : undefined; return id ? chatView.value.conversations.find(c => c.id === id) : undefined; });
+const sendCount = computed(() => selecting.value ? annotations.active.value?.snapshot.regions.length ?? 0 : 0);
+const sendDisabled = computed(() => locked.value || unsavedPreview.value || sendingSelection.value || annotations.busy.value);
+async function showComparison(mode: typeof comparisonMode.value) {
+  const group = comparison.value;
+  if (!group) return;
+  closeSelection(); comparing.value = false; previewError.value = '';
+  if (mode !== 'composite' || group.composite || previewImage.value) { previewController?.abort(); previewController = undefined; previewBusy.value = false; comparisonMode.value = mode; return; }
+  if (!group.info.mask || !group.compatible || previewBusy.value) return;
+  const boardId = s.value.id, versionId = group.raw.id;
+  previewController?.abort(); const controller = previewController = new AbortController(); previewBusy.value = true;
+  try {
+    const blob = await editor.previewComparison(boardId, versionId, controller.signal);
+    if (controller.signal.aborted || comparison.value?.raw !== group.raw) return;
+    previewImage.value = { ...group.raw, blob, url: URL.createObjectURL(blob), width: group.source.width, height: group.source.height };
+    comparisonMode.value = 'composite';
+  } catch (e) { if (!controller.signal.aborted) previewError.value = message(e); }
+  finally { if (previewController === controller) previewBusy.value = false; }
+}
+async function applyComparison() {
+  const group = comparison.value; if (!group) return;
+  try { await editor.applyComparison(s.value.id, group.raw.id); }
+  catch (e) { ui.toast(message(e), 'err'); }
+}
+function clearPreview() {
+  previewController?.abort(); previewController = undefined; previewBusy.value = false; previewError.value = '';
+  if (previewImage.value) URL.revokeObjectURL(previewImage.value.url);
+  previewImage.value = undefined;
+}
+function submitEdit() { selection.value?.saveComment(false); closeSelection(); void editor.run(); }
 const s = computed(() => view.value.session),
   locked = computed(
     () => view.value.busy || view.value.reading || view.value.preparing,
@@ -87,7 +173,7 @@ const s = computed(() => view.value.session),
     comparing.value
       ? s.value.versions.find((v) => v.id === view.value.viewed?.parentId) ||
         view.value.viewed
-      : view.value.viewed,
+      : comparison.value ? comparisonMode.value === 'source' ? comparison.value.source : comparisonMode.value === 'composite' ? comparison.value.composite ?? previewImage.value ?? comparison.value.raw : comparison.value.raw : view.value.viewed,
   ),
   parent = computed(() =>
     s.value.versions.find((v) => v.id === view.value.viewed?.parentId),
@@ -95,7 +181,7 @@ const s = computed(() => view.value.session),
 const medium = computed(() => naiCapabilities(view.value.model?.id ?? "").medium);
 const strength = computed(() => view.value.enhancing ? s.value.enhance.strength : s.value.strength[s.value.mode]);
 const runLabel = computed(() => view.value.busy ? `${view.value.running === 'director' ? directorName(view.value.runningDirector) : view.value.runningEnhance ? "Enhance" : modeNames[view.value.running]}中…`
-  : view.value.enhancing ? "Enhance" : view.value.focusing ? "聚焦重绘" : modeNames[s.value.mode]);
+  : view.value.generative ? "生成修改图" : view.value.enhancing ? "Enhance" : view.value.focusing ? "聚焦重绘" : modeNames[s.value.mode]);
 const strengthRange = computed(() => editStrengthRange(view.value.model?.profileId === "nai-official-v1", s.value.mode === "inpaint"));
 
 const maskActive = computed(
@@ -153,7 +239,14 @@ const upscaleType = (provider?: string) => provider === "fal" ? "external" : "na
 const upscaleKind = computed(() => upscaleType(view.value.upscaleModel?.provider));
 const upscaleTitle = computed(() => upscaleKind.value === "native" ? "原生放大" : "外部放大");
 const upscaleChoices = computed(() => upChoices.value.filter(m => upscaleType(m.provider) === upscaleKind.value));
-const inpaintOptions = computed(() => [
+const annotationOptions = [
+  { value: "point", label: "点击批注", icon: "i-annotate" },
+  { value: "rect", label: "矩形选区", icon: "i-select-rect" },
+  { value: "ellipse", label: "椭圆选区", icon: "i-select-ellipse" },
+  { value: "polygon", label: "多边形选区", icon: "i-select-polygon" },
+];
+const annotationTool = computed(() => annotationOptions.find(o => o.value === (selecting.value ? selection.value?.tool : 'point')) ?? annotationOptions[0]);
+const inpaintOptions = computed(() => view.value.generative ? [{ value: 'ordinary', label: '绘制蒙版', icon: 'i-mask' }] : [
   { value: "ordinary", label: "普通重绘", icon: "i-mask" },
   { value: "focused", label: "聚焦重绘", icon: "i-frame", disabled: !view.value.focusAvailable },
 ]);
@@ -188,12 +281,12 @@ const optionLabels: Record<string, string> = {
   quality: "质量",
 };
 const label = (v: typeof shown.value) =>
-  v?.kind === "source" ? "原图" : v?.kind === "manual" ? "手动编辑" : v?.director ? directorName(v.director.tool) : v?.params?.enhance ? v.params.enhanceScale === "max" ? "Enhance Max" : "Enhance" : v?.params?.inpaintFocus ? "聚焦重绘" : v?.mode ? modeNames[v.mode] : "";
+  v?.comparison ? (v.params?.localComposite ? "蒙版替换" : "AI 生成") : v?.kind === "source" ? "原图" : v?.kind === "manual" ? "手动编辑" : v?.director ? directorName(v.director.tool) : v?.params?.enhance ? v.params.enhanceScale === "max" ? "Enhance Max" : "Enhance" : v?.params?.inpaintFocus ? "聚焦重绘" : v?.mode ? modeNames[v.mode] : "";
 const facts = computed(() => {
   const v = shown.value;
   if (!v) return "";
   const list = [`${v.width}×${v.height}`];
-  if (v.kind === "result" && v.mode && v.mode !== "upscale")
+  if (v.kind === "result" && v.mode && v.mode !== "upscale" && typeof v.params?.strength === 'number')
     list.push(`强度 ${v.params?.strength}`);
   if (v.kind === "result" && v.mode === "upscale" && parent.value)
     list.push(`×${Number((v.width / parent.value.width).toFixed(2))}`);
@@ -243,8 +336,14 @@ function compare(value: boolean) {
   comparing.value = value && !!parent.value;
   syncMaskLock();
 }
+watch(() => comparison.value?.raw, () => {
+  clearPreview(); comparisonMode.value = view.value.viewed?.id === comparison.value?.info.compositeId ? 'composite' : 'raw';
+});
+watch(() => view.value.viewed?.id, () => { if (comparison.value) comparisonMode.value = view.value.viewed?.id === comparison.value.info.compositeId ? 'composite' : 'raw'; });
+watch([shown, comparisonMode], () => { void nextTick(() => canvas?.layout()); });
+onBeforeUnmount(clearPreview);
 function syncMaskLock() {
-  mask?.setLocked(locked.value || !maskActive.value || comparing.value || focusTool.value);
+  mask?.setLocked(locked.value || !maskActive.value || comparing.value || focusTool.value || selecting.value);
   focusRegion?.sync();
 }
 function ensureMask() {
@@ -269,18 +368,21 @@ function paintBrush() {
   mask?.setBrush(brush.value, eraser.value);
 }
 function setBrush(erase: boolean) {
+  closeSelection();
   focusRegion?.cancel(); focusTool.value = false; syncMaskLock();
   eraser.value = erase;
   paintBrush();
 }
 function selectFocus() {
-  if (locked.value || !view.value.focusAvailable || !s.value.focus.on) return;
+  closeSelection();
+  if (locked.value || !view.value.focusAvailable || !view.value.focusing) return;
   if (s.value.viewId !== s.value.baseId) editor.setBase(s.value.viewId);
   focusRegion?.cancel(); mask?.cancel(); canvas?.setHand(false);
   focusTool.value = true; syncMaskLock();
   if (innerWidth < 768) dialog.value?.querySelector("#editorViewport")?.scrollIntoView({ block: "center", behavior: matchMedia("(prefers-reduced-motion: reduce)").matches ? "instant" : "smooth" });
 }
 async function changeInpaint(focused?: boolean) {
+  closeSelection();
   if (locked.value) return;
   focusRegion?.cancel(); mask?.cancel(); focusTool.value = false;
   closePop();
@@ -288,7 +390,7 @@ async function changeInpaint(focused?: boolean) {
   editor.setMode(entering ? "inpaint" : "img2img");
   if (focused !== undefined) editor.setFocus(focused);
   await nextTick();
-  if (entering && editor.session.focus.on && !editor.session.focus.rect) selectFocus();
+  if (entering && view.value.focusing && !editor.session.focus.rect) selectFocus();
   syncMaskLock();
 }
 function changeUpscale(kind: string) {
@@ -324,6 +426,7 @@ function saveView() {
   }
 }
 function pause() {
+  closeSelection();
   saveView();
   saveMask();
   canvasFullscreen.value = false;
@@ -372,39 +475,45 @@ async function activate() {
     },
     { passive: true, signal },
   );
-  const wraps = [
-    ...dialog.value.querySelectorAll<HTMLElement>(".promptbox .hl-wrap"),
-  ];
-  if (settings.editorPromptH)
+  observePromptResize();
+  canvas?.layout();
+  startClock();
+}
+function observePromptResize() {
+  promptObserver?.disconnect();
+  if (!view.value.open || !dialog.value || photopea.value) return;
+  const wraps = [...dialog.value.querySelectorAll<HTMLElement>(".promptbox .hl-wrap")];
+  const saved = prefs().editorPromptH;
+  if (typeof saved === 'number' && Number.isFinite(saved) && saved > 0)
     for (const w of wraps) {
-      w.style.height = `${settings.editorPromptH}px`;
+      w.style.height = `${saved}px`;
       w.closest<HTMLElement>(".promptbox")!.dataset.resized = "1";
     }
-  const seen = new WeakMap<Element, number>();
-  promptObserver?.disconnect();
+  const seen = new WeakMap<Element, string>();
+  for (const w of wraps) seen.set(w, w.style.height);
   promptObserver = new ResizeObserver((entries) => {
     for (const e of entries) {
       const w = e.target as HTMLElement,
         h = Math.round(w.getBoundingClientRect().height),
         old = seen.get(w);
+      // Only the native resize handle changes inline height. Responsive layout
+      // and hidden panes must not overwrite the user's saved input size.
       if (
         h > 0 &&
-        old !== undefined &&
-        Math.abs(h - old) > 1 &&
+        old !== w.style.height &&
         w.style.height
       ) {
         w.closest<HTMLElement>(".promptbox")!.dataset.resized = "1";
         preference("editorPromptH", h);
         for (const other of wraps)
-          if (other !== w) other.style.height = `${h}px`;
+          if (other !== w) { other.style.height = `${h}px`; seen.set(other, other.style.height); }
       }
-      if (h > 0) seen.set(w, h);
+      seen.set(w, w.style.height);
     }
   });
   for (const w of wraps) promptObserver.observe(w);
-  canvas?.layout();
-  startClock();
 }
+watch(() => view.value.generative, observePromptResize, { flush: 'post' });
 watch(
   () => router.route.value.workspace,
   async (next) => {
@@ -437,12 +546,12 @@ watch(
     () => s.value.baseId,
     () => s.value.mode,
     () => s.value.maskRevision,
-    () => s.value.focus.on,
+    () => view.value.focusing,
     () => { const r = s.value.focus.rect; return r ? `${r.x},${r.y},${r.width},${r.height}` : ""; },
     () => view.value.warning,
   ],
   () => {
-    if (s.value.mode !== "inpaint" || !s.value.focus.on) { focusRegion?.cancel(); focusTool.value = false; }
+    if (!view.value.focusing) { focusRegion?.cancel(); focusTool.value = false; }
     ensureMask();
     focusRegion?.sync();
     void nextTick(() => {
@@ -462,6 +571,11 @@ watch(
 );
 watch(locked, syncMaskLock);
 watch(maskActive, syncMaskLock);
+watch(selecting, on => {
+  if (on) { saveMask(); focusRegion?.cancel(); focusTool.value = false; canvas?.setHand(false); }
+  syncMaskLock();
+});
+watch([() => s.value.id, () => s.value.viewId, () => router.route.value.workspace], closeSelection, {flush:'sync'});
 watch(
   () => view.value.upscaleOpen,
   async (on) => {
@@ -524,7 +638,7 @@ function openMaskFile(e: Event) {
   if (blob) void editor.importMask(blob);
 }
 function key(e: KeyboardEvent) {
-  if (photopea.value) return;
+  if (photopea.value || annotations.active.value && !selecting.value || annotations.review.value) return;
   if (e.defaultPrevented || e.isComposing || e.keyCode === 229) return;
   const key = e.key.toLowerCase(),
     mod = e.metaKey || e.ctrlKey;
@@ -545,7 +659,8 @@ function key(e: KeyboardEvent) {
   if (mod && key === "enter") {
     e.preventDefault();
     if (view.value.directorOpen) void editor.runDirector();
-    else void editor.run(view.value.upscaleOpen ? "upscale" : "edit");
+    else if (view.value.upscaleOpen) void editor.run('upscale');
+    else submitEdit();
     return;
   }
   if (
@@ -581,7 +696,7 @@ function key(e: KeyboardEvent) {
   else if (maskActive.value) {
     if (key === "b") setBrush(false);
     else if (key === "e") setBrush(true);
-    else if (key === "f" && s.value.focus.on) selectFocus();
+    else if (key === "f" && view.value.focusing) selectFocus();
     else if (key === "[" || key === "]") {
       brush.value = Math.max(
         8,
@@ -641,27 +756,34 @@ function paste(e: ClipboardEvent) {
   }
 }
 onMounted(() => {
+  editor.setComparisonReader((boardId,versionId)=>view.value.session.id===boardId&&view.value.viewed?.id===versionId&&comparison.value
+    ? {mode:comparisonMode.value,preview:previewBusy.value?'loading':previewError.value?'error':previewImage.value?'ready':'idle'} : undefined);
   toolbar = createEditorToolbar(dialog.value!);
   mask = createMaskEditor(maskCanvas.value!, changedMask);
   unwatchTheme = watchTheme(() => mask?.retint());
   focusRegion = createFocusRegion(dialog.value!, focusHost.value!, {
     size: () => view.value.base, rect: () => editor.session.focus.rect,
-    visible: () => maskActive.value && editor.session.focus.on && !comparing.value,
-    selecting: () => focusTool.value, locked: () => locked.value || !maskActive.value || comparing.value,
+    visible: () => maskActive.value && view.value.focusing && !comparing.value && !selecting.value,
+    selecting: () => focusTool.value, locked: () => locked.value || !maskActive.value || comparing.value || selecting.value,
     commit: rect => { editor.setFocusRect(rect); },
     settled: () => editor.retry("edit"),
   });
   canvas = createEditorCanvas(dialog.value!, mask, {
-    size: () => view.value.viewed,
+    size: () => comparison.value?.compatible ? comparison.value.source : shown.value,
     maskActive: () => maskActive.value,
-    focus: { selecting: () => focusTool.value, cancel: () => focusRegion?.cancel() },
+    focus: { selecting: () => focusTool.value || selecting.value, cancel: () => { focusRegion?.cancel(); selection.value?.cancel(); } },
     brush: () => brush.value,
     compare,
     panel: (width) => preference("editorPanel", width),
   });
+  selectionHost.value = {
+    stage: dialog.value!.querySelector<HTMLElement>('#editorViewport')!, content: dialog.value!.querySelector<HTMLElement>('#editorStage')!,
+    fit: () => canvas?.fit(), zoom: () => canvas?.zoom() ?? 1, pan: () => canvas?.handActive() ?? false,
+    setHand: value => canvas?.setHand(value), setSpace: value => canvas?.setSpace(value),
+  };
   editor.setMaskPort({
     getMask: () => mask!.getMask(),
-    isDrawing: () => mask!.isDrawing() || !!focusRegion?.isDrawing(),
+    isDrawing: () => mask!.isDrawing() || !!focusRegion?.isDrawing() || !!selection.value?.isDrawing(),
     save: () => { saveMask(); saveView(); },
   });
   editor.activate();
@@ -676,6 +798,7 @@ onBeforeUnmount(() => {
   unwatchTheme?.();
   mask?.dispose();
   editor.setMaskPort(undefined);
+  editor.setComparisonReader(undefined);
 });
 const number = (e: Event) => Number((e.target as HTMLInputElement).value);
 async function copyReference(v: EditorVersion) {
@@ -751,12 +874,13 @@ async function copyReference(v: EditorVersion) {
         id="editorForm"
         novalidate
         :aria-busy="view.busy"
-        @submit.prevent="editor.run()"
+        @submit.prevent="submitEdit"
       >
         <div class="composer-scroll">
           <EditBoards ref="boards" @open-image="pick" />
           <fieldset class="editor-fields editor-controls" :disabled="locked">
           <ModelField v-if="view.open" />
+          <template v-if="!view.generative">
           <div class="fld fld-hero promptbox" id="editorPromptBox">
             <div class="promptbox-head">
               <div class="tabs" role="tablist" aria-label="描述">
@@ -828,11 +952,21 @@ async function copyReference(v: EditorVersion) {
               @input="editor.setNumber('strength', number($event))"
           /></label>
 
+          </template>
+          <template v-else>
+            <div class="fld fld-hero promptbox" id="editorImagePromptBox">
+              <div class="promptbox-head"><label for="editorImagePrompt">修改说明</label></div>
+              <div class="promptbox-body"><div class="pane">
+                <HighlightInput v-if="view.open" id="editorImagePrompt" label="修改说明" :model-value="s.fields.prompt" :highlight="false" :disabled="locked" placeholder="描述需要修改的内容…" :max-length="24000" @update:model-value="editor.patch({prompt: $event})" />
+              </div></div>
+            </div>
+            <EditImageParameters />
+          </template>
           </fieldset>
         </div>
         <div class="composer-foot">
           <fieldset class="editor-controls" :disabled="locked">
-            <DrawingBottomPanel v-if="view.open" ref="bottomPanel" :key="view.contextId"><template #parameters><EditorParameters /></template></DrawingBottomPanel>
+            <DrawingBottomPanel v-if="view.open && !view.generative" ref="bottomPanel" :key="view.contextId"><template #parameters><EditorParameters /></template></DrawingBottomPanel>
           </fieldset>
           <div v-if="view.warning && view.warning !== view.referenceProblem && view.warning !== view.characterProblem" class="quota-warning" role="status">
             <AppIcon name="i-alert" /><span>{{ view.warning }}</span>
@@ -914,7 +1048,7 @@ async function copyReference(v: EditorVersion) {
         :data-drop="drop || undefined"
       >
         <div class="viewport editor-mat">
-          <div class="editor-viewport" id="editorViewport">
+          <div class="editor-viewport" id="editorViewport" tabindex="-1">
             <div class="editor-print" id="editorStage" :hidden="!shown" :data-transparent="shown?.director?.tool === 'bg-removal' || undefined">
               <img
                 v-if="shown"
@@ -932,7 +1066,7 @@ async function copyReference(v: EditorVersion) {
               <div ref="focusHost" id="editorFocusRegion" class="focus-region" hidden>
                 <div class="focus-box" role="group" hidden>
                   <span class="focus-label mono" aria-hidden="true"></span>
-                  <span v-for="corner in ['nw', 'ne', 'sw', 'se']" :key="corner" class="focus-handle" :data-corner="corner" aria-hidden="true"></span>
+                  <span v-for="corner in ['nw', 'n', 'ne', 'e', 'se', 's', 'sw', 'w']" :key="corner" class="focus-handle" :data-corner="corner" aria-hidden="true"></span>
                 </div>
               </div>
               <div class="bar" :hidden="!view.busy"><i></i></div>
@@ -963,6 +1097,7 @@ async function copyReference(v: EditorVersion) {
               <AppIcon name="i-upload" />{{ narrow ? '选择图片' : '打开图片' }}
             </button>
           </div>
+          <RegionAnnotator v-if="selecting && selectionHost" ref="selection" :embedded="selectionHost" :toolbar="annotationToolbar" />
           <div class="editor-cursor" id="editorCursor" hidden></div>
           <div
             class="editor-info"
@@ -982,12 +1117,43 @@ async function copyReference(v: EditorVersion) {
               <AppIcon :name="canvasFullscreen ? 'i-shrink' : 'i-expand'" />
             </button>
             <p class="editor-info-meta">
-              <b :title="shown ? editor.reference(shown) : undefined">{{ shown ? editor.label(shown) : "" }} · {{ label(shown) }}</b
+              <b :title="shown ? editor.reference(shown) : undefined">{{ unsavedPreview ? "预览" : shown ? editor.label(shown) : "" }}<span class="editor-info-kind"> · {{ unsavedPreview ? "蒙版替换" : label(shown) }}</span></b
               ><span class="mono">{{ facts }}</span>
             </p>
             <div v-if="variants.length" class="seg director-variants" role="radiogroup" aria-label="去背景结果">
               <label v-for="v in variants" :key="v.id"><input type="radio" name="editorDirectorVariant" :value="v.id" :checked="s.viewId === v.id" :disabled="locked" @change="editor.view(v.id)" /><span>{{ directorVariantNames[v.director!.variant!] }}</span></label>
             </div>
+            <PopoverMenu id="editorSendMenu" label="发送图片" side="right" class="editor-send" pointer-focus="menu" orientation="horizontal" retain-on-close :menu-class="chatSource ? 'has-source' : undefined" @opened="void chat.start()">
+              <template #trigger="{ open, toggle }">
+                <button id="editorSend" class="editor-send-trigger" type="button" aria-haspopup="menu" aria-controls="editorSendMenu" :aria-expanded="open" :aria-label="sendCount ? `发送图片 · 含 ${sendCount} 处批注` : '发送图片'" :disabled="sendDisabled" @click="toggle">
+                  <span class="editor-send-label">发送</span><span v-if="sendCount" class="editor-send-count mono">{{ sendCount }}</span><AppIcon name="i-chevron" class="editor-send-caret" />
+                </button>
+              </template>
+              <template #default="{ close }">
+                <div class="editor-send-actions" role="none">
+                  <button class="menu-item" type="button" role="menuitem" aria-label="问 ASK" title="交给 ASK 看图" :disabled="sendDisabled" @click="close(); sendSelection('ask')">
+                    <AppIcon name="i-ask" /><span>ASK</span>
+                  </button>
+                  <button v-if="chatSource" class="menu-item" type="button" role="menuitem" :aria-label="`CHAT 改图 · 来源对话 ${chatSource.title}`" :title="`在原会话继续改图：${chatSource.title}`" :disabled="sendDisabled" @click="close(); sendSelection('chat')">
+                    <AppIcon name="i-chat" /><span>续改</span>
+                  </button>
+                  <span class="editor-send-divider" aria-hidden="true"></span>
+                  <button class="menu-item editor-send-new" type="button" role="menuitem" aria-label="CHAT 改图 · 新对话" title="新对话改图" :disabled="sendDisabled" @click="close(); sendSelection('chat', true)">
+                    <AppIcon :name="chatSource ? 'i-plus' : 'i-chat'" /><span v-if="!chatSource">新对话</span>
+                  </button>
+                </div>
+                <p v-if="chatSource" class="editor-send-context" :title="chatSource.title">{{ chatSource.title }}</p>
+              </template>
+            </PopoverMenu>
+          </div>
+          <div v-if="comparison" class="editor-comparison" aria-label="改图对比">
+            <div class="seg" role="group" aria-label="对比图片">
+              <button type="button" :aria-pressed="comparisonMode === 'source'" @click="showComparison('source')">原图</button>
+              <button type="button" :aria-pressed="comparisonMode === 'raw'" @click="showComparison('raw')">AI 生成</button>
+              <button type="button" :aria-pressed="comparisonMode === 'composite'" :disabled="!comparison.info.mask || !comparison.compatible || previewBusy" :title="!comparison.info.mask ? '本轮没有明确范围的蒙版' : !comparison.compatible ? '方向或宽高比不符，无法应用蒙版' : '查看冻结蒙版的本地替换预览'" @click="showComparison('composite')">蒙版替换</button>
+            </div>
+            <button v-if="unsavedPreview" class="btn btn-quiet btn-sm" type="button" :disabled="locked || previewBusy" title="请先检查主体位置、比例与构图" @click="applyComparison">应用蒙版</button>
+            <span v-if="previewError || previewBusy || !comparison.compatible" class="editor-comparison-note" role="status">{{ previewError || (previewBusy ? '准备预览…' : '画幅不一致，仅保留 AI 生成图') }}</span>
           </div>
           <div
             class="editor-toolbar"
@@ -995,14 +1161,11 @@ async function copyReference(v: EditorVersion) {
             aria-label="画布工具"
             :hidden="!shown"
           >
-            <div class="editor-tool-controls">
-              <div class="editor-picture-ops">
-                <EditToolMode ref="inpaintMode" class="inpaint-mode" id="editorInpaint" :label="s.focus.on ? '聚焦' : '重绘'" :aria-label="s.focus.on ? '聚焦重绘' : '重绘'" :icon="s.focus.on ? 'i-frame' : 'i-mask'" :active="s.mode === 'inpaint'" :value="s.focus.on ? 'focused' : 'ordinary'" menu-label="重绘方式" :options="inpaintOptions" :disabled="locked || !editorModels({ models: view.models }, 'inpaint').length" @toggle="changeInpaint()" @select="value => changeInpaint(value === 'focused')" />
-                <EditToolMode ref="upscaleMode" class="upscale-mode" id="editorUpscale" label="放大" icon="i-upscale" :title="upscaleTitle" :active="view.upscaleOpen" :value="upscaleKind" controls="editorUpscalePop" menu-label="放大方式" :options="upscaleOptions" :disabled="locked || !upModels.length" @toggle="editor.upscaleToggle(!view.upscaleOpen)" @select="changeUpscale" />
-                <DirectorTools ref="directorPanel" />
-              </div>
-              <span class="editor-sep" aria-hidden="true"></span>
-              <div class="editor-mask-tools" :hidden="!maskActive">
+            <div v-show="selecting" ref="annotationToolbar"></div>
+            <div v-if="!selecting && shown?.annotation && canMaskAnnotations(shown.annotation.snapshot.regions)" class="editor-annotation-actions editor-tool-capsule" role="group" aria-label="批注操作">
+                <button v-if="shown?.annotation && canMaskAnnotations(shown.annotation.snapshot.regions)" class="btn btn-sm btn-quiet" :disabled="locked" @click="reviewAnnotations"><AppIcon name="i-mask" />{{ shown.annotation.rawId ? '查看直出／回贴' : '审核并应用蒙版' }}</button>
+            </div>
+            <div class="editor-mask-tools editor-tool-capsule" role="group" aria-label="蒙版画笔" :hidden="!maskActive || selecting">
                 <button class="ibtn" type="button" aria-label="导入黑白蒙版" data-tip="导入黑白蒙版"
                   :disabled="locked" @click="maskFile?.click()"><AppIcon name="i-upload" /></button>
                 <button
@@ -1023,7 +1186,7 @@ async function copyReference(v: EditorVersion) {
                   @click="setBrush(true)"
                 >
                   <AppIcon name="i-eraser" /></button
-                ><button v-if="s.focus.on" id="editorSelectFocus" class="ibtn" type="button" aria-label="框选聚焦范围" data-tip="聚焦范围 · F" :aria-pressed="focusTool" :disabled="locked || !view.focusAvailable" @click="focusTool ? setBrush(eraser) : selectFocus()"><AppIcon name="i-frame" /></button
+                ><button v-if="view.focusing" id="editorSelectFocus" class="ibtn" type="button" aria-label="框选聚焦范围" data-tip="聚焦范围 · F" :aria-pressed="focusTool" :disabled="locked || !view.focusAvailable" @click="focusTool ? setBrush(eraser) : selectFocus()"><AppIcon name="i-frame" /></button
                 ><label class="editor-size"
                   ><input
                     v-model.number="brush"
@@ -1058,100 +1221,100 @@ async function copyReference(v: EditorVersion) {
                   @click="mask?.clear()"
                 >
                   <AppIcon name="i-trash" /></button
-                ><span class="editor-sep"></span>
-              </div>
-              <button
-                class="ibtn"
-                id="editorHand"
-                type="button"
-                aria-label="平移"
-                data-tip="平移 · H / 空格"
-                aria-pressed="false"
-                @click="canvas?.toggleHand()"
-              >
-                <AppIcon name="i-hand" /></button
-              ><button
-                class="ibtn editor-zoom-step"
-                type="button"
-                aria-label="缩小"
-                @click="canvas?.step(-1)"
-              >
-                <AppIcon name="i-zoom-out" /></button
-              ><button
-                class="editor-zoom mono"
-                id="editorZoomValue"
-                type="button"
-                aria-label="缩放到 100%"
-                @click="canvas?.zoomTo(1)"
-              >
-                100%</button
-              ><button
-                class="ibtn editor-zoom-step"
-                type="button"
-                aria-label="放大"
-                @click="canvas?.step(1)"
-              >
-                <AppIcon name="i-zoom-in" /></button
-              ><button
-                class="ibtn"
-                type="button"
-                aria-label="适应窗口"
-                @click="canvas?.fit()"
-              >
-                <AppIcon name="i-fit" />
-              </button>
+                >
             </div>
-            <div class="editor-info-actions" :hidden="!view.viewed" role="group" aria-label="图片操作">
-              <span class="editor-sep" aria-hidden="true"></span>
-              <button v-if="view.viewed" class="ibtn" type="button"
-                :aria-label="view.favorite ? '已收藏' : '收藏图片'" :data-tip="view.favorite ? '已收藏' : '收藏'"
-                :aria-pressed="view.favorite" :disabled="locked || view.saving || view.favorite" @click="editor.saveFavorite()">
-                <AppIcon name="i-star" />
-              </button>
-              <button
-                class="ibtn"
-                type="button"
-                aria-label="设为底图"
-                data-tip="设为底图"
-                :hidden="!view.viewed || view.viewed === view.base"
-                :disabled="locked"
-                @click="editor.setBase(s.viewId)"
-              >
-                <AppIcon name="i-pin" /></button
-              ><button
-                class="ibtn"
-                type="button"
-                aria-label="按住对比来源图"
-                data-tip="按住对比 · \"
-                :hidden="!parent"
-                @pointerdown.prevent="compare(true)"
-                @pointerup="compare(false)"
-                @pointerleave="compare(false)"
-                @pointercancel="compare(false)"
-                @blur="compare(false)"
-                @keydown.space.prevent="compare(true)"
-                @keydown.enter.prevent="compare(true)"
-                @keyup="compare(false)"
-              >
-                <AppIcon name="i-compare" /></button
-              ><button
-                class="ibtn"
-                type="button"
-                aria-label="添加为参考图"
-                data-tip="添加为参考图"
-                :hidden="s.origin !== 'chat' || !shown"
-                :disabled="locked"
-                @click="editor.useResult"
-              >
-                <AppIcon name="i-image-plus" /></button
-              ><a
-                class="ibtn"
-                aria-label="下载"
-                data-tip="下载"
-                :href="view.viewed?.url"
-                :download="view.viewed?.name"
-                ><AppIcon name="i-download"
-              /></a>
+            <div v-show="!selecting" class="editor-tool-controls">
+              <div class="editor-picture-ops editor-tool-capsule" role="group" aria-label="编辑工具">
+                <EditToolMode id="editorAnnotate" label="批注" aria-label="批注工具" :icon="annotationTool.icon" :title="annotationTool.label" :active="selecting" :value="selecting ? selection?.tool ?? 'point' : 'point'" menu-label="批注方式" :options="annotationOptions" :disabled="locked || !shown || !!comparison" @toggle="selecting ? closeSelection() : annotate()" @select="value => annotate(value as AnnotationShape)" />
+                <EditToolMode ref="inpaintMode" class="inpaint-mode" id="editorInpaint" :label="view.generative ? '蒙版' : view.focusing ? '聚焦' : '重绘'" :aria-label="view.generative ? '蒙版' : view.focusing ? '聚焦重绘' : '重绘'" :icon="view.focusing ? 'i-frame' : 'i-mask'" :active="s.mode === 'inpaint'" :value="view.focusing ? 'focused' : 'ordinary'" menu-label="重绘方式" :options="inpaintOptions" :disabled="locked || !editorModels({ models: view.models }, 'inpaint').length" @toggle="changeInpaint()" @select="value => changeInpaint(value === 'focused')" />
+                <EditToolMode ref="upscaleMode" class="upscale-mode" id="editorUpscale" label="放大" icon="i-upscale" :title="upscaleTitle" :active="view.upscaleOpen" :value="upscaleKind" controls="editorUpscalePop" menu-label="放大方式" :options="upscaleOptions" :disabled="locked || !upModels.length" @toggle="editor.upscaleToggle(!view.upscaleOpen)" @select="changeUpscale" />
+                <DirectorTools ref="directorPanel" />
+              </div>
+              <div class="editor-secondary-tools">
+                <div class="editor-view-tools editor-tool-capsule" role="group" aria-label="视图控制">
+                  <button
+                    class="ibtn"
+                    id="editorHand"
+                    type="button"
+                    aria-label="平移"
+                    data-tip="平移 · H / 空格"
+                    aria-pressed="false"
+                    @click="canvas?.toggleHand()"
+                  >
+                    <AppIcon name="i-hand" /></button
+                  ><button
+                    class="ibtn editor-zoom-step"
+                    type="button"
+                    aria-label="缩小"
+                    @click="canvas?.step(-1)"
+                  >
+                    <AppIcon name="i-zoom-out" /></button
+                  ><button
+                    class="editor-zoom mono"
+                    id="editorZoomValue"
+                    type="button"
+                    aria-label="缩放到 100%"
+                    @click="canvas?.zoomTo(1)"
+                  >
+                    100%</button
+                  ><button
+                    class="ibtn editor-zoom-step"
+                    type="button"
+                    aria-label="放大"
+                    @click="canvas?.step(1)"
+                  >
+                    <AppIcon name="i-zoom-in" /></button
+                  ><button
+                    class="ibtn"
+                    type="button"
+                    aria-label="适应窗口"
+                    @click="canvas?.fit()"
+                  >
+                    <AppIcon name="i-fit" />
+                  </button>
+                </div>
+                <div class="editor-info-actions editor-tool-capsule" :hidden="!view.viewed" role="group" aria-label="图片操作">
+                  <button v-if="view.viewed" class="ibtn" type="button"
+                    :aria-label="editor.isFavorite(shown) ? '已收藏' : '收藏图片'" :data-tip="editor.isFavorite(shown) ? '已收藏' : '收藏'"
+                    :aria-pressed="editor.isFavorite(shown)" :disabled="locked || unsavedPreview || view.saving || editor.isFavorite(shown)" @click="editor.saveFavorite(shown)">
+                    <AppIcon name="i-star" />
+                  </button>
+                  <button
+                    class="ibtn"
+                    type="button"
+                    aria-label="设为底图"
+                    data-tip="设为底图"
+                    :hidden="!shown || shown === view.base || unsavedPreview"
+                    :disabled="locked"
+                    @click="shown && editor.setBase(shown.id)"
+                  >
+                    <AppIcon name="i-pin" /></button
+                  ><button
+                    class="ibtn"
+                    type="button"
+                    aria-label="按住对比来源图"
+                    data-tip="按住对比 · \"
+                    :hidden="!parent"
+                    @pointerdown.prevent="compare(true)"
+                    @pointerup="compare(false)"
+                    @pointerleave="compare(false)"
+                    @pointercancel="compare(false)"
+                    @blur="compare(false)"
+                    @keydown.space.prevent="compare(true)"
+                    @keydown.enter.prevent="compare(true)"
+                    @keyup="compare(false)"
+                  >
+                    <AppIcon name="i-compare" /></button
+                  ><a
+                    class="ibtn"
+                    aria-label="下载"
+                    data-tip="下载"
+                    :href="unsavedPreview ? undefined : shown?.url"
+                    :download="shown?.name" :aria-disabled="unsavedPreview"
+                    ><AppIcon name="i-download"
+                  /></a>
+                </div>
+              </div>
             </div>
           </div>
         </div>
@@ -1196,7 +1359,7 @@ async function copyReference(v: EditorVersion) {
     <div
       ref="pop"
       id="editorUpscalePop"
-      class="menu editor-mini editor-upscale-panel"
+      class="menu editor-flyout editor-mini editor-upscale-panel"
       popover
       role="dialog"
       :aria-label="upscaleTitle"
@@ -1300,15 +1463,19 @@ async function copyReference(v: EditorVersion) {
 .focus-region { position: absolute; inset: 0; overflow: hidden; pointer-events: none; }
 .focus-region[data-selecting="true"] { pointer-events: auto; cursor: crosshair; touch-action: none; }
 .focus-region[hidden], .focus-box[hidden] { display: none; }
-.focus-box { position: absolute; box-sizing: border-box; border: 1px solid var(--a); box-shadow: 0 0 0 100vmax rgb(0 0 0 / 16%); }
+.focus-box { position: absolute; box-sizing: border-box; border: 1.5px solid #fff; box-shadow: 0 0 0 1px rgb(0 0 0 / 50%), 0 0 0 100vmax rgb(8 8 14 / 46%); }
 .focus-box:focus-visible { outline: 2px solid var(--a); outline-offset: -4px; }
 .focus-region[data-selecting="true"] .focus-box { cursor: move; }
-.focus-label { position: absolute; top: 4px; left: 4px; padding: 2px 5px; max-width: calc(100% - 8px); overflow: hidden; color: var(--fg); background: var(--raised); border-radius: 3px; font-size: var(--fz-2xs); line-height: 1.4; pointer-events: none; }
-.focus-handle { position: absolute; width: 9px; height: 9px; background: var(--a); border: 1px solid var(--canvas); border-radius: 2px; display: none; }
+.focus-label { position: absolute; top: 4px; left: 4px; padding: 2px 5px; max-width: calc(100% - 8px); overflow: hidden; color: #fff; background: rgb(14 12 22 / 78%); border-radius: 6px; font-size: var(--fz-2xs); line-height: 1.4; pointer-events: none; }
+.focus-handle { position: absolute; width: 8px; height: 8px; background: #fff; border: 1px solid rgb(0 0 0 / 55%); border-radius: 2px; display: none; }
 .focus-region[data-selecting="true"] .focus-handle { display: block; }
 .focus-handle[data-corner="nw"] { top: -1px; left: -1px; cursor: nwse-resize; }
 .focus-handle[data-corner="ne"] { top: -1px; right: -1px; cursor: nesw-resize; }
 .focus-handle[data-corner="sw"] { bottom: -1px; left: -1px; cursor: nesw-resize; }
 .focus-handle[data-corner="se"] { bottom: -1px; right: -1px; cursor: nwse-resize; }
+.focus-handle[data-corner="n"] { top: -1px; left: 50%; translate: -50% 0; cursor: ns-resize; }
+.focus-handle[data-corner="s"] { bottom: -1px; left: 50%; translate: -50% 0; cursor: ns-resize; }
+.focus-handle[data-corner="e"] { right: -1px; top: 50%; translate: 0 -50%; cursor: ew-resize; }
+.focus-handle[data-corner="w"] { left: -1px; top: 50%; translate: 0 -50%; cursor: ew-resize; }
 .editor[data-hand="on"] .focus-region { pointer-events: none; }
 </style>

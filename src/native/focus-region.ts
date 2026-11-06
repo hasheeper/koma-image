@@ -68,6 +68,11 @@ export function createFocusRegion(root: HTMLElement, host: HTMLElement, deps: {
       else {
         const x = start && g.kind !== "new" ? g.kind.includes("w") ? start.x + start.width : start.x : g.x;
         const y = start && g.kind !== "new" ? g.kind.includes("n") ? start.y + start.height : start.y : g.y;
+        if (start && ['n','s','e','w'].includes(g.kind)) {
+          const horizontal=g.kind==='e'||g.kind==='w';
+          if(horizontal) { p.y=start.y+start.height; }
+          else { p.x=start.x+start.width; }
+        }
         rect = snapFocusRect(size, { x: Math.min(x, p.x), y: Math.min(y, p.y), width: Math.abs(p.x - x), height: Math.abs(p.y - y) });
       }
       g.preview = rect; paint(rect);

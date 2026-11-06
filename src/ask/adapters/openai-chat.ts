@@ -121,6 +121,8 @@ interface Pending {
 export function reader(unwrapResponse = false) {
   const calls = new Map<string, Pending>();
   let stop: AskStop | null = null,
+    rawStop: string | null = null,
+    refused = false,
     used: AskUsage | null = null,
     finished = false;
   let cacheUsage: CacheUsage = { read: null, write: null };
@@ -151,11 +153,14 @@ export function reader(unwrapResponse = false) {
       if (!c.name) throw new ProviderError("protocol", "工具调用缺少名称");
       out.push({ type: "call", call: { type: "call", id: c.id || `call_${key.replace(/\W/g, "")}`, name: c.name, input } });
     }
-    out.push({ type: "done", stop: calls.size && stop === "end" ? "tool" : (stop ?? "other"), usage: used });
+    out.push({ type: "done", stop: refused ? "refusal" : calls.size && stop === "end" ? "tool" : (stop ?? "other"), usage: used });
     return out;
   }
   return {
     get cacheUsage() { return cacheUsage; },
+    get finishReason() { return rawStop; },
+    get stopReason() { return refused ? "refusal" as const : stop; },
+    get usage() { return used; },
     read(event: SseEvent): ResponseEvent[] {
       if (finished) return [];
       if (event.data.trim() === "[DONE]") return finish();
@@ -177,6 +182,7 @@ export function reader(unwrapResponse = false) {
       const content = Array.isArray(delta.content)
         ? delta.content.map((p) => object(p).text).filter((t) => typeof t === "string").join("")
         : delta.content;
+      refused ||= typeof delta.refusal === "string" && !!delta.refusal.trim();
       if (typeof content === "string" && content) out.push({ type: "text", text: content });
       const deltas = Array.isArray(delta.tool_calls) ? delta.tool_calls : [];
       for (const value of deltas) {
@@ -195,13 +201,15 @@ export function reader(unwrapResponse = false) {
         else if (fn.arguments && typeof fn.arguments === "object") entry.input = object(fn.arguments);
         if (unwrapResponse && entry.name === "submit_response") out.push(...response(key, entry));
       }
-      if (typeof choice.finish_reason === "string" && choice.finish_reason)
-        stop = stops[choice.finish_reason] ?? "other";
+      if (typeof choice.finish_reason === "string" && choice.finish_reason) {
+        rawStop = choice.finish_reason;
+        stop = stops[rawStop] ?? "other";
+      }
       return out;
     },
     /** End of stream: a seen finish reason completes the turn even without [DONE]. */
     end(): ResponseEvent[] {
-      return stop ? finish() : [];
+      return stop || refused ? finish() : [];
     },
   };
 }

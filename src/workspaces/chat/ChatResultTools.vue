@@ -1,122 +1,62 @@
 <script setup lang="ts">
-import { onBeforeUnmount, onDeactivated, shallowRef, useId } from "vue";
 import AppIcon from "../../shared/AppIcon.vue";
-import { placeMenu } from "../../shared/popover";
-defineProps<{ url: string; filename: string; base: boolean; favorite?: boolean; favoriteBusy?: boolean }>();
+defineProps<{ url: string; filename: string; favorite?: boolean; favoriteBusy?: boolean }>();
 const emit = defineEmits<{
-  upscale: [];
-  continue: [];
-  retain: [];
+  edit: [];
   retry: [];
   favorite: [];
 }>();
-const id = useId(),
-  trigger = shallowRef<HTMLButtonElement | null>(null),
-  bars = shallowRef<HTMLElement[]>([]);
-function close() {
-  bars.value.find((bar) => bar.matches(":popover-open"))?.hidePopover();
-  unlisten();
-}
-function unlisten() {
-  window.removeEventListener("resize", close);
-  document.removeEventListener("scroll", close, true);
-}
-function position(event: Event) {
-  const pop = event.currentTarget as HTMLElement;
-  unlisten();
-  if (pop.matches(":popover-open") && trigger.value) {
-    placeMenu(pop, trigger.value.getBoundingClientRect());
-    window.addEventListener("resize", close);
-    document.addEventListener("scroll", close, {
-      capture: true,
-      passive: true,
-    });
-  }
-}
-onDeactivated(close);
-onBeforeUnmount(close);
 </script>
 <template>
-  <button
-    ref="trigger"
-    class="ibtn result-menu-trigger"
-    type="button"
-    aria-label="图片操作"
-    :popovertarget="id"
-  >
-    <AppIcon name="i-more" />
-  </button>
-  <!-- The same actions have a floating bar and a compact popover. CSS selects
-       one surface by the actual image width, including unusually narrow art. -->
-  <div
-    v-for="surface in ['overlay', 'menu']"
-    :key="surface"
-    ref="bars"
-    class="result-actions"
-    :class="`result-actions-${surface}`"
-    :id="surface === 'menu' ? id : undefined"
-    :popover="surface === 'menu' ? 'auto' : undefined"
-    role="group"
-    aria-label="图片操作"
-    @toggle="position"
-    @click="surface === 'menu' && close()"
-  >
-    <a
-      class="ibtn"
-      :href="url"
-      :download="filename"
-      aria-label="下载图片"
-      title="下载图片"
-      ><AppIcon name="i-download"
-    /></a>
-    <button
-      class="ibtn"
-      type="button"
-      aria-label="放大图片"
-      title="放大图片"
-      @click="emit('upscale')"
-    >
-      <AppIcon name="i-upscale" />
-    </button>
-    <button
-      class="ibtn"
-      :class="{ 'ibtn-accent': favorite }"
-      type="button"
-      :aria-label="favorite ? '取消收藏' : '收藏图片'"
-      :title="favorite ? '取消收藏' : '收藏图片'"
-      :aria-pressed="!!favorite"
-      :disabled="favoriteBusy"
-      @click="emit('favorite')"
-    >
-      <AppIcon name="i-star" :class="{ solid: favorite }" />
-    </button>
-    <button
-      class="ibtn continue-edit"
-      :class="{ 'ibtn-accent': base }"
-      type="button"
-      aria-label="继续编辑这张图"
-      title="继续编辑这张图"
-      @click="emit('continue')"
-    >
-      <AppIcon name="i-edit" />
-    </button>
-    <button
-      class="ibtn"
-      type="button"
-      aria-label="添加为参考图"
-      title="添加为参考图"
-      @click="emit('retain')"
-    >
-      <AppIcon name="i-image-plus" />
-    </button>
-    <button
-      class="ibtn"
-      type="button"
-      aria-label="重新生成此版本"
-      title="重新生成此版本"
-      @click="emit('retry')"
-    >
-      <AppIcon name="i-retry" />
-    </button>
+  <div class="chat-result-tools" role="toolbar" aria-label="图片操作">
+    <div class="chat-result-tool-group">
+      <button
+        class="ibtn"
+        type="button"
+        aria-label="在 EDIT 编辑这张图"
+        data-tip="编辑：放大、重绘、批注"
+        @click="emit('edit')"
+      ><AppIcon name="i-edit" /></button>
+      <button
+        class="ibtn"
+        type="button"
+        aria-label="重新生成此版本"
+        data-tip="重新生成"
+        @click="emit('retry')"
+      ><AppIcon name="i-retry" /></button>
+    </div>
+    <span class="chat-result-tool-sep" aria-hidden="true"></span>
+    <div class="chat-result-tool-group">
+      <button
+        class="ibtn"
+        :class="{ 'is-on': favorite }"
+        type="button"
+        :aria-label="favorite ? '取消收藏' : '收藏图片'"
+        :data-tip="favorite ? '取消收藏' : '收藏'"
+        :aria-pressed="!!favorite"
+        :disabled="favoriteBusy"
+        @click="emit('favorite')"
+      ><AppIcon name="i-star" :class="{ solid: favorite }" /></button>
+      <a
+        class="ibtn"
+        :href="url"
+        :download="filename"
+        aria-label="下载图片"
+        data-tip="下载"
+      ><AppIcon name="i-download" /></a>
+    </div>
   </div>
 </template>
+<style scoped>
+.chat-result-tools { display: flex; align-items: center; padding: 1px; background: color-mix(in srgb, var(--fg) 4%, transparent); border-radius: var(--r2); transition: opacity var(--t1) var(--e); }
+.chat-result-tool-group { display: flex; align-items: center; gap: 2px; }
+.chat-result-tool-sep { flex: none; width: 1px; height: 14px; margin-inline: 4px; background: color-mix(in srgb, var(--fg) 18%, transparent); }
+.chat-result-tools .ibtn { width: var(--chat-result-tool-size); height: var(--chat-result-tool-size); --ico: var(--ico-md); border-radius: var(--r1); }
+.chat-result-tools .ibtn[aria-pressed="false"] { color: var(--fg-3); }
+.chat-result-tools .ibtn:hover { color: var(--fg); }
+.chat-result-tools .ibtn.is-on { color: var(--a); }
+.chat-result-tools .ibtn:disabled { opacity: .5; cursor: default; }
+.chat-result-tools .solid { stroke: currentColor; }
+.chat-result-tool-group:last-child .ibtn::after { left: auto; right: 0; transform: translate(0, -3px); }
+.chat-result-tool-group:last-child .ibtn:hover::after { transform: translate(0, 0); }
+</style>

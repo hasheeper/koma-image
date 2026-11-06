@@ -1,8 +1,11 @@
+import { serializeAnnotations, validateAnnotationSnapshot, validateRegions } from "../domain/region-annotation.ts";
+import type { AnnotationSnapshot } from "../domain/region-annotation.ts";
 import { editAwareness } from "../services/edit-awareness.ts";
 import { naiAwareness,naiSourceKey,naiAccountSnapshot } from "../services/nai-awareness.ts";
 import { imageEntity } from "../domain/image-identity.ts";
 import type { Editor } from "../services/editor.ts";
 import { editPictures, editContext, editWorkspaceContext, withEditPictures, freezePictureRefs, bindPictures } from "./edit-context.ts";
+import type { ImageTagBinding } from "../domain/image-identity.ts";
 import type { PictureRefs } from "./edit-context.ts";
 import { homeContext } from "../home/ask-context.ts";
 import type { Home } from "../home/service.ts";
@@ -55,7 +58,8 @@ import { createCallLog } from "./debug.ts";
 import type { CallLogView } from "./debug.ts";
 import { createPacer, PACE } from "./pacer.ts";
 import { createDraftWriter } from "./draft/apply.ts";
-import { parseDraft, validateDraft } from "./draft/validate.ts";
+import { validateDraft } from "./draft/validate.ts";
+import { checkNaiInput } from "./draft/nai-input.ts";
 import { createDraftStack } from "./draft/stack.ts";
 import type { DraftRecord } from "./draft/stack.ts";
 import { draftView } from "./draft/view.ts";
@@ -324,10 +328,13 @@ export function createAsk(deps: {
   }
   function addFiles(files: readonly File[], pasted = false) { return addInputs(files.map(file => async () => ({ file })), pasted); }
   function removeAttachment(id: string) {
-    if (!tray.value.includes(id)) return;
-    if (attachmentPreview.value?.id === id) attachmentPreview.value = null;
-    setTray(tray.value.filter(value => value !== id)); attachments.release([id]);
+    if (!tray.value.includes(id) || running.value) return;
+    const source = attachments.read(tray.value).find(a => a.kind === 'image' && (a.id === id || a.annotations?.guideId === id) && a.annotations);
+    const ids = source?.kind === 'image' && source.annotations ? [source.id, source.annotations.guideId] : [id];
+    if (ids.includes(anchor.value ?? '')) selectAnchor(null);
+    setTray(tray.value.filter(value => !ids.includes(value))); attachments.release(ids);
   }
+
   const editorOpen = computed(() => { void stateRevision.value; return !!deps.editor?.snapshot().externalId; }),
     visible = computed(() => open.value && !editorOpen.value),
     running = computed(() => live.value !== null || compacting.value || dispatching.value),
@@ -586,7 +593,7 @@ export function createAsk(deps: {
     const scopeValid = scope.kind === "page" ? scope.id===pageScope : scope.kind === "favorites" ? scope.id===drawing.favoritesScopeId : scope.kind === "ask" ? scope.id===activeScope.id : scope.id===chat.snapshot().current.id;
     if (scope.kind==="chat" && scope.turn_id && scope.version_id && scope.asset_id) {
       const c = chat.snapshot().conversations.find(c=>c.id===scope.id), t=c?.turns.find(t=>t.id===scope.turn_id), v=t?.versions.find(v=>v.id===scope.version_id), asset=chat.assets.assets.get(scope.asset_id);
-      if (c && t && v?.status==="done" && asset && v.blocks.some(b=>b.type==="image" && b.assetId===scope.asset_id) && (!ref.entity_key || ref.entity_key===`sha256:${asset.id}`)) return {
+      if (c && t && v?.status==="done" && asset && (v.blocks.some(b=>b.type==="image" && b.assetId===scope.asset_id) || Object.values(v.composites??{}).includes(scope.asset_id)) && (!ref.entity_key || ref.entity_key===`sha256:${asset.id}`)) return {
         id:ref.record_id,entity_key:`sha256:${asset.id}`,scope, label,aliases:[label],createdAt:v.completedAt ?? 0,
         blob:asset.blob,size:{width:asset.width,height:asset.height},params:{prompt:t.prompt},origins:[{source:"chat" as const,label,order:0}],
       };
@@ -653,9 +660,10 @@ export function createAsk(deps: {
       chatModel: chatModelState(c),
       ids,
     }, { formText });
-    return { ...digest, baseHash:stateHash(readDraftState()), json: JSON.stringify({ ...JSON.parse(digest.json), base_hash:stateHash(readDraftState()),
+    const state = JSON.parse(digest.json);
+    return { ...digest, baseHash:stateHash(readDraftState()), json: JSON.stringify({ ...state, base_hash:stateHash(readDraftState()),
       ...(workspace === "home" && deps.home ? { home: homeContext(deps.home, ids, chat) } : {}),
-      image: { ...JSON.parse(digest.json).image, ...naiAwareness({form: d.form, models:d.models, samplers:d.samplers, quote:d.quote, quoteKey:d.quoteKey,quoteAt:d.quoteAt,account:d.quota?.media.subscription, accountAt:d.quotaAt,accountSource:naiSourceKey(d.model),referenceCosts:Object.fromEntries(d.models.map(m=>[m.id,services.references.cachedCost(d.form.naiReferences,m.id)]))}).snapshot },
+      image: state.image.form ? { ...state.image, ...naiAwareness({form: d.form, models:d.models, samplers:d.samplers, quote:d.quote, quoteKey:d.quoteKey,quoteAt:d.quoteAt,account:d.quota?.media.subscription, accountAt:d.quotaAt,accountSource:naiSourceKey(d.model),referenceCosts:Object.fromEntries(d.models.map(m=>[m.id,services.references.cachedCost(d.form.naiReferences,m.id)]))}).snapshot } : state.image,
       picture_ref_version: 2, picture_scope_id: pictureScope(), favorites_scope_id:drawing.favoritesScopeId,
       edit: (()=>{const directory=editWorkspaceContext(deps.editor,pictureLibrary()); const edit=deps.editor?.askSnapshot(); return workspace==='edit'&&edit?.ready ? {...directory,...editAwareness(edit).snapshot}:directory;})(),
       image_input: { enabled: !metadataOnly, mode: metadataOnly ? "metadata_only" : "on_demand",
@@ -812,7 +820,7 @@ export function createAsk(deps: {
           system: ["", ""],
           messages: [
             ...conversations.current.session.requestHistory(!settings.value.images),
-            { role: "user", content: [{ type: "text", text: stateBlock(digestNow(anchor.value)) }, ...attachmentBlocks(attachments.read(tray.value), !settings.value.images)] },
+            { role: "user", content: [{ type: "text", text: stateBlock(digestNow(anchor.value)) }, ...attachmentBlocks(attachments.read(tray.value), !settings.value.images), ...attachments.read(tray.value).flatMap(a => a.kind === "image" && a.annotations ? [{ type: "text" as const, text: serializeAnnotations(a.annotations.snapshot, a.id, a.annotations.guideId) }] : [])] },
           ],
         }).messages
       : 0;
@@ -880,7 +888,13 @@ export function createAsk(deps: {
       return;
     }
   }
-  type SendOptions = { metadataOnly?: boolean; anchor?: string | null; preserveInput?: boolean; attachments?: readonly string[]; replaceId?: number; draftFeedback?: string };
+  const selectedAnchors = new WeakSet<Conversation>();
+  function selectAnchor(label: string | null) {
+    anchor.value = label;
+    if (label) selectedAnchors.add(conversations.current);
+    else selectedAnchors.delete(conversations.current);
+  }
+  type SendOptions = { metadataOnly?: boolean; anchor?: string | null; anchorBefore?: string | null; anchorRefs?: PictureRefs; preserveInput?: boolean; attachments?: readonly string[]; replaceId?: number; draftFeedback?: string };
   async function send(text = input.value, options: SendOptions = {}) {
     if ((!text.trim() && !(options.attachments ?? tray.value).length) || !manageable() || preparing.value) return;
     if (draft.value && !canReviseDraft.value) { notice.value = "请先应用或放弃当前草稿"; return; }
@@ -903,8 +917,12 @@ export function createAsk(deps: {
   async function dispatch(text: string, options: SendOptions, provider: ReturnType<typeof createProvider>) {
     const owner = conversations.current, abort = new AbortController(), fromTray = options.attachments === undefined;
     const selected = [...(options.attachments ?? tray.value)], pool = owner.scope.attachments;
-    const captured = { ...options, attachments: selected, anchor: options.anchor !== undefined ? options.anchor
-      : [...text.matchAll(idPattern)][0]?.[0] ?? anchor.value };
+    const typedAnchor = [...text.matchAll(idPattern)][0]?.[0];
+    const selectedAnchor = typedAnchor ?? (options.anchor !== undefined ? options.anchor : anchor.value);
+    const previous = [...entries.value].reverse().find(e => e.type === "turn" && e.turn.status === "done" && e.turn.anchor === selectedAnchor);
+    const captured = { ...options, attachments: selected, anchor: selectedAnchor, anchorBefore: anchor.value,
+      anchorRefs: typedAnchor && typedAnchor !== options.anchor ? undefined
+        : options.anchorRefs ?? (options.anchor === undefined && !selectedAnchors.has(owner) && previous?.type === "turn" ? previous.turn.pictureRefs : undefined) };
     // Keep the intended attachments alive if the user changes the tray while organizing.
     pool.retain(selected);
     let transferred = false;
@@ -985,7 +1003,7 @@ export function createAsk(deps: {
       if (result.status === "compacted") say("上下文已压缩");
       return result.status;
     } catch (error) {
-      if (call) callLog.fail(call, abort.signal.aborted);
+      if (call) callLog.fail(call, abort.signal.aborted, message(error));
       if (!abort.signal.aborted) {
         notice.value = `压缩失败：${message(error)}`;
         push({ type: "note", id: ++sequence, text: notice.value, compactRetry: true });
@@ -998,43 +1016,60 @@ export function createAsk(deps: {
     }
   }
   async function runTurn(text: string, options: SendOptions, provider: ReturnType<typeof createProvider>, abort: AbortController, transfer: () => void) {
-    const question = text.trim();
+    let question = text.trim();
     notice.value = "";
     // The compact success pill belongs to the write, not later replies.
     appliedDraft.value = null;
     const owner = conversations.current;
     const attached = attachments.read(options.attachments ?? tray.value);
+    const annotated = attached.filter(a => a.kind === 'image' && a.annotations);
+    if (!question && annotated.length) question = '请按这些批注逐条处理。';
+    const questionBody = [question, ...annotated.flatMap(a => a.kind === 'image' && a.annotations ? [serializeAnnotations(a.annotations.snapshot, a.id, a.annotations.guideId)] : [])].join('\n\n');
     if (!entries.value.some(e => e.id !== options.replaceId) && !owner.named) {
       owner.title = titleOf(question, attached[0]?.name); listRevision.value++;
     }
-    const config = settings.value,
-      turnAnchor = options.anchor !== undefined ? options.anchor : [...question.matchAll(idPattern)][0]?.[0] ?? anchor.value,
+    const config = settings.value, anchorBefore = options.anchorBefore !== undefined ? options.anchorBefore : anchor.value,
+      requestedAnchor = options.anchor !== undefined ? options.anchor : anchor.value,
       metadataOnly = !!options.metadataOnly || !config.images,
       codec = codecFor({ adult: adult.value, enabled: codecActive.value, words: config.words, replacements: config.replacements, wordEncoding: config.wordEncoding });
     await deps.editor?.prepareAsk();
     abort.signal.throwIfAborted();
     // The snapshot is fixed for the whole turn; get_state appends newer ones.
-    const digest = digestNow(turnAnchor, false, metadataOnly), initialState = digestNow(turnAnchor, true, metadataOnly), snapshotTime = Date.now();
-    const snapshot = drawing.snapshot(),
+    const snapshotTime = Date.now(), snapshot = drawing.snapshot(),
       frozenBoards = structuredClone(snapshot.boards),
       library = bindPictures([...withEditPictures(pictureLibrary(), chatPictures(chat.snapshot(), chat)), ...attachmentPictures(attachments.read([...new Set([...entryAttachments(entries.value), ...attached.map(a => a.id)])]))], pictureScopes()),
       turnChatContext = chatContext(chat.snapshot()),
       known = owner.session.viewed(),
       turnViewed = new Set(known),
       draftBase = readDraftState();
+    // A continued label must still bind the same accessible record. In particular,
+    // a restored #h or a CHAT/EDIT shorthand must never silently select a new image.
+    const previousRef = requestedAnchor ? options.anchorRefs?.[requestedAnchor] : undefined;
+    const turnAnchor = requestedAnchor && library.some(p => p.aliases.includes(requestedAnchor) &&
+      (!options.anchorRefs || previousRef && p.id === previousRef.record_id &&
+        p.bindings?.[requestedAnchor]?.entity_key === previousRef.entity_key &&
+        canonical(p.bindings?.[requestedAnchor]?.scope) === canonical(previousRef.scope))) ? requestedAnchor : null;
+    const digest = digestNow(turnAnchor, false, metadataOnly), initialState = digestNow(turnAnchor, true, metadataOnly);
     const frozenReferenceCosts = new Map(frozenBoards.map(b=>[b.id,Object.fromEntries(snapshot.models.map(m=>[m.id,services.references.cachedCost(b.form.naiReferences,m.id)]))]));
     const frozenEditContexts=new Map(deps.editor?.boards().map(b=>[b.id,editWorkspaceContext(deps.editor,library,b.id)])??[]);
     const frozenEdits = new Map(deps.editor?.boards().map(b=>[b.id, deps.editor!.askSnapshot(b.id)!]) ?? []);
-    const readBoards = new Set(draftBase.boardId ? [draftBase.boardId] : []);
+    const includeImageForm = !!JSON.parse(digest.json).image.form;
+    const readBoards = new Set(draftBase.boardId && includeImageForm ? [draftBase.boardId] : []);
     if (!metadataOnly) for (const a of attached) if (a.kind === "image") turnViewed.add(a.entity_key ?? a.id);
     const frozenNai = structuredClone({ form: draftBase.form, models: draftBase.models, samplers: draftBase.samplers,
       account:naiAccountSnapshot(snapshot.quota?.media.subscription), accountAt:snapshot.quotaAt,accountSource:naiSourceKey(snapshot.model), quoteKey:snapshot.quoteKey,quoteAt:snapshot.quoteAt,referenceCosts:Object.fromEntries(snapshot.models.map(m=>[m.id,services.references.cachedCost(draftBase.form.naiReferences,m.id)])), quote:snapshot.quote.status === 'error' ? undefined : snapshot.quote });
-    const awareness = await naiAwareness(frozenNai).counted();
+    const awareness = includeImageForm ? await naiAwareness(frozenNai).counted() : undefined;
+    const initialEdit = frozenEdits.get(draftBase.edit?.id ?? '');
+    const editInput = draftBase.workspace === 'edit' && initialEdit?.ready ? await editAwareness(initialEdit).counted() : undefined;
     abort.signal.throwIfAborted();
     for (const value of [digest, initialState]) {
-      const state = JSON.parse(value.json); state.image = {...state.image,...awareness};
-      const edit=frozenEdits.get(draftBase.edit?.id??'');
-      if(state.workspace==='edit'&&edit?.ready) state.edit={...state.edit,...await editAwareness(edit).counted()};
+      const state = JSON.parse(value.json);
+      if (awareness) state.image = {...state.image,...awareness};
+      if(state.workspace==='edit'&&editInput) state.edit={...state.edit,...editInput};
+      state.conversation_history = {
+        archived_through: owner.session.memory?.through ?? null,
+        retained_verbatim: owner.session.retained.map(t => t.turnId),
+      };
       Object.assign(value,{json:JSON.stringify(state)});
     }
     const user: AskMessage = {
@@ -1043,7 +1078,7 @@ export function createAsk(deps: {
         { type: "text", text: stateBlock(digest), source: { kind: "workspace_state" } },
         ...(options.draftFeedback ? [{ type: "text" as const, text: options.draftFeedback }] : []),
         ...attachmentBlocks(attached, metadataOnly),
-        { type: "text", text: question },
+        { type: "text", text: questionBody },
       ],
     };
     const turn = owner.session.begin(user, { metadataOnly }), pacer = createPacer();
@@ -1104,7 +1139,7 @@ export function createAsk(deps: {
         } })) { if (event.type === "done") done = true; yield event; }
       } catch (error) {
         if (!done) turn.record(observedUsage);
-        if (call) callLog.fail(call, signal.aborted);
+        if (call) callLog.fail(call, signal.aborted, message(error));
         throw error;
       }
     }
@@ -1122,25 +1157,10 @@ export function createAsk(deps: {
           vision,
           visual,
           readRef,
-          checkNaiInput: async input => {
-            if (input.base_hash !== stateHash(draftBase)) throw new Error('base_hash 与本轮快照不符');
-            let form = structuredClone(draftBase.form);
-            const steps = input.steps ?? [];
-            if (!Array.isArray(steps) || steps.some(s => !s || !['prompt_patch','params_patch','character_edit','restore_partial'].includes(s.kind))) throw new Error('只接受参数与词文候选步骤');
-            if (steps.length) {
-              const candidate = parseDraft({draft_title:'输入检查',base_hash:input.base_hash,steps},draftBase,library);
-              const plan = validateDraft(candidate,draftBase,{off:new Set()});
-              const issues = plan.steps.filter(s=>s.issue).map(s=>s.issue);
-              if (issues.length) return {valid:false,diagnostics:issues};
-              if(candidate.target==='edit' && draftBase.edit) return editAwareness({...draftBase.edit,config:plan.edit?.after??draftBase.edit.config}).counted();
-              for (const c of plan.changes) Object.assign(form,{[c.field]:c.after});
-            }
-            if(!steps.length && draftBase.workspace==='edit') {
-              const edit=frozenEdits.get(draftBase.edit?.id??''); if(!edit?.ready) return {ready:false,reason:'请先导入编辑底图'};
-              return editAwareness(edit).counted();
-            }
-            return naiAwareness({...frozenNai,form, ...(steps.length ? {quote:undefined}:{})}).counted();
-          },
+          checkNaiInput: draft => checkNaiInput(draft, {
+            image: form => naiAwareness({...frozenNai,form,quote:undefined}).counted(),
+            edit: state => editAwareness(state).counted(),
+          }),
           tags: services.tags.suggest,
           snapshotTime,
           chatContext: turnChatContext,
@@ -1164,10 +1184,16 @@ export function createAsk(deps: {
               const awareness=await naiAwareness({...input,form:{...frozenNai.form,...board.form},quote:undefined}).counted();
               return { text: JSON.stringify({ ...awareness, board_id: board.id, name: board.name, form: { ...board.form, characters: board.form.characters.map(c => ({ ...characterSummary(c, board.form.placement, board.form.model), centers: c.centers })) }, character_capability: characterCapability(board.form.model), draft_base_hash: digest.baseHash }), images: snapshot.history.length };
             }
-            return scope === "latest" ? {
-            text: stateBlock(digestNow(turnAnchor, true, metadataOnly)),
-            images: drawing.snapshot().history.length,
-          } : { text: stateBlock(initialState), images: snapshot.history.length };
+            if (scope === "initial") return { text: stateBlock(initialState), images: snapshot.history.length };
+            await deps.editor?.prepareAsk();
+            const d = drawing.snapshot(), latest = digestNow(turnAnchor, true, metadataOnly), state = JSON.parse(latest.json);
+            const edit = deps.editor?.askSnapshot();
+            if (state.image.form) state.image = {...state.image,...await naiAwareness({form:d.form,models:d.models,samplers:d.samplers,
+              quote:d.quote,quoteKey:d.quoteKey,quoteAt:d.quoteAt,account:d.quota?.media.subscription,accountAt:d.quotaAt,
+              accountSource:naiSourceKey(d.model),referenceCosts:Object.fromEntries(d.models.map(m=>[m.id,services.references.cachedCost(d.form.naiReferences,m.id)]))}).counted()};
+            if (state.workspace === 'edit' && edit?.ready) state.edit = {...state.edit,...await editAwareness(edit).counted()};
+            state.conversation_history = {archived_through:owner.session.memory?.through??null,retained_verbatim:owner.session.retained.map(t=>t.turnId)};
+            return {text:stateBlock({...latest,json:JSON.stringify(state)}),images:d.history.length};
           },
         },
         signal: abort.signal,
@@ -1220,6 +1246,12 @@ export function createAsk(deps: {
         boards: [...readBoards],
         ...(proposed ? { draft: recordDraft(proposed, validateDraft(proposed, draftBase, { off: new Set(), has: hasImage })) } : {}) });
       working.committed = owner.session.turns;
+      // Successful ordinary turns retain their anchor just like forkTurn. A failed
+      // turn, or a new selection made while waiting, must not replace the lock.
+      if (anchor.value === anchorBefore) {
+        owner.anchor = anchor.value = turnAnchor;
+        selectedAnchors.delete(owner);
+      }
       if (proposed) draft.value = history.create(proposed, owner.id, working.id);
       working.status = "done";
       const reply = working.items.flatMap((i) => (i.kind === "text" ? [i.text.trim()] : [])).filter(Boolean).join("\n\n");
@@ -1321,7 +1353,7 @@ export function createAsk(deps: {
       }
       if (!disposed) deps.ui.toast("名称已更新");
     } catch (error) {
-      if (call && !received) callLog.fail(call, abort.signal.aborted && !(abort.signal.reason instanceof ProviderError));
+      if (call && !received) callLog.fail(call, abort.signal.aborted && !(abort.signal.reason instanceof ProviderError), message(error));
       if (!disposed && (!abort.signal.aborted || abort.signal.reason instanceof ProviderError))
         deps.ui.toast(`命名失败：${message(abort.signal.aborted ? abort.signal.reason : error)}`, "err");
     } finally {
@@ -1336,7 +1368,7 @@ export function createAsk(deps: {
     const before = conversations.current;
     if (conversations.fresh() === "limit") return "limit";
     if (conversations.current !== before) load();
-    anchor.value = null;
+    selectAnchor(null);
     return true;
   }
   function selectConversation(id: string) {
@@ -1407,9 +1439,11 @@ export function createAsk(deps: {
       history.removeTurns(conversationId.value, turnIds);
       if (draft.value && turnIds.has(draft.value.turnId)) draft.value = null;
       appliedDraft.value = null;
+      anchor.value = entry.turn.anchor;
+      selectedAnchors.delete(conversations.current);
       if (order.length) deps.ui.toast(`已撤回 ${order.length} 份草稿`);
       writingDraft.value = false;
-      void dispatch(text, { anchor: entry.turn.anchor, metadataOnly: entry.turn.metadataOnly, preserveInput: true,
+      void dispatch(text, { anchor: entry.turn.anchor, anchorRefs: entry.turn.pictureRefs, metadataOnly: entry.turn.metadataOnly, preserveInput: true,
         draftFeedback: entry.turn.draftFeedback,
         attachments: originalAttachments, replaceId: entry.id }, provider);
       return true;
@@ -1449,7 +1483,7 @@ export function createAsk(deps: {
     }
     const provider = providerForSend();
     if (!provider) return;
-    void dispatch(entry.turn.question, { metadataOnly: mode === "metadata" || mode !== "images" && entry.turn.metadataOnly, anchor: entry.turn.anchor,
+    void dispatch(entry.turn.question, { metadataOnly: mode === "metadata" || mode !== "images" && entry.turn.metadataOnly, anchor: entry.turn.anchor, anchorRefs: entry.turn.pictureRefs,
       draftFeedback: entry.turn.draftFeedback,
       preserveInput: true, attachments: entry.turn.attachments.filter(a => !a.toolRead).map(a => a.id), replaceId: entry.id }, provider);
   }
@@ -1497,11 +1531,10 @@ export function createAsk(deps: {
       !event.shiftKey &&
       (event.code === "KeyJ" || event.key.toLowerCase() === "j")
     ) {
-      // v1 has no ASK inside the editor (doc 1 D9); modals keep their own keys.
+      // Photopea and modal overlays keep their own keys.
       if (editorOpen.value || modal()) return;
       event.preventDefault();
       inline.value = null;
-      if (!open.value) anchor.value = null;
       open.value = !open.value;
       return;
     }
@@ -1663,8 +1696,46 @@ export function createAsk(deps: {
     tray: computed(() => attachments.read(tray.value).map(attachmentView)),
     preparing,
     addFiles,
+    pictureBinding(recordId: string, tag?: string): ImageTagBinding | undefined {
+      const picture = [...pictureLibrary(), ...chatPictures(chat.snapshot(), chat)].find(p => p.id === recordId);
+      if (!picture) return;
+      const label = tag && picture.aliases.includes(tag) ? tag : picture.label;
+      return structuredClone(freezePictureRefs([picture], pictureScopes())[label]);
+    },
+    /** Atomically prepare a clean attachment + guide; the clean #a reference remains crop-able after source disposal. */
+    async prepareAnnotations(source: Blob, preview: Blob, snapshot: AnnotationSnapshot) {
+      validateAnnotationSnapshot(snapshot);
+      if (disposed || !favoritesReady.value || editorOpen.value) throw new Error("ASK 暂不可用");
+      const owner = conversations.current, pool = owner.scope.attachments;
+      owner.preparing++; preparing.value = owner.preparing;
+      const work = importing.then(async () => {
+        const clean = await prepareAttachment(new File([source], "批注原图.png", { type: source.type }));
+        const guide = await prepareAttachment(new File([preview], "编号定位图.png", { type: preview.type }));
+        if (disposed || conversations.current !== owner) throw new Error("ASK 会话已切换，未添加批注");
+        if (pool.read(owner.tray).filter(a => a.kind === "image").length > ATTACHMENT_LIMITS.images - 2) throw new Error("批注需要两个图片附件名额，请先移除部分附件");
+        if ([...scopes.values()].reduce((n, c) => n + c.attachments.bytes, clean.bytes + guide.bytes) > ATTACHMENT_LIMITS.pageBytes) throw new Error("本页附件已超过 200 MB");
+        const added: string[] = [];
+        try {
+          const original = pool.add(clean); added.push(original.id);
+          const marked = pool.add(guide); added.push(marked.id);
+          pool.annotate(original.id, { snapshot, guideId: marked.id });
+          setTray([...owner.tray, ...added], owner);
+          selectAnchor(original.id); inline.value = null; open.value = true;
+        } catch (error) { pool.release(added); throw error; }
+      });
+      importing = work.catch(() => {});
+      try { await work; } finally { owner.preparing--; if (owner === conversations.current) preparing.value = owner.preparing; saveFavorite(owner); }
+    },
     addPastedText(text: string) { return addFiles([new File([text], "粘贴的文本", { type: "text/plain" })], true); },
     removeAttachment,
+    annotationSource(id: string) { const a=attachments.get(id); return a?.kind === 'image' && a.annotations ? { source:a.blob, snapshot:structuredClone(a.annotations.snapshot) } : null; },
+    updateAnnotationComment(id: string, key: string, comment: string) {
+      if (!tray.value.includes(id) || running.value) return;
+      const a=attachments.get(id); if (a?.kind !== 'image' || !a.annotations) return;
+      const snapshot=structuredClone(a.annotations.snapshot);
+      snapshot.regions=snapshot.regions.map(r=>r.key===key?{...r,comment}:r);validateRegions(snapshot.regions);
+      attachments.annotate(id,{...a.annotations,snapshot});setTray([...tray.value]);saveFavorite();
+    },
     attachmentPreview,
     openAttachment(id: string, inline = false) { const a = attachments.get(id); if (a?.kind === "text") attachmentPreview.value = { id, name: a.name, text: a.text, inline }; },
     openTurn(id: TurnId, inline = false) {
@@ -1735,8 +1806,7 @@ export function createAsk(deps: {
     show(options: { anchor?: string; question?: string } = {}) {
       if (editorOpen.value) return;
       inline.value = null;
-      if (options.anchor !== undefined) anchor.value = options.anchor;
-      else if (!open.value) anchor.value = null;
+      if (options.anchor !== undefined) selectAnchor(options.anchor);
       if (options.question) input.value = input.value.trim() ? `${input.value}\n${options.question}` : options.question;
       open.value = true;
     },
@@ -1745,11 +1815,10 @@ export function createAsk(deps: {
     },
     toggle() {
       inline.value = null;
-      if (!open.value) anchor.value = null;
       if (!editorOpen.value) open.value = !open.value;
     },
     clearAnchor() {
-      anchor.value = null;
+      selectAnchor(null);
     },
     labelFor(id: string) { return ids.label(id); },
     favoriteLabelFor(id: string) { return ids.favorite(id); },
@@ -1796,7 +1865,7 @@ export function createAsk(deps: {
       if (!current) return;
       const boardId = refs?.[label]?.scope.board_id;
       label = current.origins.find(o=>o.source==="edit" && (!boardId || o.boardId===boardId) && /^#e\d+\./.test(o.label))?.label ?? current.label;
-      anchor.value=label;
+      selectAnchor(label);
       if (!input.value.trim()) input.value=`请分析 ${label}`;
     },
     togglePreference() {

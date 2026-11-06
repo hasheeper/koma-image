@@ -302,6 +302,8 @@ export function createEditorCanvas(
       layout();
     },
     setHand,
+    handActive: () => hand || space,
+    zoom: () => scale,
     toggleHand: () => setHand(!hand),
     setSpace,
     resume,

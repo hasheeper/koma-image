@@ -191,7 +191,7 @@ export function randomSeed() {
 }
 export function collect(
   form: DrawingForm,
-  model: CatalogModel,
+  model: Pick<CatalogModel, "id" | "name" | "profileId" | "transparentBackground">,
   batchCount: number,
 ): DrawingParams {
   const cap = naiCapabilities(model.id), settings = readNaiSettings(form);

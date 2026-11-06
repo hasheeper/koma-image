@@ -4,9 +4,9 @@ import { createConnections } from "../src/services/connections.ts";
 import { createGateway } from "../src/gateway/client.ts";
 import { endpoint } from "../src/gateway/transport.ts";
 import { testConnection } from "../src/gateway/connection-test.ts";
-import { anthropicMessagesProfile as anthropic, openaiChatProfile as chat, standardProfile, connectionProfiles, profileFor, ANTHROPIC_VERSION } from "../src/gateway/profile.ts";
+import { anthropicMessagesProfile as anthropic, openaiChatProfile as chat, geminiSharedProfile as gemini, standardProfile, connectionProfiles, profileFor, ANTHROPIC_VERSION } from "../src/gateway/profile.ts";
 import { imageConnections, reasoningConnections } from "../src/config/connections.ts";
-import { createProvider, wireBody, ProviderError } from "../src/ask/provider.ts";
+import { createProvider, encodeRequest, wireBody, ProviderError } from "../src/ask/provider.ts";
 import { createCodec } from "../src/ask/codec.ts";
 import { MODEL_LIMIT, modelId, readAskSettings, withConnection, withModel, withModels } from "../src/ask/settings.ts";
 import { createTools } from "../src/ask/tools.ts";
@@ -109,7 +109,7 @@ test("ASK tool schemas: full registry avoids uniqueItems rejected by Gemini rela
   for (const profile of [chat, anthropic]) {
     const payload = wireBody(profile, request);
     const definitions = payload.tools.map((t) => t.function ?? { ...t, parameters: t.input_schema });
-    assert.equal(definitions.length, 13);
+    assert.equal(definitions.length, 12);
     assert.doesNotMatch(JSON.stringify(definitions), /"uniqueItems"\s*:/);
     const sheet = definitions.find((t) => t.name === "view_sheet").parameters;
     assert.equal(sheet.properties.ids.minItems, 2);
@@ -233,17 +233,18 @@ test("anthropic payload: breakpoints on the last tool, the last system block and
   // Results lead the user message and empty text blocks are dropped.
   const mixed = wireBody(anthropic, { ...turn1, messages: [{ role: "user", content: [{ type: "text", text: "" }, { type: "text", text: "看图" }, { type: "result", id: "c", content: [] }] }] });
   assert.deepEqual(mixed.messages[0].content.map((b) => b.type), ["tool_result", "text"]);
-  // Without preferences or a codebook only one system block is sent, still marked.
+  // Without preferences or codec guidance only one system block is sent, still marked.
   assert.equal(wireBody(anthropic, { ...turn1, system: [system[0], ""] }).system.length, 1);
 });
 
-test("codec at the edge: outbound strings encoded with the codebook last; inbound text and calls decoded", async () => {
+test("codec at the edge: outbound strings encoded with static guidance last; inbound text and calls decoded", async () => {
   const codec = createCodec(["nsfw", "large breasts"]);
   const request = { ...turn1, messages: [user('{"prompt":"1girl, nsfw, large breasts"}', "NSFW 标签会不会冲突？")] };
   const encoded = wireBody(chat, request, codec), text = JSON.stringify(encoded.messages.slice(1));
   assert.equal(/nsfw|large breasts/i.test(text), false);
-  assert.ok(encoded.messages[0].content.endsWith("</codebook>"));
-  assert.ok(encoded.messages[0].content.indexOf("<user_preferences>") < encoded.messages[0].content.indexOf("<codebook>"));
+  assert.ok(encoded.messages[0].content.endsWith(codec.instructions()));
+  assert.ok(encoded.messages[0].content.indexOf("<user_preferences>") < encoded.messages[0].content.indexOf(codec.instructions()));
+  assert.doesNotMatch(JSON.stringify(encoded), /codebook|nsfw|large breasts/i);
   assert.equal(JSON.stringify(wireBody(chat, request, codec)), JSON.stringify(encoded));
   assert.equal(JSON.stringify(wireBody(chat, request)).includes("codebook"), false);
   const nsfw = codec.encode("nsfw"), split = Math.ceil(nsfw.length / 2);
@@ -256,6 +257,51 @@ test("codec at the edge: outbound strings encoded with the codebook last; inboun
   const events = await collect(provider.stream(request, { codec }));
   assert.equal(events.filter((e) => e.type === "text").map((e) => e.text).join(""), "去掉 nsfw 即可");
   assert.deepEqual(events.find((e) => e.type === "call").call.input, { remove: "large breasts" });
+});
+
+for (const profile of [chat, anthropic, gemini]) test("local codec dictionaries never leave via " + profile.id, () => {
+  const words = ["unused motif", "velvet motif", "moonlit grove", "cobalt scarf"],
+    rules = [{ from: "red coat", to: "azure dress" }, { from: "unused original", to: "unused replacement" }],
+    codec = createCodec(words, rules);
+  const request = { ...turn1, system: ["核心 velvet motif", "偏好 moonlit grove"], messages: [
+    { role: "user", content: [{ type: "text", text: "历史 cobalt scarf" }] },
+    { role: "assistant", content: [{ type: "text", text: "VELVET_MOTIF" },
+      { type: "call", id: "c1", name: "get_state", input: { nested: ["moonlit grove", { prompt: "red coat" }] } }] },
+    { role: "user", content: [
+      { type: "result", id: "c1", content: [{ type: "text", text: "cobalt scarf, red coat" }, { type: "image", mime: "image/png", data: "AAAA" }] },
+      { type: "text", text: "附件 velvet motif", source: { kind: "attachment", id: "local-id", heading: "unused motif" } },
+      { type: "text", text: "本轮 red coat" },
+    ] },
+  ] };
+  const saved = structuredClone(request), body = wireBody(profile, request, codec), raw = JSON.stringify(body);
+  assert.doesNotMatch(raw, /codebook|unused motif|velvet motif|VELVET_MOTIF|moonlit grove|cobalt scarf|red coat|unused original|unused replacement/);
+  for (const encoded of ["@t_002", "@T_002u", "@t_003", "@t_004", "azure dress", "AAAA"])
+    assert.ok(raw.includes(encoded), encoded);
+  assert.deepEqual(request, saved, "local history and original text remain untouched");
+  assert.deepEqual(codec.decodeDeep(encodeRequest(request, codec).messages), request.messages);
+  assert.deepEqual(wireBody(profile, request, codec), body);
+  const unmatched = JSON.stringify(wireBody(profile, turn1, codec));
+  for (const value of [...words, ...rules.flatMap(r => [r.from, r.to]), "codebook"])
+    assert.equal(unmatched.includes(value), false, "unused entry: " + value);
+  assert.deepEqual(wireBody(profile, request, codec), body, "another request does not mutate the codec");
+});
+
+for (const profile of [chat, anthropic, gemini]) test("codec blocks residual originals before " + profile.id + " dispatch", async () => {
+  let calls = 0;
+  const { provider } = await setup(profile, async () => { calls++; throw new Error("must not fetch"); });
+  const codec = createCodec(["velvet motif"]);
+  for (const request of [
+    { ...turn1, model: "velvet motif" },
+    { ...turn1, tools: [{ name: "get_state", description: "velvet motif", schema: {} }] },
+    { ...turn1, tools: [{ name: "get_state", description: "读取", schema: { properties: { "velvet motif": {} } } }] },
+    { ...turn1, messages: [user("{}", "Velvet Motif")] },
+  ]) {
+    assert.throws(() => wireBody(profile, request, codec), e => e.kind === "config" && /已停止发送/.test(e.message));
+    await assert.rejects(collect(provider.stream(request, { codec })), e => e.kind === "config");
+  }
+  const unsafeReplacement = createCodec([], [{ from: "red coat", to: "a red coat with trim" }]);
+  await assert.rejects(collect(provider.stream({ ...turn1, messages: [user("{}", "red coat")] }, { codec: unsafeReplacement })), e => e.kind === "config");
+  assert.equal(calls, 0, "no request, including no automatic retry");
 });
 
 for (const profile of [chat, anthropic]) test("Unicode word encoding survives " + profile.id + " JSON transport and streamed tool output", async () => {
@@ -292,7 +338,7 @@ for (const profile of [chat, anthropic]) test("Unicode word encoding survives " 
 
 for (const profile of [chat, anthropic]) test(`text replacements at the edge: ${profile.id} sends B and restores streamed prose and draft fields to A`, async () => {
   const codec = createCodec([], [{ from: "red coat", to: "azure dress" }]),
-    request = { ...turn1, model: "red coat", messages: [user('{"prompt":"red coat"}', "保留 red coat")] };
+    request = { ...turn1, model: "custom reasoning-id", messages: [user('{"prompt":"red coat"}', "保留 red coat")] };
   const input = { target: "image.prompt", anchor: "azure dress", text: "azure dress, soft light" };
   let sent;
   const { provider } = await setup(profile, async (_url, init) => {
@@ -315,7 +361,7 @@ for (const profile of [chat, anthropic]) test(`text replacements at the edge: ${
     ));
   });
   const events = await collect(provider.stream(request, { codec })), body = JSON.parse(sent);
-  assert.equal(body.model, "red coat", "model IDs are not replaced");
+  assert.equal(body.model, "custom reasoning-id", "model IDs are not replaced");
   const userMessage = body.messages.find((m) => m.role === "user");
   assert.match(JSON.stringify(userMessage), /保留 azure dress/);
   assert.equal(JSON.stringify(userMessage).includes("red coat"), false);
@@ -442,7 +488,7 @@ test("failures are classified for the retry UI and carry the upstream text", asy
     [() => stream(sse({ error: { message: "upstream exploded", type: "server_error" } })), "server", /exploded/],
     [() => stream(named({ type: "message_start", message: { usage: {} } }, { type: "error", error: { type: "overloaded_error", message: "Overloaded" } })), "server", /Overloaded/],
     [() => stream(sse({ choices: [{ delta: { content: "" }, finish_reason: "stop" }] }, "[DONE]")), "empty", /没有返回内容/],
-    [() => stream([]), "empty", /没有返回内容/],
+    [() => stream([]), "network", /未返回响应数据/],
     [() => stream(sse({ choices: [{ delta: { content: "说到一半" } }] })), "network", /连接中断/],
     [() => stream(["data: {not json}\n\n"]), "protocol", /格式/],
     [() => stream(sse({ choices: [{ delta: { tool_calls: [{ index: 0, id: "c", function: { name: "x", arguments: "{bad" } }] }, finish_reason: "tool_calls" }] }, "[DONE]")), "protocol", /工具参数/],
@@ -504,5 +550,63 @@ test('ASK empty completion: explicit post-tool option preserves usage; incomplet
   const events=await collect(provider.stream(turn1,{allowEmpty:true}));
   assert.equal(events.length,1);assert.equal(events[0].type,'done');assert.equal(events[0].usage.input,55);
   const {provider:broken}=await setup(chat,()=>stream([]));
-  await assert.rejects(collect(broken.stream(turn1,{allowEmpty:true})),e=>e.kind==='empty');
+  await assert.rejects(collect(broken.stream(turn1,{allowEmpty:true})),e=>e.kind==='network');
+});
+
+test('ASK response diagnostics distinguish unknown endings, bare DONE, empty output limits and explicit refusals', async () => {
+  const cases = [
+    { chunks:sse({choices:[{delta:{},finish_reason:'MALFORMED_FUNCTION_CALL'}]},'[DONE]'), kind:'protocol', detail:/MALFORMED_FUNCTION_CALL/, reason:'MALFORMED_FUNCTION_CALL', events:2 },
+    { chunks:sse('[DONE]'), kind:'protocol', detail:/未提供结束原因/, reason:null, events:1 },
+    { chunks:sse({choices:[{delta:{reasoning_content:'private reasoning is not an answer'},finish_reason:'length'}],usage:{prompt_tokens:100,completion_tokens:80}},'[DONE]'), kind:'empty', detail:/达到输出上限，但未返回正文/, reason:'length', events:2 },
+    { chunks:sse({choices:[{delta:{refusal:'Cannot fulfill this request'},finish_reason:'stop'}]},'[DONE]'), kind:'rejected', detail:/拒绝/, reason:'stop', events:2 },
+    { chunks:sse({choices:[{delta:{},finish_reason:'tool_calls'}]},'[DONE]'), kind:'protocol', detail:/未返回可执行的工具调用/, reason:'tool_calls', events:2 },
+    { chunks:['<html>Upstream unavailable</html>'], kind:'protocol', detail:/没有可识别的 SSE/, reason:null, events:0 },
+  ];
+  for (const item of cases) {
+    const traces=[];let requests=0;
+    const {provider}=await setup(chat,async()=>{requests++;return stream(item.chunks);});
+    await assert.rejects(collect(provider.stream(turn1,{observe:e=>traces.push(e)})),error=>{
+      assert.equal(error.kind,item.kind);assert.match(error.message,item.detail);
+      return true;
+    });
+    assert.equal(requests,1,'response errors never silently retry');
+    const diagnostic=traces.at(-1).response;
+    assert.equal(diagnostic.httpStatus,200);assert.equal(diagnostic.contentType,'text/event-stream');
+    assert.equal(diagnostic.bytes,encoder.encode(item.chunks.join('')).length);
+    assert.equal(diagnostic.events,item.events);assert.equal(diagnostic.finishReason,item.reason);
+    assert.equal(diagnostic.textChars,0);assert.equal(diagnostic.calls,0);
+    assert.ok(!JSON.stringify(traces).includes('private reasoning'));assert.ok(!JSON.stringify(traces).includes('synthetic-reasoning-key'));
+  }
+});
+
+test('ASK empty and malformed streams fail once and preserve available response text', async () => {
+  for (const [chunks, options] of [
+    [sse('[DONE]'), {status:200}],
+    [sse('[DONE]'), {status:201}],
+    [sse('[DONE]'), {type:'text/plain'}],
+    [sse({choices:[{delta:{},finish_reason:'content_filter'}]},'[DONE]'), {}],
+    [['data: {invalid}\n\n'], {}],
+    [sse({choices:[{delta:{role:'assistant'}}]}), {}],
+    [sse({choices:[{delta:{tool_calls:[{index:0,id:'broken',function:{name:'get_state',arguments:'{'}}]}}]},'[DONE]'), {}],
+  ]) {
+    let requests=0;
+    const {provider}=await setup(chat,()=>{requests++;return stream(chunks,options);});
+    await assert.rejects(collect(provider.stream(turn1)),ProviderError);
+    assert.equal(requests,1);
+  }
+  const {provider}=await setup(chat,()=>stream(sse({choices:[{delta:{content:'partial answer'}}]},'[DONE]')));
+  const events=await collect(provider.stream(turn1));
+  assert.equal(events[0].text,'partial answer');
+});
+
+test('ASK preserves received text when a later SSE frame in the same network chunk fails', async () => {
+  for (const tail of ['data: {bad json}\n\n',...sse({error:{message:'synthetic upstream failure',type:'server_error'}})]) {
+    const traces=[],seen=[];
+    const payload=sse({choices:[{delta:{content:'已收到的文字。'}}]}).join('')+tail;
+    const {provider}=await setup(chat,async()=>stream([payload]));
+    await assert.rejects(async()=>{for await(const event of provider.stream(turn1,{observe:e=>traces.push(e)}))seen.push(event);});
+    assert.deepEqual(seen,[{type:'text',text:'已收到的文字。'}]);
+    assert.equal(traces.at(-1).response.textChars,'已收到的文字。'.length);
+    assert.equal(traces.at(-1).response.events,2);
+  }
 });

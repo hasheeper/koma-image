@@ -50,6 +50,8 @@ for (const connectionId of ['chat', 'claude']) test(`ASK favorites: ${connection
     llm.push({ body: scripted(connectionId, 'view_image', { id: '#a1' }) }, { body: scripted(connectionId, null) });
     await page.locator('#askPrompt').fill('继续查看附件'); await submitAsk(page);
     await page.waitForFunction(() => !ask.running.value && ask.entries.value.length === 2);
+    assert.equal(wireStates(calls[nextCall].body).at(-1).anchor, null, 'a restored old #h1 must not become the new page image');
+    assert.equal(wireStates(calls[nextCall].body).at(-1).image.history.mode, 'B');
     await page.evaluate(() => ask.flushFavorites());
     const withoutCacheBoundary = value => JSON.parse(JSON.stringify(value, (key, item) => key === 'cache_control' ? undefined : item));
     assert.deepEqual(withoutCacheBoundary(calls[nextCall].body.messages.slice(0, initialMessages.length)), withoutCacheBoundary(initialMessages), 'saved conversation preserves its message prefix; Anthropic moves the cache boundary to the newest turn');
@@ -230,11 +232,13 @@ for (const connectionId of ['chat', 'claude']) test(`ASK CP1: ${connectionId} st
     });
     llm.push({ body: scripted(connectionId, null) }); await send('请保留这个设定', 1);
     assert.equal(wireStates(calls[0].body).at(-1).ask_turn_id, 'T1');
+    assert.deepEqual(wireStates(calls[0].body).at(-1).conversation_history, { archived_through: null, retained_verbatim: [] });
     assert.equal(await page.evaluate(() => ask.entries.value[0].turn.turnId), 'T1');
     await page.evaluate(() => ask.toggleFavorite()); await reloadAsk(page);
     await page.evaluate(() => drawing.patch({ prompt: 'CP1 later unsent board' }));
     llm.push({ body: scripted(connectionId, 'get_turn', { turns: ['T1'], include: 'full' }) }, { body: scripted(connectionId, null) });
     await send('回顾 T1 的原文', 2);
+    assert.deepEqual(wireStates(calls.at(-2).body).at(-1).conversation_history, { archived_through: null, retained_verbatim: ['T1'] });
     const recalled = resultOf(calls.at(-1));
     assert.equal(recalled.turns[0].question, '请保留这个设定');
     const full = JSON.stringify(recalled.turns[0]);
@@ -246,7 +250,7 @@ for (const connectionId of ['chat', 'claude']) test(`ASK CP1: ${connectionId} st
     assert.equal(pageResult.text, '甲'.repeat(2000)); assert.equal(pageResult.total_chars, 50_000);
     assert.equal(pageResult.offset, 48_000); assert.equal(pageResult.next_offset, null);
     assert.deepEqual(await page.evaluate(() => ask.entries.value.filter(e => e.type === 'turn').map(e => e.turn.turnId)), ['T1', 'T2', 'T3']);
-    assert.match(await drawer(page).textContent(), /已回顾/);
+    assert.match(await drawer(page).textContent(), /已读取/);
     await page.evaluate(() => ask.flushFavorites());
     const saved = (await savedAsk(page))[0];
     assert.equal(saved.session.nextTurnId, 4); assert.equal(saved.session.turns[0].attachments[0], 'text-1');

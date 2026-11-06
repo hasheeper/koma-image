@@ -10,8 +10,9 @@ for (const connectionId of ['chat', 'claude']) test(`ASK CP4: ${connectionId} se
   try {
     await cp2History(page, llm, connectionId); await cp3Manual(page, llm, connectionId, '第一份边界备忘录。');
     const first = (await savedAsk(page))[0].session.memory;
+    const overHighWater = await page.evaluate(() => ask.settings.value.compaction.highWaterTokens + 1);
     for (let i = 7; i <= 10; i++) {
-      llm.push(cp2Reply(connectionId, `新增回答 ${i}。`, 200_001)); await cp2Send(page, `新增提问 ${i}`);
+      llm.push(cp2Reply(connectionId, `新增回答 ${i}。`, overHighWater)); await cp2Send(page, `新增提问 ${i}`);
       assert.equal((await savedAsk(page))[0].session.memory.text, first.text);
     }
     assert.equal(calls.length, 11, 'four new successful turns are required even above the high water');
@@ -42,8 +43,8 @@ for (const connectionId of ['chat', 'claude']) test(`ASK CP4: ${connectionId} se
     assert.equal(await page.evaluate(() => ask.debug.value.calls.length), 0);
     assert.equal((await savedAsk(page))[0].session.memory.text, saved.session.memory.text);
     const pages = [];
-    // Six tool calls in the first turn, then one in the next: retain the normal tool budget.
-    for (const offsets of [[0, 8000, 16000, 24000, 32000, 40000], [48000]]) {
+    // The larger shared budget can read all seven distinct pages in one turn.
+    for (const offsets of [[0, 8000, 16000, 24000, 32000, 40000, 48000]]) {
       const start = calls.length;
       for (const offset of offsets) llm.push({ body: scripted(connectionId, 'get_turn', {
         attachments: ['text-1'], offset, ...(offset === 0 ? { turns: ['T1'], include: 'full' } : {}),
@@ -62,7 +63,7 @@ for (const connectionId of ['chat', 'claude']) test(`ASK CP4: ${connectionId} se
       }
     }
     assert.equal(pages.join(''), '甲'.repeat(50_000));
-    assert.equal((await savedAsk(page))[0].session.ledger.length, 13);
+    assert.equal((await savedAsk(page))[0].session.ledger.length, 12);
     await page.evaluate(() => ask.toggleFavorite());
     assert.equal((await savedAsk(page)).length, 0); assert.ok(await page.evaluate(() => ask.memory.value));
     await reloadAsk(page);
@@ -188,6 +189,7 @@ for (const connectionId of ['chat', 'claude']) test(`ASK CP2: ${connectionId} du
     assert.equal(cp2Marks(first.body), connectionId === 'claude' ? 4 : 0);
     assert.equal(wireStates(first.body).at(-1).image.form.prompt, 'CP2 current unsent state');
     assert.equal(wireStates(first.body).at(-1).ask_turn_id, 'T7');
+    assert.deepEqual(wireStates(first.body).at(-1).conversation_history, { archived_through: saved.session.memory.through, retained_verbatim: saved.session.turns.map(t => t.turnId) });
     const recalled = cp2Result(calls.at(-1));
     assert.match(JSON.stringify(recalled.turns[0]), /CP2 originally sent state/);
     assert.equal(recalled.attachments[0].text.length, 2000); assert.equal(recalled.attachments[0].next_offset, null);

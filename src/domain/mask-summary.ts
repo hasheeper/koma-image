@@ -7,10 +7,17 @@ export interface MaskSummary {
 }
 /** Exact source coverage/bounds; components use a bounded 512px occupancy grid. */
 export function summarizeMask(data: Uint8ClampedArray, width: number, height: number): MaskSummary {
+  return summarizeCoverage(width,height,p=>data[p*4+3]>32);
+}
+/** Read the already frozen packed mask without decoding or allocating RGBA pixels. */
+export function summarizeMaskBitmap(mask:{width:number;height:number;bits:Uint8Array}):MaskSummary {
+  return summarizeCoverage(mask.width,mask.height,p=>!!(mask.bits[p>>3]&(1<<(p&7))));
+}
+function summarizeCoverage(width:number,height:number,selected:(pixel:number)=>boolean):MaskSummary {
   const stride=Math.max(1,Math.ceil(Math.max(width,height)/512)), gw=Math.ceil(width/stride),gh=Math.ceil(height/stride);
   const grid=new Uint32Array(gw*gh), visited=new Uint8Array(grid.length), queue=new Uint32Array(grid.length);
   let count=0,left=width,top=height,right=-1,bottom=-1;
-  for(let y=0;y<height;y++) for(let x=0;x<width;x++) if(data[(y*width+x)*4+3]>32) {
+  for(let y=0;y<height;y++) for(let x=0;x<width;x++) if(selected(y*width+x)) {
     count++;left=Math.min(left,x);top=Math.min(top,y);right=Math.max(right,x);bottom=Math.max(bottom,y);
     grid[Math.floor(y/stride)*gw+Math.floor(x/stride)]++;
   }

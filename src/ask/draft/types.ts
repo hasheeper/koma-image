@@ -129,7 +129,7 @@ export interface CheckedStep {
 export interface DraftPlan {
   readonly editSourceTag?:string;
   readonly editHandoff?: EditHandoff;
-  readonly edit?: {id:string;before:EditConfiguration;after:EditConfiguration;baseId:number;maskRevision:number};
+  readonly edit?: {id:string;before:EditConfiguration;after:EditConfiguration;baseId:number;maskRevision:number;sourceKey?:string};
   readonly files?: readonly DraftFile[];
   readonly slate?: SlateChange;
   readonly boardId?: string;
@@ -148,6 +148,8 @@ export interface DraftPlan {
   readonly fingerprint: string;
 }
 export interface ValidateOptions {
+  /** Read-only candidate projection before invalid groups are rolled back for UI application. */
+  readonly inspectInput?: (form: DrawingForm, edit?: EditConfiguration) => void;
   /** Internal adapter: EDIT source geometry is validated by its own rules. */
   readonly editing?: boolean;
   readonly off: ReadonlySet<string>;

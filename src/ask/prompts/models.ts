@@ -2,7 +2,7 @@ import { manuals } from "./manuals.ts";
 
 /** L2: all families stay in the static core; long manuals are read on demand. */
 export const models = {
-  version: 9,
+  version: 10,
   core: `## 模型知识与实战经验（按当前表单或对话所选模型对齐）
 ### 一、 NovelAI 系列（NAI Diffusion V4.5 / V5 —— 扩散标签与混排体系）
 1. 版本真实实力与定位：

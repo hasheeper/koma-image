@@ -34,6 +34,7 @@ const props = defineProps<{
     disabled?: boolean;
     readonly?: boolean;
     maxLength?: number;
+    highlight?: boolean;
   }>(),
   value = defineModel<string>({ required: true });
 const { tags } = useServices(),
@@ -296,7 +297,8 @@ defineExpose({
 </script>
 <template>
   <div ref="wrap" class="hl-wrap">
-    <div ref="mirror" class="hl-mirror" aria-hidden="true" v-html="html"></div>
+    <div v-if="highlight !== false" ref="mirror" class="hl-mirror" aria-hidden="true" v-html="html"></div>
+    <div v-else ref="mirror" class="hl-mirror" aria-hidden="true">{{ value }}</div>
     <textarea
       :id="id"
       :disabled="disabled"

@@ -130,8 +130,8 @@ function params(image: DigestImage) {
 /**
  * L0: the workbench at the moment of sending. It travels at the tail of the
  * user's message, never in the system prompt, so edits never touch the cached
- * prefix. Active-board text is always present; unanchored historical image
- * text and inactive-board text stay behind explicit read tools.
+ * prefix. In EDIT, IMAGE stays a directory unless a history/favorite anchor
+ * explicitly expands it. Other board/history text stays behind read tools.
  */
 export function buildDigest(input: DigestInput, _options: { readonly formText?: boolean } = {}): Digest {
   const { form, ids } = input;
@@ -139,6 +139,7 @@ export function buildDigest(input: DigestInput, _options: { readonly formText?: 
   const id = (image: DigestImage) =>
     ids.label(image.id) ?? `#${image.id.slice(0, 8)}`;
   const anchor = [...input.history, ...input.favorites].find((image) => image.id === ids.resolve(input.anchor ?? ""));
+  const includeImageForm = input.workspace !== "edit" || !!anchor;
 
   const history = historyIndex(input.history.map((image) => ({ ...image, label: id(image) })), anchor ? { ...anchor, label: id(anchor) } : null);
   const current = input.current
@@ -160,7 +161,7 @@ export function buildDigest(input: DigestInput, _options: { readonly formText?: 
   if (input.generation.error) generation.error = input.generation.error;
   const base = workspaceHash(form, input.composer, input.boardId);
   const state: Record<string, unknown> = {
-    v: 7,
+    v: 8,
     ...(input.askTurnId ? { ask_turn_id: input.askTurnId } : {}),
     workspace: input.workspace,
     anchor: input.anchor,
@@ -168,29 +169,31 @@ export function buildDigest(input: DigestInput, _options: { readonly formText?: 
     image: {
       active_board_id: input.boardId,
       boards: input.boards?.map(b => ({ id: b.id, name: b.name, model: b.form.model, characters_count: b.form.characters?.length ?? 0 })),
-      character_capability: characterCapability(form.model),
-      form: {
-        text_included: true,
-        prompt: form.prompt, negative: form.negative,
-        model: input.modelName || form.model,
-        size: `${form.width}x${form.height}`,
-        steps: form.steps,
-        scale: form.scale,
-        cfgRescale: form.cfgRescale ?? 0,
-        varietyPlus: form.varietyPlus ?? false, noiseSchedule: form.noiseSchedule ?? "auto", transparentBg: form.transparentBg ?? false,
-        naiMode: form.naiMode ?? "anime",
-        complexity: form.complexity ?? "none",
-        qualityPreset: form.qualityPreset ?? "none",
-        negativePreset: form.negativePreset ?? "none",
-        sampler: form.sampler,
-        seed: form.seed.trim() || "random",
-        batch: form.batchCount,
-        placement: form.placement ?? "auto",
-        characters: (form.characters ?? []).map(c => ({ ...characterSummary(c, form.placement ?? "auto", form.model), centers: c.centers })),
-        references: referenceSummary(form.naiReferences),
-      },
+      ...(includeImageForm ? {
+        character_capability: characterCapability(form.model),
+        form: {
+          text_included: true,
+          prompt: form.prompt, negative: form.negative,
+          model: input.modelName || form.model,
+          size: `${form.width}x${form.height}`,
+          steps: form.steps,
+          scale: form.scale,
+          cfgRescale: form.cfgRescale ?? 0,
+          varietyPlus: form.varietyPlus ?? false, noiseSchedule: form.noiseSchedule ?? "auto", transparentBg: form.transparentBg ?? false,
+          naiMode: form.naiMode ?? "anime",
+          complexity: form.complexity ?? "none",
+          qualityPreset: form.qualityPreset ?? "none",
+          negativePreset: form.negativePreset ?? "none",
+          sampler: form.sampler,
+          seed: form.seed.trim() || "random",
+          batch: form.batchCount,
+          placement: form.placement ?? "auto",
+          characters: (form.characters ?? []).map(c => ({ ...characterSummary(c, form.placement ?? "auto", form.model), centers: c.centers })),
+          references: referenceSummary(form.naiReferences),
+        },
+        generation,
+      } : {}),
       current,
-      generation,
       history,
       favorites: {
         count: input.favorites.length,

@@ -1,4 +1,5 @@
 import { checkEditConfiguration } from "./edit-configuration.ts";
+import { editSourceKey } from './edit-options.ts';
 import { makeThumb } from "../../services/image-response.ts";
 import type { Editor } from "../../services/editor.ts";
 import { fileIssue } from "./files.ts";
@@ -31,6 +32,7 @@ export function createDraftWriter(drawing: Drawing, chat: Chat, router: AppRoute
       if(state.blocked)return state.blocked;
       if(state.baseId!==plan.edit.baseId&&side==='before')return '编辑底图已变化';
       if(!sameValue(state.config,plan.edit[side]))return '编辑配置已变化';
+      if(side==='before'&&plan.edit.sourceKey!==undefined&&plan.edit.sourceKey!==editSourceKey(state,plan.edit.after))return '编辑来源或参数声明已变化，请重新提议';
       return side==='before'?checkEditConfiguration(state,plan.edit.after):'';
     }
     // A handoff opens its own conversation; only undo depends on CHAT's current state.
@@ -83,7 +85,7 @@ export function createDraftWriter(drawing: Drawing, chat: Chat, router: AppRoute
         await editor!.insertAskBoard({...h.target,config:before},record,h.origin);inserted=true;
       }
       const live=editor!.askSnapshot(e.id);
-      const lateIssue=!undo&&live?checkEditConfiguration(live,after):'';
+      const lateIssue=!undo&&live?(e.sourceKey!==undefined&&e.sourceKey!==editSourceKey(live,after)?'编辑来源或参数声明已变化，请重新提议':checkEditConfiguration(live,after)):'';
       if(lateIssue){if(inserted)editor!.removeAskBoard(e.id);throw new Error(lateIssue);}
       editor!.writeAskDraft(e.id,before,after);
       try { if(plan.slate) {const change=undo?{...plan.slate,before:plan.slate.after,after:plan.slate.before,bindings:[]}:plan.slate;await slates!.commit(change,undefined,true);} }

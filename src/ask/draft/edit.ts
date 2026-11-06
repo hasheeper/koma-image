@@ -1,8 +1,12 @@
 import { checkEditConfiguration } from "./edit-configuration.ts";
-import { editorModels } from "../../domain/media.ts";
+import { editSourceKey, patchEditOptions } from './edit-options.ts';
+import { normalizeOptions } from '../../domain/catalog.ts';
+import { chatOptionNames } from '../../domain/chat-options.ts';
+import { editorModels, isGenerativeEditorModel } from "../../domain/media.ts";
 import { modelSamplers } from "../../domain/nai-parameters.ts";
 import { recipeDocument } from "../../bridge/export.ts";
 import { boardForm } from "../../domain/drawing.ts";
+import type { DrawingForm } from "../../domain/drawing.ts";
 import { parseDraft,validateDraft,stateHash } from './validate.ts';
 import type { Draft,DraftState,DraftPlan,ValidateOptions,DirectorStep,CheckedStep } from './types.ts';
 import type { Picture } from '../library.ts';
@@ -19,7 +23,7 @@ import { snapFocusRect,inpaintFocusPlan,focusContains,supportsFocusedInpaint } f
 import { supportsNaiEnhance,availableEnhanceScales,naiEnhanceMagnitudes } from '../../domain/nai-enhance.ts';
 import { isDirectorTool,directorEmotions,directorName } from '../../domain/director-tools.ts';
 
-const extraKeys=['editMode','inpaintKind','strength','noise','enhance','upscaleKind','effort','focusRect'];
+const extraKeys=Object.keys(editParameterProperties);
 const obj=(v:unknown):Record<string,unknown>=>{if(!v||typeof v!=='object'||Array.isArray(v))throw new Error('编辑参数需要对象');return v as Record<string,unknown>;};
 export function draftTarget(input:Readonly<Record<string,unknown>>,base:DraftState) {
  const steps=Array.isArray(input.steps)?input.steps.map(obj):[];
@@ -73,6 +77,12 @@ export function configureEdit(s:EditDraftState,params:Readonly<Record<string,unk
  if(params.effort!==undefined){if(!['high','medium'].includes(String(params.effort))||!naiCapabilities(c.chosen[c.mode]).effort)throw new Error('Effort 仅用于 V5 Full');c.chosen[c.mode]=params.effort==='medium'?NAI_MEDIUM:NAI_FULL;}
  const m=s.models.find(m=>m.id===c.chosen[c.upscaleOpen?'upscale':c.mode]);
  if(!m||!editorModels({models:s.models},c.upscaleOpen?'upscale':c.mode).includes(m))throw new Error('目标型号没有此编辑能力');
+ if(!c.upscaleOpen&&isGenerativeEditorModel(m)) {
+   if(Object.keys(params).some(k=>!['editMode','image_options'].includes(k)))throw new Error('此模型不使用 NAI 参数；请使用 image_options 中的来源参数');
+   if(params.image_options!==undefined)c.options[m.id]=patchEditOptions(m,c.options[m.id]??{},params.image_options);
+   return c;
+ }
+ if(params.image_options!==undefined)throw new Error('image_options 仅用于通用图像编辑模型');
  if(params.inpaintKind!==undefined&&c.mode!=='inpaint'||!c.upscaleOpen&&c.mode==='inpaint'&&c.focus.on&&!supportsFocusedInpaint(m))throw new Error('当前型号或操作不支持聚焦重绘');
  if(params.enhance!==undefined){const e=obj(params.enhance);for(const k of Object.keys(e))if(!['enabled','scale','magnitude'].includes(k))throw new Error(`Enhance 参数无效 ${k}`);
    if(e.enabled!==undefined){if(typeof e.enabled!=='boolean')throw new Error('Enhance enabled 需要布尔值');c.enhance.on=e.enabled;}
@@ -105,11 +115,14 @@ export function validateEditDraft(draft:Draft,now:DraftState,options:ValidateOpt
  const extraRows:CheckedStep[]=[];
  try {
    const merged=Object.assign({},...extras.flatMap(step=>step.kind==='edit_config'?[step.params]:[]));
+   const optionPatches=extras.flatMap(step=>step.kind==='edit_config'&&step.params.image_options!==undefined?[obj(step.params.image_options)]:[]);
+   if(optionPatches.length)merged.image_options=Object.fromEntries(optionPatches.flatMap(Object.entries));
    const model=common.flatMap(step=>step.kind==='params_patch'&&step.params.model?[step.params.model]:step.kind==='restore_partial'&&step.fields.includes('model')&&typeof step.values.model==='string'?[step.values.model]:[]).at(-1);
    const targetMode=merged.editMode==='inpaint'?'inpaint':merged.editMode==='img2img'?'img2img':after.mode;
    if(model)after.chosen[targetMode]=model;
    if(model&&merged.effort&&model!==(merged.effort==='medium'?NAI_MEDIUM:NAI_FULL))throw new Error('model 与 effort 冲突');
    after=configureEdit(s,merged,after);
+   if(editSourceKey(s,after)!==editSourceKey(base,after))throw new Error('编辑来源或参数声明已变化，请重新提议');
    if(merged.effort&&!model)common.push({kind:'params_patch',params:{model:after.chosen[after.mode]}});
    if(canonical(s.config)!==canonical(base.config)&&extras.length)throw new Error('编辑配置已变化，请重新提议');
    for(const [i,step] of extras.entries()){
@@ -119,10 +132,15 @@ export function validateEditDraft(draft:Draft,now:DraftState,options:ValidateOpt
        if(step.tool==='emotion'||step.tool==='colorize')Object.assign(after.director[step.tool],{...(step.prompt!==undefined?{prompt:step.prompt}:{}),...(step.defry!==undefined?{defry:step.defry}:{}),...(step.emotion!==undefined?{emotion:step.emotion}:{})});
      }
      const add=(label:string,before:string,after:string)=>extraRows.push({id:`edit:${i}:${extraRows.length}`,kind:'parameter',label,locked:true,enabled:true,issue:'',aligned:false,before,after});
-     const mode=(c:EditConfiguration)=>c.upscaleOpen?'放大':c.mode==='inpaint'?c.focus.on?'聚焦重绘':'重绘':'图生图';
+     const mode=(c:EditConfiguration)=>c.upscaleOpen?'放大':c.mode==='inpaint'?c.focus.on&&!isGenerativeEditorModel(s.models.find(m=>m.id===c.chosen[c.mode]))?'聚焦重绘':'重绘':'图生图';
      if(step.kind==='director_patch')add('Director Tools',directorName(s.config.director.tool),[directorName(step.tool as typeof after.director.tool),step.emotion,step.defry===undefined?'':`强度 ${step.defry}`,step.prompt].filter(Boolean).join(' · '));
      else {
        const p=step.params;
+       if(p.image_options!==undefined) {
+         const m=s.models.find(m=>m.id===after.chosen[after.mode])!;
+         const beforeOptions=normalizeOptions(m,s.config.options[m.id]), afterOptions=normalizeOptions(m,after.options[m.id]);
+         for(const key of Object.keys(obj(p.image_options)))add(`来源参数 · ${m.fields[key]?.label||chatOptionNames[key]||key}`,beforeOptions[key]||'不发送',afterOptions[key]||'不发送');
+       }
        if(p.editMode!==undefined||p.inpaintKind!==undefined)add('编辑模式',mode(s.config),mode(after));
        for(const key of ['strength','noise'] as const)if(p[key]!==undefined) {
          const enhanced=after.mode==='img2img'&&after.enhance.on;
@@ -138,9 +156,20 @@ export function validateEditDraft(draft:Draft,now:DraftState,options:ValidateOpt
  const forMode=(state:EditDraftState)=>({...state,config:{...state.config,mode:after.mode,upscaleOpen:after.upscaleOpen}});
  const baseInner=adapted(draft.base,forMode(base)),liveInner=adapted(now,forMode(s));
  // Shared text/role diff engine operates on the editing form, never IMAGE's form.
- const generic=validateDraft({...draft,target:undefined,base:baseInner,baseHash:stateHash(baseInner),steps:common},liveInner,{...options,editing:true});
+ let candidate:DrawingForm|undefined;
+ const generic=validateDraft({...draft,target:undefined,base:baseInner,baseHash:stateHash(baseInner),steps:common},liveInner,{...options,editing:true,inspectInput:options.inspectInput ? form=>{candidate=form;} : undefined});
  const changes=generic.changes;
  for(const change of changes){if(change.field==='negative')after.fields.negative_prompt=String(change.after);else if(change.field==='model'&&!extras.some(step=>step.kind==='edit_config'&&step.params.effort))after.chosen[after.mode]=String(change.after);else if(['characters','placement','naiReferences'].includes(change.field))Object.assign(after,{[change.field]:structuredClone(change.after)});else if(Object.hasOwn(after.fields,change.field))Object.assign(after.fields,{[change.field]:change.after});}
+ if(candidate) {
+   const proposed=structuredClone(after);
+   for(const [field,value] of Object.entries(candidate)) {
+     if(field==='negative')proposed.fields.negative_prompt=String(value);
+     else if(field==='model')proposed.chosen[proposed.upscaleOpen?'upscale':proposed.mode]=String(value);
+     else if(['characters','placement','naiReferences'].includes(field))Object.assign(proposed,{[field]:structuredClone(value)});
+     else if(Object.hasOwn(proposed.fields,field))Object.assign(proposed.fields,{[field]:value});
+   }
+   options.inspectInput?.(editDrawingForm(s,proposed),proposed);
+ }
  const cap=naiCapabilities(after.chosen[after.mode]);
  if(cap.medium&&common.some(step=>step.kind==='prompt_patch'&&step.target.endsWith('negative')||step.kind==='params_patch'&&Object.keys(step.params).some(k=>['steps','sampler','cfgRescale','negativePreset'].includes(k))||step.kind==='character_edit'&&step.negative||step.kind==='restore_partial'&&step.fields.some(k=>['steps','sampler','cfgRescale','negativePreset','negative_prompt'].includes(k)||k==='characters'&&Array.isArray(step.values.characters)&&step.values.characters.some(c=>c.negative))))issue ||= 'Medium 的步数、采样器、负向与 Rescale 固定';
  if(after.upscaleOpen&&!draft.synthetic&&common.some(step=>step.kind==='prompt_patch'||step.kind==='character_edit'||step.kind==='restore_partial'||step.kind==='params_patch'))issue ||= '放大模式不接受提示词或生成参数';
@@ -148,7 +177,7 @@ export function validateEditDraft(draft:Draft,now:DraftState,options:ValidateOpt
  if(issue&&!extraRows.length&&draft.synthetic)extraRows.push({id:'edit:issue',kind:'parameter',label:'编辑配置',before:'',after:'',issue,enabled:true,locked:true,aligned:false});
  const steps=[...(draft.synthetic?[]:generic.steps),...extraRows].map(step=>({...step,locked:true,issue:step.issue||issue}));
  if(options.off.size)steps.forEach(step=>Object.assign(step,{issue:'编辑配置请整体应用或重新提议'}));
- const edit=!steps.some(step=>step.issue)&&canonical(s.config)!==canonical(after)?{id:s.id,before:s.config,after,baseId:s.baseId,maskRevision:s.maskRevision}:undefined;
+ const edit=!steps.some(step=>step.issue)&&canonical(s.config)!==canonical(after)?{id:s.id,before:s.config,after,baseId:s.baseId,maskRevision:s.maskRevision,sourceKey:editSourceKey(s,after)}:undefined;
  const finalForm=editDrawingForm(s,after);
  const slate=generic.slate?structuredClone(generic.slate):undefined;
  if(slate?.after?.golden_recipe&&draft.steps.some(step=>step.kind==='slate_edit'&&step.captureRecipe))slate.after.golden_recipe.form=boardForm(finalForm);

@@ -2,6 +2,7 @@ import { collect, drawingPayload } from '../domain/drawing.ts';
 import type { DrawingForm } from '../domain/drawing.ts';
 import type { CatalogModel } from '../domain/catalog.ts';
 import { naiCapabilities, complexities, naiModes } from '../domain/nai.ts';
+import { findModel } from '../domain/models.ts';
 import { characterCapability } from '../domain/characters.ts';
 import { modelSamplers, noiseSchedules, supportsNaiVariety, naiVarietySigma } from '../domain/nai-parameters.ts';
 import { activeReferences, referenceOperation, referenceSurcharge } from '../domain/nai-references.ts';
@@ -33,6 +34,12 @@ export interface NaiAwarenessInput {
 }
 export const naiSourceKey = (model?: Pick<CatalogModel,'connection'|'profileId'|'sourceRevision'>) => model ? hash(canonical([model.connection,model.profileId,model.sourceRevision])) : '';
 export const naiQuoteKey = (form: DrawingForm, model?: CatalogModel) => hash(canonical({form, source:model ?? null}));
+/** Known NAI prompt rules are local; this descriptor never creates or selects a source. */
+export function naiInputModel(id: string, source?: CatalogModel): Parameters<typeof collect>[1] | undefined {
+  if (source) return source;
+  const model = findModel(id);
+  return model?.family === 'novelai' ? { id, name: model.name, transparentBackground: model.transparentBackground === true } : undefined;
+}
 /** Keep only local pricing inputs, never a raw account response in a saved draft. */
 export function naiAccountSnapshot(value: unknown) {
   const account=object(value), usage=object(account.usage);
@@ -42,13 +49,14 @@ export function naiAccountSnapshot(value: unknown) {
 }
 export function naiAwareness(input: NaiAwarenessInput, counter = countNaiTokens) {
   const { form } = input, model = input.models.find(m => m.id === form.model);
+  const inputModel = naiInputModel(form.model, model);
   const cap = naiCapabilities(form.model), operation = input.operation ?? 'image';
   const applicable = cap.supported && operation !== 'upscale' && operation !== 'director';
   const supported = (kind: 'vibe' | 'precise') => model?.profileId === 'nai-official-v1' && referenceOperation(form.model, kind, operation === 'image' ? undefined : operation);
   const refs = form.naiReferences, roles = characterCapability(form.model);
   let params: ReturnType<typeof collect> | null = null, payload: ImagePayload = {model:form.model}, inputError = '';
   try {
-    params = model ? collect({ ...form, seed: form.seed || '0' }, model, form.batchCount) : null;
+    params = inputModel ? collect({ ...form, seed: form.seed || '0' }, inputModel, form.batchCount) : null;
     payload = structuredClone(input.payload ?? (params ? drawingPayload(params) : payload));
   } catch (error) { inputError = error instanceof Error ? error.message : '输入不可用'; }
   const referenceMinimum = input.referenceMinimum ?? input.referenceCosts?.[form.model];
@@ -68,12 +76,13 @@ export function naiAwareness(input: NaiAwarenessInput, counter = countNaiTokens)
     const used = counts.reduce((a,b)=>a+b,0);
     return { used, limit, remaining: Math.max(0,limit-used), overflow:Math.max(0,used-limit), base:counts[0], characters:Object.fromEntries(parts.ids.slice(1).map((id,i)=>[id,counts[i+1]])) };
   }
-  const diagnostics: { severity: 'warning' | 'error'; message: string }[] = [];
+  const diagnostics: { severity: 'warning' | 'error'; message: string; code?: string }[] = [];
   if (inputError) diagnostics.push({severity:'error',message:inputError});
-  if (!model) diagnostics.push({ severity:'error', message:'当前型号没有可用来源' });
+  if (!model) diagnostics.push({ severity:'error', code:'source_unavailable', message:'当前型号没有可用来源' });
   if (form.characters.filter(c=>c.on).length > roles.max) diagnostics.push({ severity:'error', message:`当前型号最多 ${roles.max} 个启用角色` });
   if (limits && usedText > limits.text) diagnostics.push({ severity:'error', message:`Text: ${usedText}/${limits.text} 字符，执行前须缩短` });
-  if (refs.active && activeReferences(refs).length && !supported(refs.active)) diagnostics.push({severity:'error',message:'当前来源或操作不支持已启用的参考'});
+  if (refs.active && activeReferences(refs).length && (model ? !supported(refs.active) : !referenceOperation(form.model, refs.active, operation === 'image' ? undefined : operation)))
+    diagnostics.push({severity:'error',message:'当前型号、来源或操作不支持已启用的参考'});
   const freshAccount = input.accountSource===naiSourceKey(model) && input.accountAt !== undefined && Date.now()-input.accountAt < 60_000 ? input.account : undefined;
   const estimated = !inputError && model?.profileId === 'nai-official-v1' ? naiCost(payload, freshAccount) : null;
   const matchedQuote = !!model && input.quoteKey === naiQuoteKey(form,model) && !!input.quoteAt && Date.now()-input.quoteAt < 60_000;
@@ -86,7 +95,7 @@ export function naiAwareness(input: NaiAwarenessInput, counter = countNaiTokens)
       ...(encoding !== undefined ? {per_image:price.cost-encoding,encoding_once:encoding,batch_total:(price.cost-encoding)*form.batchCount+encoding} : {per_image:price.cost,...(!payload.referencePlan ? {batch_total:price.cost*form.batchCount}: {})}),
       ...(payload.referencePlan ? {reference_per_image:referenceSurcharge(payload.referencePlan)} : {}),
       ...(price.usagePercent !== undefined ? {usage_note:'另有 V5 用量消耗；百分比仅为基准近似'} : {})
-    } : { reason:inputError || '尚无适用于当前输入与来源的费用；不会主动请求报价', ...(payload.referencePlan ? {lower_bound:referenceSurcharge(payload.referencePlan),lower_bound_unit:'Anlas'} : {}) }) };
+    } : { reason:inputError || '尚无适用于当前输入与来源的费用；不会主动请求报价', ...(payload.referencePlan && model?.profileId === 'nai-official-v1' ? {lower_bound:referenceSurcharge(payload.referencePlan),lower_bound_unit:'Anlas'} : {}) }) };
   const snapshot = {
     capabilities: { ready:!!model, model_id: form.model, model_name:model?.name, profile:model?.profileId, operation,
       available_models:input.models.map(m=>({id:m.id,name:m.name})),
@@ -104,10 +113,10 @@ export function naiAwareness(input: NaiAwarenessInput, counter = countNaiTokens)
       ...(supportsNaiVariety(model) && form.varietyPlus ? {skip_cfg_above_sigma:naiVarietySigma(form.model,true,payload.width,payload.height)}:{}),
       naiMode:params?.naiMode,qualityPreset:params?.qualityPreset,negativePreset:cap.medium?'fixed-heavy':params?.negativePreset,complexity:params?.complexity,transparentBg:params?.transparentBg,
       ignored:cap.medium?['saved.steps','saved.sampler','saved.negative','saved.character_negative','saved.cfgRescale']:[],
-    }, input_budget:budget(!applicable?'not_applicable':inputError?'error':!model?'unavailable':'pending',undefined,inputError||undefined), cost, diagnostics,
+    }, input_budget:budget(!applicable?'not_applicable':inputError?'error':!inputModel?'unavailable':'pending',undefined,inputError||undefined), cost, diagnostics,
   };
   return { snapshot, payload, async counted() {
-    if (!applicable || !model || inputError) return snapshot;
+    if (!applicable || !inputModel || inputError) return snapshot;
     try {
       const counts = await counter(payload);
       const warnings = counts && [counts.prompt,counts.negative].some(a=>a.reduce((x,y)=>x+y,0)>counts.tokens) ? [{severity:'warning' as const,message:'Token 超出型号预算，上游可能截断；不会自动删词'}] : [];

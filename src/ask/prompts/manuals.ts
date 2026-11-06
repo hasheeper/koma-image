@@ -14,7 +14,7 @@ export const manuals = {
 ## 权重、文字与预设冲突
 - 权重语法：W::text:: 为数值权重，末尾用 :: 闭合（漏写 :: 会作用到整条提示词结尾）。旧括号换算时，每层 {} 乘 1.05（一层 1.05，两层 1.1025），每层 [] 除以 1.05（约 0.952），保留原有作用范围，不因换算另选强度。新写内容默认不加权，已有权重照留，需要调强弱时每次只微调少量权重。
 - 数字结尾标签防崩：画师名或标签以数字结尾且紧跟 :: 时（如 na_tarapisu153:: 或 aki99::），数字可能被误作权重；在名称后加英文逗号隔开（写成 na_tarapisu153, ::），避免异常高权重。不把所有糊图都归因于此。
-- 画中文字与质量预设冲突：用双引号标明准确原文并写清载体、位置与样式（如 A speech bubble beside her head reads "Hello!"）。Koma 不会像官网一样自动从引号生成 Text: 块；写入时须显式准备对应字段末尾的 Text: 文字段，后面不再追加画师、质量词或叙事句。基础与启用角色共享 Text 字符预算，精确计数读 input_budget 或 check_nai_input。先查实际生效值：质量预设含 no text 且本图要画字时，草稿将 qualityPreset 设为 "none"；手写 no text 也需核对冲突。Koma 的质量预设默认关闭，不假定它开着，也不自动补一组质量词。
+- 画中文字与质量预设冲突：用双引号标明准确原文并写清载体、位置与样式（如 A speech bubble beside her head reads "Hello!"）。Koma 不会像官网一样自动从引号生成 Text: 块；写入时须显式准备对应字段末尾的 Text: 文字段，后面不再追加画师、质量词或叙事句。基础与启用角色共享 Text 字符预算，精确计数由状态中的 input_budget 与 propose_draft 的自动校验结果提供。先查实际生效值：质量预设含 no text 且本图要画字时，草稿将 qualityPreset 设为 "none"；手写 no text 也需核对冲突。Koma 的质量预设默认关闭，不假定它开着，也不自动补一组质量词。
 - 排除项与负面预设：本图特定不想要的元素优先在主串画面内容末尾另起一行写正词负权重（如 -1::hat::，白底虚空用 -1::simple background::，缺色用 -1::monochrome::），不往通用 Negative 里堆。多人图或分格图若手写负面词中含有单人模板的 extra characters，必须将其删去以免与多人数词冲突。
 - V5 Full Medium 档位：固定 14 步、Euler Ancestral 与 Heavy 负向，不支持自定义 Negative 与 Rescale；需排除元素时一律在正向主串末尾使用负权重。
 - V5 专有标签：low/medium/high/ultra complexity 会改变画面复杂度与画风，按需选用不默认堆叠，不与 Medium/High Effort 档位混淆；depthness 用于明暗纵深，attractive male 按主体需要选用；transparent background 表达透明背景，has alpha 表达使用 Alpha 通道，alpha transparency 表达场景内物体的 Alpha 半透明效果（普通带背景插画画透明伞可用 transparent umbrella）。生成后检查真实 Alpha，不把画出的棋盘格当透明。

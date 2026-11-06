@@ -305,6 +305,7 @@ export function validateDraft(draft: Draft, now: DraftState, options: ValidateOp
       if (enabled && !issue && after !== undefined) Object.assign(working, { [field]: after });
     }
   });
+  options.inspectInput?.(structuredClone(working));
   const allowedSamplers = now.samplersByModel?.[working.model] ?? now.samplers;
   const model = resolveModel(now.models, working.model);
   const samplerConflict = (working.model !== initial.model || working.sampler !== initial.sampler) && !naiCapabilities(working.model).medium && !allowedSamplers.includes(working.sampler);

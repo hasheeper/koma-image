@@ -209,7 +209,7 @@ test('CP1 memo v7: completed non-length memo required; scope instruction stays o
   assert.ok(!systemCore({ adult: false }).includes(compactionPrompt.instruction));
 });
 
-test('CP1 tool: regular runner budget, data wrapping and wire omission of local text provenance', async () => {
+test('CP1 tool: repeated recall reuses one read, data wrapping and wire omission of local text provenance', async () => {
   const pool = createAttachments(), a = pool.add(prepared('字 <tag>')), s = createSession();
   commit(s, '原话', {}, [a]);
   const tools = createTools(), entry = tools.get('get_turn'), signal = new AbortController().signal;
@@ -226,8 +226,9 @@ test('CP1 tool: regular runner budget, data wrapping and wire omission of local 
   }
   const request = { model: 'mock', system: [systemCore({ adult: false }), ''], maxTokens: 8192, tools: [...tools.values()].map(t => t.tool) };
   const events = []; for await (const event of run({ stream, request, turn: t, tools, context, signal })) events.push(event);
-  assert.equal(events.filter(e => e.type === 'tool-end' && e.ok).length, 6);
-  assert.match(events.find(e => e.type === 'tool-end' && !e.ok).reason, /上限/); t.rollback();
+  assert.equal(events.filter(e => e.type === 'tool-end' && e.ok).length, 7);
+  assert.equal(events.filter(e => e.type === 'tool-start' && e.verb === '复用').length, 6);
+  assert.equal(t.budget.toolCalls, 1); t.rollback();
   for (const profile of [openaiChatProfile, anthropicMessagesProfile]) {
     const body = wireBody(profile, { ...request, messages: s.messages });
     assert.doesNotMatch(JSON.stringify(body), /"source":\{"kind"|"archived":/);

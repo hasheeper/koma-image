@@ -16,11 +16,15 @@ test("debug log retains exact dispatch JSON, bounded memory and per-call outcome
   assert.equal(log.get(first).body, body);
   assert.equal(view.calls[0].bytes, new TextEncoder().encode(body).length);
   assert.equal("body" in view.calls[0], false);
-  const outcome = { usage: { input: 200, output: 20, cacheRead: 120, cacheWrite: 0 }, cache: { read: 120, write: null }, stop: "end" };
+  const outcome = { usage: { input: 200, output: 20, cacheRead: 120, cacheWrite: 0 }, cache: { read: 120, write: null }, stop: "end",
+    response: { httpStatus:200,contentType:'text/event-stream',bytes:150,events:2,textChars:0,calls:0,finishReason:'CUSTOM_END' } };
   log.finish(first, outcome);
-  log.fail(first, false);
+  log.fail(first, false, '上游没有返回正文');
   assert.equal(log.get(first).status, "failed");
   assert.deepEqual(log.get(first).cache, outcome.cache);
+  assert.deepEqual(log.get(first).response, outcome.response);
+  assert.equal(log.get(first).error, '上游没有返回正文');
+  assert.deepEqual(JSON.parse(log.export(first)).calls[0].response, outcome.response);
   const second = log.start({ ...info, step: 2 }, body);
   assert.equal(log.previous(second).id, first);
   const third = log.start({ ...info, turn: 2 }, body);

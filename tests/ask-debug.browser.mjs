@@ -6,6 +6,67 @@ import { useAskFixture, submitAsk, open, openai, text, tool, end, anthropic, ask
 
 useAskFixture();
 
+test('ASK bare DONE fails once, preserves diagnostic and history, and allows explicit user retry', async () => {
+  const {page,context,llm,calls,errors,requests}=await open('/#/image',{ready:'.switcher',ask:askSettings()});
+  try {
+    await bind(page);await page.evaluate(()=>ask.show());
+    llm.push({body:openai(text('第一轮回答。'),end())});
+    await page.locator('#askPrompt').fill('描述合成画面');await submitAsk(page);
+    await page.locator('.ask-turn[data-status="done"]').waitFor();
+
+    llm.push({body:'data: [DONE]\n\n'});
+    await page.locator('#askPrompt').fill('第二次提问');await submitAsk(page);
+    await page.locator('.ask-turn[data-status="failed"]').waitFor();
+    assert.equal(calls.length,2,'empty response makes one request');
+    const records=await page.evaluate(()=>ask.debug.value.calls.map(c=>ask.debugCall(c.id)));
+    assert.deepEqual(records.map(r=>r.status),['done','failed']);
+    assert.deepEqual(records.map(r=>r.step),[1,1]);
+    assert.equal(records[1].response.bytes,14);assert.equal(records[1].response.finishReason,null);
+    assert.equal(records[1].response.textChars,0);assert.equal(records[1].response.calls,0);
+    assert.match(await page.locator('.ask-fail-text').textContent(),/未提供结束原因/);
+    assert.match(await page.locator('.ask-turn[data-status="done"]').textContent(),/第一轮回答/);
+
+    llm.push({body:openai(text('下一轮回答。'),end())});
+    await page.locator('#askPrompt').fill('第三次提问');await submitAsk(page);
+    await page.waitForFunction(()=>document.querySelectorAll('.ask-turn[data-status="done"]').length===2);
+    assert.equal(calls.length,3);
+    assert.ok(calls[2].raw.includes('第一轮回答'));assert.ok(!calls[2].raw.includes('第二次提问'));
+
+    llm.push({body:'data: [DONE]\n\n'});
+    await page.locator('#askPrompt').fill('手动重试场景');await submitAsk(page);
+    await page.waitForFunction(()=>!ask.running.value&&ask.entries.value.at(-1)?.turn.status==='failed');
+    assert.equal(calls.length,4);
+    llm.push({body:openai(text('手动重试成功。'),end())});
+    await page.locator('.ask-turn[data-status="failed"]').last().getByRole('button',{name:'重试',exact:true}).click();
+    await page.waitForFunction(()=>!ask.running.value&&ask.entries.value.at(-1)?.turn.status==='done');
+    assert.equal(calls.length,5);assert.ok(calls[4].raw.includes('手动重试场景'));
+    assert.match(await page.locator('.ask-turn[data-status="done"]').last().textContent(),/手动重试成功/);
+    assert.deepEqual(generation(requests),[]);assert.deepEqual(errors,[]);
+  } finally {await context.close();}
+});
+
+test("ASK failed response shows the original finish code and response facts without retrying or losing the prior answer", async () => {
+  const {page,context,llm,calls,errors,requests}=await open('/#/image',{ready:'.switcher',ask:askSettings()});
+  try {
+    await bind(page);await page.evaluate(()=>ask.show());
+    llm.push({body:openai(text('第一轮回答已保留。'),end())});
+    await page.locator('#askPrompt').fill('描述合成画面');await submitAsk(page);
+    await page.locator('.ask-turn[data-status="done"]').waitFor();
+    llm.push({body:openai({choices:[{delta:{},finish_reason:'MALFORMED_FUNCTION_CALL'}]})});
+    await page.locator('#askPrompt').fill('有什么调整方向？');await submitAsk(page);
+    await page.locator('.ask-turn[data-status="failed"]').waitFor();
+    assert.equal(calls.length,2);assert.match(await page.locator('.ask-fail-text').textContent(),/MALFORMED_FUNCTION_CALL/);
+    assert.match(await page.locator('.ask-turn[data-status="done"]').textContent(),/第一轮回答已保留/);
+    await openDebug(page);const debug=page.locator('#askDebug');await debug.waitFor();
+    assert.match(await debug.locator('.debug-facts').textContent(),/MALFORMED_FUNCTION_CALL/);
+    assert.match(await debug.getByLabel('响应诊断').textContent(),/HTTP 200.*text\/event-stream.*2 个事件.*正文 0 字符.*0 次工具调用/);
+    assert.match(await debug.getByLabel('失败原因').textContent(),/未收到可识别的正文/);
+    const record=await page.evaluate(()=>ask.debugCall(ask.debug.value.calls.at(-1).id));
+    assert.equal(record.response.finishReason,'MALFORMED_FUNCTION_CALL');assert.equal(record.status,'failed');
+    assert.equal(record.usage,null);assert.deepEqual(generation(requests),[]);assert.deepEqual(errors,[]);
+  } finally {await context.close();}
+});
+
 test("ASK call debug: every model request, exact payload copy/export, images, cache unknowns", async () => {
   const {page, context, requests, errors, llm, calls} = await open('/#/image', {ready: '.switcher', ask: askSettings()});
   try {

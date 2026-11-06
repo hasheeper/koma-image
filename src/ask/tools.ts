@@ -1,4 +1,4 @@
-import { draftSchema } from "./draft/schema.ts";
+import { annotationCrop } from '../domain/region-annotation.ts';
 import { isPictureId } from "./ids.ts";
 import type { AskImage, AskText, AskTool } from "./messages.ts";
 import type { Picture } from "./library.ts";
@@ -14,6 +14,7 @@ import { searchTags as findTags } from "./search-tags.ts";
 import type { TagSearch } from "./search-tags.ts";
 import { proposeDraft } from "./draft/tool.ts";
 import type { Draft, DraftState } from "./draft/types.ts";
+import type { NaiDraftCheck } from "./draft/nai-input.ts";
 
 export interface ToolOutcome {
   readonly content: readonly (AskText | AskImage)[];
@@ -44,7 +45,8 @@ export interface ToolContext {
   readonly chatContext?: unknown;
   readonly recall?: (input: Readonly<Record<string, unknown>>) => unknown;
   readonly readSlate?: (scope: "initial" | "latest") => unknown;
-  readonly checkNaiInput?: (input: Readonly<Record<string, unknown>>) => Promise<unknown>;
+  /** Automatic draft preflight, never registered as a model-callable tool. */
+  readonly checkNaiInput?: (draft: Draft) => Promise<NaiDraftCheck | null>;
   readonly readRef?: (input: Readonly<Record<string, unknown>>) => Promise<ToolOutcome>;
 }
 export interface ToolEntry {
@@ -54,6 +56,8 @@ export interface ToolEntry {
   object(input: Readonly<Record<string, unknown>>): string;
   /** Ends tool execution after it runs; missing prose is completed separately. */
   readonly final?: boolean;
+  /** Successful frozen reads may be reused within this turn; never applies to writes or live state. */
+  readonly reuseKey?: (input: Readonly<Record<string, unknown>>) => string;
   run(
     input: Readonly<Record<string, unknown>>,
     context: ToolContext,
@@ -65,7 +69,7 @@ const getState: ToolEntry = {
   tool: {
     name: "get_state",
     description:
-      "活动画板完整词文已随初始状态提供。按需读取其他画板（board_id）以对比；scope 默认 initial 为本轮冻结数据，仅确认外部最新改动用 latest。读取其他板不改变草稿基底。历史保持原索引，不扩张本轮可访问图片集合。",
+      "当前工作区已展开的画板表单随初始状态附带 capabilities 与计算好的 input_budget；EDIT 中无 IMAGE 历史／收藏锚点时，image 仅为目录摘要，跨区读取须传 board_id，其他编辑板传 edit_board_id。指定画板自动计算并附带预算，计数不可用时如实标记。scope 默认 initial 为本轮冻结数据，仅确认外部最新改动用 latest；latest 仍按工作区折叠非活动表单。读取不改变草稿基底或扩张本轮可访问图片集合。",
     schema: { type: "object", properties: { scope: { type: "string", enum: ["initial", "latest"] }, board_id: { type: "string" }, edit_board_id: { type: "string", description: "读取 EDIT 画板，与 board_id 互斥" }, include_slate: { type: "boolean", description: "附带当前任务板的完整配方、描述、妥协记录及绑定元信息；默认只有摘要" } }, additionalProperties: false },
   },
   verb: "读取",
@@ -135,9 +139,10 @@ function visualContext(context: ToolContext) {
 }
 const specLabel = { glance: "概览", look: "细看", crop: "局部" } as const;
 const viewImage: ToolEntry = {
-  tool: { name: "view_image", description: "按需看图：glance 长边384px、look 768px。crop 前须看过同一原图实体的全图，#h/#f/#e 别名共享资格：本工具的 glance/look 或随提问发送的 #a 附件图片均可，view_sheet 拼图不计。百分比裁切区域自动四边扩25%。与 view_sheet 共享本轮视觉预算：合计最多4次/1.5MP/400KB；随提问发送的图片不占此预算。", schema: schema({
+  tool: { name: "view_image", description: "按需看图：glance 长边384px、look 768px。crop 前须看过同一原图实体的全图，#h/#f/#e 别名共享资格：本工具的 glance/look 或随提问发送的 #a 附件图片均可，view_sheet 拼图不计。百分比裁切区域自动四边扩25%。与 view_sheet 共享本轮视觉预算：合计最多4次/1.5MP/400KB；随提问发送的图片不占此预算。有批注时优先用 annotation 按编号裁切；仍须已看过同一原图全图，批注编号不豁免此前提。", schema: schema({
     id: idField, spec: { type: "string", enum: ["glance", "look", "crop"] }, reinspect: { type: "boolean", description: "用户明确要求本轮重新查看时设为 true" },
-    region: { type: "array", description: "仅 crop 必填，glance/look 不传。顺序为 [x, y, width, height]，单位为相对原图的百分比（0–100）；原图左上角为 (0,0)，宽高须大于0，x+width、y+height 均不得超过100。", items: { type: "number", minimum: 0, maximum: 100 }, minItems: 4, maxItems: 4 },
+    annotation: { type: "integer", minimum: 1, description: "仅 crop 可用，与 region 二选一：按批注编号裁切原图。区域取外接框，点取以它为中心、边长为原图短边 20% 的方块；随后照常四边扩 25%。只对带批注的原图 #a 或当前有批注的 EDIT 底图 #e 有效。" },
+    region: { type: "array", description: "仅 crop 且未给 annotation 时必填，glance/look 不传。顺序为 [x, y, width, height]，单位为相对原图的百分比（0–100）；原图左上角为 (0,0)，宽高须大于0，x+width、y+height 均不得超过100。", items: { type: "number", minimum: 0, maximum: 100 }, minItems: 4, maxItems: 4 },
   }, ["id", "spec"]) },
   verb: "查看", object: (input) => String(input.id ?? "图片"),
   async run(input, context) {
@@ -148,6 +153,12 @@ const viewImage: ToolEntry = {
     if (input.region !== undefined) {
       if (!Array.isArray(input.region) || input.region.length !== 4 || !input.region.every((n) => typeof n === "number" && Number.isFinite(n))) throw new Error("region 需为四个有限数字");
       region = input.region as unknown as Region;
+    }
+    if (input.annotation !== undefined) {
+      if (spec !== 'crop' || region) throw new Error('annotation 仅 crop 可用，与 region 二选一');
+      if (typeof input.annotation !== 'number' || !Number.isSafeInteger(input.annotation) || input.annotation < 1) throw new Error('批注编号需为正整数');
+      if (!item.annotations) throw new Error('该图片没有可用批注，请使用带批注的干净原图');
+      region = annotationCrop(item.annotations, input.annotation);
     }
     const result = await vision.image(item, spec, region, visual, input.reinspect === true);
     return { content: [{ type: "text", text: dataBlock(canonical({ id: item.label, spec, ...(result.duplicate ? {already_viewed_this_turn:true} : {}), bytes: result.bytes, pixels: result.pixels })) }, ...(result.image ? [result.image] : [])], stat: result.duplicate ? "本轮已查看" : `${specLabel[spec]} · ${Math.ceil(result.bytes / 1024)} KB` };
@@ -204,13 +215,14 @@ const readModelManual: ToolEntry = {
   },
 };
 const readTurn: ToolEntry = {
-  tool: { name: "get_turn", description: "召回本会话成功轮次 T1、T2…或附件 text-N / #aN。turns 一次1–3个；attachments 一次1–2个。include 默认 draft：用户原话、草稿与回复；full 增加工具记录和当轮实际发送的状态文本。文本附件每次最多8000字符，按 next_offset 续读；显式传 offset 时只允许一个文本附件。图片只返回元信息，看图另用视觉工具。", schema: schema({
+  tool: { name: "get_turn", description: "按需召回本会话已归档轮次的缺失细节，或读取附件分页。conversation_history.retained_verbatim 所列轮次原文已在上下文，不要为了回顾重复读取；已有备忘录足够时直接使用。需要原文或完整草稿字段时仍可按 T1、T2…读取。turns 一次1–3个；attachments 一次1–2个。include 默认 draft：用户原话、草稿与回复；full 增加工具记录和当轮实际发送的状态文本。文本附件每次最多8000字符，按 next_offset 续读；显式传 offset 时只允许一个文本附件。图片只返回元信息，看图另用视觉工具。", schema: schema({
     turns: { type: "array", minItems: 1, maxItems: 3, items: { type: "string" } },
     attachments: { type: "array", minItems: 1, maxItems: 2, items: { type: "string" } },
     include: { type: "string", enum: ["draft", "full"] },
     offset: { type: "integer", minimum: 0 },
   }) },
-  verb: "回顾", object: input => [...(Array.isArray(input.turns) ? input.turns : []), ...(Array.isArray(input.attachments) ? input.attachments : [])].join(" · ") || "对话记录",
+  verb: "读取", object: input => [...(Array.isArray(input.turns) ? input.turns : []), ...(Array.isArray(input.attachments) ? input.attachments : [])].join(" · ") || "对话记录",
+  reuseKey: input => canonical({ ...input, include: input.include === undefined ? "draft" : input.include }),
   run(input, context) {
     if (!context.recall) throw new Error("本会话的召回记录未就绪");
     return { content: [{ type: "text", text: dataBlock(canonical(context.recall(input))), source: { kind: "recall" } }], stat: "原文" };
@@ -224,12 +236,7 @@ const readRef: ToolEntry = {
     return context.readRef(input);
   },
 };
-const checkNaiInput: ToolEntry = {
-  tool:{ name:'check_nai_input',description:'用本轮冻结状态检查 NAI 候选修改：基础与启用角色按正负方向合计 token 与 Text 字符，返回能力、生效值和只读费用。不修改表单、不创建草稿、不请求报价或生成。steps 为空检查当前输入。',schema:schema({base_hash:{type:'string'},steps:{type:'array',maxItems:12,items:{anyOf:draftSchema.properties.steps.items.anyOf.filter(s=>s.properties.kind.enum.some(k=>['prompt_patch','params_patch','character_edit','restore_partial'].includes(k)))}}},['base_hash']) },
-  verb:'检查',object:()=> 'NAI 输入',
-  async run(input,context) { if (!context.checkNaiInput) throw new Error('本轮输入检查不可用'); return reply(await context.checkNaiInput(input),'预算与能力'); },
-};
 /** Only read ports enter these tools; no generating or form-writing service. */
 export function createTools(): ToolRegistry {
-  return new Map([getState, checkNaiInput, searchHistory, readMeta, diffMeta, viewImage, viewSheet, searchTags, readChat, readModelManual, proposeDraft, readTurn, readRef].map((entry) => [entry.tool.name, entry]));
+  return new Map([getState, searchHistory, readMeta, diffMeta, viewImage, viewSheet, searchTags, readChat, readModelManual, proposeDraft, readTurn, readRef].map((entry) => [entry.tool.name, entry]));
 }

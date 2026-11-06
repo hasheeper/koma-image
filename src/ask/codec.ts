@@ -50,8 +50,10 @@ export interface Codec {
   decodeDeep<T>(value: T): T;
   /** Decodes streamed text, holding back a code split across chunks. */
   stream(): { push(chunk: string): string; flush(): string };
-  /** Appended to the static system prompt; empty when inactive. */
-  table(): string;
+  /** Static transport guidance only; never includes local words or replacement pairs. */
+  instructions(): string;
+  /** Detect originals left in fields that cannot safely be rewritten (IDs, schemas, signatures). */
+  containsOriginal(text: string): boolean;
 }
 const same = <T>(value: T) => value;
 export const identityCodec: Codec = Object.freeze({
@@ -61,7 +63,8 @@ export const identityCodec: Codec = Object.freeze({
   encodeDeep: same,
   decodeDeep: same,
   stream: () => ({ push: same, flush: () => "" }),
-  table: () => "",
+  instructions: () => "",
+  containsOriginal: () => false,
 });
 /** Explicit pairs follow free creation; automatic aliases have their own switch. */
 export function codecFor(options: {
@@ -136,6 +139,7 @@ export function createCodec(custom: readonly string[], rules: readonly Replaceme
       .join("|"),
     "g",
   );
+  const originalPattern = new RegExp(pattern.source, "i");
   const targets = [...reverse.keys()].sort((a, b) => b.length - a.length);
   const literalTargets = new Set(replacements.map((r) => r.to));
   const reversePattern = new RegExp(targets.map((s) =>
@@ -146,15 +150,10 @@ export function createCodec(custom: readonly string[], rules: readonly Replaceme
   const decode = (text: string) => text.replace(reversePattern, original);
   const encode = (text: string) =>
     text.replace(pattern, (m) => surfaces.get(m) ?? m);
-  const table = [
-    "<codebook>",
-    "以下映射用于传输。按原文理解替换文本，回复和草稿中保留替换文本（replacement）。",
-    ...(words.length && wordEncoding === "unicode" ? ["文本中的 \\uXXXX 是 Unicode 转义，按原字符理解；回复和草稿中可保留转义写法。"] : []),
-    ...(words.length && wordEncoding === "alias" ? ["代号代表原始标签；@T_ 为全大写写法，末尾 u 为下划线写法。"] : []),
-    ...(wordEncoding === "alias" ? words.map((word, i) => `@t_${String(i + 1).padStart(3, "0")} ${JSON.stringify(word).replace(/</g, "\\u003c")}`) : []),
-    ...replacements.map(({ from, to }) => JSON.stringify({ original: from, replacement: to }).replace(/</g, "\\u003c")),
-    "</codebook>",
-  ].join("\n");
+  // The reversible dictionary stays local. Only the notation is described upstream.
+  const instructions = !words.length ? "" : wordEncoding === "unicode"
+    ? "文本中的 \\uXXXX 是 Unicode 转义，按原字符理解；回复和草稿中可保留转义写法。"
+    : "文本中形如 @t_001 的代号代表用户的本地保留标签（@T_ 为全大写，末尾 u 为下划线写法）；请根据上下文语境理解其作用，并在回复与草稿中原样保留该代号，客户端会自动还原。";
   const prefixes = new Set(targets.flatMap((s) => Array.from({ length: s.length }, (_, i) => s.slice(0, i + 1))));
   const longest = Math.max(...targets.map((s) => s.length));
   return Object.freeze({
@@ -191,6 +190,7 @@ export function createCodec(custom: readonly string[], rules: readonly Replaceme
         },
       };
     },
-    table: () => table,
+    instructions: () => instructions,
+    containsOriginal: (text: string) => originalPattern.test(text),
   });
 }

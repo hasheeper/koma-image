@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import type { ParameterField } from "../domain/model-parameters";
 import { acceptsParameter } from "../domain/model-parameters";
-const props = defineProps<{ id: string; field: ParameterField; value?: string; disabled?: boolean }>();
+const props = defineProps<{ id: string; field: ParameterField; value?: string; disabled?: boolean; format?: (value: string) => string }>();
 const emit = defineEmits<{ change: [value: string] }>();
 function change(event: Event) {
   const input = event.target as HTMLInputElement;
@@ -14,7 +14,7 @@ function change(event: Event) {
 </script>
 <template>
   <select v-if="field.type === 'boolean' || field.options.length && !field.allowCustom" :id="id" :value="value ?? ''" :disabled="disabled" class="model-parameter-input" @change="emit('change', ($event.target as HTMLSelectElement).value)">
-    <option value="">跟随接口</option><option v-for="option in field.type === 'boolean' ? ['true', 'false'] : field.options" :key="option" :value="option">{{ field.type === 'boolean' ? option === 'true' ? '开启' : '关闭' : option }}</option>
+    <option value="">跟随接口</option><option v-for="option in field.type === 'boolean' ? ['true', 'false'] : field.options" :key="option" :value="option">{{ field.type === 'boolean' ? option === 'true' ? '开启' : '关闭' : format ? format(option) : option }}</option>
   </select>
   <input v-else :id="id" :value="value ?? ''" :disabled="disabled" class="model-parameter-input" :type="field.type === 'number' ? 'number' : 'text'" :min="field.min" :max="field.max" step="any" :list="field.options.length ? `${id}-values` : undefined" placeholder="跟随接口" maxlength="512" @input="($event.target as HTMLInputElement).setCustomValidity('')" @change="change" />
   <datalist v-if="field.options.length && field.allowCustom" :id="`${id}-values`"><option v-for="option in field.options" :key="option" :value="option" /></datalist>

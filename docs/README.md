@@ -40,6 +40,7 @@ docs/
 | [IMAGE](workspaces/image.md) | 绘图、历史／收藏、参数导入、独立画板、多角色及坐标 |
 | [CHAT](workspaces/chat.md) | 会话、上下文、分支、多版本与图片交接 |
 | [EDIT](workspaces/edit.md) | 独立编辑画板、版本、蒙版、编辑工具与来源回流 |
+| [图片区域批注](workspaces/annotations.md) | 共享选区、ASK 坐标、EDIT 转换、CHAT 双图与人工局部回贴 |
 | [设置与 TAGS](workspaces/settings-and-tags.md) | 供应商／Key、模型优先级、备份、词典与补全 |
 
 ## 协议与集成

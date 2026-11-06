@@ -128,7 +128,7 @@
 .chat-starter:focus-visible { outline: 2px solid var(--a); outline-offset: 2px; }
 /* H1: prompts on the right; numbered results follow one continuous rail.
    The rail uses grid cells, so no oversized lines clip controls or focus rings. */
-.chat-page { --column: 832px; --img-w: 600px; --img-h: min(56dvh, 540px); }
+.chat-page { --chat-result-tool-size: 28px; --column: 832px; --img-w: 600px; --img-h: min(56dvh, 540px); }
 .message-list { max-width: calc(var(--column) + 48px); margin: 0 auto; padding: 32px 24px 24px 16px; display: grid; }
 .message-list:empty { display: none; }
 .chat-turn { position: relative; min-width: 0; display: grid; grid-template-columns: 28px minmax(0, 1fr); column-gap: 16px; row-gap: 14px; padding: 0 0 40px 8px; }
@@ -160,7 +160,20 @@
 .msg-body { min-width: 0; display: grid; justify-items: start; gap: 12px; }
 .msg-text { max-width: 560px; white-space: pre-wrap; overflow-wrap: anywhere; font-size: var(--fz-sm); line-height: 1.7; color: var(--fg-2); }
 .chat-turn[data-older] .msg-text { font-size: var(--fz-xs); color: var(--fg-4); }
-.chat-result { min-width: 0; width: 100%; display: grid; gap: 8px; }
+.chat-result { --result-rail-width: 0px; --result-art-width: calc(min(var(--image-width), var(--img-w), calc(var(--img-h) * var(--image-ratio))) * var(--result-scale, 1)); container: chat-result / inline-size; min-width: 0; width: min(100%, calc(max(144px, var(--result-art-width)) + var(--result-rail-width))); display: grid; grid-template-columns: minmax(0, 1fr) auto var(--result-rail-width); row-gap: 8px; }
+.chat-turn[data-older] .chat-result { --result-scale: .75; }
+.chat-result:has(> .chat-versions) { --result-rail-width: 60px; }
+.chat-turn[data-older] .chat-result:has(> .chat-versions) { --result-rail-width: 48px; }
+.chat-result > .chat-art { grid-column: 1 / 3; grid-row: 1; width: min(100%, var(--result-art-width)); }
+.chat-result > .chat-versions { grid-column: 3; grid-row: 1; align-self: end; justify-self: start; margin-left: 12px; }
+.chat-result-meta { grid-column: 1; grid-row: 2; min-width: 0; margin-right: 12px; }
+.chat-result > .chat-result-tools { grid-column: 2; grid-row: 2; align-self: center; justify-self: end; }
+.chat-result .chat-meta { flex-wrap: nowrap; min-height: calc(var(--chat-result-tool-size) + 2px); }
+.chat-result .msg-model-name { flex: 0 1 auto; }
+.chat-result .chat-cost { flex: none; white-space: nowrap; }
+@container chat-result (max-width: 420px) {
+  .chat-result-meta .chat-dimensions { display: none; }
+}
 .turn-visual-row { width: 100%; min-width: 0; display: flex; align-items: flex-end; gap: 12px; }
 .chat-art { container: chat-art / inline-size; flex: 0 1 auto; min-width: 0; width: calc(min(100%, var(--image-width), var(--img-w), calc(var(--img-h) * var(--image-ratio))) * var(--result-scale, 1)); }
 .chat-turn[data-older] .chat-art { --result-scale: .75; flex-shrink: 0; }
@@ -169,11 +182,17 @@
 .chat-page .chat-print[data-new="true"] { animation: printIn var(--t3) var(--e-out); }
 .chat-page .chat-print img { width: 100%; height: auto; max-width: 100%; max-height: var(--img-h); object-fit: contain; }
 .chat-page .chat-print[data-base] { box-shadow: 0 0 0 2px var(--a), 0 14px 36px -12px rgb(var(--shadow-rgb) / calc(0.6 * var(--shadow-strength))); }
-.chat-base-badge { position: absolute; top: 10px; left: 10px; display: grid; place-items: center; width: 28px; height: 28px; line-height: 1; color: var(--a-ink); background: var(--a); border-radius: 9px; }
-.chat-base-badge .ico { --ico: var(--ico-lg); }
+.chat-base-badge, .chat-base-pin { position: absolute; z-index: 1; top: 8px; left: 8px; display: grid; place-items: center; width: 24px; height: 24px; line-height: 1; border-radius: var(--r2); --ico: var(--ico-sm); }
+.chat-base-badge { color: var(--a-ink); background: var(--a); }
+.chat-base-pin { color: var(--media-ink); background: color-mix(in srgb, var(--media-surface) 66%, transparent); backdrop-filter: blur(14px); box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--media-ink) 12%, transparent); transition: opacity var(--t1) var(--e), background var(--t1) var(--e); }
+.chat-base-pin:hover { background: color-mix(in srgb, var(--media-surface) 84%, transparent); }
+/* Keep the compact pin's hit area usable without enlarging its visible surface. */
+.chat-base-pin::before { content: ""; position: absolute; inset: -10px; }
+.chat-base-pin::after { left: 0; transform: translate(0, -3px); }
+.chat-base-pin:hover::after { transform: translate(0, 0); }
 /* The native wave alone owns its empty host; the badge/tools remain Vue DOM. */
 .chat-page .chat-print[data-reveal] > img { opacity: 0; }
-.chat-page .chat-print[data-reveal] .result-actions-overlay, .chat-page .chat-print[data-reveal] .result-menu-trigger { visibility: hidden; }
+.chat-result:has(.chat-print[data-reveal]) > .chat-result-tools, .chat-print[data-reveal] .chat-base-pin { visibility: hidden; }
 .chat-page .chat-print[data-wave] { transition: box-shadow 1.2s var(--e); }
 .chat-page .chat-print[data-wave="rest"] { box-shadow: var(--print-shadow-off); }
 .chat-wait { position: relative; flex: 0 1 auto; min-width: 0; width: min(100%, var(--img-w), calc(var(--img-h) * var(--image-ratio, 1))); }
@@ -199,25 +218,12 @@
 .chat-version:hover, .chat-version:focus-visible { opacity: 1; }
 .chat-version span { position: absolute; left: 3px; bottom: 3px; min-width: 14px; padding: 0 3px; font-size: 10px; line-height: 14px; color: var(--media-ink); text-align: center; background: color-mix(in srgb, var(--media-shade) 60%, transparent); border-radius: 4px; }
 .chat-turn[data-older] .chat-version { width: 30px; }
-/* Tool surfaces live inside the print, with popovers in the browser top layer.
-   Narrow prints use a menu; the full bar never overflows or forces art to grow. */
-.chat-page .result-actions { gap: 2px; padding: 4px; color: var(--media-ink); background: color-mix(in srgb, var(--media-surface) 72%, transparent); backdrop-filter: blur(16px) saturate(1.4); border: 1px solid color-mix(in srgb, var(--media-ink) 8%, transparent); border-radius: 12px; line-height: 1; }
-.chat-page .result-actions-overlay { position: absolute; left: 50%; bottom: 12px; transform: translateX(-50%); display: flex; transition: opacity var(--t1) var(--e); }
-.chat-page .result-actions-menu { display: none; position: fixed; inset: auto; margin: 0; width: max-content; }
-.chat-page .result-actions-menu:popover-open { display: flex; }
-.chat-page .result-actions .ibtn { flex: none; width: 32px; height: 32px; --ico: var(--ico-md); color: color-mix(in srgb, var(--media-ink) 88%, transparent); background: transparent; border-color: transparent; box-shadow: none; border-radius: 8px; }
-.chat-page .result-actions .ibtn:hover { color: var(--media-ink); background: color-mix(in srgb, var(--media-ink) 12%, transparent); }
-.chat-page .result-actions .ibtn-accent, .chat-page .result-actions .ibtn-accent:hover { color: var(--media-accent); }
-.chat-page .result-menu-trigger { position: absolute; right: 6px; bottom: 6px; display: none; width: 32px; height: 32px; color: var(--media-ink); background: color-mix(in srgb, var(--media-surface) 72%, transparent); backdrop-filter: blur(12px); border: 1px solid color-mix(in srgb, var(--media-ink) 10%, transparent); border-radius: 9px; }
-@container chat-art (max-width: 271px) {
-  .chat-page .result-actions-overlay { display: none; }
-  .chat-page .result-menu-trigger { display: grid; }
-}
-@media (hover: hover) {
-  .chat-page .result-actions-overlay { opacity: 0; }
-  .chat-page .chat-print:hover .result-actions-overlay, .chat-page .chat-print:focus-within .result-actions-overlay { opacity: 1; }
-  .chat-turn[data-older] .result-menu-trigger { opacity: 0; }
-  .chat-turn:hover .result-menu-trigger, .chat-result:focus-within .result-menu-trigger { opacity: 1; }
+/* Older results reveal their compact action band on pointer or keyboard focus.
+   Touch and narrow screens keep every action available without hovering. */
+@media (hover: hover) and (min-width: 861px) {
+  .chat-turn[data-older] .chat-result-tools, .chat-base-pin { opacity: 0; }
+  .chat-result:hover .chat-result-tools, .chat-result:focus-within .chat-result-tools,
+  .chat-result:hover .chat-base-pin, .chat-result:focus-within .chat-base-pin { opacity: 1; }
 }
 @media (hover: none) {
   .msg-tools { position: static; padding: 0; margin-right: -6px; opacity: 1; }
@@ -454,6 +460,16 @@
   .turn-visual-row { flex-direction: column; align-items: flex-start; }
   .chat-versions { flex-direction: row; max-width: 100%; max-height: none; }
   .chat-turn[data-older] .chat-version { width: 40px; }
+  .chat-page { --chat-result-tool-size: 32px; }
+  .chat-result, .chat-turn[data-older] .chat-result { --result-scale: 1; --result-rail-width: 0px; grid-template-columns: minmax(0, 1fr) auto; row-gap: 4px; }
+  .chat-result:has(> .chat-versions), .chat-turn[data-older] .chat-result:has(> .chat-versions) { --result-rail-width: 0px; }
+  .chat-result > .chat-art { margin-bottom: 4px; }
+  .chat-result > .chat-versions { grid-column: 1; grid-row: 2; align-self: center; justify-self: stretch; min-width: 0; gap: 4px; padding: 2px; margin: -2px 10px -2px -2px; scrollbar-width: none; }
+  .chat-result > .chat-versions .chat-version { width: var(--chat-result-tool-size); height: var(--chat-result-tool-size); aspect-ratio: 1; }
+  .chat-result > .chat-versions .chat-version[aria-pressed="true"] { box-shadow: 0 0 0 1px var(--page-bg), 0 0 0 2px var(--a); }
+  .chat-result > .chat-versions .chat-version:has(img) span { display: none; }
+  .chat-result:has(> .chat-versions) .chat-result-meta { grid-column: 1 / -1; grid-row: 3; min-height: 0; margin-right: 0; }
+  .chat-result:has(> .chat-versions) .chat-result-meta .chat-dimensions { display: inline; }
   .msg-user { max-width: 88%; }
   /* No room beside a near-full-width bubble: tools drop under it instead. */
   .msg-tools { position: static; display: none; padding: 0; margin-right: -6px; opacity: 1; }
@@ -494,8 +510,6 @@
   .param-name { padding-top: 12px; font-size: var(--fz-xs); }
   .param-chip { min-height: 40px; padding: 0 14px; font-size: var(--fz-sm); }
   .chat-page .ibtn { width: 44px; height: 44px; }
-  .chat-page .result-actions .ibtn { width: 40px; height: 40px; }
-  .chat-page .result-menu-trigger { width: 40px; height: 40px; }
   .chat-page .chat-menu { width: 36px; height: 44px; }
   .attachment { width: 64px; height: 64px; }
   .chat-page .attachment-remove { width: 44px; height: 44px; top: -8px; right: -8px; }

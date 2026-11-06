@@ -1,3 +1,4 @@
+import type { AnnotationSnapshot } from '../domain/region-annotation.ts';
 import { imageEntity } from "../domain/image-identity.ts";
 import { readImageParams } from "../native/image-meta.ts";
 import type { ImageMetadata } from "../native/image-meta.ts";
@@ -16,7 +17,9 @@ const extension = (name: string) => name.match(/\.([a-z0-9]+)$/i)?.[1].toUpperCa
 export const charLabel = (n: number) => n >= 1000 ? `${(n / 1000).toFixed(1)}k 字` : `${n} 字`;
 type Size = { readonly width: number; readonly height: number };
 interface Base { readonly id: string; readonly name: string; readonly bytes: number; readonly mime: string; readonly origin?: RefOrigin; readonly toolRead?: boolean }
+export interface AttachedAnnotations { snapshot: AnnotationSnapshot; guideId: string }
 export interface ImageAttachment extends Base {
+  readonly annotations?: AttachedAnnotations;
   readonly entity_key?: string;
   readonly kind: "image";
   readonly blob: Blob;
@@ -30,9 +33,10 @@ export interface ImageAttachment extends Base {
 export interface TextAttachment extends Base { readonly kind: "text"; readonly text: string; readonly pasted: boolean }
 export type Attachment = ImageAttachment | TextAttachment;
 export type SavedAttachment = Omit<ImageAttachment, "url"> | TextAttachment;
-export type AttachmentView = Pick<Base, "id" | "name" | "origin" | "toolRead"> & { readonly kind: "image" | "text"; readonly meta: string; readonly url?: string; readonly pasted?: boolean };
+export type AttachmentView = Pick<Base, "id" | "name" | "origin" | "toolRead"> & { readonly kind: "image" | "text"; readonly meta: string; readonly url?: string; readonly pasted?: boolean; readonly annotations?: AttachedAnnotations };
 export const attachmentView = (a: Attachment): AttachmentView => ({
   id: a.id, name: a.name, kind: a.kind,
+  ...(a.kind === "image" && a.annotations ? { annotations: structuredClone(a.annotations) } : {}),
   ...(a.origin ? { origin: a.origin } : {}), ...(a.toolRead ? { toolRead: true } : {}),
   ...(a.kind === "image" ? { url: a.url, meta: `${a.size.width}×${a.size.height} → ${a.sentSize.width}×${a.sentSize.height} · ${Math.ceil(a.sentBytes / 1024)} KB` }
     : { pasted: a.pasted, meta: `${a.pasted ? "" : `${extension(a.name) || "文本"} · `}${charLabel(a.text.length)}` }),
@@ -139,6 +143,10 @@ export function createAttachments(onRelease: (id: string) => void = () => {}) {
       items.set(value.id, { value, refs: 1 }); bytes += value.bytes;
       return value;
     },
+    annotate(id: string, annotations: AttachedAnnotations) {
+      const item = items.get(id); if (!item || item.value.kind !== 'image') throw new Error('批注原图已失效');
+      item.value = { ...item.value, annotations: structuredClone(annotations) };
+    },
     retain(ids: readonly string[]) { for (const id of ids) { const item = items.get(id); if (item) item.refs++; } },
     release(ids: readonly string[]) {
       for (const id of ids) {
@@ -164,6 +172,7 @@ export function attachmentBlocks(items: readonly Attachment[], metadataOnly: boo
 }
 export function attachmentPictures(items: readonly Attachment[]): Picture[] {
   return items.flatMap(a => a.kind === "image" ? [{ id: a.id, entity_key: a.entity_key, label: a.id, aliases: [a.id], createdAt: 0, blob: a.blob, size: a.size,
+    ...(a.annotations ? { annotations: structuredClone(a.annotations.snapshot) } : {}),
     origins: [{ source: "attachment" as const, label: a.id, order: Number(a.id.slice(2)) }], params: { ...a.params?.fields },
     attachment: { name: a.name, type: a.mime, original_size: a.size, sent_size: a.sentSize, original_bytes: a.bytes, sent_bytes: a.sentBytes, params: a.params },
   }] : []);

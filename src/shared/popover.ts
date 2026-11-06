@@ -24,10 +24,14 @@ export function menuKeys(e: KeyboardEvent) {
   const at = items.indexOf(document.activeElement as HTMLElement);
   const to: Record<string, number> = {
     ArrowDown: at + 1,
-    ArrowUp: at - 1,
+    ArrowUp: at < 0 ? items.length - 1 : at - 1,
     Home: 0,
     End: items.length - 1,
   };
+  if (host.getAttribute("aria-orientation") === "horizontal") {
+    to.ArrowRight = at + 1;
+    to.ArrowLeft = at < 0 ? items.length - 1 : at - 1;
+  }
   if (to[e.key] !== undefined) {
     e.preventDefault();
     items[(to[e.key] + items.length) % items.length]?.focus();

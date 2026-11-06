@@ -51,9 +51,11 @@ export class AssetStore {
   }
   adopt(record: AssetRecord) {
     if (this.disposed) return;
+    // The id is the content hash, so identity is derived from it: rows saved before entity_key existed, or restored from backups, carry none.
     if (!this.assets.has(record.id))
       this.assets.set(record.id, {
         ...record,
+        entity_key: `sha256:${record.id}`,
         url: URL.createObjectURL(record.blob),
       });
   }

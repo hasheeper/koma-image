@@ -1,6 +1,7 @@
 const focusRectSchema={type:'object',additionalProperties:false,required:['x','y','w','h'],properties:Object.fromEntries(['x','y','w','h'].map(k=>[k,{type:'number',minimum:0,maximum:1}]))};
 export const focusSchema={anyOf:[focusRectSchema,{type:'null'}]};
 export const editParameterProperties={
+ image_options:{type:'object',minProperties:1,maxProperties:64,additionalProperties:{anyOf:[{type:'string',maxLength:512},{type:'number'},{type:'boolean'},{type:'null'}]},description:'仅通用 EDIT：按目标型号 capabilities.parameters 声明的字段写入；null 恢复来源默认值，空串表示不发送。不会新增参数声明。'},
  editMode:{type:'string',enum:['img2img','inpaint','upscale']},inpaintKind:{type:'string',enum:['normal','focused']},
  strength:{type:'number',minimum:0,maximum:1},noise:{type:'number',minimum:0,maximum:1},
  effort:{type:'string',enum:['high','medium']},upscaleKind:{type:'string',enum:['native','external']},focusRect:focusSchema,

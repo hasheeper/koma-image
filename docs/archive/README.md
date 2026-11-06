@@ -1,6 +1,6 @@
 # 历史文档索引
 
-更新：2026-11-04。这里只保存当时的方案、设计确认与验收证据。现行行为从[文档索引](../README.md)进入；历史的测试数量、供应商结果、发布记录和授权只适用于其注明范围。公开前匿名化历史作者邮箱后，文内提交号同步映射到对应新提交；过程和验收事实保持原意。
+更新：2026-11-06。这里只保存当时的方案、设计确认与验收证据。现行行为从[文档索引](../README.md)进入；历史的测试数量、供应商结果、发布记录和授权只适用于其注明范围。公开前匿名化历史作者邮箱后，文内提交号同步映射到对应新提交；过程和验收事实保持原意。
 
 ## 目录与早期基线
 
@@ -10,6 +10,7 @@
 
 ## 工程与连接维护
 
+- [未发布版本本地收口](engineering/2026-11-06-unreleased-closeout.md)：运行包依赖、批注 ZIP 往返、HTML 定稿与提示词迁入，以及推送前文档／产物复核；仅本地模拟验收，未发布。
 - [供应商接口用途样式咨询](engineering/2026-11-04-supplier-interface-consult.md)：Opus 5.5 原稿与主 Agent 代码核对，复用公共复选框及局部排版建议。
 - [模型与供应商连接调整规划](workspaces/2026-11-03-models-and-connections-plan.md)：已随 v0.4.0 发布；范围为 GPT／Gemini 条目管理与任意上游 ID、Chat／Images 共用连接、NAI 混列与 401 提示修复。
 - [公共 UI 与设置拆分](engineering/2026-11-01-ui-components.md)：共用画板、菜单基础行为、设置职责、开发预览与本地检查。
@@ -38,6 +39,8 @@
 
 ## ASK 的 NAI 基础感知与 EDIT
 
+- [EDIT 空响应分组隔离](ask/2026-11-06-edit-empty-response-isolation.md)：同内容非流式返回 `content_filter`，流式漏掉原因；记录字段隔离与实验边界，未宣称稳定修复。
+
 - [CHAT 交接 H0–H4](ask/ask-chat-handoff-plan.md)：能力感知、编号与交接草稿的设计及验收。
 
 - [EA0 获批规划](ask/2026-10-29-ask-nai-awareness-plan.md)、[EA1–EA3 获批规划](ask/2026-10-29-ask-edit-plan.md)：实施前的完整方案与验收矩阵。
@@ -62,6 +65,7 @@
 
 ## HOME 与独立 EDIT
 
+- [图片区域批注勘探与规划](workspaces/2026-11-04-region-annotations-research-plan.md)：已本地实现，未发布；共享批注、ASK、EDIT 转换和 CHAT 双图，GPT／Gemini 结果经人工审核后应用本地回贴；NAI 复用现有能力，不接 OpenAI Mask。
 - [HOME 设计与实施规划](workspaces/2026-10-28-home-plan.md)：保留原章节和概念稿差异，当前契约已收拢到 [HOME 工作区](../workspaces/home.md)。
 - [HD 页面形态确认](workspaces/2026-10-27-home-hd-confirmation.md)、[头部与 ASK 停靠确认](workspaces/2026-10-28-home-head-ask-confirmation.md)。
 - [HM1 数据](workspaces/2026-10-28-home-hm1-verification.md)、[HM2 页面](workspaces/2026-10-28-home-hm2-verification.md)、[HM3 ASK 与动效](workspaces/2026-10-28-home-hm3-verification.md)。

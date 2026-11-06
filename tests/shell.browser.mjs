@@ -15,7 +15,7 @@ const mime = {
 };
 before(async () => {
 
-  const root = resolve("dist");
+  const root = resolve(process.env.KOMA_TEST_DIST || "dist");
   server = createServer(async (request, response) => {
     try {
       const path = decodeURIComponent(
@@ -48,7 +48,7 @@ after(async () => {
   await new Promise((done) => server?.close(done));
 });
 
-async function open(path = "/#/image") {
+async function open(path = "/#/image", prepare = async () => {}) {
   if (!path.includes("#") && !path.includes("transfer.html")) path += "#/image";
   const context = await browser.newContext({
     viewport: { width: 1440, height: 900 },
@@ -77,6 +77,7 @@ async function open(path = "/#/image") {
     }
     return route.continue();
   });
+  await prepare(context);
   await page.goto(`${origin}${path}`);
   await page.waitForSelector("[data-workspace-root]");
   return { page, context, errors, external, scripts };
@@ -201,7 +202,7 @@ test("repeat activation and dialog cycles retain one listener set and release in
       .map((listener) => `${listener.type}:${listener.useCapture}`)
       .sort();
   }
-  for (const id of ["chat", "tags", "image"]) await switchTo(page, id);
+  for (const id of ["chat", "tags", "edit", "image"]) await switchTo(page, id);
   // Compare repeated use after the lazy singleton has been created once.
   await page.evaluate(() => { location.hash = "#/image/settings/connections"; });
   await page.waitForSelector("#settingsPanel[open]");
@@ -211,6 +212,7 @@ test("repeat activation and dialog cycles retain one listener set and release in
   const initialViewport = await listeners("visualViewport");
   const initialDocument = await listeners("document");
   const initialPrompt = await listeners("document.querySelector('#prompt')");
+  const initialDialogs = await page.locator("dialog").elementHandles();
   for (let i = 0; i < 12; i++) {
     for (const id of ["chat", "tags", "image"]) {
       await page.evaluate((id) => {
@@ -241,7 +243,8 @@ test("repeat activation and dialog cycles retain one listener set and release in
   );
   assert.equal(await page.locator("#gallery").count(), 1);
   assert.equal(await page.locator("[data-workspace-root]:visible").count(), 1);
-  assert.equal(await page.locator("dialog").count(), 6);
+  assert.equal(await page.locator("dialog").count(), initialDialogs.length);
+  for (const dialog of initialDialogs) assert.equal(await dialog.evaluate(node => node.isConnected), true);
   await cdp.detach();
   await clean(result);
 });
@@ -321,4 +324,82 @@ test('deferred panels stay cold at startup; late settings loading respects navig
     assert.equal(scripts.filter(path => /\/SettingsOverlay-/.test(path)).length, 1);
     assert.equal(scripts.some(path => /\/(PhotopeaPanel|SlatePanel)-/.test(path)), false);
   } finally { release(); await clean(result); }
+});
+
+for (const extension of ['js', 'css']) {
+  test(`missing settings ${extension} reports failure without reloading or losing the workspace`, async () => {
+    const result = await open('/repo/#/image');
+    const { page, context } = result;
+    try {
+      await page.locator('#prompt').fill('保留未提交的工作');
+      await switchTo(page, 'edit');
+      const editor = await page.locator('#imageEditor').elementHandle();
+      const token = await page.evaluate(() => window.testDocumentToken = crypto.randomUUID());
+      let failures = 0;
+      await context.route(`**/SettingsOverlay-*.${extension}`, async route => {
+        failures++;
+        await route.fulfill({ status: 404, contentType: 'text/plain', body: 'missing build asset' });
+      });
+      await page.locator('.switcher:visible').click();
+      await page.locator('.switch-menu:popover-open').getByRole('button', { name: /^设置/ }).click();
+      await page.getByRole('alert').filter({ hasText: '设置资源加载失败' }).waitFor({ timeout: 4000 });
+      await page.waitForURL('**/#/edit');
+      assert.ok(failures > 0);
+      assert.equal(await page.locator('#settingsPanel[open]').count(), 0);
+      assert.equal(await page.evaluate(() => window.testDocumentToken), token);
+      assert.equal(await editor.evaluate(node => node === document.querySelector('#imageEditor')), true);
+      await switchTo(page, 'image');
+      assert.equal(await page.locator('#prompt').inputValue(), '保留未提交的工作');
+      await page.locator('.switcher:visible').click();
+      await page.locator('.switch-menu:popover-open').getByRole('button', { name: /^设置/ }).click();
+      await page.waitForURL('**/#/image');
+      await page.getByRole('alert').filter({ hasText: '设置资源加载失败' }).waitFor();
+      assert.equal(await page.locator('#settingsPanel[open]').count(), 0, 'reopening must not skip the failed CSS preload');
+      assert.equal(await page.evaluate(() => window.testDocumentToken), token);
+      // The missing resource itself is expected; the rejected import must be handled.
+      assert.deepEqual(result.errors.filter(error => !/Failed to load resource/.test(error)), []);
+      assert.deepEqual(result.external, []);
+    } finally { await context.close(); }
+  });
+}
+
+test('late settings failure does not navigate back over a newer workspace', async () => {
+  const result = await open('/repo/#/home');
+  const { page, context } = result;
+  let release, requested;
+  const held = new Promise(resolve => { release = resolve; });
+  const loading = new Promise(resolve => { requested = resolve; });
+  try {
+    await context.route('**/SettingsOverlay-*.js', async route => {
+      requested(); await held;
+      await route.fulfill({ status: 404, contentType: 'text/plain', body: 'missing build asset' });
+    });
+    await page.evaluate(() => { location.hash = '#/home/settings/connections'; });
+    await loading;
+    await page.evaluate(() => { location.hash = '#/chat'; });
+    await page.locator('#chatPrompt').fill('继续当前工作');
+    const failed = page.waitForEvent('console', { predicate: message => message.type() === 'warning' && message.text().includes('设置界面加载失败') });
+    release();
+    await failed;
+    assert.equal(new URL(page.url()).hash, '#/chat');
+    assert.equal(await page.locator('#chatPrompt').inputValue(), '继续当前工作');
+    assert.equal(await page.getByRole('alert').filter({ hasText: '设置资源加载失败' }).count(), 0);
+    assert.deepEqual(result.errors.filter(error => !/Failed to load resource/.test(error)), []);
+    assert.deepEqual(result.external, []);
+  } finally { release(); await context.close(); }
+});
+
+test('failed settings deep link returns to EDIT without leaving the document', async () => {
+  const result = await open('/repo/#/edit/settings/connections', async context => {
+    await context.route('**/SettingsOverlay-*.js', route => route.fulfill({
+      status: 404, contentType: 'text/plain', body: 'missing build asset',
+    }));
+  });
+  try {
+    await result.page.getByRole('alert').filter({ hasText: '设置资源加载失败' }).waitFor();
+    assert.equal(new URL(result.page.url()).hash, '#/edit');
+    assert.equal(await result.page.locator('#imageEditor').isVisible(), true);
+    assert.deepEqual(result.errors.filter(error => !/Failed to load resource/.test(error)), []);
+    assert.deepEqual(result.external, []);
+  } finally { await result.context.close(); }
 });

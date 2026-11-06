@@ -1,13 +1,26 @@
 <script setup lang="ts">
+import { computed } from "vue";
+import AnnotationCard from "../shared/annotations/AnnotationCard.vue";
+import { useAnnotations } from "../app/annotations.ts";
+import { useUi, message } from "../app/ui.ts";
 import { useAsk } from "../app/ask";
 import AppIcon from "../shared/AppIcon.vue";
 import AskReference from "./AskReference.vue";
 import type { AttachmentView } from "./attachments.ts";
 const props = defineProps<{ items: readonly AttachmentView[]; sent?: boolean; dim?: boolean }>(), ask = useAsk();
+const annotations = useAnnotations(), ui = useUi();
+const visible = computed(() => { const guides = props.items.flatMap(a => a.annotations ? [a.annotations.guideId] : []); return props.items.filter(a => !guides.includes(a.id)); });
+async function edit(id: string) {
+  const value = ask.annotationSource(id); if (!value) return;
+  try { await annotations.open({ blob:value.source,name:'批注原图.png',recordId:value.snapshot.image.record_id,workspace:'image' }); annotations.update(value.snapshot.regions); ask.hide(); }
+  catch (e) { ui.toast(message(e), 'err'); }
+}
 </script>
 <template>
   <div v-if="items.length" :class="sent ? 'ask-sent-att' : 'ask-tray'" :aria-label="sent ? '本轮附件' : '本条附件'">
-    <div v-for="a in items" :key="a.id" class="ask-att" :class="{ 'ask-att-img': a.kind === 'image', 'ask-att-file': a.kind === 'text', 'ask-sent-img': sent && a.kind === 'image', 'ask-sent-file': sent && a.kind === 'text', 'ask-att-dim': dim && a.kind === 'image' }" :title="`${a.name} · ${a.meta}`">
+    <template v-for="a in visible" :key="a.id">
+    <AnnotationCard v-if="a.annotations" :regions="a.annotations.snapshot.regions" :preview="items.find(p => p.id === a.annotations?.guideId)?.url ?? a.url" :sent="sent" :dim="dim" :disabled="ask.running.value" return-edit @comment="(key, text) => ask.updateAnnotationComment(a.id, key, text)" @remove="ask.removeAttachment(a.id)" @edit="edit(a.id)" />
+    <div v-else class="ask-att" :class="{ 'ask-att-img': a.kind === 'image', 'ask-att-file': a.kind === 'text', 'ask-sent-img': sent && a.kind === 'image', 'ask-sent-file': sent && a.kind === 'text', 'ask-att-dim': dim && a.kind === 'image' }" :title="`${a.name} · ${a.meta}`">
       <AskReference v-if="a.kind === 'image'" :label="a.id"><img :src="a.url" alt="" /><span class="ask-att-id">{{ a.id }}</span></AskReference>
       <button v-else class="ask-att-open" type="button" :aria-label="`查看 ${a.name}`" @click="ask.openAttachment(a.id)">
         <AppIcon v-if="sent" :name="a.pasted ? 'i-text' : 'i-file'" />
@@ -16,6 +29,7 @@ const props = defineProps<{ items: readonly AttachmentView[]; sent?: boolean; di
       </button>
       <button v-if="!props.sent" class="ask-att-x" type="button" :aria-label="`移除 ${a.name}`" title="移除" @click="ask.removeAttachment(a.id)"><AppIcon name="i-close" /></button>
     </div>
+    </template>
   </div>
 </template>
 <style scoped>

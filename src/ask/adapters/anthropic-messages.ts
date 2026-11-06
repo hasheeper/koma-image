@@ -81,6 +81,7 @@ const stops: Record<string, AskStop> = {
 export function reader(unwrapResponse = false) {
   const blocks = new Map<number, { id: string; name: string; json: string; input?: Record<string, unknown>; response?: ReturnType<typeof createResponseStream> }>();
   let stop: AskStop | null = null,
+    rawStop: string | null = null,
     started = false,
     finished = false;
   const tally = { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 };
@@ -113,6 +114,9 @@ export function reader(unwrapResponse = false) {
   }
   return {
     get cacheUsage() { return cacheUsage; },
+    get finishReason() { return rawStop; },
+    get stopReason() { return stop; },
+    get usage() { return usage(); },
     read(event: SseEvent): ResponseEvent[] {
       if (finished) return [];
       let data: Record<string, unknown>;
@@ -180,7 +184,7 @@ export function reader(unwrapResponse = false) {
       }
       if (type === "message_delta") {
         const reason = object(data.delta).stop_reason;
-        if (typeof reason === "string") stop = stops[reason] ?? "other";
+        if (typeof reason === "string") { rawStop = reason; stop = stops[reason] ?? "other"; }
         record(data.usage);
         return [];
       }

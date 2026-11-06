@@ -1,3 +1,5 @@
+import { validateAnnotationSnapshot } from "../domain/region-annotation.ts";
+import type { AnnotationSnapshot } from "../domain/region-annotation.ts";
 import { isEntityKey } from "../domain/image-identity.ts";
 import type { FavoriteIdentityBackup, ImageLineage, ImageTagBinding } from "../domain/image-identity.ts";
 import { isPictureId } from "../ask/ids.ts";
@@ -176,6 +178,12 @@ function imageReference(value: unknown, folder: string): ImageReference {
     throw bad();
   return { path: ref.path, type: ref.type as ImageReference["type"] };
 }
+function validateChatAnnotation(value: unknown) {
+  if(value===undefined)return;
+  const a=object(value);
+  if(!id(a.sourceAssetId)||!id(a.inputAssetId)||!id(a.guideAssetId)||typeof a.text!=="string"||a.text.length>24000||a.singleImage!==undefined&&typeof a.singleImage!=="boolean")throw bad();
+  try{validateAnnotationSnapshot(a.snapshot as unknown as AnnotationSnapshot);}catch{throw bad();}
+}
 export function validateConversation(value: unknown): ConversationRecord {
   const c = object(value);
   if (
@@ -193,6 +201,7 @@ export function validateConversation(value: unknown): ConversationRecord {
     !Array.isArray(c.turns)
   )
     throw bad();
+  validateChatAnnotation(c.pendingAnnotation);
   const seen = new Set<string>(), versions = new Set<string>(), parents = new Map<string, string | null>();
   for (const item of c.turns) {
     const t = object(item),
@@ -209,6 +218,7 @@ export function validateConversation(value: unknown): ConversationRecord {
       !Number.isSafeInteger(t.selectedVersion) || Number(t.selectedVersion) < 0 || Number(t.selectedVersion) >= t.versions.length
     )
       throw bad();
+    validateChatAnnotation(snapshot.annotation);
     seen.add(t.id);
     parents.set(t.id, t.parentId as string | null);
     for (const item of t.versions) {
@@ -222,6 +232,7 @@ export function validateConversation(value: unknown): ConversationRecord {
         !["pending", "done", "error", "cancelled"].includes(String(v.status))
       )
         throw bad();
+      if(v.composites!==undefined && (!plain(v.composites)||Object.entries(object(v.composites)).some(([raw,composite])=>!id(raw)||!id(composite)||!(v.blocks as unknown[]).some((b: unknown)=>object(b).type==='image'&&object(b).assetId===raw))))throw bad();
       versions.add(v.id);
       for (const item of v.blocks) {
         const b = object(item);

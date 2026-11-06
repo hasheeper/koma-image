@@ -218,12 +218,9 @@ test('CHAT favorite saves the original and supports parameter import', async () 
         if (shell.router.route.value.overlay) shell.router.closeOverlay();
       });
       await page.waitForFunction(() => !document.querySelector('dialog[open]'));
-      const art = page.locator('.chat-print').first(); await art.hover();
-      const trigger = art.locator('.result-menu-trigger');
-      if (await trigger.isVisible()) await trigger.click();
+      const art = page.locator('.chat-result').first(); await art.hover();
       const button = art.getByRole('button', { name: '收藏图片', exact: true }); await button.click();
       const star = art.getByRole('button', { name: '取消收藏', exact: true });
-      if (await trigger.isVisible()) await trigger.click();
       await star.waitFor({ state: 'visible' }); assert.equal(await star.getAttribute('aria-pressed'), 'true');
 
       if (width === 390) {

@@ -8,6 +8,7 @@ import {
   shallowRef,
   watch,
 } from "vue";
+import { useAnnotations } from "../../app/annotations.ts";
 import { useEditor } from "../../app/editor";
 import { useServices } from "../../app/services";
 import { createHandoff } from "../../services/handoff";
@@ -20,6 +21,12 @@ import EmptyStage from "./EmptyStage.vue";
 import WaveHost from "./WaveHost.vue";
 import { useAsk, AskMark } from "../../app/ask";
 const ask = useAsk();
+const annotations = useAnnotations();
+async function annotate() {
+  const item=current.value;if(!item)return;
+  shell.zoom=false;
+  try { await annotations.open({blob:item.blob,name:imageFileName(item),recordId:item.id,settings:item.params,workspace:"image"}); } catch(e) { ui.toast(message(e),"err"); }
+}
 const { drawing, view } = useDrawing(),
   { narrow, image: shell } = useShell(),
   ui = useUi();
@@ -30,7 +37,9 @@ async function resultAction(id: string) {
   const item = current.value;
   if (!item) return;
   try {
-    if (id === "chatBtn") {
+    if (id === "annotateBtn") {
+      await annotate();
+    } else if (id === "chatBtn") {
       const ticket = await createHandoff(services).queue(
         item.blob,
         imageFileName(item),
@@ -42,7 +51,7 @@ async function resultAction(id: string) {
       ui.imageDelivery.value++;
     } else
       await editor.open("image", item.blob, imageFileName(item), {
-        mode: id === "upscaleBtn" ? "upscale" : "img2img",
+        mode: "img2img",
         settings: item.params,
         sourceId: `history:${item.id}`,
       });
@@ -346,7 +355,7 @@ function openAsk() {
             <button
               v-for="action in [
                 { id: 'editBtn', label: '编辑这张图', icon: 'i-edit' },
-                { id: 'upscaleBtn', label: '放大这张图', icon: 'i-upscale' },
+                { id: 'annotateBtn', label: '批注这张图', icon: 'i-annotate' },
                 { id: 'chatBtn', label: '在对话中改这张图', icon: 'i-chat' },
               ]"
               :key="action.id"
@@ -403,7 +412,7 @@ function openAsk() {
         id="lightboxImg"
         :src="drawing.url(current)"
         alt="放大查看"
-      /><button
+      /><button class="btn lightbox-annotate" @click="annotate"><AppIcon name="i-annotate" />批注</button><button
         class="ibtn lightbox-x"
         type="button"
         aria-label="关闭"
@@ -414,6 +423,7 @@ function openAsk() {
   ></Teleport>
 </template>
 <style scoped>
+.lightbox-annotate { position: absolute; bottom: 24px; left: 50%; transform: translateX(-50%); }
 .result-panel { position: relative; }
 /* Ask leads the action row as its own group: flat like the icons, accent like its mark. */
 .result-ask { height: 36px; padding: 0 10px 0 8px; gap: 6px; color: var(--result-ask-ink); font-weight: var(--fw-semibold); background: transparent; border: 1px solid transparent; }

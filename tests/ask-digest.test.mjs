@@ -59,7 +59,7 @@ test("digest: same workbench, same bytes; no binary data; base hash tracks only 
   assert.deepEqual(state.image.current, { id: "#h3" });
   assert.equal(state.image.form.seed, "random");
   assert.deepEqual(state.image.form.characters, []);
-  assert.equal(state.v, 7);
+  assert.equal(state.v, 8);
   assert.deepEqual(state.chat_model, { ready: false });
   assert.equal(state.image.form.text_included, true);
   assert.equal(state.image.form.prompt, form.prompt);
@@ -77,6 +77,29 @@ test("digest: same workbench, same bytes; no binary data; base hash tracks only 
   assert.match(hash("x"), /^[0-9a-f]{16}$/);
   const busy = JSON.parse(buildDigest(input({ ids, generation: { state: "busy", busy: true, index: 2, total: 4 } })).json);
   assert.deepEqual(busy.image.generation, { busy: true, progress: "2/4", state: "busy" });
+});
+
+test('digest: EDIT keeps inactive IMAGE as a directory unless a valid IMAGE anchor is present', () => {
+  const args = input({ workspace: 'edit', boardId: 'board1', boards: [{ id: 'board1', name: '画板', form }],
+    favorites: [{ ...image('favorite', 4, 'favorite recipe'), favSeq: 1 }] });
+  for (const anchor of [null, '#e1.1', '#a1', '#c1.1', '#h99', '#f99']) {
+    const digest = buildDigest({ ...args, anchor }), state = JSON.parse(digest.json);
+    assert.deepEqual(Object.keys(state.image).sort(), ['active_board_id', 'boards', 'current', 'favorites', 'history']);
+    assert.deepEqual(state.image.current, { id: '#h3' });
+    assert.deepEqual(state.image.history, { mode: 'B', count: 3, latest_id: '#h3' });
+    assert.equal(state.image.favorites.count, 1);
+    assert.equal(state.image.boards[0].id, 'board1');
+    assert.ok(!digest.json.includes(form.prompt));
+    assert.equal(digest.baseHash, buildDigest({ ...args, workspace: 'image' }).baseHash, 'folding does not change the frozen draft base');
+  }
+  for (const anchor of ['#h3', '#f1']) {
+    const state = JSON.parse(buildDigest({ ...args, anchor }).json);
+    assert.equal(state.image.form.prompt, form.prompt);
+    assert.equal(state.image.history.mode, 'A');
+    assert.equal(state.image.history.anchor.id, anchor);
+    assert.equal(typeof state.image.history.anchor.prompt, 'string');
+    assert.ok(state.image.generation);
+  }
 });
 
 test("digest: user text cannot close the state tag", () => {

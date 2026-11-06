@@ -149,7 +149,7 @@ RAG、Embedding、全文倒排索引、分层摘要树、跨会话记忆、云�
 ```text
 [tools 定义]                                  ◆ #1 tools 末尾
 [System 1] 宪章 + 工作区 + 模型核心 + 自由创作附加语境（如启用）
-[System 2] 用户偏好 + 代号／替换表（如启用）      ◆ #2 实际最后一个 System 块
+[System 2] 用户偏好 + 编码静态说明（如启用）     ◆ #2 实际最后一个 System 块
 [user] <session_memory>
          <ledger> …归档范围的账本快照… </ledger>
          <attachments> text-N / #aN 索引 </attachments>
@@ -218,7 +218,9 @@ Anthropic 保留现有三个断点，仅为记忆消息增加第四个；全请�
 
 `#aN` 返回索引和图片元信息，不经 `get_turn` 发送像素；需要图像使用 `view_image`／`view_sheet`。归档轮次的 full 结果也保留附件占位；此前 get_turn 工具结果中的附件分段正文同样换为索引，不能借 full 绕过文本分段上限或恢复图片载荷。
 
-结果经现有 `<data>` 包裹，只追加当前工具结果；一次调用计入现有每轮 6 次工具预算，不增加特殊豁免。文本超过一轮可读总量时可后续继续按偏移读取。
+结果经现有 `<data>` 包裹，只追加当前工具结果；首次读取计入每轮 24 次普通工具预算，同轮相同参数复用成功结果，不重复扣次。不同 include、附件或偏移独立读取。文本超过一轮可读总量时可后续继续按偏移读取。
+
+普通轮次的 `workspace_state.conversation_history` 标出 `archived_through` 和 `retained_verbatim`。保留区的文字原文已经在上下文中，备忘录足够时直接使用；仅缺失精确原文、草稿字段或附件分页时召回。工具行显示「读取…原文」，表示读取已有记录，不等于执行压缩或生成总结；压缩仍按本专题的阈值与手动入口执行。
 
 ## 11. 压缩请求与缓存复用
 
@@ -294,7 +296,7 @@ Anthropic 保留现有三个断点，仅为记忆消息增加第四个；全请�
 | `compact/run.ts` | 单次压缩事务、候选快照、成功提交与失败回滚 |
 | `session.ts`／`messages.ts` | 成功轮次稳定编号、账本／归档／记忆快照、lastInputTokens、内部附件来源关联 |
 | `attachments.ts` | 文本 ID 发送说明、会话附件索引、正文拆出与恢复、分段读取及引用生命周期 |
-| `tools.ts` | 只读 `get_turn` 与 offset；保持现有工具相对顺序及六次预算 |
+| `tools.ts` | 只读 `get_turn` 与 offset；保持工具相对顺序，遵循共享预算与同轮成功结果复用 |
 | `prompts/compaction.ts`／`prompts/index.ts`／`prompts/constitution.ts` | 压缩指令、`.k` 版本段与 §7 最小补充 |
 | `adapters/anthropic-messages.ts`／`openai-chat.ts` | 有效 usage 缺失表达；Anthropic 按记忆消息定位第四断点；OpenAI 继续省略输出上限 |
 | `favorites.ts`／`service.ts` | 收藏完整快照、发送前压缩、输入与附件保留、草稿事件、编辑与分支接线 |

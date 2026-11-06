@@ -12,6 +12,11 @@ const image = (n, prompt = "landscape, blue sky", extra = {}) => ({
   params: { prompt, basePrompt: prompt, seed: n, model: "m", scale: 5, ...extra }, size: { width: 1000, height: 1000 },
 });
 const parse = (result) => JSON.parse(result.content[0].text.slice(7, -8));
+test('ASK tools: NAI input checking is internal and absent from the model tool list', () => {
+  const tools = createTools();
+  assert.equal(tools.has('check_nai_input'), false);
+  assert.doesNotMatch(JSON.stringify([...tools.values()].map(t => t.tool)), /check_nai_input/);
+});
 test("ASK crop: percentages, 25% expansion, clipping, no upscaling and invalid regions", () => {
   assert.deepEqual(cropRect(1000, 800, [40, 20, 20, 40]), { x: 350, y: 80, width: 300, height: 480 });
   assert.deepEqual(cropRect(1000, 800, [0, 0, 20, 20]), { x: 0, y: 0, width: 250, height: 200 });
@@ -57,7 +62,7 @@ test("ASK snapshot and tools: metadata is immutable, aliases resolve, diffs/sear
   assert.equal(library[0].params.prompt,"blue sky, {clouds}");
   const context={signal:new AbortController().signal,metadataOnly:false,library,state:()=>({text:"",images:2})};
   const tools=createTools();
-  assert.equal(tools.size,13);
+  assert.equal(tools.size,12);
   const a=await tools.get("get_meta").run({id:"#f1"},context);
   assert.equal(parse(a).id,"#f1");
   const b=await tools.get("get_meta").run({id:"#h1"},context);
@@ -117,4 +122,16 @@ test("ASK dehydration: only 3 hot turns retain pixels; metadata-only removes all
   assert.equal(JSON.stringify(metadata.messages()).includes("PIXELS"),false);
   assert.equal(JSON.stringify(session.messages).match(/PIXELS/g).length,3);
   metadata.rollback();
+});
+
+test('annotation crop resolves frozen numbers but never bypasses full-view eligibility',async()=>{
+ const p={...image(1),aliases:['#e1.1'],label:'#e1.1',annotations:{width:1000,height:1000,regions:[{key:'r',shape:'rect',bbox:{x:.2,y:.3,w:.4,h:.1},comment:'eye'}]}};
+ const context={signal:new AbortController().signal,metadataOnly:false,library:[p],vision:createVision(),visual:{signal:new AbortController().signal,metadataOnly:false,budget:{calls:0,pixels:0,bytes:0},viewed:new Set()}};
+ const tool=createTools().get('view_image');
+ await assert.rejects(tool.run({id:'#e1.1',spec:'crop',annotation:1},context),/先用 glance 或 look/);
+ await assert.rejects(tool.run({id:'#e1.1',spec:'crop',annotation:2},context),/编号不存在/);
+ await assert.rejects(tool.run({id:'#e1.1',spec:'look',annotation:1},context),/仅 crop/);
+ await assert.rejects(tool.run({id:'#e1.1',spec:'crop',annotation:1,region:[0,0,10,10]},context),/二选一/);
+ let got;context.vision={image:async(_p,_s,r)=>{got=r;return {bytes:1,pixels:1};}};
+ await tool.run({id:'#e1.1',spec:'crop',annotation:1},context);assert.deepEqual(got,[20,30,40,10]);
 });

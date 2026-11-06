@@ -79,10 +79,13 @@ const stops: Readonly<Record<string, AskStop>> = {
 /** streamGenerateContent sends complete functionCall objects, not Chat argument deltas. */
 export function reader(unwrapResponse = false, model = "") {
   const parts: Part[] = [], calls: AskCall[] = [];
-  let stop: AskStop | null = null, used: AskUsage | null = null, finished = false;
+  let stop: AskStop | null = null, rawStop: string | null = null, used: AskUsage | null = null, finished = false;
   let cacheUsage: CacheUsage = { read: null, write: null };
   return {
     get cacheUsage() { return cacheUsage; },
+    get finishReason() { return rawStop; },
+    get stopReason() { return stop; },
+    get usage() { return used; },
     read(event: SseEvent): ResponseEvent[] {
       if (finished) return [];
       let chunk: Record<string, unknown>;
@@ -94,7 +97,7 @@ export function reader(unwrapResponse = false, model = "") {
           used = { input: count(u.promptTokenCount), output: count(u.candidatesTokenCount) + count(u.thoughtsTokenCount), cacheRead: count(u.cachedContentTokenCount), cacheWrite: 0 };
         cacheUsage = { read: reportedCount(u.cachedContentTokenCount), write: null };
       }
-      if (object(chunk.promptFeedback).blockReason) stop = "refusal";
+      if (object(chunk.promptFeedback).blockReason) { rawStop = String(object(chunk.promptFeedback).blockReason); stop = "refusal"; }
       const candidates = Array.isArray(chunk.candidates) ? chunk.candidates : [];
       const candidate = object(candidates.find(c => object(c).index === 0) ?? candidates[0]);
       const content = object(candidate.content), incoming = Array.isArray(content.parts) ? content.parts : [];
@@ -121,6 +124,7 @@ export function reader(unwrapResponse = false, model = "") {
         if (p.inlineData || p.fileData) throw new ProviderError("protocol", "ASK 需要文字回复，模型返回了媒体内容");
       }
       if (typeof candidate.finishReason === "string" && candidate.finishReason) {
+        rawStop = candidate.finishReason;
         if (["MALFORMED_FUNCTION_CALL", "UNEXPECTED_TOOL_CALL", "TOO_MANY_TOOL_CALLS", "MISSING_THOUGHT_SIGNATURE"].includes(candidate.finishReason))
           throw new ProviderError("protocol", "模型返回的工具调用无效");
         stop = stops[candidate.finishReason] ?? "other";

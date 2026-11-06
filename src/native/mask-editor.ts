@@ -51,9 +51,9 @@ export function createMaskEditor(canvas: HTMLCanvasElement, onChange: () => void
   const previewContext = canvas.getContext("2d");
   if (!context || !previewContext) throw new Error("当前浏览器不支持 Canvas 蒙版");
   const ctx = context, preview = previewContext;
-  // Paint in the accent token so the mask follows the theme rather than a copy of it.
+  // Media overlays keep the same annotation accent across both app themes.
   const accent = () =>
-    getComputedStyle(canvas).getPropertyValue("--a").trim() || "#b3a1ff";
+    getComputedStyle(canvas).getPropertyValue("--media-accent").trim() || "#b3a1ff";
   let tint = accent();
   let strokes: MaskEntry[] = [], stroke: MaskStroke | null = null, baseline: MaskBitmap | undefined;
   let position = 0, diameter = 64,

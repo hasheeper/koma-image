@@ -24,11 +24,11 @@ export function dehydrateTurns(turns: readonly (readonly AskMessage[])[], hot = 
   return turns.map((turn, i) => i < turns.length - hot ? dehydrate(turn) : turn);
 }
 
-/** Per-turn ceilings (doc 1 §9), shared by the runner and visual tools. */
+/** Per-turn ceilings, shared by the runner and visual tools. */
 export const LIMITS = Object.freeze({
-  toolCalls: 6,
-  /** Six tool rounds, the answer, and one spare for a model that ignores the cap. */
-  requests: 8,
+  toolCalls: 24,
+  /** Up to 24 tool rounds, a final draft/answer round, and one prose completion. */
+  requests: 26,
   vision: Object.freeze({ calls: 4, pixels: 1_500_000, bytes: 400_000 }),
 });
 export interface Budget {

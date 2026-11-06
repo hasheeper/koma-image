@@ -1,12 +1,15 @@
 <script setup lang="ts">
+import AnnotationCard from "../../shared/annotations/AnnotationCard.vue";
 import ModelParameterInput from "../../shared/ModelParameterInput.vue";
 import { computed, shallowRef, ref, watch, nextTick, onDeactivated } from "vue";
 import { useShell } from "../../app/shell";
 import { useAskPresentation } from "../../ask/presentation";
 const { fullscreen: askFullscreen } = useAskPresentation();
 import { useChat } from "../../app/chat";
+import { useAnnotations } from "../../app/annotations.ts";
+import { chatImageId } from "../../domain/image-origin.ts";
 import { useServices } from "../../app/services";
-import { useUi } from "../../app/ui";
+import { useUi, message } from "../../app/ui";
 import { useWorkspaceLifecycle } from "../../app/workspace-lifecycle";
 import { chatOptions } from "../../services/chat";
 import { chatOptionLabel, chatOptionNames } from "../../domain/chat-options";
@@ -21,6 +24,7 @@ import WaveMark from "../../shared/WaveMark.vue";
 import ConversationList from "./ConversationList.vue";
 import ContextPanel from "./ContextPanel.vue";
 import ChatTurn from "./ChatTurn.vue";
+const annotations = useAnnotations(), fullId=shallowRef('');
 const { chat, view } = useChat(),
   shell = useShell(),
   services = useServices(),
@@ -151,7 +155,16 @@ function near() {
       100
   );
 }
+async function annotate() {
+  const asset=chat.assets.assets.get(fullId.value);if(!asset)return;
+  const owner=view.value.current;
+  const turn=owner.turns.find(t=>t.versions.some(v=>v.blocks.some(b=>b.type==='image'&&b.assetId===asset.id)||Object.values(v.composites??{}).includes(asset.id)));
+  const version=turn?.versions.find(v=>v.blocks.some(b=>b.type==='image'&&b.assetId===asset.id)||Object.values(v.composites??{}).includes(asset.id));
+  lightbox.value?.close();
+  try{await annotations.open({blob:asset.blob,name:asset.name,recordId:turn&&version?chatImageId(owner.id,turn.id,version.id,asset.id):asset.id,workspace:'chat',chat:{conversationId:owner.id,turnId:turn?.id,versionId:version?.id,assetId:asset.id}});}catch(e){ui.toast(message(e),'err');}
+}
 function show(id: string) {
+  fullId.value=id;
   full.value = chat.assets.assets.get(id)?.url || "";
   if (full.value) lightbox.value?.showModal();
 }
@@ -516,9 +529,10 @@ onDeactivated(() => {
           :data-drop="drop || undefined"
           @submit.prevent="chat.execute()"
         >
+          <AnnotationCard v-if="c.pendingAnnotation" inline :regions="c.pendingAnnotation.snapshot.regions" :preview="chat.assets.assets.get(c.pendingAnnotation.guideAssetId)?.url" :single-image="c.pendingAnnotation.singleImage" :disabled="!!view.busy" @comment="chat.annotationComment" @mode="chat.annotationTextOnly" @remove="chat.clearAnnotations()" />
           <div class="chat-attachments" aria-label="本轮图片">
             <div
-              v-for="id in c.attachments"
+              v-for="id in c.attachments.filter(id => id !== c.pendingAnnotation?.guideAssetId)"
               :key="id"
               class="attachment"
               :data-dropped="!view.context.imageIds.includes(id) || undefined"
@@ -648,7 +662,7 @@ onDeactivated(() => {
                     !view.ready ||
                     !!view.busy ||
                     !!view.uploading ||
-                    !c.prompt.trim()
+                    (!c.prompt.trim() && !c.pendingAnnotation)
                   "
                   :title="`发送（Enter）${view.quote ? ' · ' + quoteLabel(view.quote) : ''}`"
                 >
@@ -700,7 +714,7 @@ onDeactivated(() => {
         @click="lightbox?.close()"
       >
         <AppIcon name="i-close" /></button
-      ><img v-if="full" :src="full" alt="生成图片大图" />
+      ><img v-if="full" :src="full" alt="生成图片大图" /><button class="btn chat-annotate" @click="annotate"><AppIcon name="i-annotate" />批注</button>
     </dialog>
     <div
       ref="modelPop"
@@ -801,3 +815,7 @@ onDeactivated(() => {
     </div></Teleport
   >
 </template>
+
+<style scoped>
+.chat-lightbox .chat-annotate { position: absolute; bottom: 24px; left: 50%; transform: translateX(-50%); }
+</style>

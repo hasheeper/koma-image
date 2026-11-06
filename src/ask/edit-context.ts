@@ -20,6 +20,7 @@ export function editPictures(editor: Editor | undefined, ids: Ids, chat: readonl
     const origin = source ? ids.label(sourceRecord!) ?? chat.find(p => p.id === source || p.id === sourceRecord)?.label ?? null : null;
     return Object.freeze({ id: r.id, lineage:v.lineage, entity_key: v.entity_key, label: qualifiedEditLabel(board,v), aliases: Object.freeze(aliases), createdAt: r.createdAt, blob: r.blob,
       origins: Object.freeze(aliases.map(label => ({ source: "edit" as const, label, boardId: board.id, origin, order: v.id }))),
+      ...(v.id === board.baseId ? { annotations: editor.readAnnotations(board.id, v.id) } : {}),
       size: Object.freeze({ ...r.size }), params: Object.freeze(structuredClone(r.params)),
     });
   }));
@@ -29,7 +30,7 @@ export function withEditPictures(base: readonly Picture[], edits: readonly Pictu
   const result = new Map(base.map(p => [p.id, p]));
   for (const p of edits) {
     const other = result.get(p.id);
-    result.set(p.id, other ? { ...other, scope: other.scope ?? p.scope, aliases: [...new Set([...other.aliases, ...p.aliases])], origins: [...other.origins, ...p.origins] } : p);
+    result.set(p.id, other ? { ...other, annotations: p.annotations ?? other.annotations, scope: other.scope ?? p.scope, aliases: [...new Set([...other.aliases, ...p.aliases])], origins: [...other.origins, ...p.origins] } : p);
   }
   return [...result.values()];
 }

@@ -62,14 +62,14 @@
 .editor .composer-foot { padding-top: 10px; gap: 0; background: color-mix(in srgb,var(--chrome) 65%,var(--raised)); border-radius: var(--r3) var(--r3) 0 0; border-top: 1px solid var(--line-2); box-shadow: 0 -5px 16px -12px rgb(var(--shadow-rgb) / calc(.7333 * var(--shadow-strength))); }
 
 /* ── Stage ──────────────────────────────────────────────────── */
-.editor-mat { padding: 0; place-items: stretch; }
+.editor-mat { padding: 0; place-items: stretch; container: editor-mat / inline-size; }
 /* A scrolling grid with an auto-margin child: centred while it fits, and
    every edge still reachable once zoom makes it overflow (flex centring
    would cut off the top-left). The bottom padding keeps the toolbar clear. */
 .editor-viewport {
   position: absolute; inset: 0;
   display: grid;
-  padding: 60px var(--sp-5) 72px;
+  padding: 60px var(--sp-5) calc(var(--editor-toolbar-height, 40px) + var(--sp-4) + 16px);
   overflow: auto; overscroll-behavior: contain;
   touch-action: pan-x pan-y;
 }
@@ -143,11 +143,11 @@
 .editor-empty .blank-s { margin: 0 0 14px; }
 .editor-empty .editor-empty-open { min-width: 144px; min-height: 40px; margin-top: 0; padding-inline: 18px; }
 .editor-empty .editor-empty-open:disabled { color: var(--fg-4); background: var(--raised); border-color: var(--line); cursor: not-allowed; transform: none; }
-/* Picture identity stays above the mat; actions belong to the bottom toolbar. */
+/* Picture identity and handoff stay above the mat; editing tools remain below. */
 .editor-info {
   position: absolute; top: 0; left: 0; right: 0; z-index: 3;
   display: flex; align-items: center; justify-content: space-between; gap: var(--sp-3);
-  height: 52px; padding: 0 var(--sp-3) 0 var(--sp-4);
+  height: 64px; padding: 0 var(--sp-3) 0 var(--sp-4);
   background: linear-gradient(to bottom, color-mix(in srgb, var(--stage) 92%, transparent), transparent);
   pointer-events: none;
 }
@@ -157,10 +157,82 @@
   min-width: 0; margin: 0;
   white-space: nowrap; overflow: hidden;
 }
-.editor-info-meta b { font-size: var(--fz-xs); font-weight: var(--fw-semibold); color: var(--fg); }
+.editor-info-meta b { overflow: hidden; text-overflow: ellipsis; font-size: var(--fz-xs); font-weight: var(--fw-semibold); color: var(--fg); }
 .editor-info-meta .mono { color: var(--fg-3); overflow: hidden; text-overflow: ellipsis; }
+/* One send capsule floats beside the idle ASK launcher: the launcher's 40px pill, midline and idle glass, so the two read as a pair. */
+.editor .editor-info > .editor-send { flex: none; margin-left: auto; margin-right: 44px; }
+.editor-send-trigger, .menu.popover-menu#editorSendMenu {
+  color: var(--fg); border: 0; background: var(--glass-bg);
+  box-shadow: inset 0 1px 0 var(--glass-edge), 0 0 0 1px var(--line-2), 0 10px 32px rgb(var(--shadow-rgb) / calc(0.45 * var(--shadow-strength)));
+  backdrop-filter: blur(var(--glass-blur)) saturate(var(--glass-saturation));
+}
+.editor-send-trigger {
+  display: inline-flex; align-items: center; gap: 6px;
+  height: 40px; padding: 0 13px 0 16px;
+  font-size: var(--fz-sm); font-weight: var(--fw-medium); white-space: nowrap; color: var(--fg);
+  border-radius: 999px;
+  transition: background var(--t1) var(--e), transform var(--t1) var(--e);
+}
+.editor-send-trigger:is(:hover, [aria-expanded="true"]), .menu.popover-menu#editorSendMenu { background: linear-gradient(var(--glass-hover), var(--glass-hover)), var(--glass-bg); }
+.editor-send-trigger:active { transform: scale(.978); }
+.editor-send-trigger:disabled { opacity: .4; pointer-events: none; }
+.editor-send-count { min-width: 18px; padding: 2px 5px; font-size: var(--fz-2xs); line-height: 14px; text-align: center; color: var(--fg-2); background: color-mix(in srgb, var(--fg) 9%, transparent); border-radius: 999px; }
+.editor-send-caret { --ico: var(--ico-xs); color: var(--fg-3); transform: rotate(90deg); transition: transform var(--t1) var(--e); }
+.editor-send-trigger[aria-expanded="true"] .editor-send-caret { transform: rotate(-90deg); }
+/* A compact action band; the source title is context, never the menu's width. */
+.menu.popover-menu#editorSendMenu {
+  width: max-content; min-width: 0; max-width: min(208px, calc(100vw - 16px));
+  padding: 4px; border-radius: 999px; overflow: hidden;
+  opacity: 0; transform: translateY(var(--editor-send-offset, -4px)) scale(.978); transform-origin: top right;
+  animation: none;
+  transition: opacity var(--t1) var(--e), transform var(--t1) var(--e), display var(--t1) allow-discrete, overlay var(--t1) allow-discrete;
+}
+.menu.popover-menu#editorSendMenu.has-source { width: 196px; border-radius: 14px; }
+#editorSendMenu[data-placement="top"] { --editor-send-offset: 4px; transform-origin: bottom right; }
+.menu.popover-menu#editorSendMenu:popover-open { opacity: 1; transform: translateY(0) scale(1); }
+@starting-style {
+  .menu.popover-menu#editorSendMenu:popover-open { opacity: 0; transform: translateY(var(--editor-send-offset, -4px)) scale(.978); }
+}
+/* Pointer opening focuses this non-action shell; keyboard focus stays on menu items. */
+#editorSendMenu:focus { outline: none; }
+.editor-send-actions { display: flex; align-items: center; gap: 0; }
+#editorSendMenu .menu-item {
+  justify-content: center; flex: none; gap: 6px; width: auto; min-height: 32px; padding: 0 10px;
+  color: var(--fg); font-size: var(--fz-sm); border-radius: 999px;
+  transition: color var(--t1) var(--e), background var(--t1) var(--e), box-shadow var(--t1) var(--e), transform var(--t1) var(--e);
+}
+#editorSendMenu .menu-item > .ico { color: var(--fg-2); }
+#editorSendMenu .menu-item:is(:hover, :focus-visible) { color: var(--fg); background: var(--editor-send-hover, var(--glass-hover)); box-shadow: var(--editor-send-hover-shadow, none); }
+#editorSendMenu .menu-item:focus-visible { outline: 1px solid var(--line-2); outline-offset: -1px; }
+#editorSendMenu .menu-item:active { transform: scale(.978); }
+#editorSendMenu .menu-item:disabled { opacity: .4; pointer-events: none; }
+#editorSendMenu.has-source .menu-item { flex: 1; padding-inline: 8px; border-radius: 10px; }
+#editorSendMenu.has-source .editor-send-new { flex: 0 0 32px; padding: 0; }
+.editor-send-divider { flex: none; width: 1px; height: 14px; margin: 0 3px; background: var(--line-2); }
+.editor-send-context { overflow: hidden; margin: 3px 8px 4px; color: var(--fg-3); font-size: var(--fz-2xs); line-height: 1.55; white-space: nowrap; text-overflow: ellipsis; }
+/* On light glass, a white hover surface rises gently from the gray capsule. */
+[data-theme="light"] #editorSendMenu { --editor-send-hover: var(--raised); --editor-send-hover-shadow: var(--sh-1); }
+[data-theme="light"] .editor-send-trigger:hover { background: var(--raised); }
+@media (pointer: coarse), (max-width: 860px) {
+  #editorSendMenu .menu-item { min-height: 44px; }
+  .menu.popover-menu#editorSendMenu.has-source { width: 208px; }
+  #editorSendMenu.has-source .editor-send-new { flex-basis: 44px; }
+}
+@media (prefers-reduced-motion: reduce) {
+  .editor-send-trigger, .editor-send-caret, .menu.popover-menu#editorSendMenu, #editorSendMenu .menu-item { transition: none; }
+  .editor-send-trigger:active, #editorSendMenu .menu-item:active { transform: none; }
+}
 .editor-info[data-compare="on"] .editor-info-meta b { color: var(--a); }
-.editor-info-actions { display: flex; align-items: center; gap: 2px; flex: none; margin-left: auto; }
+.editor-comparison { position: absolute; z-index: 4; left: 50%; bottom: calc(var(--editor-toolbar-height, 40px) + var(--sp-4) + 8px); transform: translateX(-50%); display: flex; align-items: center; justify-content: center; flex-wrap: wrap; gap: var(--sp-2); width: max-content; max-width: calc(100% - 24px); }
+.editor-comparison .seg { display: flex; padding: 3px; box-shadow: var(--sh-1); }
+.editor-comparison .seg button { min-height: 30px; padding: 0 12px; border-radius: var(--r2); color: var(--seg-ink); font-size: var(--fz-xs); white-space: nowrap; }
+.editor-comparison .seg button[aria-pressed="true"] { background: var(--seg-active-bg); color: var(--seg-active-ink); box-shadow: var(--seg-active-shadow); }
+.editor-comparison .seg button:disabled { opacity: .4; cursor: default; }
+.editor-comparison-note { flex-basis: 100%; text-align: center; color: var(--fg-3); font-size: var(--fz-xs); }
+/* One pane, named like NAI's selected tab, so switching model keeps the box's voice. */
+#editorImagePromptBox .promptbox-head > label { position: relative; display: inline-flex; align-items: center; color: var(--fg); font-size: var(--fz-xs); font-weight: var(--fw-bold); letter-spacing: -0.005em; }
+#editorImagePromptBox .promptbox-head > label::after { content: ""; position: absolute; left: 0; right: 0; bottom: -1px; height: 2px; background: var(--a); border-radius: 2px 2px 0 0; }
+#editorImagePromptBox .hl-wrap > :is(textarea, .hl-mirror) { padding-bottom: var(--sp-3); }
 .editor .stage[data-drop]::after {
   content: attr(data-drop);
   position: absolute; inset: var(--sp-3); z-index: 6;
@@ -171,33 +243,40 @@
   pointer-events: none;
 }
 
-/* Canvas tools float over the mat, raised like the workspace's popovers. */
+/* Three purpose-based capsules share the send menu's glass and interaction. */
 .editor-toolbar {
-  --editor-toolbar-inset: 12px;
+  --editor-tool-size: 32px;
+  --editor-tool-arrow-size: 16px;
   position: absolute; left: 50%; bottom: var(--sp-4); z-index: 3;
   transform: translateX(-50%);
-  display: flex; align-items: center; justify-content: center; gap: 2px;
+  display: flex; flex-direction: column; align-items: center; gap: 8px;
   /* An absolutely placed box at left:50% would otherwise shrink to half the canvas. */
-  width: max-content; max-width: calc(100% - 2 * var(--editor-toolbar-inset));
+  width: max-content; max-width: calc(100% - 24px);
 }
-.editor-toolbar, .editor-toolbar[data-actions-detached] .editor-info-actions {
-  padding: 4px;
-  background: color-mix(in srgb, var(--raised) 94%, transparent);
-  border: 1px solid var(--line-2);
-  border-radius: var(--r3);
-  box-shadow: var(--sh-lip), var(--sh-2);
-  backdrop-filter: blur(10px);
+.editor-tool-capsule {
+  display: flex; align-items: center; flex: none; gap: 0;
+  width: max-content; max-width: 100%; padding: 4px;
+  color: var(--fg-2); border-radius: 999px;
 }
-.editor-mask-tools { display: flex; align-items: center; gap: 2px; flex: none; }
-.editor-picture-ops { display: flex; align-items: center; gap: 2px; flex: none; }
-.editor-tool-controls { display: flex; flex: 1; align-items: center; gap: 2px; min-width: 0; overflow-x: auto; scrollbar-width: none; }
-.editor-tool-controls > * { flex-shrink: 0; }
-.editor-toolbar[data-actions-detached] .editor-info-actions { position: absolute; left: 0; bottom: calc(100% + 8px); margin: 0; }
-.editor-toolbar[data-actions-detached] .editor-info-actions > .editor-sep { display: none; }
+.editor-tool-capsule, .menu.editor-flyout {
+  background: linear-gradient(var(--glass-hover), var(--glass-hover)), var(--glass-bg);
+  box-shadow: inset 0 1px 0 var(--glass-edge), 0 0 0 1px var(--line-2), 0 10px 32px rgb(var(--shadow-rgb) / calc(.45 * var(--shadow-strength)));
+  backdrop-filter: blur(var(--glass-blur)) saturate(var(--glass-saturation));
+}
+.editor-tool-controls, .editor-secondary-tools { display: flex; align-items: center; justify-content: center; flex-wrap: wrap; gap: 8px; max-width: 100%; }
+.editor-secondary-tools { flex: none; }
+.editor-picture-ops { padding-inline: 5px; }
+.editor-mask-tools { overflow-x: auto; scrollbar-width: none; }
+.editor-mask-tools > * { flex-shrink: 0; }
+.editor-annotation-actions { display: flex; align-items: center; justify-content: center; gap: 4px; max-width: 100%; }
+.editor-annotation-actions .btn { min-height: 32px; height: auto; white-space: normal; }
+/* Keep the contextual row's space while a flyout covers it: closing restores
+   the tools without resizing the viewport or exposing a stray half-capsule. */
+.editor:has(.editor-flyout:popover-open) :is(.editor-mask-tools, .editor-annotation-actions) { visibility: hidden; pointer-events: none; }
 /* Picture operations use compact icon flyouts; the tool picker keeps labels. */
 .editor-tool {
   display: inline-flex; align-items: center; gap: 6px; flex: none;
-  height: 32px; padding: 0 10px 0 8px;
+  height: var(--editor-tool-size, 32px); padding: 0 10px 0 8px;
   --ico: var(--ico-md);
   font-size: var(--fz-xs); font-weight: var(--fw-medium); white-space: nowrap;
   color: var(--fg-2); border-radius: var(--r2);
@@ -210,17 +289,22 @@
 .editor-tool:disabled { opacity: 0.4; pointer-events: none; }
 .editor-tool .editor-caret { --ico: var(--ico-xs); flex: none; transform: rotate(90deg); color: var(--fg-3); transition: transform var(--t1) var(--e); }
 .editor-tool[aria-expanded="true"] .editor-caret { transform: rotate(-90deg); }
-.editor-toolbar .ibtn { width: 32px; height: 32px; --ico: var(--ico-md); color: var(--fg-2); }
-.editor-toolbar .ibtn:hover { color: var(--fg); background: var(--hover); }
+.editor-toolbar .ibtn { flex: none; width: var(--editor-tool-size); height: var(--editor-tool-size); --ico: var(--ico-md); color: var(--fg-2); }
+.editor-toolbar :is(.ibtn, .editor-tool, .editor-zoom, .editor-annotation-actions .btn):not(.editor-flyout *) {
+  border-radius: 999px;
+  transition: color var(--t1) var(--e), background var(--t1) var(--e), box-shadow var(--t1) var(--e), transform var(--t1) var(--e);
+}
+.editor-toolbar :is(.ibtn, .editor-tool, .editor-zoom, .editor-annotation-actions .btn):not(.editor-flyout *):is(:hover, :focus-visible) { color: var(--fg); background: var(--editor-tool-hover, var(--glass-hover)); box-shadow: var(--editor-tool-hover-shadow, none); }
+.editor-toolbar :is(.ibtn, .editor-tool, .editor-zoom, .editor-annotation-actions .btn):not(.editor-flyout *):active { transform: scale(.978); }
 .editor-toolbar .ibtn[aria-pressed="true"] { color: var(--a); background: var(--a-dim); }
 .editor-toolbar .ibtn:disabled { opacity: 0.35; pointer-events: none; }
 .editor-info-actions .ibtn[aria-pressed="true"] { color: var(--a); background: transparent; opacity: 1; }
-.editor-sep { flex: none; width: 1px; height: 18px; margin: 0 5px; background: var(--line-2); }
-.editor-size { position: relative; display: flex; align-items: center; gap: var(--sp-2); width: 136px; padding: 0 var(--sp-2); }
+.editor-size { position: relative; display: flex; align-items: center; gap: var(--sp-2); width: 112px; padding: 0 var(--sp-2); }
+.editor-size input { min-width: 0; flex: 1; }
 .editor-size output { min-width: 24px; text-align: right; color: var(--fg-3); }
 .editor-zoom {
-  position: relative;
-  min-width: 50px; height: 32px; padding: 0 6px;
+  position: relative; flex: none;
+  min-width: 46px; height: var(--editor-tool-size, 32px); padding: 0 4px;
   color: var(--fg-2); border-radius: var(--r2);
   transition: color var(--t1) var(--e), background var(--t1) var(--e);
 }
@@ -228,49 +312,85 @@
 /* The toolbar sits at the bottom edge, so its tips open upward. */
 .editor-toolbar [data-tip]::after { top: auto; bottom: calc(100% + 9px); transform: translate(-50%, 3px); }
 .editor-toolbar [data-tip]:hover::after { transform: translate(-50%, 0); }
+[data-theme="light"] .editor-toolbar { --editor-tool-hover: var(--raised); --editor-tool-hover-shadow: var(--sh-1); }
+@container editor-mat (max-width: 600px) {
+  .editor-tool-controls, .editor-secondary-tools { gap: 6px; }
+  .editor-zoom-step, #editorHand { display: none; }
+}
+@media (pointer: coarse) {
+  .editor-toolbar { --editor-tool-size: 36px; }
+}
+@media (prefers-reduced-motion: reduce) {
+  .editor-toolbar :is(.ibtn, .editor-tool, .editor-zoom, .editor-annotation-actions .btn):not(.editor-flyout *) { transition: none; }
+  .editor-toolbar :is(.ibtn, .editor-tool, .editor-zoom, .editor-annotation-actions .btn):not(.editor-flyout *):active { transform: none; }
+}
 
 /* ── Canvas operation sheets ────────────────────────────────── */
-.editor-mini {
+.menu.editor-flyout {
+  --editor-flyout-hover: var(--glass-hover);
+  --editor-flyout-hover-shadow: none;
   --well: var(--panel-well);
   --well-focus: var(--sunken);
+  padding: 6px; border: 0; border-radius: 14px;
+  color: var(--fg-2);
+  animation: editorFlyoutIn var(--t1) var(--e);
+}
+.editor-flyout .menu-item { gap: 8px; min-height: 32px; padding-inline: 8px; border-radius: 8px; font-size: var(--fz-sm); }
+.editor-flyout :is(.menu-item, .editor-mini-chip) { transition: color var(--t1) var(--e), background var(--t1) var(--e), box-shadow var(--t1) var(--e), transform var(--t1) var(--e); }
+.editor-flyout .menu-item:is(:hover, :focus-visible, :has(> input:focus-visible)):not(:disabled, [aria-disabled="true"], :has(> input:disabled)) { color: var(--fg); background: var(--editor-flyout-hover); box-shadow: var(--editor-flyout-hover-shadow); }
+.editor-flyout .menu-item:is(:focus-visible, :has(> input:focus-visible)) { outline: 1px solid var(--a-line); outline-offset: -1px; }
+.editor-flyout :is(button.menu-item, .editor-mini-chip):active { transform: scale(.978); }
+[data-theme="light"] .menu.editor-flyout { --editor-flyout-hover: var(--raised); --editor-flyout-hover-shadow: var(--sh-1); }
+@keyframes editorFlyoutIn { from { opacity: 0; transform: translateY(4px) scale(.978); } }
+@media (pointer: coarse) {
+  .editor-flyout .menu-item { min-height: 36px; }
+}
+@media (prefers-reduced-motion: reduce) {
+  .menu.editor-flyout { animation: none; }
+  .editor-flyout :is(.menu-item, .editor-mini-chip) { transition: none; }
+  .editor-flyout :is(button.menu-item, .editor-mini-chip):active { transform: none; }
+}
+.editor-mini {
   width: 264px; max-width: calc(100vw - 16px); overflow: auto;
   color: var(--fg-2);
 }
-.editor-mini:popover-open { display: flex; flex-direction: column; gap: 0; }
-.editor-upscale-panel { width: 288px; }
-.editor-mini-params { display: grid; gap: 6px; padding: 4px 2px 6px 4px; }
-.editor-mini-row { display: flex; align-items: center; justify-content: space-between; gap: 12px; min-height: 30px; }
+.menu.editor-mini { padding: 12px; }
+.editor-mini:popover-open { display: flex; flex-direction: column; gap: 10px; }
+.editor-upscale-panel { width: max-content; min-width: min(288px, calc(100vw - 16px)); }
+.editor-mini-params { display: grid; gap: 8px; }
+.editor-mini-row { display: flex; align-items: center; justify-content: space-between; gap: 12px; min-height: 32px; }
 .editor-mini-label { font-size: var(--fz-xs); font-weight: var(--fw-medium); color: var(--fg-3); }
-.editor-mini-value { padding-right: 6px; font-family: var(--sans); font-size: var(--fz-xs); font-weight: var(--fw-semibold); color: var(--fg); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-.editor-mini-chip { display: inline-flex; align-items: center; gap: 4px; height: 28px; padding: 0 6px 0 9px; color: var(--fg); font-size: var(--fz-xs); border-radius: var(--r2); transition: background var(--t1) var(--e); }
-.editor-mini-chip:hover, .editor-mini-chip[aria-expanded="true"] { background: var(--hover); }
+.editor-mini-value { font-family: var(--sans); font-size: var(--fz-xs); font-weight: var(--fw-semibold); color: var(--fg); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.editor-mini-chip { display: inline-flex; align-items: center; gap: 6px; height: 32px; padding: 0 8px 0 10px; color: var(--fg); font-size: var(--fz-xs); border-radius: 8px; background: var(--glass-layer); }
+.editor-mini-chip:is(:hover, :focus-visible, [aria-expanded="true"]) { background: var(--editor-flyout-hover); box-shadow: var(--editor-flyout-hover-shadow); }
 .editor-mini-chip .ico { --ico: var(--ico-xs); color: var(--fg-3); transform: rotate(90deg); }
-.editor-mini-run { display: flex; align-items: center; justify-content: space-between; gap: 8px; min-height: 40px; padding: 2px 2px 6px 4px; }
-.editor-mini-run:last-child { padding-bottom: 2px; }
-.editor-mini-facts { display: flex; align-items: center; gap: 4px; min-width: 0; overflow: hidden; }
-.editor-mini-cap { flex: none; height: 22px; padding: 0 8px; font: var(--fw-medium) var(--fz-2xs)/22px var(--sans); font-variant-numeric: tabular-nums; white-space: nowrap; color: var(--fg-2); background: color-mix(in srgb, var(--fg) 6%, transparent); border-radius: 999px; }
+.editor-mini-run { display: flex; align-items: center; justify-content: space-between; gap: 8px; min-width: max-content; min-height: 32px; }
+.editor-mini-facts { display: flex; align-items: center; flex: none; gap: 4px; }
+.editor-mini-cap { flex: none; height: 24px; padding: 0 6px; font: var(--fw-regular) var(--fz-2xs)/24px var(--sans); font-variant-numeric: tabular-nums; white-space: nowrap; color: var(--fg-2); background: color-mix(in srgb, var(--fg) 6%, transparent); border-radius: 999px; }
 .editor-mini-cap.mono { font-family: var(--mono); font-weight: var(--fw-regular); }
-.editor-mini .btn-go { height: 32px; padding: 0 12px 0 10px; gap: 6px; font-size: var(--fz-xs); border-radius: var(--r2); flex: none; }
+.editor-mini .btn-go { height: 32px; margin-left: auto; padding: 0 10px 0 8px; gap: 4px; font-size: var(--fz-xs); border-radius: 8px; flex: none; }
 .editor-mini .btn-go .ico { --ico: var(--ico-sm); }
-.editor-mini .btn-go .cost-tag { height: 22px; margin-left: 4px; padding: 0 9px 0 7px; font-size: var(--fz-2xs); }
+.editor-mini .btn-go .cost-tag { height: 22px; margin-left: 2px; padding: 0 7px 0 5px; font-size: var(--fz-2xs); }
 .editor-mini .btn-go:has(.cost-tag) { padding-right: 5px; }
 .editor-mini [data-tip]::after { top: auto; bottom: calc(100% + 6px); }
-.editor-mini .quota-warning { margin: 4px; }
+.editor-mini .quota-warning { flex: none; align-items: flex-start; gap: 8px; margin: 0; padding: 8px 10px; border: 0; border-radius: 8px; background: color-mix(in srgb, var(--warn) 7%, transparent); font-size: var(--fz-xs); line-height: 1.5; }
+.editor-mini .quota-warning.editor-err { color: var(--err); background: var(--err-dim); }
+.editor-mini .quota-warning > span { min-width: 0; overflow-wrap: anywhere; }
 .editor-pop-list { display: grid; gap: 1px; font-size: var(--fz-xs); color: var(--fg-3); }
 .editor-upscale-panel .editor-pop-list .menu-label { font-family: var(--sans); font-weight: var(--fw-semibold); }
 .editor-pop-group { display: grid; gap: 1px; }
 /* Groups part on the menu's full-bleed hairline. */
-.editor-pop-group:not([hidden]) + .editor-pop-group { margin: 3px -4px 0; padding: 4px 4px 0; border-top: 1px solid var(--line-2); }
+.editor-pop-group:not([hidden]) + .editor-pop-group { margin-top: 8px; padding-top: 8px; border-top: 1px solid var(--line-2); }
 /* The radio stays in the label for focus and arrow keys; the row shows the check. */
 .editor-pop-item input { position: absolute; opacity: 0; width: 0; height: 0; }
 /* What the chosen model takes: its options, the detail text, then the price. */
-.editor-pop-options, .editor-pop-detail { margin: 0 4px; }
-.editor-pop-options { display: grid; gap: 4px; padding-top: 6px; border-top: 1px solid var(--line); }
-.editor-pop-option { display: flex; align-items: center; justify-content: space-between; gap: var(--sp-2); }
+.editor-pop-options, .editor-pop-detail { margin: 0; }
+.editor-pop-options { display: grid; gap: 8px; }
+.editor-pop-option { display: flex; align-items: center; justify-content: space-between; gap: 12px; min-height: 32px; }
 .editor-pop-option label { font-size: var(--fz-xs); color: var(--fg-3); }
-.editor-pop-option select { width: auto; min-width: 96px; height: 28px; padding: 0 26px 0 9px; font-size: var(--fz-xs); background-position: right 8px center; }
+.editor-pop-option select { width: auto; min-width: 96px; height: 32px; padding: 0 26px 0 9px; font-size: var(--fz-xs); background-position: right 8px center; }
 .editor-pop-detail {
-  width: auto; justify-self: stretch;
+  width: 100%; justify-self: stretch;
   min-height: 76px; max-height: 40vh;
   padding: 7px 9px;
   font-size: var(--fz-sm); line-height: 1.5;
@@ -278,7 +398,7 @@
 
 /* ── Versions: the history rail ─────────────────────────────── */
 .editor-rail .tile { cursor: pointer; }
-.director-variants.seg { flex: none; grid-auto-flow: column; grid-auto-columns: auto; gap: 2px; padding: 2px; margin-right: auto; align-self: center; }
+.director-variants.seg { flex: none; grid-auto-flow: column; grid-auto-columns: auto; gap: 2px; padding: 2px; align-self: center; }
 .director-variants.seg span { padding: 2px 9px; font-size: var(--fz-2xs); line-height: 1.5; }
 .editor-info-meta { align-items: center; }
 .director-badge { position: absolute; right: 3px; bottom: 3px; width: 17px; height: 17px; display: grid; place-items: center; color: var(--fg-2); background: color-mix(in srgb, var(--canvas) 86%, transparent); border-radius: 5px; --ico: var(--ico-xs); }
@@ -309,10 +429,15 @@
 
   /* Picture first, then its versions, then the controls — as on the workspace. */
   .editor .stage { order: 1; }
-  .editor-mat { display: flex; flex-direction: column; height: clamp(320px, 58svh, 640px); }
-  .editor-viewport { position: relative; inset: auto; flex: 1; min-height: 0; padding: 60px var(--sp-3) var(--sp-3); }
-  .editor-info { justify-content: flex-start; gap: 10px; height: 56px; padding: 0 var(--sp-3); }
+  .editor-mat { height: clamp(320px, 58svh, 640px); }
+  .editor-viewport { padding: 60px var(--sp-3) calc(var(--editor-toolbar-height, 40px) + 24px); }
+  .editor-info { justify-content: flex-start; gap: 10px; padding: 0 var(--sp-3); }
   .editor-info-meta { flex: 1; }
+  .editor-info-meta .mono { display: none; }
+  /* The phone launcher sits 12px from the edge; the capsule keeps its 8px gap. */
+  .editor .editor-info > .editor-send { margin-right: 48px; }
+  /* With result options showing, the segments name the result; the caption keeps only the reference. */
+  .editor-info:has(.director-variants) .editor-info-kind { display: none; }
   .editor .editor-fullscreen-toggle {
     --ico: var(--ico-lg);
     --ico-stroke: var(--ico-stroke-strong);
@@ -327,26 +452,15 @@
   @media (hover: hover) {
     .editor .editor-fullscreen-toggle:hover { color: var(--fg); background: var(--hover); }
   }
-  /* The toolbar docks under the picture instead of covering it. */
+  /* Keep the capsules on the canvas; no separate dock or backing panel. */
   .editor-toolbar {
-    --editor-toolbar-inset: 0px;
-    position: relative; left: auto; bottom: auto; transform: none;
-    justify-content: flex-start; flex-wrap: nowrap;
-    width: auto; max-width: none; padding: 4px var(--sp-2);
-    overflow: visible;
-    background: var(--chrome);
-    border-width: 1px 0 0; border-radius: 0; box-shadow: none; backdrop-filter: none;
+    bottom: 12px;
+    max-width: calc(100% - 16px);
   }
-  .editor-toolbar[data-actions-detached] .editor-info-actions { left: var(--sp-2); }
-  .editor-toolbar .ibtn, .editor-zoom { flex: none; width: 40px; height: 40px; }
-  .editor-tool { height: 40px; }
-  .editor-mini-row { min-height: 36px; }
-  .editor-mini-chip { height: 36px; }
-  .editor-mini .btn-go { height: 38px; }
-  .editor-pop-option select { height: 36px; }
-  .editor-zoom { width: auto; }
   .editor-zoom-step { display: none; }
-  .editor-size { flex: none; width: 120px; }
+  .editor-size { flex: none; width: 82px; padding-inline: 5px; gap: 4px; }
+  .editor-size output { min-width: 20px; }
+  .editor-comparison { bottom: calc(var(--editor-toolbar-height, 40px) + 20px); }
   .editor-toolbar [data-tip]::after { display: none; }
 
   .editor-rail { order: 2; border-left: 0; border-top: 1px solid var(--line); }
@@ -368,7 +482,7 @@
     backdrop-filter: none;
     box-shadow: 0 -10px 28px -20px rgb(var(--shadow-rgb) / calc(0.9 * var(--shadow-strength)));
   }
-  .editor .btn-go, .editor .btn-stop { height: 44px; }
+  .editor .composer-foot :is(.btn-go, .btn-stop) { height: 44px; }
   .editor .go-keys { display: none; }
 
   .editor[data-canvas-fullscreen] { display: grid; grid-template-rows: minmax(0, 1fr); overflow: hidden; }
@@ -379,13 +493,17 @@
   .editor[data-canvas-fullscreen] .editor-mat { flex: 1; min-height: 0; height: 100%; }
   .editor[data-canvas-fullscreen] .editor-viewport { padding-top: calc(60px + env(safe-area-inset-top)); }
   .editor[data-canvas-fullscreen] .editor-info { top: env(safe-area-inset-top); }
-  .editor[data-canvas-fullscreen] .editor-toolbar { padding-bottom: calc(4px + env(safe-area-inset-bottom)); }
+  .editor[data-canvas-fullscreen] .editor-toolbar { bottom: calc(12px + env(safe-area-inset-bottom)); }
 }
 @media (max-width: 600px) {
   .editor-bar { gap: var(--sp-2); padding-inline: var(--sp-2); }
   /* Two fingers pan and pinch on touch screens, so the hand tool can go. */
-  #editorHand, .editor-size output { display: none; }
-  .editor-size { width: 104px; }
+  #editorHand { display: none; }
+}
+@media (max-width: 360px) {
+  .editor-zoom { min-width: 42px; }
+  .editor-secondary-tools { gap: 6px; }
+  .editor-size { width: 66px; }
 }
 
 /* EDIT references share the existing compact thumbnail overlay. */

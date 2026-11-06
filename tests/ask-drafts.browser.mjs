@@ -93,7 +93,7 @@ test('ASK text replacements: actual wire uses B; streamed reply, confirmed draft
     await page.locator('.ask-draft[data-status="pending"]').waitFor();
     await openDraft(page);
     assert.match(calls[0].body.messages.at(-1).content,/保留 azure dress，增加柔光/);
-    assert.match(calls[0].body.messages[0].content,/<codebook>/);
+    assert.doesNotMatch(JSON.stringify(calls[0].body),/<codebook>|red coat/);
     assert.match(await drawer(page).locator('.ask-markdown').textContent(),/保留 red coat，补充柔光/);
     assert.match(await page.locator('#askFullDraft').textContent(),/red coat/);
     assert.equal((await page.locator('#askFullDraft').textContent()).includes('azure dress'),false);
@@ -675,7 +675,8 @@ for (const connectionId of ['chat', 'claude']) test(`ASK named board: ${connecti
       const menu = await openApplyMenu(page);
       assert.equal(await menu.getByRole('menuitem', { name: '应用到来源画板', exact: true }).count(), 1);
       assert.equal(await menu.getByRole('menuitem', { name: '应用到新画板', exact: true }).count(), 1);
-      assert.equal((await menu.textContent()).replace(/\s+/g, ''), '应用到来源画板应用到新画板附加画板配方附加创作备忘录');
+      for (const name of ['附加画板配方', '附加创作备忘录', '放弃草稿'])
+        assert.equal(await menu.getByRole('menuitem', { name, exact: true }).count(), 1);
       assert.equal(await menu.locator('small').count(), 0);
       await page.locator('.ask-stream').evaluate(el => el.dispatchEvent(new Event('scroll')));
       assert.equal(await menu.count(), 1, 'message stream scrolling does not dismiss the stationary menu');

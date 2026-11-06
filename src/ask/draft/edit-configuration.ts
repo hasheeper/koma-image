@@ -4,19 +4,25 @@ import type { ParameterKey } from './parameters.ts';
 import { characterCapability } from '../../domain/characters.ts';
 import { editDrawingForm } from '../../domain/edit-draft.ts';
 import type { EditConfiguration, EditDraftState } from '../../domain/edit-draft.ts';
-import { editorModels } from '../../domain/media.ts';
+import { editorModels, isGenerativeEditorModel } from '../../domain/media.ts';
 import { focusContains, inpaintFocusPlan, supportsFocusedInpaint } from '../../domain/inpaint-focus.ts';
 import { supportsNaiEnhance, availableEnhanceScales } from '../../domain/nai-enhance.ts';
 import { modelSamplers } from '../../domain/nai-parameters.ts';
 import { naiCapabilities } from '../../domain/nai.ts';
+import { checkEditOptions } from './edit-options.ts';
 
 /** Last synchronous check at the confirmed write boundary, using live capabilities/mask. */
 export function checkEditConfiguration(s:EditDraftState, after:EditConfiguration):string {
   const mode=after.upscaleOpen?'upscale':after.mode, form=editDrawingForm(s,after), before=editDrawingForm(s);
   const model=editorModels({models:s.models},mode).find(m=>m.id===form.model);
   if(!model)return '目标型号已不再支持此编辑模式';
+  const optionIssue=checkEditOptions(s,after,model);if(optionIssue)return optionIssue;
   if(after.directorOpen&&!s.models.some(m=>m.profileId==='nai-official-v1'&&m.tools.includes('director')))return 'Director Tools 没有可用来源';
   if(mode==='upscale')return '';
+  if(isGenerativeEditorModel(model)) {
+    const withoutPrompt = (c: EditConfiguration) => ({ fields: { ...c.fields, prompt: '' }, characters: c.characters, placement: c.placement, naiReferences: c.naiReferences, strength: c.strength, noise: c.noise, enhance: c.enhance, focus: c.focus });
+    return canonical(withoutPrompt(after)) !== canonical(withoutPrompt(s.config)) ? '通用改图草稿支持修改说明、型号、模式与来源参数；不支持 NAI 参数或蒙版变更' : '';
+  }
   const keys:ParameterKey[]=['steps','sampler','cfgRescale','scale','noiseSchedule','varietyPlus','complexity','naiMode','qualityPreset','negativePreset','transparentBg'];
   for(const key of keys)if(form[key]!==before[key]) {const issue=parameterIssue(key,form,model);if(issue)return issue;}
   if(!naiCapabilities(form.model).medium&&!modelSamplers(model,s.samplers).includes(form.sampler))return '目标型号不支持此采样器';

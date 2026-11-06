@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import AnnotationCard from "../../shared/annotations/AnnotationCard.vue";
 import {
   computed,
   shallowRef,
@@ -10,12 +11,14 @@ import {
   nextTick,
 } from "vue";
 import type { ConversationTurn } from "../../storage/records";
+import { useAnnotations } from "../../app/annotations.ts";
+import { canMaskAnnotations } from "../../domain/region-annotation.ts";
 import { useChat } from "../../app/chat";
 import { useDrawing } from "../../app/drawing";
 import { chatImageId, chatImageOrigin } from "../../domain/image-origin.ts";
 import { useUi, message } from "../../app/ui";
 import { useEditor } from "../../app/editor";
-import { selectSource, retainImage } from "../../domain/conversation.ts";
+import { selectSource } from "../../domain/conversation.ts";
 import { chatOptions } from "../../services/chat";
 import { copyText } from "../../shared/files";
 import AppIcon from "../../shared/AppIcon.vue";
@@ -24,6 +27,10 @@ import ChatPrint from "./ChatPrint.vue";
 import ChatVersions from "./ChatVersions.vue";
 import ChatResultTools from "./ChatResultTools.vue";
 import WaveHost from "../image/WaveHost.vue";
+const annotations=useAnnotations(), showRaw=shallowRef<ReadonlySet<string>>(new Set());
+function displayed(id:string){ return showRaw.value.has(id) ? id : version.value.composites?.[id] ?? id; }
+function toggleRaw(id:string){const next=new Set(showRaw.value);if(next.has(id))next.delete(id);else next.add(id);showRaw.value=next;}
+function review(id:string){try{annotations.chatReview(view.value.current.id,props.turn.id,version.value.id,id);}catch(e){ui.toast(message(e),"err");}}
 const props = defineProps<{
     turn: ConversationTurn;
     number: number;
@@ -70,7 +77,7 @@ const images = computed(() => {
       : [],
   ),
   currentBase = computed(() =>
-    images.value.some((block) => isBase(block.assetId)),
+    images.value.some((block) => isBase(displayed(block.assetId))),
   );
 const phase = shallowRef<HTMLElement | null>(null);
 let tick: ReturnType<typeof setInterval> | undefined,
@@ -148,18 +155,11 @@ async function reuse() {
   chat.setPrompt(props.turn.prompt);
   document.getElementById("chatPrompt")?.focus();
 }
-function more(id: string) {
-  if (view.value.model?.maxImages === 1) {
-    ui.toast("该模型每轮仅支持 1 张图，请使用「继续编辑这张图」");
-    return;
-  }
-  chat.mutate((c) => retainImage(c, id), true);
-}
-function upscale(id: string) {
+/** One EDIT entry: upscale, inpaint and annotation live on the board, not on the print. */
+function openEdit(id: string) {
   const a = asset(id);
   if (a)
     void editor.open("chat", a.blob, a.name, {
-      mode: "upscale",
       conversationId: view.value.current.id,
       sourceId: favoriteId(a.id),
       settings: { ...chatImageOrigin(view.value.current, props.turn, version.value, a.id), tool: "chat", prompt: props.turn.prompt, model: String(props.turn.settings.model ?? "") },
@@ -193,7 +193,8 @@ const filename = (id: string) =>
           <img :src="url(id)" :alt="asset(id)?.name" width="40" height="40" />
         </button>
       </div>
-      <div class="msg-bubble turn-prompt" tabindex="0">{{ turn.prompt }}</div>
+      <AnnotationCard v-if="turn.snapshot.annotation" :regions="turn.snapshot.annotation.snapshot.regions" :preview="url(turn.snapshot.annotation.guideAssetId)" sent />
+      <div v-if="turn.prompt" class="msg-bubble turn-prompt" tabindex="0">{{ turn.snapshot.annotation?.text ? turn.prompt.replace(turn.snapshot.annotation.text, '').trim() : turn.prompt }}</div>
       <div class="msg-tools">
         <button class="ibtn" type="button" aria-label="复制描述" @click="copy">
           <AppIcon name="i-copy" />
@@ -254,62 +255,70 @@ const filename = (id: string) =>
         </div>
         <template v-else v-for="(b, i) in blocks" :key="i">
           <p v-if="b.type === 'text'" class="msg-text">{{ b.text }}</p>
-          <div v-else-if="asset(b.assetId)" class="chat-result">
-            <div class="turn-visual-row">
-              <div
-                class="chat-art"
-                :style="{
-                  '--image-width': `${asset(b.assetId)!.width}px`,
-                  '--image-ratio':
-                    asset(b.assetId)!.width / asset(b.assetId)!.height,
-                }"
+          <div
+            v-else-if="asset(displayed(b.assetId))"
+            class="chat-result"
+            :style="{
+              '--image-width': `${asset(displayed(b.assetId))!.width}px`,
+              '--image-ratio': asset(displayed(b.assetId))!.width / asset(displayed(b.assetId))!.height,
+            }"
+          >
+            <div class="chat-art">
+              <ChatPrint
+                :key="`${version.id}:${b.assetId}`"
+                :url="url(displayed(b.assetId))!"
+                :alt="turn.prompt.slice(0, 160)"
+                :width="asset(displayed(b.assetId))!.width"
+                :height="asset(displayed(b.assetId))!.height"
+                :asset-id="displayed(b.assetId)"
+                :base="isBase(displayed(b.assetId))"
+                :fresh="chat.isFresh(version.id)"
+                @view="emit('view', displayed(b.assetId))"
               >
-                <ChatPrint
-                  :key="`${version.id}:${b.assetId}`"
-                  :url="url(b.assetId)!"
-                  :alt="turn.prompt.slice(0, 160)"
-                  :width="asset(b.assetId)!.width"
-                  :height="asset(b.assetId)!.height"
-                  :asset-id="b.assetId"
-                  :base="isBase(b.assetId)"
-                  :fresh="chat.isFresh(version.id)"
-                  @view="emit('view', b.assetId)"
+                <span
+                  v-if="isBase(displayed(b.assetId))"
+                  class="chat-base-badge"
+                  role="img"
+                  aria-label="当前底图"
+                  title="当前底图"
                 >
-                  <span
-                    v-if="isBase(b.assetId)"
-                    class="chat-base-badge"
-                    role="img"
-                    aria-label="当前底图"
-                    title="当前底图"
-                  >
-                    <AppIcon name="i-image-base" />
-                  </span>
-                  <ChatResultTools
-                    :url="url(b.assetId)!"
-                    :filename="filename(b.assetId)"
-                    :base="isBase(b.assetId)"
-                    :favorite="favorite(b.assetId)"
-                    :favorite-busy="favoriteBusy(b.assetId)"
-                    @favorite="toggleFavorite(b.assetId)"
-                    @upscale="upscale(b.assetId)"
-                    @continue="
-                      chat.mutate((c) => selectSource(c, turn, b.assetId))
-                    "
-                    @retain="more(b.assetId)"
-                    @retry="chat.execute(turn)"
-                  />
-                </ChatPrint>
-              </div>
-              <ChatVersions
-                v-if="b.assetId === images[0]?.assetId"
-                :turn="turn"
-              />
+                  <AppIcon name="i-pin" />
+                </span>
+                <button
+                  v-else
+                  class="chat-base-pin"
+                  type="button"
+                  aria-label="设为底图"
+                  data-tip="设为底图"
+                  @click="chat.mutate((c) => selectSource(c, turn, displayed(b.assetId)))"
+                ><AppIcon name="i-pin" /></button>
+              </ChatPrint>
             </div>
-            <span v-if="images.length > 1" class="chat-dimensions mono"
-              >{{ asset(b.assetId)!.width }}×{{
-                asset(b.assetId)!.height
-              }}</span
-            >
+            <ChatVersions
+              v-if="b.assetId === images[0]?.assetId"
+              :turn="turn"
+            />
+            <footer class="chat-meta chat-result-meta">
+              <span class="msg-model-name">
+                <ModelIcon :family="model?.provider" />
+                <span class="msg-name" :title="model?.name || String(turn.settings.model)">{{ model?.name || turn.settings.model }}</span>
+              </span>
+              <span class="chat-dimensions mono">{{ asset(displayed(b.assetId))!.width }}×{{ asset(displayed(b.assetId))!.height }}</span>
+              <span v-if="b.assetId === images[0]?.assetId && Number(version.quote?.cost) > 0" class="chat-cost mono">{{ version.quote?.cost }} 积分</span>
+            </footer>
+            <ChatResultTools
+              :url="url(displayed(b.assetId))!"
+              :filename="filename(displayed(b.assetId))"
+              :favorite="favorite(displayed(b.assetId))"
+              :favorite-busy="favoriteBusy(displayed(b.assetId))"
+              @favorite="toggleFavorite(displayed(b.assetId))"
+              @edit="openEdit(displayed(b.assetId))"
+              @retry="chat.execute(turn)"
+            />
+            <div v-if="turn.snapshot.annotation && canMaskAnnotations(turn.snapshot.annotation.snapshot.regions)" class="chat-annotation-review">
+              <button class="btn btn-sm btn-quiet" @click="review(b.assetId)"><AppIcon name="i-mask" />{{ version.composites?.[b.assetId] ? '重新审核' : '审核并应用蒙版' }}</button>
+              <button v-if="version.composites?.[b.assetId]" class="btn btn-sm btn-quiet" :aria-pressed="showRaw.has(b.assetId)" @click="toggleRaw(b.assetId)">{{ showRaw.has(b.assetId) ? '查看回贴图' : '查看模型直出' }}</button>
+            </div>
           </div>
         </template>
         <ChatVersions
@@ -317,7 +326,7 @@ const filename = (id: string) =>
           :turn="turn"
         />
       </div>
-      <footer class="chat-meta">
+      <footer v-if="version.status !== 'done' || !images.length" class="chat-meta">
         <span class="msg-model-name">
           <ModelIcon :family="model?.provider" />
           <span
@@ -327,13 +336,6 @@ const filename = (id: string) =>
           >
         </span>
         <template v-if="version.status === 'done'">
-          <span
-            v-if="images.length === 1 && asset(images[0].assetId)"
-            class="chat-dimensions mono"
-            >{{ asset(images[0].assetId)!.width }}×{{
-              asset(images[0].assetId)!.height
-            }}</span
-          >
           <span v-if="Number(version.quote?.cost) > 0" class="chat-cost mono"
             >{{ version.quote?.cost }} 积分</span
           >
@@ -347,3 +349,7 @@ const filename = (id: string) =>
     </div>
   </article>
 </template>
+
+<style scoped>
+.chat-annotation-review { grid-column: 1 / -1; display: flex; gap: var(--sp-2); flex-wrap: wrap; padding-top: var(--sp-2); }
+</style>

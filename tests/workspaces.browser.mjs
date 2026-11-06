@@ -256,12 +256,11 @@ async function send(t, text = "画一片蓝色森林") {
       chat.snapshot().current.turns.at(-1)?.versions.at(-1)?.status === "done",
   );
 }
+function resultAction(scope, name) {
+  return scope.getByRole("button", { name, exact: true });
+}
 async function showResultTools(turn) {
-  await turn.locator(".chat-print").first().hover();
-  const menu = turn.getByRole("button", { name: "图片操作", exact: true });
-  const compact = await menu.isVisible();
-  if (compact) await menu.click();
-  return compact;
+  await turn.locator(".chat-result").first().hover();
 }
 async function editorSource(t, origin = "image", mode = "img2img") {
   await t.page.evaluate(
@@ -327,11 +326,7 @@ test("[core] M5 chat UI: ordered response, exact context, consumption, version/b
     assert.match(payload.prompt, /此前的绘图要求/);
     assert.equal(payload.additional_images.length, 1);
     await showResultTools(p.locator(".chat-turn").first());
-    await p
-      .locator(".chat-turn")
-      .first()
-      .getByRole("button", { name: "重新生成此版本", exact: true })
-      .click();
+    await resultAction(p.locator(".chat-turn").first(), "重新生成此版本").click();
     await p.waitForFunction(
       () =>
         chat.snapshot().current.turns[0].versions.length === 2 &&
@@ -400,7 +395,7 @@ test("H1 chat rail: compact history, exact version states, responsive tools and 
     const source = await p.evaluate(() => ({ mainId: chat.snapshot().current.mainId, headId: chat.snapshot().current.headId }));
     t.state.fail = true;
     await showResultTools(first);
-    await first.getByRole("button", { name: "重新生成此版本", exact: true }).click();
+    await resultAction(first, "重新生成此版本").click();
     await p.waitForFunction(() => !chat.snapshot().busy && chat.snapshot().current.turns[0].versions.length === 2);
     assert.equal(await first.locator(".chat-version[data-status=error]").count(), 1);
     await first.getByRole("button", { name: "第 1 个版本 · 已完成", exact: true }).click();
@@ -408,7 +403,7 @@ test("H1 chat rail: compact history, exact version states, responsive tools and 
     t.state.fail = false;
     t.state.hold = true;
     await showResultTools(first);
-    await first.getByRole("button", { name: "重新生成此版本", exact: true }).click();
+    await resultAction(first, "重新生成此版本").click();
     await p.waitForSelector(".chat-turn[data-pending] .chat-pending .tile-wave");
     assert.equal(await first.getAttribute("data-older"), null, "an earlier turn being regenerated stays full-size");
     assert.equal(await first.locator(".chat-version[data-status=pending]").count(), 1);
@@ -427,23 +422,31 @@ test("H1 chat rail: compact history, exact version states, responsive tools and 
       const width = 1440;
       await p.setViewportSize({ width, height: 900 });
       await first.scrollIntoViewIfNeeded();
-      const compact = await showResultTools(first);
-      const tools = first.locator(compact ? ".result-actions-menu:popover-open" : ".result-actions-overlay");
-      assert.equal(await tools.locator(".ibtn").count(), 6);
-      if (compact) {
-        await p.keyboard.press("Escape");
-        assert.equal(await first.locator(".result-actions-menu:popover-open").count(), 0);
-      }
+      await showResultTools(first);
+      const tools = first.getByRole("toolbar", { name: "图片操作" });
+      assert.deepEqual(await tools.locator("button, a").evaluateAll(nodes => nodes.map(node => node.getAttribute("aria-label"))), ["在 EDIT 编辑这张图", "重新生成此版本", "收藏图片", "下载图片"]);
+      // The pin changes the source; the action band keeps the same four operations.
+      await first.getByRole("button", { name: "设为底图", exact: true }).click();
+      await p.waitForFunction(() => chat.snapshot().current.headId === chat.snapshot().current.turns[0].id);
+      assert.equal(await first.locator(".chat-base-badge").count(), 1);
+      assert.equal(await first.getByRole("button", { name: "设为底图", exact: true }).count(), 0);
+      assert.ok(await tools.getByRole("link", { name: "下载图片", exact: true }).getAttribute("download"));
     }
-    // A compact menu is closed when its kept-alive workspace is deactivated.
+    // The same version control retains selection across the mobile layout and KeepAlive.
     await p.setViewportSize({ width: 320, height: 900 });
-    await showResultTools(first);
+    await first.getByRole("button", { name: "第 2 个版本 · 失败", exact: true }).click();
+    assert.equal(await first.locator(".turn-output").getAttribute("data-status"), "error");
+    await first.getByRole("button", { name: "第 1 个版本 · 已完成", exact: true }).click();
     await p.evaluate(() => location.hash = "#/tags");
     await p.waitForSelector("[data-workspace-root=tags]");
     await p.evaluate(() => location.hash = "#/chat");
     await p.waitForSelector("#chatPrompt");
-    assert.equal(await p.locator(".result-actions-menu:popover-open").count(), 0);
     assert.equal(await first.locator(".chat-version[aria-pressed=true]").getAttribute("data-status"), "done");
+    // One EDIT entry: the image opens on a CHAT board in its general mode, not pre-switched to upscale.
+    await showResultTools(first);
+    await resultAction(first, "在 EDIT 编辑这张图").click();
+    await p.locator("#imageEditor[data-active=true]").waitFor();
+    assert.deepEqual(await p.evaluate(() => ({ origin: editor.session.origin, own: editor.session.conversationId === chat.snapshot().current.id, upscale: editor.snapshot().upscaleOpen })), { origin: "chat", own: true, upscale: false });
   } finally { await t.close(); }
 });
 
@@ -860,10 +863,9 @@ test("M6 upscale uses viewed original and independent detail, chat return owners
     assert.equal(origin.result.chatConversationId, origin.conversationId);
     assert.equal(origin.result.boardId, undefined);
     assert.ok(origin.result.editId);
-    await p
-      .locator("#imageEditor")
-      .getByRole("button", { name: "添加为参考图", exact: true })
-      .click();
+    assert.equal(await p.locator("#imageEditor").getByRole("button", { name: "添加为参考图", exact: true }).count(), 0);
+    await p.locator("#editorSend").click();
+    await p.getByRole("menuitem", { name: /^CHAT 改图 · 来源对话 / }).click();
     await p.waitForSelector("#imageEditor", { state: "hidden" });
     assert.equal(
       await p.evaluate(() => chat.snapshot().context.imageIds.length),

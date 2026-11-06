@@ -1,16 +1,17 @@
 # ASK 的 NAI 基础感知
 
-更新：2026-10-29。EA0 已接入 IMAGE，并由 [EDIT](edit.md)复用；本文维护现行读取与计算口径。获批方案见[规划归档](../archive/ask/2026-10-29-ask-nai-awareness-plan.md)，本地验证与真实待验边界见[验收记录](../archive/ask/2026-10-29-ask-edit-verification.md)。
+更新：2026-11-04。EA0 已接入 IMAGE，并由 [EDIT](edit.md)复用；本文维护现行读取与计算口径。获批方案见[规划归档](../archive/ask/2026-10-29-ask-nai-awareness-plan.md)，本地验证与真实待验边界见[验收记录](../archive/ask/2026-10-29-ask-edit-verification.md)。
 
 ## 数据来源与权限
 
 `services/nai-awareness.ts` 将现有型号、Profile、参数编译、角色、参考、tokenizer 和费用函数组合为只读快照；`services/edit-awareness.ts` 适配编辑模式与实际请求尺寸。没有第二套分词器或计价公式，也不从组件或 tooltip 读取数字。
 
-ASK 不选源、不刷新额度、不请求报价、不编码参考、不生成图片。摘要、`get_state`、`check_nai_input`、提议、应用与撤销均遵守该限制。分词只加载同站点许可词表；真实执行仍由用户按工作区原有流程发起。
+ASK 不选源、不刷新额度、不请求报价、不编码参考、不生成图片。摘要、`get_state`、草稿内自动检查、应用与撤销均遵守该限制。分词只加载同站点许可词表；真实执行仍由用户按工作区原有流程发起。
 
 ## 保存值、生效值与能力
 
-`image.form` 保留完整原始词文及保存参数，包括 Variety+、noiseSchedule 和 transparentBg；同级提供：
+IMAGE 表单在初始状态中展开或经 `get_state({board_id})` 显式读取时，保留完整原始词文及保存参数，包括 Variety+、noiseSchedule 和 transparentBg，并附带以下投影。EDIT 无有效 IMAGE 历史／收藏锚点时，初始与 latest 的 IMAGE 目录摘要不附这些字段，也不额外运行其分词；冻结原文仍留在本地供指定画板读取与草稿校验。
+
 
 | 字段 | 内容 |
 | --- | --- |
@@ -53,8 +54,17 @@ Token 超限为警告，说明上游可能截断，不自动删词；Text 超限
 
 ## 候选检查与元数据
 
-`check_nai_input({base_hash, steps?})` 复用本轮冻结目标和共享草稿解析，接受词文、参数、角色与部分恢复步骤。空 steps 检查当前输入；EDIT 中同样可以检查目标模式、Enhance 与聚焦参数。工具返回完整候选能力、生效值、预算和只读费用；结构问题给出诊断。
+每轮初始状态与 `get_state`（包括指定其他 IMAGE／EDIT 画板和 latest）自动附带计算好的 `input_budget` 与 `capabilities`。没有底图或计数不可用时如实标记，不能填零或声称已通过。
 
-候选检查不创建草稿卡、不写入、不消耗真实角色 ID，也不结束本轮；模型可根据结果再提议唯一草稿。应用前仍重新检查当前目标、能力和冲突。没有完成有效计数就不能声称输入通过预算检查。
+已知 NAI 型号尚未配置来源时，仍按本地型号规则编译词文并计算预算，允许先准备提示词草稿；`capabilities.ready` 保持 false，费用保持 unknown，草稿结果提示来源不可用。此时不选择来源、不推断渠道特有能力，Text 与 Medium 固定字段等已知约束仍照常检查。
 
+内部 `checkNaiInput` 在 `propose_draft` 提交 NAI 词文、参数、角色、部分恢复或编辑配置时自动运行，不注册为模型可调用工具。使用共享草稿解析与验证器投影完整候选，在无效参数组回滚之前取出候选词文，因此错误回复不会拿原表单的计数冒充新稿。普通任务板、文件、CHAT 和非 NAI 草稿不套用 NAI 预算。
+
+- 校验通过或只有普通 Token 超限提示：接纳草稿，返回正向／负向 Token 和 Text 的 `used / limit / remaining / overflow` 摘要，结束工具阶段。
+- Text 字符超限、明确的位置错误、Medium 锁定字段或其他候选硬性错误：不接纳草稿，返回具体原因及可计算的精确计数；模型可修正后重新调用同一个 `propose_draft`。
+- 分词暂不可用：保留 unavailable/error 状态与未核验提示，不伪造 Token 计数，也不因只读分词故障反复退回同一草稿；本地 Text 字符与结构约束仍检查。结构本身无法解析时沿用结构错误，不能捏造完整候选预算。
+
+`Text:` 没有结束标记，其后全部内容均计入 Text 字符数。位置校验只处理明确结构：完整引号文字块之后又追加描述，或 Text 后另起 `Character N:`／Prompt／Negative／Style／Caption、artist／style 等段落。普通逗号、未加引号的台词、多行文字不凭语义猜测拦截；无法区分的自然语言仍整体计数。不会改写或挪动用户原文。
+
+检查不写入、不消耗真实角色 ID，不额外占用工具额度，也不重复回传整套能力目录与费用结构。应用前仍检查当前目标、能力和冲突；生成前的原有校验保持。
 图片 `get_meta/diff_meta` 已补齐 Variety+、调度、Enhance／聚焦、Director 参数及适用的来源配方。只读该图片记录中存在的字段，不从当前表单或同实体的另一条记录补造。原图、蒙版像素和参考编码不进入这些元数据。

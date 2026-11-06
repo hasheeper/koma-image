@@ -10,7 +10,21 @@ test("codec: defaults have no vocabulary, replacement rules or codebook", () => 
   assert.deepEqual(settings.replacements, []);
   assert.equal(settings.alwaysCodec, false);
   assert.equal(createCodec([]), identityCodec);
-  assert.equal(codecFor({ adult: true, enabled: true, ...settings }).table(), "");
+  assert.equal(codecFor({ adult: true, enabled: true, ...settings }).instructions(), "");
+});
+
+test("codec: transport instructions never include the local dictionary or replacement mappings", () => {
+  const words = ["velvet motif", "moonlit grove"], rules = [{ from: "red coat", to: "azure dress" }];
+  const codec = createCodec(words, rules), instructions = codec.instructions();
+  assert.match(instructions, /@t_001.*@T_.*末尾 u.*原样保留.*客户端会自动还原/);
+  for (const text of [...words, ...rules.flatMap(r => [r.from, r.to]), "<codebook>"])
+    assert.equal(instructions.includes(text), false, text);
+  assert.equal(createCodec(["other motif"]).instructions(), instructions, "guidance is independent of local dictionary contents");
+  assert.equal(createCodec([], rules).instructions(), "", "literal replacements need no dictionary or alias guidance");
+  assert.equal(codecFor({ adult: true, enabled: false, words, replacements: rules }).instructions(), "");
+  assert.equal(codecFor({ adult: false, enabled: true, words, replacements: rules }).instructions(), "");
+  assert.equal(codec.encode("moonlit grove, red coat"), "@t_002, azure dress");
+  assert.equal(codec.instructions(), instructions, "encoding does not accumulate or disclose request-specific hits");
 });
 
 test("codec: custom vocabulary accepts arbitrary words; only normalization and structural limits apply", () => {
@@ -56,7 +70,7 @@ test("codec: explicit A → B is literal, longest-first and single-pass, then re
   const draft = { red: "red coat", steps: [{ anchor: "red", text: "[明亮]+" }] };
   assert.deepEqual(codec.decodeDeep(codec.encodeDeep(draft)), draft);
   assert.equal(codec.encodeDeep(draft).red, "amber dress", "explicit pair wins over automatic alias");
-  assert.equal(codec.table(), createCodec(["red coat"], rules).table(), "same rules give the same static prefix");
+  assert.equal(codec.instructions(), createCodec(["red coat"], rules).instructions());
 });
 
 test("codec: pair settings validate structure and mapping collisions, preserving exact case and spelling", () => {
@@ -83,8 +97,8 @@ test("codec: Unicode word encoding round-trips text, tool arguments and fragment
   const unicode = "\\u0073\\u006f\\u0066\\u0074\\u0020\\u006c\\u0069\\u0067\\u0068\\u0074";
   assert.equal(codec.encode("soft light"), unicode);
   assert.equal(codec.decode(unicode + "and"), "soft lightand");
-  assert.equal(codec.table().includes("soft light"), false);
-  assert.match(codec.table(), /Unicode/);
+  assert.equal(codec.instructions().includes("soft light"), false);
+  assert.match(codec.instructions(), /Unicode/);
   for (const source of ["SOFT_LIGHT, soft light", "柔光效果，猫🐱", "red coat, 柔光", "midnight"]) {
     const encoded = codec.encode(source);
     assert.equal(codec.decode(encoded), source);

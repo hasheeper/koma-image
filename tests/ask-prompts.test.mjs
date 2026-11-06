@@ -50,3 +50,21 @@ test("ASK model manuals: bodies stay out of static requests and are read only by
   assert.equal(entry.final, undefined);
   assert.equal(JSON.stringify(request(false)), before);
 });
+
+test("ASK current-image guidance names each workspace's actual image reference", () => {
+  const core = systemCore({adult: false});
+  assert.match(core, /EDIT 的当前画面.*edit\.viewing_version\.id/);
+  assert.match(core, /IMAGE 用 image\.current\.id.*image\.history\.latest_id/);
+  assert.match(core, /不向工具传 null、空串或字段路径文字/);
+  assert.match(core, /\{id:"#e1\.1",spec:"look"\}.*无需先调 get_meta 或 get_state/);
+  assert.match(core, /edit\.form.*不是查看版本生成时的历史配方/);
+  assert.match(core, /image_input\.enabled=false.*不调用视觉工具/);
+  assert.doesNotMatch(core, /可先用 `current\.id` 或 `latest_id`/);
+  assert.match(core, /EDIT 中.*整个 image 只保留画板目录.*get_state\(\{ board_id \}\)/);
+  assert.match(createTools().get('get_state').tool.description, /跨区读取须传 board_id/);
+});
+
+test('annotation prompting preserves the whole-image prerequisite and separates locator from clean image',()=>{
+ const core=systemCore({adult:false});assert.match(core,/批注底图 ID/);assert.match(core,/成功后再用 `annotation` 裁切/);assert.match(core,/已有有效全图查看记录时无需重复/);assert.match(core,/仅看过定位图、拼图或读过批注坐标不满足/);
+ assert.doesNotMatch(constitution.body,/edit\.viewing_version\.id/);
+});

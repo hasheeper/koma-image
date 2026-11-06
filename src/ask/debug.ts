@@ -1,5 +1,5 @@
 import { object } from "../domain/value.ts";
-import type { AskStop, AskUsage, CacheUsage } from "./messages.ts";
+import type { AskStop, AskUsage, CacheUsage, ResponseDiagnostics } from "./messages.ts";
 
 export interface CallInfo {
   /** The page conversation that made the call. */
@@ -23,6 +23,8 @@ export interface CallSummary extends CallInfo {
   readonly usage: AskUsage | null;
   readonly cache: CacheUsage;
   readonly stop: AskStop | null;
+  readonly response?: ResponseDiagnostics;
+  readonly error?: string;
 }
 export interface CallRecord extends CallSummary { readonly body: string }
 export interface CallLogView { readonly calls: readonly CallSummary[]; readonly dropped: number }
@@ -44,12 +46,12 @@ export function createCallLog(changed: (view: CallLogView) => void, limits = { c
       publish();
       return id;
     },
-    finish(id: number, outcome: Pick<CallSummary, "usage" | "cache" | "stop">) {
+    finish(id: number, outcome: Pick<CallSummary, "usage" | "cache" | "stop" | "response">) {
       records = records.map(r => r.id === id ? { ...r, ...outcome, ended: Date.now(), status: "done" } : r);
       publish();
     },
-    fail(id: number, stopped: boolean) {
-      records = records.map(r => r.id === id ? { ...r, ended: Date.now(), status: stopped ? "stopped" : "failed" } : r);
+    fail(id: number, stopped: boolean, error?: string) {
+      records = records.map(r => r.id === id ? { ...r, ...(error ? { error: error.slice(0, 2000) } : {}), ended: Date.now(), status: stopped ? "stopped" : "failed" } : r);
       publish();
     },
     get: (id: number) => records.find(r => r.id === id),

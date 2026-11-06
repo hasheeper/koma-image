@@ -45,7 +45,7 @@ watch(
 );
 function preview(version: ConversationVersion) {
   const image = version.blocks.find((block) => block.type === "image");
-  return image && chat.assets.assets.get(image.assetId)?.url;
+  return image && chat.assets.assets.get(version.composites?.[image.assetId] ?? image.assetId)?.url;
 }
 </script>
 <template>

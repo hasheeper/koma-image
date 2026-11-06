@@ -388,10 +388,14 @@ function validateNAIEditPayload(
 
 /** The image editor's three modes share one base image. */
 export const EDITOR_MODES: EditorMode[] = ["img2img", "inpaint", "upscale"];
+/** Generic image editing uses declared capabilities, including user-defined IDs. */
+export function isGenerativeEditorModel(model?: CatalogModel): boolean {
+  return !!model && model.provider !== "novelai" && model.chat && model.operations.includes("edit") && model.tools.includes("image-edit") && model.maxImages >= 1;
+}
 export function editorModels(catalog: ModelCatalog, mode: EditorMode): CatalogModel[] {
   const available = mode === "upscale"
     ? upscaleModels(catalog)
-    : naiEditModels(catalog, mode);
+    : [...naiEditModels(catalog, mode), ...catalog.models.filter(isGenerativeEditorModel)];
   return available.filter((m, i) => available.findIndex(other => other.id === m.id) === i);
 }
 
@@ -405,6 +409,8 @@ export function validateEditorSource(
   const pixels = width * height,
     format = (n: number) => n.toLocaleString("en-US");
   if (bytes > MAX_INPUT_BYTES) return "底图超过 8MB";
+  if (mode !== "upscale" && isGenerativeEditorModel(model))
+    return pixels > Math.min(32_000_000, model.sourceMaxPixels) ? "底图超过此来源的输入像素上限" : null;
   if (mode === "upscale") {
     if (model.provider === "novelai" && pixels > naiUpscaleLimit(model)) {
       return `${width}×${height} 超过 NAI 放大上限 ${format(naiUpscaleLimit(model))} 像素，请换专用放大模型`;
