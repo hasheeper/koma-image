@@ -1,6 +1,6 @@
 # 架构规范
 
-更新：2026-11-01。描述当前核心技术、模块结构与所有权。产品定位和功能见[产品总览](product/overview.md)，功能状态和真实待验项见[当前状态](status.md)，UI 标准见[设计语言](product/design-language.md)，行为约束见[业务契约](business-contracts.md)。
+更新：2026-11-09。描述当前核心技术、模块结构与所有权。产品定位和功能见[产品总览](product/overview.md)，功能状态和真实待验项见[当前状态](status.md)，UI 标准见[设计语言](product/design-language.md)，行为约束见[业务契约](business-contracts.md)。
 
 ## 核心技术
 
@@ -27,7 +27,7 @@
 - 切换保留草稿、附件、选图、滚动和在途任务。EDIT 是独立页面，每张独立来源图拥有自己的编辑画板，设置为单例弹窗，备份为其子页；旧 backup 路由仍可访问。
 - `src/app/presentation.ts` 管页面 class、data 属性、标题、favicon 与样式开关；`src/app/theme.ts` 统一管理暗／亮两档外观偏好与跨页同步，默认暗色、不跟随系统；五个工作区共用可直接单击切换的按钮，通用设置同步，入口脚本先恢复首屏主题。隐藏工作区暂停界面事件和绘制，不取消后台任务。
 - 应用级服务在 KeepAlive 外持有数据、任务与资源。ASK 由外壳持有，车间桌面使用不挤压工作区的全局浮层，860px 及以下展开为全屏；HOME 使用半屏／全屏停靠；EDIT 同样可用 ASK，Photopea 打开时收起并让出键盘。
-- 设置、任务总览与 Photopea 界面在首次使用时按需加载。设置首次挂载后保留同一 dialog，Photopea 继续原位保留 iframe；应用级服务与工作区切换仍按原所有权运行。设置加载期间切走时，以最新路由决定是否打开。
+- 设置、任务总览、企划集与 Photopea 界面按需加载。设置首次挂载后保留同一 dialog，企划集关闭回收预览，Photopea 继续原位保留 iframe；应用级服务与工作区切换仍按原所有权运行。设置加载期间切走时，以最新路由决定是否打开。
 - `chat.html`、`tags.html`、`transfer.html` 只重定向到同一应用并保留查询参数，不初始化另一套应用或访问旧数据。
 
 ## DOM 与高频驱动
@@ -38,13 +38,13 @@ Canvas、指针、逐帧进度和明确委托的高频样式由原生驱动管�
 
 EDIT 由应用级服务持有独立画板、源版本、蒙版与任务归属。蒙版与手动聚焦框在同板同尺寸版本间沿用；聚焦重绘由客户端裁切／放大后单次请求，再仅合成原尺寸蒙版区域；手动结果与生成结果分型，原始出处及来源配方独立记录，结果留在 EDIT，经收藏与 Slate 交付。Director Tools 使用独立官方工具协议，输入取当前查看版本，去背景三种结果成组展示、保留透明通道与来源配方；所有输出解码与版本处理完成后释放同一任务槽。后台结果归发起画板，不抢占当前页；详见[编辑工作区](workspaces/edit.md)。
 
-Photopea 首次打开后保留单 iframe，每编辑画板拥有独立分层文档。固定脚本、串行消息、输入归一化与临时 PSD 元数据检查由 `src/native/photopea-*` 分工；宿主只持轻量身份与状态。回传冻结来源，经完整校验一次提交；临时内存副本导出干净图像和蒙版，原分层及撤销／重做保留。完整视口、延迟重排、通道隔离与资源清理见[Photopea 接入与工作栈](integrations/photopea.md)。
+Photopea 由 App 通过 `services/photopea.ts` 持有单个按需创建、原位保活的 iframe。普通编辑按 EDIT 画板保留分层文档；结果融合按 EDIT／CHAT 的具体 raw 与配置隔离文档，将冻结原图、对齐的 AI 图层与软图层蒙版送入，回传由来源服务写正式版本或原轮次合成。固定脚本、串行消息、输入归一化与临时 PSD 元数据检查由 `src/native/photopea-*` 分工；宿主只持轻量身份与状态。回传冻结来源，经完整校验一次提交；临时内存副本导出干净图像和蒙版，原分层及撤销／重做保留。完整视口、延迟重排、通道隔离与资源清理见[Photopea 接入与工作栈](integrations/photopea.md)。
 
 ## 协议与连接
 
 依赖方向为工作区 → domain／services → Gateway Profile → transport。Profile 声明目录、鉴权、报价、额度、路线及图像／推理能力，不按连接名称或域名分支。
 
-登记表包含 Koma 标准网关、OpenAI Images、Gemini 原生、NovelAI 官方、OpenAI Chat 兼容和 Anthropic Messages，OpenAI 与 Gemini 原生均可共用连接开启文字和图像入口。图像与推理入口按各自能力筛选；共用 Profile 维护一份地址和 Key，图像客户端和 ASK 分别使用对应协议适配器。实现边界见[图像协议](integrations/image-protocols.md)和[ASK 运行契约](ask/runtime.md)。
+登记表包含 Koma 标准网关、Seedream 原生、OpenAI Images、Gemini 原生、NovelAI 官方、OpenAI Chat 兼容和 Anthropic Messages，OpenAI 与 Gemini 原生均可共用连接开启文字和图像入口。图像与推理入口按各自能力筛选；共用 Profile 维护一份地址和 Key，图像客户端和 ASK 分别使用对应协议适配器。实现边界见[图像协议](integrations/image-protocols.md)和[ASK 运行契约](ask/runtime.md)。
 
 标准网关保留防抖报价、执行前重报、`max_cost`、原生／Studio／工具分流和余额检查。无报价能力保留未知费用状态，与报价失败、零值、加载分开；生成按钮暂不展示未知费用标签。没有协议自动回退或生成自动重试。
 
@@ -66,7 +66,7 @@ GPT／Gemini 初始预设可新增、编辑和删除，稳定的内部身份和�
 | ASK OpenAI Chat | `KOMA_ASK_OPENAI` | 固定目录与流式推理路径 |
 | ASK Anthropic Messages | `KOMA_ASK_ANTHROPIC` | 固定目录与流式推理路径 |
 
-每组 URL／Key 成对设置；可只配置 ASK。网页只获得运行模式和临时令牌，服务端地址与 Key 不注入浏览器，不进入 `VITE_*`。只读运行时连接和令牌不持久化；图像模型来源另存 `koma.local.models.v1`，可编辑条目另存 `koma.local.model-entries.v1`。原生图像三协议目前仅浏览器直连。运行与打包步骤见[发布说明](release-guide.md)。
+每组 URL／Key 成对设置；可只配置 ASK。网页只获得运行模式和临时令牌，服务端地址与 Key 不注入浏览器，不进入 `VITE_*`。只读运行时连接和令牌不持久化；图像模型来源另存 `koma.local.models.v1`，可编辑条目另存 `koma.local.model-entries.v1`。原生图像协议目前仅浏览器直连。运行与打包步骤见[发布说明](release-guide.md)。
 
 
 ## 调度与数据
@@ -83,7 +83,11 @@ CHAT 收藏复制原始字节到既有收藏库，以会话／轮次／版本／
 
 这里的本地存储属于当前浏览器和站点来源，Cloudflare Pages 与本地服务均可运行 Todo；域名、端口或浏览器变化不共享数据。会话只关联 Slate ID，不拥有清单和成果；稳定身份与持久版本由任务服务管理，草稿校验沿用[共享编辑规则](integrations/bridge.md#ask-推进与复合草稿)。
 
+企划索引由 `bridge/project/` 扫描根目录约定结构及小型元数据，Bridge 持有目录身份、缓存与中止信号；面板按需解码素材并回收 URL。挂载只恢复本目录映射，任务操作冻结目录目标以防跨企划写入。ASK 通过只读端口取得摘要与原文，企划图片原件归会话附件池，由 `project-images.ts` 为待审草稿、收藏恢复和撤销栈保持引用；不新增资产数据库。完整约定见[企划集](integrations/bridge.md#企划目录与元数据)。
+
 ASK 的只读工具与外部 IMAGE 收件共用草稿结构，提示词、参数、`slate_edit` 和 `save_ref` 在 DraftCard 审阅。确认写入器协调原画板路径、本地任务／资产及文件预检与补偿，完成记录复用工具完成态；文件系统与 IndexedDB 之间不提供跨进程原子事务。公开 `/skills/koma-bridge/SKILL.md` 只说明外部操作方式，目录内生成的 `PROTOCOL.md` 才描述当前字段，不构成远程文件访问接口。
+
+版本演进由 `src/ask/retrospect/` 按需计算候选和精确 Diff，ASK 负责主题与拓扑推演。应用级服务持有本页稳定活动树、具体图片基底、批注与定稿；激活后订阅生成提交和成功落图，按有效配方归组或分叉，显式恢复／内置回退草稿成功后同步基底，复用原草稿撤销栈。消息保留当次快照，同树重整检查读取版本；删除来源回复不删除活动树，切板／清空／解除／定稿停止跟踪。`RetrospectHost` 以 Vue Teleport 承载唯一 ASK 浮窗。详见[版本演进](workspaces/recipe-retrospect.md)，不扩展 ASK 生图权限、外部 Bridge 草稿或跨刷新存储。
 
 NAI 参考资产与编码由应用级 `services/nai-references.ts` 管理，收藏库保留 referenceAssets／vibeEncodings 两个独立存储；画板只持小型 JSON。Vibe 编码与生图共用任务锁，成功编码立即落库，参考准备后固定来源上下文。
 
@@ -99,10 +103,10 @@ NAI 参考资产与编码由应用级 `services/nai-references.ts` 管理，收�
 | --- | --- |
 | `src/app` | 外壳、路由、保活、展示协调与服务注入 |
 | `src/workspaces`、`src/overlays`、`src/shared` | 工作区、设置／Photopea 覆盖层和共享 Vue 控件 |
-| `src/ask` | 推理会话、只读工具、草稿、附件、收藏、提示词与压缩 |
+| `src/ask` | 推理会话、工具、草稿、附件、收藏、提示词、压缩与按需演进 |
 | `src/home` | 创作线投影、展示副本与偏好、HOME 页面／三种布局／导航；ASK 停靠、状态摘要、原图拖入与共享元素过渡 |
 | `src/slate` | 默认本地任务、共享编辑规则、独立成果与可恢复提交、目录版本映射／交付、确定性标注及会话待办／轻量总览 |
-| `src/bridge` | 外部 IMAGE 状态／预览同步、目录生命周期、JSON 收件与回执、refs 资料读取与用户导出 |
+| `src/bridge` | 企划根索引／素材面板、目录生命周期、外部 IMAGE 状态／预览同步、JSON 收件与回执、资料读取与用户导出 |
 | `src/domain` | 纯业务、模型、参数和角色结构 |
 | `src/gateway` | Profile、请求转换、鉴权、连接诊断与传输 |
 | `src/services`、`src/storage` | 调度、数据租约、资源、连接、持久化和备份 |

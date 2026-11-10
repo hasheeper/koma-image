@@ -20,6 +20,7 @@ export interface PictureOrigin {
   readonly order: number;
 }
 export interface Picture extends DigestImage {
+  readonly project?: { readonly ref: string; readonly path: string; readonly projectId: string };
   readonly annotations?: ImageAnnotations;
   readonly scope?: ImageTagBinding["scope"];
   readonly bindings?: Readonly<Record<string,ImageTagBinding>>;

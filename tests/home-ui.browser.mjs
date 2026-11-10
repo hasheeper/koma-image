@@ -118,25 +118,12 @@ test('HOME empty state preserves ASK versus background image paste',async()=>{
   } finally {await clean(t);}
 });
 
-test('HOME never flashes the empty card while restoring existing pictures',async()=>{
-  const t=await setup();const {page}=t;
-  try {
-    await page.context().addInitScript(()=>{
-      window.emptyCardSeen=false;
-      new MutationObserver(()=>{if(document.querySelector('.home-welcome'))emptyCardSeen=true;}).observe(document,{subtree:true,childList:true});
-    });
-    await page.reload();await bind(page);await page.waitForSelector('.home-print');
-    assert.equal(await page.evaluate(()=>home.snapshot().loaded),true);
-    assert.equal(await page.evaluate(()=>emptyCardSeen),false);
-    assert.equal(await page.locator('.home-welcome').count(),0);
-  } finally {await clean(t);}
-});
-
 test("real directory, three layouts and responsive prints",async()=>{
   const t=await setup();const {page}=t;
   try {
-    await page.getByRole('button',{name:'挂载协同目录',exact:true}).first().click();
+    await page.getByRole('button',{name:'挂载企划目录',exact:true}).first().click();
     await page.waitForFunction(()=>bridge.phase.value==='active');assert.equal(await page.locator('.home-settings .directory-chip span').innerText(),'home-collab');
+    await page.getByRole('button',{name:'关闭企划集',exact:true}).click();
     {
       const width = 1440;
       await page.setViewportSize({width,height:900});

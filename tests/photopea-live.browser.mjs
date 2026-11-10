@@ -45,6 +45,38 @@ async function inspect(page){
 }
 async function bits(page){return page.evaluate(async()=>{const {maskStateBitmap}=await import('/src/native/photopea-input.ts');return [...(await maskStateBitmap(editor.session.mask)).bits];});}
 
+test('real Photopea fusion: soft user mask, exact initial composition, editable mask, retained stack and raw', {skip:!enabled,timeout:150000},async t=>{
+ const {page,errors}=await setup(t);
+ await page.evaluate(async()=>{
+  const p=document.body.__vue_app__._instance.provides;window.photopea=p[Object.getOwnPropertySymbols(p).find(k=>k.description==='photopea')];
+  const {decodeMask}=await import('/src/native/edit-input.ts');
+  const {prepareMaskedResult}=await import('/src/native/inpaint-result.ts');
+  const sourceId=editor.snapshot().viewed.id,token=editor.beginExternalEdit();
+  window.fusionRaw=await editor.applyExternalEdit(token.id,{mode:'image',image:await make('#aa7755')});
+  fusionRaw.comparison={sourceId,rawId:fusionRaw.id,mask:await decodeMask(mask,'alpha',{width:384,height:256}),edges:{dilate:.006,feather:.01}};
+  window.fusionExpected=await prepareMaskedResult(source,fusionRaw.blob,fusionRaw.comparison.mask,fusionRaw.comparison.edges,{colorMatch:false});
+  photopea.open(editor.beginComparisonFusion(editor.session.id,fusionRaw.id,false));
+ });
+ await page.waitForFunction(()=>{const p=document.querySelector('.photopea-panel');return p&&(!p.querySelector('.photopea-loading')&&!p.querySelector('.photopea-status')||p.querySelector('[role=alert]'));},null,{timeout:60000});
+ assert.equal(await page.locator('.photopea-error').count(),0,await page.locator('.photopea-panel').innerText());
+ const initial=await inspect(page);assert.ok(initial.layers.some(l=>l.name==='AI Result / 生成图'));assert.equal(await page.locator('.photopea-choice').count(),0);
+ await apply(page);
+ const result=await page.evaluate(async()=>{
+  const pixels=async blob=>{const b=await createImageBitmap(blob),c=new OffscreenCanvas(b.width,b.height),x=c.getContext('2d');x.drawImage(b,0,0);b.close();return x.getImageData(0,0,c.width,c.height).data;};
+  const expected=await pixels(fusionExpected.composite),actual=await pixels(editor.snapshot().viewed.blob);let max=0;
+  for(let i=0;i<expected.length;i++)max=Math.max(max,Math.abs(expected[i]-actual[i]));
+  return {max,kind:editor.snapshot().viewed.kind,raw:editor.session.versions.includes(fusionRaw),composite:fusionRaw.comparison.compositeId===editor.snapshot().viewed.id};
+ });
+ assert.ok(result.max<=2,JSON.stringify(result));assert.equal(result.kind,'manual');assert.equal(result.raw,true);assert.equal(result.composite,true);
+ await page.getByRole('button',{name:'融合精修',exact:true}).click();
+ await page.waitForFunction(()=>!document.querySelector('.photopea-loading')&&!document.querySelector('.photopea-status'));
+ assert.deepEqual(await inspect(page),initial,'reopening must retain the layered document');
+ const painted=await page.evaluate(()=>probe('var d=app.activeDocument;d.selection.select([[96,64],[160,64],[160,128],[96,128]]);var c=new SolidColor();c.rgb.hexValue="000000";d.selection.fill(c);d.selection.deselect();app.echoToOE("PROBE:{}");'));
+ assert.equal(painted.error,undefined);await apply(page);
+ const pixel=await page.evaluate(async()=>{const b=await createImageBitmap(editor.snapshot().viewed.blob),c=new OffscreenCanvas(b.width,b.height),x=c.getContext('2d');x.drawImage(b,0,0);b.close();return [...x.getImageData(100,70,1,1).data];});
+ assert.deepEqual(pixel,[34,68,102,255],'painting black on the imported mask reveals the source');assert.deepEqual(errors,[]);
+});
+
 test('real Photopea workstack: alpha layer + selection union, clean no-op, history/redo preserved, erase-to-empty', {skip:!enabled,timeout:150000},async t=>{
  const {page,errors}=await setup(t);
  await page.evaluate(async()=>{editor.setMode('inpaint');await editor.importMask(mask,'alpha');});const before=await bits(page);
@@ -99,7 +131,7 @@ test('real Photopea transparent image, image-only retains native coverage, crop 
  await open(page);assert.equal((await inspect(page)).layers.length,4);await back(page);
  // A differently sized native source creates a fresh standard stack in the same iframe.
  await page.evaluate(async()=>editor.addSource(await make('#335588',256,256),'other-size.png'));
- await open(page);const rebuilt=await inspect(page);assert.deepEqual(rebuilt.layers.map(l=>l.name),['Koma 蒙版','涂鸦与修补','原图','Koma 选区辅助']);assert.deepEqual([rebuilt.width,rebuilt.height],[256,256]);assert.equal(rebuilt.documents,1);
+ await open(page);const rebuilt=await inspect(page);assert.deepEqual(rebuilt.layers.map(l=>l.name),['Koma 蒙版','涂鸦与修补','原图','Koma 选区辅助']);assert.deepEqual([rebuilt.width,rebuilt.height],[256,256]);assert.equal(rebuilt.documents,2);
  await apply(page);assert.equal((await bits(page)).some(n=>n!==0),false);assert.deepEqual(errors,[]);
 });
 

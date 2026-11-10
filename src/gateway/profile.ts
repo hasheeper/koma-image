@@ -1,7 +1,7 @@
 import { freeze } from "../domain/value.ts";
 
 export const STANDARD_PROFILE_ID = "koma-standard-v1";
-export type Protocol = "standard" | "openai-images" | "gemini-native" | "novelai" | "openai-chat" | "anthropic-messages";
+export type Protocol = "standard" | "seedream" | "openai-images" | "gemini-native" | "novelai" | "openai-chat" | "anthropic-messages";
 export type ProfilePath = "catalog" | "quota" | "stats" | "estimate" | "toolEstimate" | "generate" | "toolRun" | "native" | "reasoning" | "encodeVibe" | "upscale" | "augment";
 export interface GatewayProfile {
   readonly id: string;
@@ -68,6 +68,11 @@ export const openaiImagesProfile: GatewayProfile = freeze({
   auth: { kind: "bearer" },
   transport: { apiPrefix: "/v1", paths: { catalog: "/models", generate: "/images/generations", toolRun: "/images/edits" }, nativeHeaders: {} },
 });
+export const seedreamProfile: GatewayProfile = freeze({
+  ...unquoted, id: "seedream-v1", protocol: "seedream", label: "Seedream 原生",
+  auth: { kind: "bearer" },
+  transport: { apiPrefix: "/api/v3", paths: { catalog: "/models", generate: "/images/generations", toolRun: "/images/generations" }, nativeHeaders: {} },
+});
 export const geminiProfile: GatewayProfile = freeze({
   ...unquoted, id: "gemini-native-v1", protocol: "gemini-native", label: "Gemini 原生",
   auth: { kind: "google-key" },
@@ -123,11 +128,13 @@ export const anthropicMessagesProfile: GatewayProfile = freeze({
   auth: { kind: "anthropic-key", headers: { "anthropic-version": ANTHROPIC_VERSION, "anthropic-dangerous-direct-browser-access": "true" } },
   transport: { apiPrefix: "/v1", paths: { catalog: "/models", reasoning: "/messages" }, nativeHeaders: {} },
 });
-export const connectionProfiles: readonly GatewayProfile[] = freeze([standardProfile, openaiImagesProfile, geminiProfile, novelaiProfile, openaiChatProfile, anthropicMessagesProfile, openaiSharedProfile, geminiChatProfile, geminiSharedProfile]);
+export const connectionProfiles: readonly GatewayProfile[] = freeze([standardProfile, seedreamProfile, openaiImagesProfile, geminiProfile, novelaiProfile, openaiChatProfile, anthropicMessagesProfile, openaiSharedProfile, geminiChatProfile, geminiSharedProfile]);
 /** Only locally registered protocols can be selected or restored. */
 const profiles: Readonly<Record<string, GatewayProfile>> = freeze(Object.fromEntries(connectionProfiles.map(profile => [profile.id, profile])));
 
 export function profileFor(id: string): GatewayProfile {
+  // Read the short-lived duplicate entry without dropping its saved connection.
+  if (id === "image-studio-v1") return standardProfile;
   if (!Object.hasOwn(profiles, id)) throw new Error("连接协议不受支持");
   return profiles[id];
 }
@@ -136,3 +143,6 @@ export function profilePath(profile: GatewayProfile, name: ProfilePath): string 
   if (!path) throw new Error("连接不支持本次操作");
   return path;
 }
+/** These image protocols can execute a user-bound model without a directory. */
+export const hasOptionalImageCatalog = (profile: GatewayProfile) =>
+  ["openai-images", "gemini-native", "seedream"].includes(profile.protocol ?? "");

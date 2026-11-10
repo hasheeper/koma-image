@@ -10,6 +10,7 @@ import { parseDraft, stateHash, validateDraft } from '../src/ask/draft/validate.
 import { createTools } from '../src/ask/tools.ts';
 import { createSession } from '../src/ask/session.ts';
 import { run } from '../src/ask/runner.ts';
+import { proposeDraft } from '../src/ask/draft/tool.ts';
 
 const v45 = 'nai-diffusion-4-5-full', full = 'nai-diffusion-5-full', medium = 'nai-diffusion-5-full-medium';
 const models = [v45, full, medium, 'custom-image'].map(id => ({ id, name: id, upstreamId: id, profileId: 'nai-official-v1', provider: 'novelai', maxPixels: 3145728, sourceMaxPixels: 3145728, operations: ['edit'], tools: ['img2img', 'inpaint', 'upscale', 'director'] }));
@@ -37,6 +38,93 @@ const patch = (text, target = 'image.prompt') => ({ kind: 'prompt_patch', target
 const input = (s, steps) => ({ base_hash: stateHash(s), draft_title: '候选修改', steps });
 const proposal = (s, steps) => parseDraft(input(s, steps), s, []);
 const checked = (s, steps, count) => checkNaiInput(proposal(s, steps), readers(s, count));
+const propose = (s, steps, extra = {}) => proposeDraft.run({ ...input(s, steps), ...extra }, {
+  draftBase: s, library: [], checkNaiInput: draft => checkNaiInput(draft, readers(s)),
+});
+const report = result => JSON.parse(result.content.at(-1).text.slice(7, -8));
+
+test('tool anchor errors retain submitted positions, exact fields and full anchors after empty insertions are removed', async () => {
+  const s = base();
+  const result = await propose(s, [
+    { kind: 'prompt_patch', target: 'image.prompt', mode: 'after', anchor: 'missing', text: '' },
+    { kind: 'prompt_patch', target: 'image.prompt', mode: 'replace', anchor: 'old caption', text: 'scene' },
+    { kind: 'prompt_patch', target: 'image.prompt', mode: 'after', anchor: 'old caption', text: ', light' },
+  ]);
+  assert.equal(result.error, true);
+  assert.equal(result.draft, undefined);
+  assert.deepEqual(report(result).step_errors, [{ code: 'anchor_not_found', step: 3, target: 'image.prompt', anchor: 'old caption', matches: 0 }]);
+  assert.match(result.reason, /第 3 步.*未找到锚点/);
+  s.form.prompt = 'scene, scene';
+  const duplicate = await propose(s, [{ kind: 'prompt_patch', target: 'image.prompt', mode: 'replace', anchor: 'scene', text: 'night' }]);
+  assert.deepEqual(report(duplicate).step_errors, [{ code: 'anchor_ambiguous', step: 1, target: 'image.prompt', anchor: 'scene', matches: 2 }]);
+  const custom = base('custom-image');
+  const nonNai = await propose(custom, [{ kind: 'prompt_patch', target: 'image.prompt', mode: 'replace', anchor: 'missing', text: 'new' }]);
+  assert.equal(nonNai.error, true);
+  assert.equal(report(nonNai).step_errors[0].matches, 0);
+});
+
+test('EDIT diagnostics preserve original step numbers and edit targets after separating configuration steps', async () => {
+  const s = editBase();
+  const result = await propose(s, [
+    { kind: 'params_patch', params: { strength: .6 } },
+    { kind: 'prompt_patch', target: 'edit.prompt', mode: 'before', text: '' },
+    { kind: 'prompt_patch', target: 'edit.prompt', mode: 'replace', anchor: 'missing', text: 'new' },
+  ]);
+  assert.equal(result.error, true);
+  assert.deepEqual(report(result).step_errors, [{ code: 'anchor_not_found', step: 3, target: 'edit.prompt', anchor: 'missing', matches: 0 }]);
+  assert.match(result.reason, /第 3 步.*edit\.prompt/);
+});
+
+test('empty insertions cannot reject Medium drafts, survive in step counts or create empty pending cards', async () => {
+  for (const s of [base(medium), editBase(medium)]) {
+    const target = s.workspace === 'edit' ? 'edit' : 'image', before = structuredClone(s);
+    const empty = ['before', 'after', 'append'].map(mode => ({ kind: 'prompt_patch', target: `${target}.negative`, mode, text: '' }));
+    const result = await propose(s, [patch('cat', `${target}.prompt`), ...empty]);
+    assert.equal(result.error, undefined);
+    assert.match(result.stat, /^1 步/);
+    assert.equal(result.draft.steps.length, 1);
+    const p = validateDraft(result.draft, s, { off: new Set() });
+    assert.ok(p.steps.every(step => !step.issue));
+    if (target === 'edit') assert.equal(p.edit.after.fields.prompt, 'cat');
+    else assert.equal(p.changes.find(c => c.field === 'prompt').after, 'cat');
+    // Restored pending drafts still pass through the validator without tool-side filtering.
+    const restored = proposal(s, [patch('cat', `${target}.prompt`), ...empty]);
+    assert.equal((await checkNaiInput(restored, readers(s))).ok, true);
+    assert.ok(validateDraft(restored, s, { off: new Set() }).steps.every(step => !step.issue));
+    const none = await propose(s, empty);
+    assert.equal(none.error, undefined);
+    assert.equal(none.stat, '无需修改');
+    assert.equal(none.draft, undefined);
+    assert.deepEqual(s, before);
+  }
+  const deleted = await propose(base(), [{ kind: 'prompt_patch', target: 'image.prompt', mode: 'replace', anchor: 'old caption', text: '' }]);
+  assert.equal(deleted.draft.steps.length, 1);
+  assert.equal(validateDraft(deleted.draft, deleted.draft.base, { off: new Set() }).changes[0].after, '');
+  const cleared = await propose(base(), [patch('')]);
+  assert.equal(cleared.draft.steps.length, 1);
+  assert.equal(validateDraft(cleared.draft, cleared.draft.base, { off: new Set() }).changes[0].after, '');
+  const newBoard = await propose(base(), [{ kind: 'prompt_patch', target: 'image.prompt', mode: 'append', text: '' }], { new_board_name: '新画板' });
+  assert.equal(newBoard.draft.newBoardName, '新画板');
+  assert.equal(validateDraft(newBoard.draft, newBoard.draft.base, { off: new Set() }).newBoardName, '新画板');
+});
+
+test('an empty insertion-only proposal ends the tool phase successfully without a draft', async () => {
+  const s = base(), tools = createTools(), session = createSession();
+  const turn = session.begin({ role: 'user', content: [{ type: 'text', text: '检查是否还需修改' }] });
+  const events = [];
+  for await (const event of run({ turn, tools, signal: new AbortController().signal,
+    request: { model: 'mock', system: ['', ''], tools: [...tools.values()].map(e => e.tool), maxTokens: 1024 },
+    context: { draftBase: s, metadataOnly: false, state: () => ({ text: '', images: 0 }) },
+    async *stream() {
+      yield { type: 'call', call: { type: 'call', id: 'empty', name: 'propose_draft', input: input(s, [{ kind: 'prompt_patch', target: 'image.prompt', mode: 'after', anchor: 'missing', text: '' }]) } };
+      yield { type: 'text', text: '目前无需补充修改。' };
+      yield { type: 'done', stop: 'tool', usage: null };
+    },
+  })) events.push(event);
+  assert.deepEqual(events.filter(e => e.type === 'tool-end').map(e => e.ok), [true]);
+  assert.equal(events.filter(e => e.draft).length, 0);
+  assert.equal(events.at(-1).reason, 'final');
+});
 
 test('EDIT awareness excludes unrelated gateway models and duplicate sources from both initial and counted state', async () => {
   const s=editBase();

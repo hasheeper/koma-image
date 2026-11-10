@@ -50,6 +50,8 @@ export function createDrawing(
 ) {
   const listeners = new Set<() => void>(),
     urls = new Map<string, { blob: Blob; entityKey?: string; url: string }>();
+  const generationObservers = new Set<(boardId: string) => ((record: ImageRecord) => void) | null>();
+  const resetListeners = new Set<(boardId: string) => void>();
   const imageListeners = new Set<(record: ImageRecord) => void>();
   let boards = readBoards(services.preferences.get(names.preferences, {}));
   const activeBoard = () => boards.items.find(b => b.id === boards.activeId)!;
@@ -635,6 +637,7 @@ export function createDrawing(
     )
       return;
     const sourceBoardId = boards.activeId;
+    const generationSinks = [...generationObservers].flatMap(start => { const sink = start(sourceBoardId); return sink ? [sink] : []; });
     let selected = model;
     // Keep the price the user saw, including during a pending preview refresh.
     // A later board switch must not replace this batch's comparison baseline.
@@ -766,6 +769,9 @@ export function createDrawing(
               result.ms,
               JSON.parse(JSON.stringify(result.quote)) as Fields,
             );
+            for (const sink of generationSinks) {
+              try { sink(record); } catch { notify("图片已生成，版本演进未同步，请 ASK 重新整理", "warn"); }
+            }
             completed++;
             records.push(record);
             pending = { ...pending!, done: completed };
@@ -964,6 +970,16 @@ export function createDrawing(
       listeners.add(fn);
       return () => listeners.delete(fn);
     },
+    onGeneration(start: (boardId: string) => ((record: ImageRecord) => void) | null) {
+      generationObservers.add(start); return () => generationObservers.delete(start);
+    },
+    onClear(fn: (boardId: string) => void) { resetListeners.add(fn); return () => resetListeners.delete(fn); },
+    async ensureFavorite(item: ImageRecord) {
+      if (favoritePending.has(item.id)) throw new Error("请等待收藏操作完成");
+      if (favorites.some(r => r.id === item.id)) return;
+      favoritePending.add(item.id); emit();
+      try { await saveFavorite(item); } finally { favoritePending.delete(item.id); emit(); }
+    },
     onImage(fn: (record: ImageRecord) => void) {
       imageListeners.add(fn);
       return () => imageListeners.delete(fn);
@@ -990,11 +1006,11 @@ export function createDrawing(
       if (boardId !== boards.activeId) return;
       await patch({ characters: structuredClone(chars), placement });
     },
-    async addCharacter(prompt = "") {
+    async addCharacter(prompt = "", negative = "") {
       const cap = characterCapability(form.model);
       if (!cap.max || form.characters.length >= cap.max) return;
       const id = `c${activeBoard().nextCharacterId++}`;
-      await patch({ characters: [...form.characters, { id, on: true, prompt, negative: "", centers: [{ x: (form.characters.length + 1) / (form.characters.length + 2), y: 0.5 }] }] });
+      await patch({ characters: [...form.characters, { id, on: true, prompt, negative, centers: [{ x: (form.characters.length + 1) / (form.characters.length + 2), y: 0.5 }] }] });
       return id;
     },
     async insertBoardDraft(board: DrawingBoard, sourceId: string) {
@@ -1098,6 +1114,7 @@ export function createDrawing(
         }))
       )
         return;
+      for (const listener of resetListeners) listener(boards.activeId);
       history = [];
       if (!current || !favorites.some((r) => r.id === current!.id)) {
         current = null;
@@ -1128,6 +1145,7 @@ export function createDrawing(
       urls.clear();
       listeners.clear();
       imageListeners.clear();
+      generationObservers.clear(); resetListeners.clear();
       reveal = undefined;
     },
   };

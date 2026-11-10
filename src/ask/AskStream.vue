@@ -11,6 +11,7 @@ import AskCheckpoint from "./AskCheckpoint.vue";
 import AskEdit from "./AskEdit.vue";
 import AskAttachments from "./AskAttachments.vue";
 import AskMemory from "./AskMemory.vue";
+import RetrospectCard from "./retrospect/RetrospectCard.vue";
 import type { AskEntry, AskTurnView, RetryMode } from "./service.ts";
 
 const ask = useAsk(), ui = useUi();
@@ -199,6 +200,7 @@ onBeforeUnmount(() => { resized.disconnect(); cancelAnimationFrame(frame); clear
               <img v-if="ask.pictureInfo(id, entry.turn.pictureRefs)" :src="ask.pictureInfo(id, entry.turn.pictureRefs)!.url" alt="" /><span>{{ id }}</span>
             </button>
           </div>
+          <RetrospectCard :turn-id="entry.id" v-else-if="item.kind === 'retrospect'" :value="item.value" :picture-refs="entry.turn.pictureRefs" :ready="entry.turn.status === 'done'" />
           <AskMarkdown v-else :text="item.text" :picture-refs="entry.turn.pictureRefs" :lead="i === leadOf(entry.turn)" />
         </template>
         <p v-if="entry.turn.truncated" class="ask-meta">回复已达输出上限</p>

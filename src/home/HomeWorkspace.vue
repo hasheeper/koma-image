@@ -18,8 +18,9 @@ import { useAsk } from '../app/ask.ts';
 import { useUi, message } from '../app/ui.ts';
 import { useWorkspaceLifecycle } from '../app/workspace-lifecycle.ts';
 import { useHomeNavigation } from './navigation.ts';
-import { resolvedLayout, finalLayouts } from './model.ts';
-import { layoutPrints } from './layout.ts';
+import { resolvedLayout } from './model.ts';
+import { layoutPrints } from '../shared/gallery/layout.ts';
+import GalleryLayoutSwitch from '../shared/gallery/GalleryLayoutSwitch.vue';
 import { pictureUrl, activityTime } from './pictures.ts';
 import type { HomeLine, HomePicture } from './derive.ts';
 const { home, view } = useHome(), { drawing } = useDrawing(), { chat } = useChat(), slates = useSlates(), ask = useAsk(), ui = useUi(), navigation = useHomeNavigation();
@@ -71,7 +72,6 @@ lifecycle.whileActive(signal => {
 });
 const mode = computed(() => resolvedLayout(view.value.preferences.layout, viewport.value.width));
 const arrangement = computed(() => layoutPrints(view.value.finals.map(f => f.size), width.value, mode.value, viewport.value.width <= 860));
-const layoutNames = { rows: '行对齐', cols: '列对齐', mosaic: '拼图' };
 const lead = computed(() => view.value.current);
 const leadDraft = computed(() => {
   const plan = ask.draftPlan.value;
@@ -139,7 +139,7 @@ watch(dock, clearDrop);
       </div>
     </section>
     <section v-if="view.finals.length" class="home-section" aria-label="定稿">
-      <div class="home-section-head"><h2>定稿 <span class="home-count">{{ view.finals.length }}</span></h2><div class="seg home-layout" aria-label="定稿排列"><button v-for="layout in finalLayouts" :key="layout" type="button" :aria-pressed="mode === layout" @click="home.store.setLayout(layout).catch(e => ui.toast(message(e), 'err'))">{{ layoutNames[layout] }}</button></div></div>
+      <div class="home-section-head"><h2>定稿 <span class="home-count">{{ view.finals.length }}</span></h2><GalleryLayoutSwitch :model-value="mode" label="定稿排列" @update:model-value="home.store.setLayout($event).catch(e => ui.toast(message(e), 'err'))"/></div>
       <div class="home-finals" :data-layout="mode" :style="{ height: `${arrangement.height}px` }">
         <button v-for="tile in arrangement.tiles" :key="view.finals[tile.index]!.recordId" class="home-print" type="button" :aria-label="`查看定稿 ${label(view.finals[tile.index]!.recordId)}`" :style="{ left: `${tile.x}px`, top: `${tile.y}px`, width: `${tile.w}px`, height: `${tile.h}px` }" @click="selected = view.finals[tile.index]!.recordId">
           <img draggable="true" @dragstart="dragPicture($event, { kind: 'favorite', recordId: view.finals[tile.index]!.recordId, ...view.finals[tile.index]!.size })" :src="source({ kind: 'favorite', recordId: view.finals[tile.index]!.recordId, ...view.finals[tile.index]!.size })" alt="" loading="lazy" />
@@ -234,9 +234,6 @@ watch(dock, clearDrop);
 .stacked .home-recent { display: none; }
 .stacked .home-continue { width: 100%; justify-content: center; }
 .stacked .home-other-lines { margin: 10px -6px 0; padding: 6px 6px 4px; overflow-x: auto; scrollbar-width: none; scroll-snap-type: x proximity; }
-.home-layout { flex: none; }
-.home-layout button { display: block; padding: 3px 10px; color: var(--fg-3); font-size: var(--fz-xs); border-radius: var(--r1); transition: background var(--t1) var(--e), color var(--t1) var(--e); }
-.home-layout [aria-pressed="true"] { color: var(--nav-active-ink); background: var(--nav-active-bg); box-shadow: var(--sh-1); }
 .home-finals { position: relative; }
 .home-print { position: absolute; border-radius: var(--r2); box-shadow: var(--print-shadow); }
 .home-print > img { display: block; width: 100%; height: 100%; object-fit: contain; background: var(--image-checker); border-radius: inherit; }

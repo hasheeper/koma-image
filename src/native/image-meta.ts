@@ -408,5 +408,3 @@ export async function readImageParams(file: Blob & { name?: string }): Promise<I
   }
   return { ...parsed, fields, extras: parsed.extras || [], name };
 }
-
-export const DIALECTS = { NAI: "NovelAI", WEBUI: "WebUI" };

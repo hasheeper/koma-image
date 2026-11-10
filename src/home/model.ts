@@ -1,7 +1,9 @@
 import type { LineId } from "../domain/image-origin.ts";
+import { galleryLayouts as finalLayouts } from "../shared/gallery/layout.ts";
+import type { GalleryLayout } from "../shared/gallery/layout.ts";
 
-export const finalLayouts = ["rows", "cols", "mosaic"] as const;
-export type FinalLayout = typeof finalLayouts[number];
+export { finalLayouts };
+export type FinalLayout = GalleryLayout;
 export interface HomeLocation { workspace: "image" | "chat" | "edit" | "tags"; at: number }
 export interface HomePreferences {
   covers: Partial<Record<LineId, string>>;

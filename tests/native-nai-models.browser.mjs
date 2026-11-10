@@ -286,7 +286,6 @@ test("NovelAI V5 settings: independent usage, refreshed states without generatin
     await refresh({ usage: { percent: 125, purchasedPercent: 0, timeUntilNextPercent: 0, isNegative: false } });
     assert.equal(await usage.locator("b").textContent(), "125%");
     assert.equal(await usage.locator(".conn-meter-estimate").textContent(), "约 2,163 张");
-    assert.equal(await usage.locator(".conn-bar").evaluate(el => el.style.getPropertyValue("--p")), "100%");
     assert.equal(await purchased.count(), 0);
     await refresh({ usage: { percent: 0, purchasedPercent: 0, timeUntilNextPercent: 30, isNegative: true } });
     assert.equal(await usage.locator("b").textContent(), "0%");

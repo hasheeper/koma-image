@@ -1,19 +1,22 @@
 import { object } from "../domain/value.ts";
 import type { ConnectionContext } from "../services/connections.ts";
-import { profileFor, profilePath } from "./profile.ts";
+import { hasOptionalImageCatalog, profileFor, profilePath } from "./profile.ts";
+import { catalogLimitedStatus } from "./connection-status.ts";
+import type { ConnectionStatus } from "./connection-status.ts";
 import { endpoint, authHeaders, errorMessage } from "./transport.ts";
 import { nativeCatalog, novelaiConnectionLabel } from "./native-protocols.ts";
 export async function testConnection(
   context: ConnectionContext,
   fetcher: typeof fetch = fetch,
   timeout = 10_000,
-) {
+): Promise<ConnectionStatus> {
   const profile = profileFor(context.connection.profileId),
     url = endpoint(
       context.connection.baseUrl,
       profilePath(profile, "catalog"),
       profile,
     );
+  const manualImageSource = hasOptionalImageCatalog(profile);
   context.assertCurrent();
   try {
     const response = await fetcher(url, {
@@ -36,7 +39,9 @@ export async function testConnection(
         ? errorMessage(data) : "访问被拒绝（403），请检查 Key 权限" };
     if (response.status >= 500)
       return { s: "warn", text: `供应商暂时不可用（${response.status}）` };
-    if (response.status === 404 || !data) return { s: "err", text: "地址错误" };
+    if (response.status === 404 || !data) return manualImageSource
+      ? catalogLimitedStatus("模型目录不可用，可手动填写模型 ID；生成能力尚未验证")
+      : { s: "err", text: "地址错误" };
     if (!response.ok)
       return { s: "err", text: `请求失败（${response.status}）` };
     if (profile.protocol && profile.protocol !== "standard") {
@@ -65,18 +70,25 @@ export async function testConnection(
       return { s: "err", text: "本地代理连接失败，请检查服务端配置" };
     try {
       await fetcher(url, {
+        method: "HEAD",
         mode: "no-cors",
         credentials: "omit",
         referrerPolicy: "no-referrer",
-        redirect: "error",
+        // no-cors requires follow. This reachability probe carries no Key or body;
+        // the authenticated request above still rejects every redirect.
+        redirect: "follow",
         cache: "no-store",
         signal: AbortSignal.timeout(timeout),
       });
     } catch {
-      return { s: "err", text: "网络不可达或域名错误" };
+      context.assertCurrent();
+      return { s: "err", text: "连接失败，请检查网络、地址或浏览器跨域限制" };
     }
+    context.assertCurrent();
+    if (manualImageSource)
+      return catalogLimitedStatus("模型目录跨域受限，可手动填写模型 ID；生成能力尚未验证");
     return { s: "err", text: profile.protocol && profile.protocol !== "standard"
-      ? "该地址不允许网页直接调用，请检查服务端 CORS 配置"
+      ? "该地址未允许网页跨域调用，需要支持此协议的转发服务"
       : "该地址不允许网页直接调用，可改用本地代理" };
   }
 }

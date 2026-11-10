@@ -43,7 +43,7 @@ test('Focused Inpaint: split entry preserves mask and rectangle, supports keyboa
     // Pointer dismissal and a second trigger click close instead of reopening the native popover.
     await page.locator('#editorInpaintToggle').click();await page.locator('#editorInpaintToggle').click();
     assert.equal(await page.locator('#editorInpaintMenu').isHidden(),true);
-    await page.locator('#editorInpaintToggle').click();await page.getByRole('button',{name:'画笔',exact:true}).click();
+    await page.locator('#editorInpaintToggle').click();await page.locator('.editor-info-meta').click();
     assert.equal(await page.locator('#editorInpaintMenu').isHidden(),true);
     {
       const width = 1440;
@@ -100,8 +100,9 @@ test('Focused Inpaint: manual mask and rectangle send only the enlarged crop, co
     assert.deepEqual(plan,{x:128,y:128,width:256,height:256});
     account.generatedImage=await solidPng(page,1024,1024);
     await page.locator('#editorRun').click();
-    await page.waitForFunction(()=>!editor.snapshot().busy&&!editor.snapshot().preparing&&editor.snapshot().session.versions.length===2);
+    await page.waitForFunction(()=>!editor.snapshot().busy&&!editor.snapshot().preparing&&editor.snapshot().session.versions.length===3);
     assert.equal(await page.evaluate(()=>editor.snapshot().runError),'');
+    assert.equal(await page.evaluate(()=>{const c=editor.snapshot().viewed.comparison;return !!editor.session.versions.find(v=>v.id===c.rawId&&v.width===1024);}),true);
     const wire=JSON.parse(referencePosts(t).at(-1).body);
     assert.equal(referencePosts(t).length,1);assert.equal(wire.action,'infill');assert.equal(wire.model,'nai-diffusion-5-full-inpainting');
     assert.equal(referencePosts(t).at(-1).path,'/ai/generate-image');

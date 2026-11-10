@@ -1,7 +1,7 @@
 import type { Connection } from "../config/connections.ts";
 import { profileFor } from "../gateway/profile.ts";
 
-type ConnectionIcon = { family: "novelai" | "gemini" | "openai"; label: string }
+type ConnectionIcon = { family: "novelai" | "gemini" | "openai" | "volcengine"; label: string }
   | { icon: "i-chat" | "i-image" | "i-swap"; label: string };
 
 /** Presentation only: hostname matching never selects a protocol or changes request routing. */
@@ -10,6 +10,7 @@ function officialIcon(baseUrl: string): ConnectionIcon | undefined {
   try { url = new URL(baseUrl); } catch { return; }
   if (url.protocol !== "https:" || url.username || url.password || url.port) return;
   const host = url.hostname.replace(/\.$/, "");
+  if (/^ark\.[a-z0-9-]+\.volces\.com$/.test(host)) return { family: "volcengine", label: "火山方舟" };
   if (host === "generativelanguage.googleapis.com") return { family: "gemini", label: "Google AI Studio" };
   if (host === "aiplatform.googleapis.com" || /^[a-z0-9-]+-aiplatform\.googleapis\.com$/.test(host)
     || host.endsWith(".prediction.vertexai.goog")) return { family: "gemini", label: "Google Cloud Vertex AI" };

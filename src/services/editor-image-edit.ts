@@ -6,6 +6,7 @@ import { annotationMask, annotationPreview, unionMasks } from '../native/annotat
 import type { MaskBitmap } from '../native/edit-input.ts';
 import { fitReference } from './handoff.ts';
 import { dataUrl } from './assets.ts';
+import { prepareAnnotationMarkup } from '../native/annotation-markup.ts';
 
 /** Page-local editing state. It never becomes a CHAT attachment or API mask. */
 export interface EditorComparison {
@@ -14,8 +15,11 @@ export interface EditorComparison {
   compositeId?: number;
   mask?: MaskBitmap;
   edges: AnnotationEdges;
+  colorMatch?: boolean;
+  appliedKey?: string;
+  focus?: import('../domain/inpaint-focus.ts').InpaintFocus;
 }
-export interface ImageEditSettings { edges: AnnotationEdges; textOnly: boolean }
+export interface ImageEditSettings { edges: AnnotationEdges; textOnly: boolean; markup?: boolean }
 export const imageEditSettings = (): ImageEditSettings => ({ edges: { ...defaultAnnotationEdges }, textOnly: false });
 
 
@@ -55,7 +59,15 @@ export async function prepareEditorImageEdit(source: { id: number; entity_key: s
   if (snapshot && canMaskAnnotations(snapshot.regions)) {
     const regions = annotationMask(snapshot); mask = mask ? unionMasks(mask, regions) : regions;
   }
-  const needsGuide = !!mask || !!snapshot, useGuide = needsGuide && !(settings.textOnly && model.maxImages < 2);
+  const needsGuide = !!mask || !!snapshot;
+  if (settings.markup && needsGuide) {
+    if (!model.markupEligible) throw new Error('请选择支持原生标注的模型参考，或切回双图标注');
+    const pair = await prepareAnnotationMarkup(source.blob, snapshot, painted);
+    const instructions = annotationPrompt(snapshot?.regions ?? [], 'markup', prompt, painted?.bits.some(Boolean) ? maskLocation(painted) : undefined);
+    return { request: { ...buildChatPayload(model, instructions, options, [await dataUrl(pair.input)]), markup_image: await dataUrl(pair.markup) },
+      comparison: { sourceId: source.id, mask, edges: { ...settings.edges } } satisfies EditorComparison };
+  }
+  const useGuide = needsGuide && !(settings.textOnly && model.maxImages < 2);
   if (useGuide && model.maxImages < 2) throw new Error('此来源仅支持单图；请明确选择“仅方位文字”，或切换支持双图的来源');
   const clean = await fitReference(source.blob, source.name), images = [await dataUrl(clean.blob)];
   if (useGuide) {

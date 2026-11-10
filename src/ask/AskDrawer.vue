@@ -2,6 +2,7 @@
 import { computed, nextTick, onBeforeUnmount, onMounted, shallowRef, watch } from "vue";
 import { useHome } from "../app/home.ts";
 import { useAsk } from "../app/ask";
+import AskRetrospectBar from "./retrospect/AskRetrospectBar.vue";
 import AskTodos from "../slate/AskTodos.vue";
 import { useShell } from "../app/shell";
 import { installAskWindow } from "../native/ask-window";
@@ -31,7 +32,7 @@ const { shown, mode, home, mobile, fullscreen, dock, canDock, latest, tools, com
 const joinedDraft = computed(() => !!ask.draftPlan.value && (home.value || mode.value !== 'ready'));
 const inlineWindow = computed(() => !home.value && !mobile.value && !!ask.inline.value);
 // TAGS keeps an expanded ASK in the right-hand slot it shares with the Prompt cart.
-const pinned = computed(() => router.route.value.workspace === 'tags' && !mobile.value);
+const pinned = computed(() => router.route.value.workspace === 'tags' && !mobile.value && !ask.retrospects.host.value);
 const movable = computed(() => !home.value && !mobile.value && !ask.inline.value && !pinned.value);
 const behindImageMenu = computed(() => mobile.value && router.route.value.workspace === 'image' && image.menuOpen && !shown.value);
 const root = shallowRef<HTMLElement | null>(null),
@@ -42,7 +43,7 @@ function inspect(turn?: number) { debugTurn.value = turn; debugOpen.value = true
 const dropping = shallowRef(false);
 let dragDepth = 0;
 const clearDrop = () => { dragDepth = 0; dropping.value = false; };
-const acceptsInput = () => ask.visible.value && !document.querySelector("dialog:modal");
+const acceptsInput = () => ask.visible.value && !ask.retrospects.blocksAsk();
 function paste(event: ClipboardEvent) {
   if (!acceptsInput()) return;
   // Short text keeps its native insertion; CHAT's document handler must not see it.
@@ -88,7 +89,7 @@ onMounted(() => {
     place = installAskWindow(root.value, controller.signal);
   }
 });
-watch([mode, dock, fullscreen, ask.inline, expanded, pinned, behindImageMenu, () => router.route.value.workspace, () => image.historyOpen, () => chat.contextOpen], () => void nextTick(place), { flush: "post" });
+watch([mode, dock, fullscreen, ask.retrospects.host, ask.inline, expanded, pinned, behindImageMenu, () => router.route.value.workspace, () => image.historyOpen, () => chat.contextOpen], () => void nextTick(place), { flush: "post" });
 watch(ask.conversationId, clearDrop);
 watch(() => router.route.value.overlay, clearDrop);
 watch(ask.visible, visible => { if (!visible) { clearDrop(); ask.closeAttachment(); } });
@@ -112,7 +113,7 @@ watch([shown, ask.inline], async ([visible]) => {
     composer.value?.focus();
   } else if (active instanceof HTMLElement && root.value?.contains(active)) {
     await nextTick();
-    if (ask.visible.value || document.querySelector("dialog:modal")) return;
+    if (ask.visible.value || ask.retrospects.blocksAsk()) return;
     if (returnFocus?.isConnected && returnFocus.getClientRects().length) returnFocus.focus({ preventScroll: true });
     else if (home.value) document.querySelector<HTMLTextAreaElement>(".home-ask textarea")?.focus({ preventScroll: true });
     else root.value?.querySelector<HTMLButtonElement>(".ask-layer:not([inert]) .ask-open, .ask-layer:not([inert]).ask-open")?.focus({ preventScroll: true });
@@ -122,13 +123,13 @@ watch([shown, ask.inline], async ([visible]) => {
 watch(mode, async () => {
   const active = document.activeElement;
   await nextTick();
-  if (active instanceof HTMLElement && root.value?.contains(active) && active.closest("[inert]") && !document.querySelector("dialog:modal"))
+  if (active instanceof HTMLElement && root.value?.contains(active) && active.closest("[inert]") && !ask.retrospects.blocksAsk())
     root.value.querySelector<HTMLButtonElement>(".ask-layer:not([inert]) .ask-open, .ask-layer:not([inert]).ask-open")?.focus({ preventScroll: true });
 });
 onBeforeUnmount(() => { controller.abort(); ask.attach(null); });
 </script>
 <template>
-  <aside v-show="(!home || shown) && !behindImageMenu" id="askIsland" ref="root" class="ask-island" :class="{ 'ask-inline': inlineWindow && shown }" :data-mode="mode" :data-home="home && shown ? dock : undefined" :data-fullscreen="fullscreen || undefined" :data-pinned="pinned || undefined" :data-workspace="router.route.value.workspace" :data-context-open="chat.contextOpen || undefined" :data-quiet="router.route.value.workspace === 'image' && image.state === 'busy' || undefined" :style="{ ...dimensions, '--ask-dock-w': `${presentation.dockWidth.value}px` }" aria-label="Koma ASK" :aria-describedby="home || mobile || pinned ? undefined : 'askMoveHint'">
+  <aside v-show="(!home || shown) && !behindImageMenu" id="askIsland" ref="root" class="ask-island" :class="{ 'ask-inline': inlineWindow && shown }" :data-mode="mode" :data-home="home && shown ? dock : undefined" :data-fullscreen="fullscreen || undefined" :data-pinned="pinned || undefined" :data-workspace="ask.retrospects.host.value ? 'retrospect' : router.route.value.workspace" :data-context-open="chat.contextOpen || undefined" :data-quiet="router.route.value.workspace === 'image' && image.state === 'busy' || undefined" :style="{ ...dimensions, '--ask-dock-w': `${presentation.dockWidth.value}px` }" aria-label="Koma ASK" :aria-describedby="home || mobile || pinned ? undefined : 'askMoveHint'">
     <button v-show="mode === 'idle'" id="askLauncher" class="ask-layer ask-launcher ask-open" :inert="mode !== 'idle'" data-ask-grip type="button" aria-label="打开 Koma ASK" aria-controls="askDrawer" aria-expanded="false" :title="pinned ? 'Koma ASK · ⌘J / Ctrl+J' : 'Koma ASK · 可拖动 · ⌘J / Ctrl+J'" @click="ask.show()"><AskMark interactive /></button>
     <div v-show="mode === 'run'" class="ask-layer ask-run" :inert="mode !== 'run'">
       <button class="ask-open ask-run-grip" data-ask-grip type="button" aria-label="展开 ASK 对话" @click="ask.show()"><AskMark thinking /><AskActivity /></button>
@@ -151,16 +152,18 @@ onBeforeUnmount(() => { controller.abort(); ask.attach(null); });
     <div v-show="shown" id="askDrawer" class="ask-layer ask-window" :class="{ 'ask-inline': inlineWindow, 'ask-expanded': movable && expanded }" :inert="!shown" role="dialog" :aria-modal="fullscreen" aria-label="Koma ASK" @paste="paste" @dragenter="drag" @dragover="drag" @dragleave="drag" @drop="drag">
       <header class="ask-head">
         <div class="ask-handle" :data-ask-grip="movable ? '' : undefined" :tabindex="movable ? 0 : undefined" role="group" :aria-label="movable ? '移动 ASK 窗口' : 'ASK'" :aria-describedby="movable ? 'askMoveHint' : undefined" @dblclick="resize"><AskMark :thinking="ask.running.value" /></div>
-        <AskConversations @chosen="composer?.focus(true)" />
+        <div class="ask-heading"><AskConversations @chosen="composer?.focus(true)" /></div>
         <div class="ask-fill" :data-ask-grip="movable ? '' : undefined" aria-hidden="true" @dblclick="resize"></div>
-        <button v-if="inlineWindow" class="btn btn-quiet btn-xs" type="button" @click="ask.expand()">展开</button>
-        <button v-else-if="!mobile && !pinned && (!home || canDock)" class="ibtn" type="button" :aria-label="(home ? dock === 'full' : expanded) ? '还原 ASK 窗口' : '放大 ASK 窗口'" :title="(home ? dock === 'full' : expanded) ? '还原' : '放大'" @click="resize"><AppIcon :name="(home ? dock === 'full' : expanded) ? 'i-shrink' : 'i-expand'" /></button>
-        <AskMore @debug="inspect()" />
-        <button class="ibtn" type="button" aria-label="收起 ASK" title="收起" @click="ask.hide()"><svg class="ico" viewBox="0 0 24 24" aria-hidden="true"><path d="M5 12h14" /></svg></button>
+        <div class="ask-head-actions">
+          <button v-if="inlineWindow" class="btn btn-quiet btn-xs" type="button" @click="ask.expand()">展开</button>
+          <button v-else-if="!mobile && !pinned && (!home || canDock)" class="ibtn" type="button" :aria-label="(home ? dock === 'full' : expanded) ? '还原 ASK 窗口' : '放大 ASK 窗口'" :title="(home ? dock === 'full' : expanded) ? '还原' : '放大'" @click="resize"><AppIcon :name="(home ? dock === 'full' : expanded) ? 'i-shrink' : 'i-expand'" /></button>
+          <AskMore @debug="inspect()" />
+          <button class="ibtn" type="button" aria-label="收起 ASK" title="收起" @click="ask.hide()"><svg class="ico" viewBox="0 0 24 24" aria-hidden="true"><path d="M5 12h14" /></svg></button>
+        </div>
       </header>
       <AskStream @start="start" @focus="composer?.focus(true)" />
       <div class="ask-bottom">
-        <AskTodos />
+        <AskRetrospectBar /><AskTodos />
         <div class="ask-compose-panel" :class="{ 'has-draft': joinedDraft }">
           <div id="askFullDraft" class="ask-full-draft"></div>
           <AskComposer ref="composer" :joined="joinedDraft" />
@@ -236,6 +239,9 @@ onBeforeUnmount(() => { controller.abort(); ask.attach(null); });
 .ask-done b { color: var(--fg); font-weight: var(--fw-semibold); }
 .ask-window { position: relative; display: flex; flex-direction: column; height: 100%; }
 .ask-head { display: flex; flex: none; align-items: center; gap: 4px; height: 48px; padding: 0 10px 0 14px; }
+.ask-heading { display: flex; flex: 0 1 auto; align-items: center; gap: 4px; min-width: 0; }
+.ask-head-actions { display: flex; flex: none; align-items: center; gap: 4px; }
+.ask-head-actions :deep(.ask-menu-host) { flex: none; }
 .ask-head :deep(.ibtn) { width: 30px; height: 30px; color: var(--fg-3); border-radius: 8px; }
 .ask-head :deep(.ibtn .ico) { --ico: var(--ico-md); }
 .ask-head :deep(.ibtn:hover) { color: var(--fg); }

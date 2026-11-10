@@ -45,11 +45,3 @@ export function externalEdit(input: unknown, local: Slate | null): SlateEdit {
   checkShape(edit, slateEditSchema);
   return edit;
 }
-
-export function combineSlateDocument(document: ExportDocument, slate: Slate | null): ExportDocument {
-  if (!slate) return document;
-  return { ...document, formats: {
-    ...(document.formats.json ? { json: JSON.stringify({ document: JSON.parse(document.formats.json), selected_slate: slateFile(slate) }, null, 2) } : {}),
-    ...(document.formats.md ? { md: `${document.formats.md}\n\n---\n\n${slateDocument(slate).formats.md}` } : {}),
-  } };
-}

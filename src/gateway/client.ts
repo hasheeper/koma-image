@@ -9,7 +9,7 @@ import { createCostNotice, validateQuote } from "../domain/quote.ts";
 import type { Quote } from "../domain/quote.ts";
 import type { ConnectionContext } from "../services/connections.ts";
 import type { ReservationPort } from "../services/scheduler.ts";
-import { profileFor, profilePath } from "./profile.ts";
+import { hasOptionalImageCatalog, profileFor, profilePath } from "./profile.ts";
 import type { GatewayProfile } from "./profile.ts";
 import { createTransport, readJson, errorMessage } from "./transport.ts";
 import { executionRoute, toNativePayload, toStandardPayload } from "./routes.ts";
@@ -28,8 +28,12 @@ const timedSignal = (ms: number, signal?: AbortSignal) =>
     ? AbortSignal.any([signal, AbortSignal.timeout(ms)])
     : AbortSignal.timeout(ms);
 
-/** Only raw upstream metadata is shared; model mapping and execution remain context-bound. */
-export interface GatewayCatalogCache { raw?: Record<string, unknown>; fetchedAt?: number }
+/** Connection-scoped metadata and successful upstream IDs; model mappings remain context-bound. */
+export interface GatewayCatalogCache {
+  raw?: Record<string, unknown>;
+  fetchedAt?: number;
+  successfulModels?: Set<string>;
+}
 
 /** A client is bound to one connection/configuration/key revision. */
 export function createGateway(
@@ -37,6 +41,7 @@ export function createGateway(
   fetcher: typeof fetch = fetch,
   profile: GatewayProfile = profileFor(context.connection.profileId),
   catalogCache: GatewayCatalogCache = {},
+  onSuccess?: () => void,
 ) {
   const transport = createTransport(context, profile, fetcher);
   let cached: Catalog | undefined;
@@ -65,7 +70,7 @@ export function createGateway(
       signal?.throwIfAborted();
       context.assertCurrent();
       // Standard gateways must still advertise their quote-protection contract before use.
-      if (profile.protocol !== "openai-images" && profile.protocol !== "gemini-native") throw error;
+      if (!hasOptionalImageCatalog(profile)) throw error;
       // A user's manual image mapping can run without discovery; rawCatalog still reports its error to settings.
       const manual = nativeMappedCatalog(profile, { models: {} }, context.routing, context.connection.id);
       if (!Object.keys(manual.models as object).length) throw error;
@@ -79,6 +84,7 @@ export function createGateway(
   }
   function wire(payload: ImagePayload): ImagePayload {
     const model = cached?.models.find((m) => m.id === payload.model);
+    if (payload.markup_image !== undefined && !model?.markup) throw new Error("此模型来源未启用原生标注，请检查来源参数");
     const options = model && payload.image_options ? requestOptions(model.fields, payload.image_options) : undefined;
     if (options && (!profile.protocol || profile.protocol === "standard") && payload.tool === "image-edit" && model?.family === "gemini" && typeof options.image_size === "string") {
       // Studio's edit endpoint uses output_size; keep logical options unchanged until the source is chosen.
@@ -126,6 +132,7 @@ export function createGateway(
     catalog,
     rawCatalog,
     fetchedAt: () => catalogCache.fetchedAt ?? 0,
+    successfulModels: () => [...(catalogCache.successfulModels ?? [])],
     estimate: (payload: ImagePayload, signal?: AbortSignal) =>
       estimateWire(wire(payload), signal),
     async quota(quotaGroup?: string, signal?: AbortSignal) {
@@ -210,7 +217,7 @@ export function createGateway(
       try {
         const payload = wire(input);
         validateNaiText(payload);
-        const adapted = profile.protocol && profile.protocol !== "standard" ? nativeRequest(profile, payload) : null;
+        const adapted = profile.protocol && profile.protocol !== "standard" ? nativeRequest(profile, payload, cached?.models.find(m => m.id === input.model)) : null;
         if (profile.protocol === "novelai" && payload.tool !== "upscale" && payload.tool !== "director") {
           const counts = await countNaiTokens(payload).catch(() => null);
           if (counts && [counts.prompt, counts.negative].some(parts => parts.reduce((a, b) => a + b, 0) > counts.tokens))
@@ -277,6 +284,8 @@ export function createGateway(
         const value = await consume(response, native, signal);
         signal.throwIfAborted();
         acknowledged = true;
+        (catalogCache.successfulModels ??= new Set()).add(payload.model);
+        onSuccess?.();
         return {
           value,
           quote,

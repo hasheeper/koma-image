@@ -1,9 +1,40 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 
-import { useAskFixture, submitAsk, open, openai, text, end, anthropic, askSettings, generation, bind, addImage, drawer, openMore, openDebug, patchStep, askDraft, form, applyDraft, reverted, undoCheckpoint, restoreCheckpoint, seedAskChat, islandMode, openConversations, heading, askText, editQuestion } from "./helpers/ask-fixture.mjs";
+import { useAskFixture, submitAsk, open, openai, text, end, askSettings, generation, bind, addImage, drawer, openDebug, patchStep, askDraft, form, applyDraft, reverted, undoCheckpoint, restoreCheckpoint, seedAskChat, islandMode, openConversations, heading, askText, editQuestion } from "./helpers/ask-fixture.mjs";
 
 useAskFixture();
+
+test('long conversation headings leave header menus, resize and dismiss usable', async () => {
+  const { page, context, errors, calls } = await open('/#/image', { ready: '.switcher', ask: askSettings() });
+  try {
+    await bind(page);
+    await page.evaluate(() => {
+      ask.renameConversation(ask.conversationId.value, '这有什么内容？以及请你新建一个完整的角色企划，并且整理当前的所有版本演进与后续修改方向，保留重要的构图、光影和角色设计细节');
+      ask.show();
+    });
+    const window = drawer(page);
+    async function options() {
+      await window.getByRole('button', { name: '更多', exact: true }).click();
+      await page.locator('#askMoreMenu').getByRole('menuitem', { name: '调用调试', exact: true }).waitFor();
+      await page.keyboard.press('Escape');
+    }
+    await options();
+    await window.getByRole('button', { name: '放大 ASK 窗口', exact: true }).click();
+    await options();
+    await window.getByRole('button', { name: '还原 ASK 窗口', exact: true }).click();
+    await page.setViewportSize({ width: 390, height: 844 });
+    await options();
+    const menu = await openConversations(page);
+    await menu.getByRole('menuitem', { name: '重命名', exact: true }).click();
+    await page.getByRole('textbox', { name: '对话名称', exact: true }).fill('收口中的角色方案');
+    await menu.getByRole('button', { name: '保存', exact: true }).click();
+    assert.equal(await heading(page), '收口中的角色方案');
+    await window.getByRole('button', { name: '收起 ASK', exact: true }).click();
+    await page.waitForFunction(() => !ask.visible.value);
+    assert.deepEqual(errors, []); assert.deepEqual(calls, []);
+  } finally { await context.close(); }
+});
 
 test('ASK W2: new, switch and delete keep input, drafts and calls apart; the menu locks while running', async () => {
   const {page,context,llm,calls,requests,errors}=await open('/#/image',{ready:'.switcher',ask:askSettings()});
@@ -286,37 +317,6 @@ test('ASK W4: editing rolls back the entire suffix, preserves prefix, anchor and
   } finally { await context.close(); }
 });
 
-test("ASK W4: editor keys, Esc layers and long-question scroll keep the edit visible", async () => {
-  const {page,context,llm,calls,requests,errors}=await open('/#/image',{ready:'.switcher',ask:askSettings()});
-  try {
-    await bind(page); await page.evaluate(()=>drawing.patch({prompt:'red eyes'}));
-    await askText(page,llm,'旧问题','很长的回答。\n'.repeat(45));
-    await askDraft(page,llm,[patchStep('replace','red eyes','blue eyes')],'带未决草稿的末轮');
-    const editor=await editQuestion(page);
-    await editor.fill('编辑中的问题'); await editor.press('Shift+Enter');
-    assert.equal(await editor.inputValue(),'编辑中的问题\n');
-    await editor.dispatchEvent('keydown',{key:'Enter',isComposing:true});
-    await editor.dispatchEvent('keydown',{key:'Escape',isComposing:true});
-    assert.equal(calls.length,2); assert.equal(await editor.count(),1);
-    await openMore(page); await page.keyboard.press('Escape');
-    assert.equal(await page.locator('#askMoreMenu').count(),0); assert.equal(await editor.count(),1);
-    {
-      const width = 1440;
-      await page.setViewportSize({width,height:900});
-      await editor.focus();
-      await editor.evaluate(el=>el.closest('.ask-edit').scrollIntoView({block:'nearest'}));
-    }
-    await page.keyboard.press('Escape'); assert.equal(await editor.count(),0);
-    assert.equal(await page.locator('.ask-draft').count(),1); assert.equal(await drawer(page).isVisible(),true);
-    const pending = await page.evaluate(() => ask.draftPlan.value.fingerprint);
-    await page.locator('#askPrompt').focus(); await page.keyboard.press('Escape');
-    await page.waitForFunction(() => !ask.visible.value);
-    // The shared draft card stays mounted; Escape hides ASK without discarding the pending draft.
-    assert.equal(await page.evaluate(() => ask.draftPlan.value.fingerprint), pending);
-    assert.deepEqual(generation(requests),[]); assert.deepEqual(errors,[]);
-  } finally { await context.close(); }
-});
-
 test('ASK W4: preflight conflicts and locked credentials preserve every turn, draft and editor', async () => {
   const {page,context,llm,calls,requests,errors}=await open('/#/image',{ready:'.switcher',ask:askSettings()});
   try {
@@ -388,14 +388,10 @@ test('ASK W4: editing can roll back real CHAT branches and composer writes toget
   } finally { await context.close(); }
 });
 
-for(const connectionId of ['chat','claude']) test(`ASK W4: ${connectionId} fork keeps exact prefix, zero usage, original anchor and independent ownership`, async () => {
+test(`ASK W4: chat fork keeps exact prefix, zero usage, original anchor and independent ownership`, async () => {
+  const connectionId = "chat";
   const {page,context,llm,calls,requests,errors}=await open('/#/image',{ready:'.switcher',ask:askSettings({connectionId})});
-  const answer = value => connectionId==='chat' ? openai(text(value),end()) : anthropic(
-    {type:'message_start',message:{usage:{input_tokens:100}}},
-    {type:'content_block_start',index:0,content_block:{type:'text',text:value}},
-    {type:'content_block_stop',index:0},
-    {type:'message_delta',delta:{stop_reason:'end_turn'},usage:{output_tokens:10}},
-    {type:'message_stop'});
+  const answer = value => (openai(text(value),end()));
   const send=async question=>{llm.push({body:answer(`回答 ${question}`)});await page.locator('#askPrompt').fill(question);await submitAsk(page);await drawer(page).getByText(`回答 ${question}`,{exact:true}).waitFor();};
   try {
     await bind(page); await addImage(page,'fork anchor'); await page.evaluate(()=>ask.show({anchor:'#h1'}));

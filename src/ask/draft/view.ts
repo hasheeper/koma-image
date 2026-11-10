@@ -3,7 +3,7 @@ import { canonical } from "../canonical.ts";
 import type { SlateChange } from "../../slate/model.ts";
 
 /** Display-only model for the draft card; validation and writing never read it. */
-export type FieldKey = "slate" | "handoff" | "branch" | "prompt" | "negative" | "composer" | "params" | "characters" | `character:${string}`;
+export type FieldKey = "evolution" | "slate" | "handoff" | "branch" | "prompt" | "negative" | "composer" | "params" | "characters" | `character:${string}`;
 export interface Piece { readonly op: "keep" | "del" | "ins"; readonly text: string }
 export interface Line { readonly sign: "del" | "ins"; readonly text: string }
 export type StepView =
@@ -25,6 +25,7 @@ export interface Destination { readonly label: "新画板" | "新对话" | "编�
 export interface DraftView { readonly fields: readonly FieldView[]; readonly added: number; readonly removed: number; readonly destination: Destination | null }
 
 const fields: Record<Exclude<FieldKey, `character:${string}`>, { label: string; icon: string }> = {
+  evolution: { label: "回退基底", icon: "i-branch" },
   slate: { label: "任务", icon: "i-tasks" },
   handoff: { label: "新对话", icon: "i-chat" },
   branch: { label: "对话分支", icon: "i-branch" },
@@ -34,7 +35,7 @@ const fields: Record<Exclude<FieldKey, `character:${string}`>, { label: string; 
   characters: { label: "角色组", icon: "i-model" },
   params: { label: "参数", icon: "i-parameters" },
 };
-const order: readonly FieldKey[] = ["slate", "handoff", "branch", "prompt", "negative", "composer", "characters", "params"];
+const order: readonly FieldKey[] = ["slate", "handoff", "branch", "evolution", "prompt", "negative", "composer", "characters", "params"];
 const paramIcons: Record<string, string> = { Seed: "i-dice", 模型: "i-model", 宽: "i-frame", 高: "i-frame" };
 
 export const tagsOf = (text: string) => text.split(/[,\n，]/).map((s) => s.trim()).filter(Boolean);
@@ -84,7 +85,7 @@ export function hunksOf(pieces: readonly Piece[]): Line[][] {
 }
 
 const fieldOf = (step: CheckedStep): FieldKey =>
-  step.kind === "slate" ? "slate" : step.characterId ? `character:${step.characterId}` : step.kind === "handoff" || step.id.startsWith("0:option:") ? "handoff" : step.label.startsWith("角色组") ? "characters" : step.kind === "parameter" ? "params" : step.kind === "branch" ? "branch"
+  step.id === "evolution-base" ? "evolution" : step.kind === "slate" ? "slate" : step.characterId ? `character:${step.characterId}` : step.kind === "handoff" || step.id.startsWith("0:option:") ? "handoff" : step.label.startsWith("角色组") ? "characters" : step.kind === "parameter" ? "params" : step.kind === "branch" ? "branch"
     : step.label.startsWith("Prompt") ? "prompt" : step.label.startsWith("Negative") ? "negative" : "composer";
 
 function slateView(step: CheckedStep, change?: SlateChange): Extract<StepView, { kind: "slate" }> {

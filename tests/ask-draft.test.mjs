@@ -69,9 +69,38 @@ test('draft sequential patch, insertion/deletion and toggles recalculate anchors
   const base = state(), d = draft(base, [patch('replace', 'red eyes', 'blue eyes'), patch('after', 'blue eyes', ', soft lighting'), patch('replace', ', nude', '')]);
   assert.equal(plan(d).changes[0].after, 'adult woman, blue eyes, soft lighting, large breasts');
   const off = plan(d, base, ['0', '2']);
-  assert.equal(off.steps[1].issue, '锚点不唯一或已不存在'); assert.deepEqual(off.changes, []);
+  assert.match(off.steps[1].issue, /第 2 步.*image\.prompt.*未找到锚点.*匹配 0 处/); assert.deepEqual(off.changes, []);
+  assert.deepEqual(off.steps[1].anchorIssue, { code: 'anchor_not_found', step: 2, target: 'image.prompt', anchor: 'blue eyes', matches: 0 });
   const inserted = plan(draft(base, [patch('before', 'red eyes', 'bright ')]));
   assert.match(inserted.changes[0].after, /bright red eyes/);
+});
+test('empty insertions skip stale anchors while deletion, clearing and whitespace insertion still apply', () => {
+  const base = state({ prompt: 'scene, old detail, subject' });
+  const d = draft(base, [
+    patch('replace', ', old detail', ''),
+    patch('after', 'old detail', ''),
+    patch('before', 'missing anchor', ''),
+    patch('append', '', ''),
+    patch('after', 'scene', ' '),
+  ]);
+  const result = plan(d);
+  assert.equal(result.changes.find(c => c.field === 'prompt').after, 'scene , subject');
+  assert.deepEqual(result.steps.map(s => s.id), ['0', '4']);
+  assert.ok(result.steps.every(s => !s.issue));
+  assert.equal(plan(draft(base, [patch('rewrite', '', '')])).changes[0].after, '');
+  assert.deepEqual(plan(draft(base, [patch('after', '', '')])).steps, []);
+  assert.throws(() => draft(base, [patch('replace', '', '')]), /anchor/);
+});
+test('anchor diagnostics count exact, normalized and overlapping matches without hiding missing targets', () => {
+  for (const [prompt, anchor, matches] of [['scene scene scene', 'scene', 3], ['aaaa', 'aa', 3], ['blue  eyes, blue\teyes', 'blue eyes', 2]]) {
+    const row = plan(draft(state({ prompt }), [patch('replace', anchor, 'new')])).steps[0];
+    assert.deepEqual(row.anchorIssue, { code: 'anchor_ambiguous', step: 1, target: 'image.prompt', anchor, matches });
+    assert.match(row.issue, /锚点匹配多处/);
+  }
+  const base = state();
+  const row = plan(draft(base, [patch('replace', 'missing', 'new', 'image.char.c9.prompt')])).steps[0];
+  assert.equal(row.issue, '目标角色已不存在');
+  assert.equal(row.anchorIssue, undefined);
 });
 test('draft role validation follows the selected model, including unchecked or conflicting model steps', () => {
   const v4 = 'nai-diffusion-4-5-full', v5 = 'nai-diffusion-5-full';

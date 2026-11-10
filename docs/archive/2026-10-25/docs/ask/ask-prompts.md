@@ -21,7 +21,7 @@
 - 草稿以本轮源板为基底，使用稳定角色靶点、character_edit 与整组恢复。模型可通过 new_board_name 提议具名新板，或由用户在菜单选择新板；确认后的角色分组、检查点及撤销覆盖完整结构。
 - 定位动作的工具说明明确：add/set_position 指定坐标不自动打开手动定位；需要让坐标生效时，同草稿 set_placement 为 manual。set_position 与界面重新选点一样替换为单中心。
 
-对应实现、测试与真实生成待验边界见[多角色与画板 §9](../multi-character-boards-plan.md#9-本轮落地记录2026-10-23)。
+对应实现、测试与真实生成待验边界见[多角色与画板 §9](../multi-character-boards-record.md)。
 
 ## 文件职责
 

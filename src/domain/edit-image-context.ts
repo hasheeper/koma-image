@@ -17,7 +17,7 @@ export function imageEditContext(s:EditorSession, annotation?:AnnotationSnapshot
   if(info&&source&&raw) {
     let mask:MaskSummary={has_mask:false,status:'ready'};
     if(info.mask) { mask=frozenMaskSummaries.get(info.mask)??summarizeMaskBitmap(info.mask);frozenMaskSummaries.set(info.mask,mask); }
-    const compatible=!!annotationAlignment(source,raw);
+    const compatible=!!info.focus||!!annotationAlignment(source,raw);
     comparison={ source:qualifiedEditLabel(s,source), raw:qualifiedEditLabel(s,raw), composite:composite?qualifiedEditLabel(s,composite):null,
       source_size:{width:source.width,height:source.height},raw_size:{width:raw.width,height:raw.height},
       frozen_mask:mask,frozen_edges:info.edges,compatible,

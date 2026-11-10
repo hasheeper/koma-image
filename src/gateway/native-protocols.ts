@@ -1,3 +1,5 @@
+import { seedreamLimits, validateSeedreamSize } from "../domain/seedream.ts";
+import type { CatalogModel } from "../domain/catalog.ts";
 import { MODELS, configuredModels, imageModelFields } from "../domain/models.ts";
 import { object } from "../domain/value.ts";
 import { catalogEntries, linkFor } from "../domain/catalog.ts";
@@ -9,6 +11,7 @@ import { novelaiRequest } from "./novelai-edit.ts";
 import { naiOfficialInpaintModel } from "../domain/nai.ts";
 import { naiSamplers, NAI_OFFICIAL_MAX_PIXELS } from "../domain/nai-parameters.ts";
 import { declaredParameterFields, validParameterKey } from "../domain/model-parameters.ts";
+import { validateMarkupImage } from "../domain/image-markup.ts";
 
 export function novelaiConnectionLabel(catalog: unknown) {
   const active = object(object(catalog).subscription).active;
@@ -38,8 +41,11 @@ export function nativeCatalog(profile: GatewayProfile, raw: unknown) {
     if (!id.trim() || id.length > 512 || /[\x00-\x1f\x7f]/.test(id) || ["__proto__", "constructor", "prototype"].includes(id)) continue;
     const name = typeof item.displayName === "string" ? item.displayName : typeof item.display_name === "string" ? item.display_name : id;
     const capabilities = object(item.image_capabilities);
-    models[id] = { name, ...(capabilities.fields && typeof capabilities.fields === "object" && !Array.isArray(capabilities.fields)
-      ? { image_capabilities: { fields: declaredParameterFields(capabilities.fields) } } : {}) };
+    models[id] = { name, ...(capabilities.fields && typeof capabilities.fields === "object" && !Array.isArray(capabilities.fields) || typeof capabilities.markup === "boolean" ? { image_capabilities: {
+      ...(capabilities.fields && typeof capabilities.fields === "object" && !Array.isArray(capabilities.fields)
+        ? { fields: declaredParameterFields(capabilities.fields) } : {}),
+      ...(typeof capabilities.markup === "boolean" ? { markup: capabilities.markup } : {}),
+    } } : {}) };
   }
   if (!Object.keys(models).length) throw new Error("连接没有返回模型 ID");
   return { models };
@@ -48,15 +54,19 @@ export function nativeCatalog(profile: GatewayProfile, raw: unknown) {
 /** Capabilities follow the chosen application model, never an upstream alias's spelling. */
 export function nativeMappedCatalog(profile: GatewayProfile, raw: Record<string, unknown>, routing: Routing, connection: string) {
   const standard = !profile.protocol || profile.protocol === "standard";
-  if (!standard && profile.protocol !== "openai-images" && profile.protocol !== "gemini-native") return raw;
+  if (!standard && profile.protocol !== "openai-images" && profile.protocol !== "gemini-native" && profile.protocol !== "seedream") return raw;
   const entries = catalogEntries(raw);
   const models: Record<string, unknown> = Object.assign(Object.create(null), standard ? object(raw.models) : {});
-  for (const model of configuredModels(routing).filter(m => m.family === "gpt" || m.family === "gemini")) {
+  for (const model of configuredModels(routing).filter(m => ["gpt", "gemini", "seedream"].includes(m.family))) {
     const link = linkFor(routing, connection, model, entries);
     if (!link?.on || (!link.manual && !Object.hasOwn(object(raw.models), link.id))) continue;
     const fields = imageModelFields(model, standard ? model.family === "gpt" : profile.protocol === "openai-images");
     if (standard && Object.hasOwn(models, link.id)) {
       const meta = object(models[link.id]), capabilities = object(meta.image_capabilities);
+      if (model.family === "seedream" && !Object.hasOwn(capabilities, "fields")) {
+        models[link.id] = { ...meta, image_capabilities: { ...capabilities, fields, source: "reference" } };
+        continue;
+      }
       // Existing explicit defaults remain readable; fresh capability declarations take priority.
       const defaults = Object.fromEntries(Object.entries(fields).filter(([key]) => model.defaults?.[key]));
       models[link.id] = { ...meta, image_capabilities: { ...capabilities, fields: { ...defaults, ...object(capabilities.fields) } } };
@@ -69,7 +79,9 @@ export function nativeMappedCatalog(profile: GatewayProfile, raw: Record<string,
       provider: model.provider, editor_family: model.family,
       operations: ["generate", "edit"], tools: ["image-edit"], chat: true,
       max_context_images: model.inputImages ?? 16,
-      image_capabilities: { fields: hasDeclaration ? declared.fields : fields, source: hasDeclaration ? "declared" : "reference" },
+      ...(model.family === "seedream" ? { max_resolution: seedreamLimits(model.templateId ?? model.id)?.maxPixels ?? 4_624_220 } : {}),
+      image_capabilities: { fields: hasDeclaration ? declared.fields : fields, source: hasDeclaration ? "declared" : "reference",
+        ...(typeof declared.markup === 'boolean' ? { markup: declared.markup } : {}) },
     };
   }
   return { ...raw, models };
@@ -91,13 +103,39 @@ function images(payload: ImagePayload) {
   return [payload.init_image, ...(payload.additional_images as unknown[] || [])].map(imageData);
 }
 
-export function nativeRequest(profile: GatewayProfile, payload: ImagePayload) {
+export function nativeRequest(profile: GatewayProfile, payload: ImagePayload, model?: Pick<CatalogModel, "templateId" | "maxImages">) {
+  if (payload.markup_image !== undefined) {
+    if (profile.protocol !== "openai-images" || payload.tool !== "image-edit") throw new Error("此操作不支持原生标注");
+    if (payload.mask_image) throw new Error("原生标注不能与接口蒙版同时上传");
+    validateMarkupImage(payload.init_image, payload.markup_image);
+  }
   if (profile.protocol === "novelai") return novelaiRequest(payload);
   if (payload.referencePlan || payload.preparedReferences) throw new Error("此连接未声明 NAI 参考生成协议");
   if (payload.tool && payload.tool !== "image-edit")
     throw new Error("此协议仅支持参考图编辑");
   const input = images(payload), options = object(payload.image_options);
   const path = profilePath(profile, payload.tool ? "toolRun" : "generate");
+  if (profile.protocol === "seedream") {
+    if (!payload.model?.trim() || payload.model.length > 512 || /[\x00-\x1f\x7f]/.test(payload.model)) throw new Error("模型 ID 无效");
+    const templateId = model?.templateId ?? payload.model;
+    const limit = model?.maxImages ?? seedreamLimits(templateId)?.images ?? 10;
+    if (input.length > limit) throw new Error(`本模型最多带入 ${limit} 张图片（包含底图）`);
+    const body: Record<string, unknown> = { model: payload.model, prompt: String(payload.prompt || ""), response_format: "b64_json" };
+    for (const [key, value] of Object.entries(options)) {
+      if (value === "") continue;
+      if (key === "response_format") {
+        if (value !== "b64_json") throw new Error("Seedream 当前使用 b64_json 返回图片");
+        continue;
+      }
+      if (!validParameterKey(key) || !["string", "number", "boolean"].includes(typeof value)) throw new Error(`Seedream 参数 ${key} 无效`);
+      if (key === 'layer_decomposition' && value !== false || key === 'sequential_image_generation' && value !== 'disabled')
+        throw new Error('Seedream 当前接入单图生成与参考图编辑，尚未接入图层拆分或组图');
+      setParameter(body, key, value);
+    }
+    validateSeedreamSize(body.size, templateId);
+    if (input.length) body.image = input.length === 1 ? payload.init_image : [payload.init_image, ...(payload.additional_images as string[] ?? [])];
+    return { path, body, native: false };
+  }
   if (profile.protocol === "openai-images") {
     if (!payload.model?.trim() || payload.model.length > 512 || /[\x00-\x1f\x7f]/.test(payload.model)) throw new Error("模型 ID 无效");
     if (input.length > 16) throw new Error("最多使用 16 张参考图");
@@ -113,6 +151,10 @@ export function nativeRequest(profile: GatewayProfile, payload: ImagePayload) {
     for (const [index, image] of input.entries()) {
       const bytes = Uint8Array.from(atob(image.data), c => c.charCodeAt(0));
       form.append("image[]", new Blob([bytes], { type: image.mimeType }), `reference-${index + 1}.${image.mimeType.split("/")[1]}`);
+    }
+    if (payload.markup_image !== undefined) {
+      const markup = imageData(payload.markup_image), bytes = Uint8Array.from(atob(markup.data), c => c.charCodeAt(0));
+      form.set("markup", new Blob([bytes], { type: "image/png" }), "annotations.png");
     }
     return { path, body: form, native: false };
   }

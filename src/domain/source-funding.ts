@@ -46,6 +46,7 @@ export function insufficientFunds(model: CatalogModel, quota: QuotaStatus | null
 /** Fallback keeps the exact payload; it never trims images, changes options or shrinks the canvas. */
 export function supportsSourcePayload(model: CatalogModel, payload?: ImagePayload): boolean {
   if (!payload) return true;
+  if (payload.markup_image !== undefined && !model.markup) return false;
   if (payload.tool === "director") {
     if (model.profileId !== "nai-official-v1" || !model.tools.includes("director")) return false;
     // Operation-only capability checks have no encoded source yet.

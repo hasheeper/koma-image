@@ -3,6 +3,17 @@ import { object } from "../domain/value.ts";
 import type { ConnectionContext } from "../services/connections.ts";
 import type { GatewayProfile } from "./profile.ts";
 
+export class GatewayRequestError extends Error {
+  readonly kind: "http" | "network";
+  readonly status?: number;
+  constructor(message: string, kind: "http" | "network", status?: number) {
+    super(message);
+    this.name = "GatewayRequestError";
+    this.kind = kind;
+    this.status = status;
+  }
+}
+
 export const apiBase = (documentBase: string) =>
   new URL("./api/", documentBase);
 export function endpoint(
@@ -15,10 +26,11 @@ export function endpoint(
     throw new Error("协议路径无效");
   const name = Object.entries(profile.transport.paths).find(([, value]) => value === path)?.[0] as keyof typeof profile.transport.paths;
   let base = normalizeBaseUrl(profile.transport.pathBases?.[name] || baseUrl);
-  const prefix = path === profile.transport.paths.native ? "" : profile.transport.apiPrefix;
-  // Native URLs accept either the service root or its version prefix.
-  if (profile.protocol && profile.protocol !== "standard" && prefix && base.endsWith(prefix))
-    base = base.slice(0, -prefix.length);
+  const apiPrefix = profile.transport.apiPrefix;
+  const prefix = path === profile.transport.paths.native ? "" : apiPrefix;
+  // Accept a service root or its version prefix without duplicating /v1 or /api/v3.
+  if (apiPrefix && base.endsWith(apiPrefix))
+    base = base.slice(0, -apiPrefix.length);
   if (profile.transport.rootPrefix && new URL(base).pathname === "/")
     base += profile.transport.rootPrefix;
   if (path.includes("{model}")) {
@@ -49,9 +61,9 @@ export async function readJson(
   response: Response,
 ): Promise<Record<string, unknown>> {
   const data = object(await response.json().catch(() => null));
-  if (response.status === 401) throw new Error("鉴权失败（401），请检查 API Key");
+  if (response.status === 401) throw new GatewayRequestError("鉴权失败（401），请检查 API Key", "http", 401);
   if (!response.ok || data.error)
-    throw new Error(errorMessage(data, `请求失败 (${response.status})`));
+    throw new GatewayRequestError(errorMessage(data, `请求失败 (${response.status})`), "http", response.status);
   return data;
 }
 export function createTransport(
@@ -111,7 +123,7 @@ export function createTransport(
         });
       } catch (error) {
         if (options.signal?.aborted) throw options.signal.reason;
-        if (error instanceof TypeError) throw new Error("无法连接");
+        if (error instanceof TypeError) throw new GatewayRequestError("无法连接", "network");
         throw error;
       }
     },

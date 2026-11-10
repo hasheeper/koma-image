@@ -50,7 +50,7 @@ export function recipeForm(input: unknown): BoardForm {
   }
   return out;
 }
-export function parseSlateEdit(raw: unknown, active: Slate | null, form: DrawingForm, library: readonly Picture[]): SlateStep {
+export function parseSlateEdit(raw: unknown, active: Slate | null, form: DrawingForm, library: readonly Picture[], directoryId?: string | null): SlateStep {
   checkShape(raw, slateEditSchema, "任务草稿");
   const edit = raw as SlateEdit;
   if (edit.op !== "create" && (!active || edit.slate_id !== active.id || edit.expected_version !== active.version)) throw new Error("任务板 ID 或版本已变化，请读取当前任务板后重新提议");
@@ -59,7 +59,7 @@ export function parseSlateEdit(raw: unknown, active: Slate | null, form: Drawing
   const after: Slate = before ? structuredClone(before) : { id: crypto.randomUUID(), title: "新任务板", version: 1, todos: [], golden_recipe: null };
   if (edit.slate_title !== undefined) { if (!edit.slate_title.trim()) throw new Error("任务板标题不能为空"); after.title = edit.slate_title.trim(); }
   if (edit.op === "create" && !edit.slate_title?.trim()) throw new Error("新建任务板需要标题");
-  const change: SlateChange = { id: after.id, before, after: edit.op === "delete" ? null : after, bindings: [], directoryRequired: edit.directory_required === true };
+  const change: SlateChange = { id: after.id, before, after: edit.op === "delete" ? null : after, bindings: [], directoryRequired: edit.directory_required === true, ...(directoryId !== undefined ? { directoryId } : {}) };
   if (edit.op === "delete") {
     if (edit.todos || edit.golden_recipe || edit.slate_title) throw new Error("删除任务板不能混合编辑");
     return { kind: "slate_edit", change, captureRecipe: false, unlockRecipe: false };

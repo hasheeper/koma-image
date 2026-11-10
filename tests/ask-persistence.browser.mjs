@@ -5,7 +5,8 @@ import { useAskFixture, origin, submitAsk, open, openai, text, end, askSettings,
 
 useAskFixture();
 
-for (const connectionId of ['chat', 'claude']) test(`ASK favorites: ${connectionId} reload, exact context, attachments, auto-save, unstar and delete`, async () => {
+test(`ASK favorites: chat reload, exact context, attachments, auto-save, unstar and delete`, async () => {
+  const connectionId = "chat";
   const { page, context, llm, calls, requests, errors } = await open('/#/image', { ready: '.switcher', ask: askSettings({ connectionId }) });
   try {
 
@@ -212,7 +213,8 @@ test('ASK favorites: interrupted request restores as stopped and never resumes a
   } finally { release?.(); await context.close(); }
 });
 
-for (const connectionId of ['chat', 'claude']) test(`ASK CP1: ${connectionId} stable turn recall, bounded attachment pages and favorite reload`, async () => {
+test(`ASK CP1: chat stable turn recall, bounded attachment pages and favorite reload`, async () => {
+  const connectionId = "chat";
   const { page, context, llm, calls, requests, errors } = await open('/#/image', { ready: '.switcher', ask: askSettings({ connectionId }) });
   const resultOf = call => {
     const m = call.body.messages.at(-1);

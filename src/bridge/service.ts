@@ -24,6 +24,7 @@ import { previewCache } from "./previews.ts";
 import { protocolDocument } from "./protocol-doc.ts";
 import { scanRefs, refIndex, referenceSnapshot } from "./refs.ts";
 import type { RefCatalog } from "./refs.ts";
+import type { MetadataCache } from "./project/scan.ts";
 import { emptyRefs } from "../ask/reference-source.ts";
 
 
@@ -33,6 +34,7 @@ export function createBridge(deps: { services: ApplicationServices; ask: Ask; dr
   const receipt = shallowRef<InboxReceipt | null>(null), busy = shallowRef(false), mountRevision = shallowRef(0);
   const refs = shallowRef(emptyRefs()), refFiles = shallowRef<RefCatalog["files"]>([]);
   let catalog: RefCatalog = { files: [], limited: false };
+  const project = shallowRef<RefCatalog["project"]>(), projectOpen = shallowRef(false), metadataCache: MetadataCache = new Map();
   const pageScope = crypto.randomUUID();
   let mount: Mount | null = null, active: { id: string; root: FileSystemDirectoryHandle; driver: ReturnType<typeof fileDriver>; signal: AbortSignal; abort: AbortController; release: () => Promise<void> } | null = null;
   let disposed = false, revision = 0, lastSignature = "", lastInbox = "", requested = false;
@@ -43,10 +45,11 @@ export function createBridge(deps: { services: ApplicationServices; ask: Ask; dr
   const context = () => mount?.id ?? pageScope;
   const slateSync = deps.slates ? createSlateSync(deps.slates, storage, { accept, focus: ask.reviewExternal,
     receipt: (context, id) => { const record = ask.externalRecord(context, id); return record ? { draft_id: id, status: record.status, ...(record.error ? { error: record.error } : {}) } : null; } }) : null;
-  const disconnectSlates = deps.slates?.connectSync((slate, id, required, created) => slateSync!.deliver(slate, id, required, created));
+  const disconnectSlates = deps.slates?.connectSync((slate, id, required, created, directoryId) => slateSync!.deliver(slate, id, required, created, directoryId), () => active?.id ?? null);
   function setRefs(value?: RefCatalog) {
     catalog = value ?? { files: [], limited: false };
     const index = value ? refIndex(value) : emptyRefs();
+    if (canonical(project.value ?? null) !== canonical(catalog.project ?? null)) project.value = catalog.project;
     if (canonical(refs.value) !== canonical(index)) { refs.value = index; ask.referencesChanged(); }
     if (canonical(refFiles.value) !== canonical(catalog.files)) refFiles.value = catalog.files;
   }
@@ -61,7 +64,7 @@ export function createBridge(deps: { services: ApplicationServices; ask: Ask; dr
     },
   });
   const disconnectRefs = ask.connectReferences({ index: () => refs.value,
-    snapshot: () => active && refs.value.available ? referenceSnapshot(active.root, catalog, active.signal) : null });
+    snapshot: () => active && refs.value.available ? referenceSnapshot(active.root, catalog, active.signal, active.id) : null });
   function remember(snapshot: BridgeSnapshot) {
     const key = `${snapshot.pictureScope}:${stateHash(snapshot.base)}`;
     snapshots.delete(key); snapshots.set(key, snapshot);
@@ -148,7 +151,7 @@ export function createBridge(deps: { services: ApplicationServices; ask: Ask; dr
   async function synchronize(session: NonNullable<typeof active>) {
     session.signal.throwIfAborted();
     await slateSync?.scan(session);
-    const files = await scanRefs(session.root, session.signal);
+    const files = await scanRefs(session.root, session.signal, metadataCache);
     session.signal.throwIfAborted(); setRefs(files);
     const raw = await session.driver.read("draft.inbox.json");
     if (raw && raw.text !== lastInbox) {
@@ -206,7 +209,7 @@ export function createBridge(deps: { services: ApplicationServices; ask: Ask; dr
   async function stop() {
     clearTimeout(timer); clearInterval(heartbeat); requested = false;
     const previous = active; active = null; mountRevision.value++;
-    setRefs();
+    setRefs(); metadataCache.clear();
     previous?.abort.abort(new DOMException("协同已暂停", "AbortError"));
     await cycle; await Promise.allSettled([...fileJobs]); await slateSync?.detach(); await previous?.release(); cache.clear(); lastSignature = ""; lastInbox = "";
   }
@@ -273,6 +276,11 @@ export function createBridge(deps: { services: ApplicationServices; ask: Ask; dr
   return { slateMappings: slateSync?.mappings ?? shallowRef([]),
     mapSlate(id: string) { return operation(async () => { await slateSync?.map(id); }); },
     resolveSlate(id: string, mode: "local" | "review") { return operation(async () => { await slateSync?.resolve(id, mode); }); },
+    project, projectOpen, projectEpoch: mountRevision,
+    openProject() { projectOpen.value = true; void sync(); },
+    closeProject() { projectOpen.value = false; },
+    refreshProject() { metadataCache.clear(); return sync(); },
+    referenceSnapshot() { return active ? referenceSnapshot(active.root, catalog, active.signal, active.id) : null; },
     phase, directory, error, receipt, busy, restored, refs, refFiles, supported: !!directoryPicker(),
     mount() {
       // Invoke picker in the click stack, before any await consumes user activation.
@@ -280,7 +288,7 @@ export function createBridge(deps: { services: ApplicationServices; ask: Ask; dr
       return operation(async () => { const handle = await picker({ mode: "readwrite", id: "koma-bridge" }); await restored; const entry = await storage.register(handle); await storage.put("active", entry); await activate(entry); });
     },
     resume() { return operation(async () => { if (!mount) return; if (await mount.handle.requestPermission({ mode: "readwrite" }) !== "granted") { phase.value = "permission"; return; } await activate(mount); }); },
-    unmount() { return operation(async () => { await restored; resumeAfterMaintenance = false; await stop(); mount = null; snapshots.clear(); directory.value = ""; phase.value = "off"; receipt.value = null; await storage.put("active", null); }); },
+    unmount() { return operation(async () => { await restored; resumeAfterMaintenance = false; await stop(); mount = null; projectOpen.value = false; snapshots.clear(); directory.value = ""; phase.value = "off"; receipt.value = null; await storage.put("active", null); }); },
     importFile(file: File) { return operation(async () => {
       await restored;
       if (file.size > INBOX_LIMIT) throw new Error("草稿 JSON 超过 1 MB");

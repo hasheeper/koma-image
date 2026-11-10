@@ -1,4 +1,4 @@
-import { exportPhotopea, initializePhotopea, copyPhotopeaInput, applyPhotopeaInput, closePhotopeaInput, preparePhotopeaExport, closePhotopeaDocument, resumePhotopea, photopeaScript, PHOTOPEA_ORIGIN } from "./photopea-scripts.ts";
+import { applyPhotopeaFusion, exportPhotopea, initializePhotopea, copyPhotopeaInput, applyPhotopeaInput, closePhotopeaInput, preparePhotopeaExport, closePhotopeaDocument, resumePhotopea, photopeaScript, PHOTOPEA_ORIGIN } from "./photopea-scripts.ts";
 import type { PhotopeaReturnMode, PhotopeaRoles } from "./photopea-scripts.ts";
 import type { EditReturn } from "../services/editor.ts";
 import { MAX_INPUT_BYTES } from "../domain/media.ts";
@@ -155,6 +155,15 @@ export function createPhotopeaClient(frame: HTMLIFrameElement, id: string, optio
       if (!ctx) throw new Error("当前浏览器不支持图片处理");
       ctx.putImageData(maskBitmapPixels(mask),0,0);
       return {mode,image:blobs[0],mask:await canvas.convertToBlob({type:"image/png"}),format:"alpha"};
+    },
+    async addFusion(image: Blob, mask: Blob) {
+      for (const [kind, blob] of [['image', image], ['mask', mask]] as const) {
+        if (!stack) throw new Error('Photopea 工作栈未初始化');
+        await send(await blob.arrayBuffer());
+        await send(copyPhotopeaInput(documentId));
+        await send(applyPhotopeaFusion(documentId, stack, kind));
+        await send(closePhotopeaInput(documentId, kind === 'mask'));
+      }
     },
     dispose() { fatal("Photopea 已关闭", false); },
   };

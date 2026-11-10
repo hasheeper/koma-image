@@ -83,10 +83,12 @@ test("manifest rejects duplicate records, missing referenced assets, and unsafe 
   }
   const c = { ...newConversation(), id: "conversation", title: "草稿", prompt: "text", attachments: ["missing"] };
   assert.throws(() => validateBackupManifest({ ...manifest(), conversations: [c] }));
-  const asset = { id: "a".repeat(64), width: 1, height: 1, name: "synthetic", origin: "result", image: { path: "assets/0.png", type: "image/png" } };
+  const asset = { id: "a".repeat(64), width: 1, height: 1, name: "synthetic", origin: "result", image: { path: "assets/0.png", type: "image/png" }, projectSource: { projectId: 'project', path: 'characters/hero/portrait.png', version: 'b'.repeat(64) } };
   c.attachments = [asset.id];
   const result = validateBackupManifest({ ...manifest(), conversations: [c], assets: [asset] });
   assert.equal(result.conversations[0].prompt, "text");
+  assert.deepEqual(result.assets[0].projectSource,asset.projectSource);
+  assert.throws(() => validateBackupManifest({ ...manifest(), assets: [{...asset,projectSource:{path:'incomplete'}}] }));
   assert.throws(() => validateBackupManifest({ ...manifest(), assets: [asset, asset] }));
 });
 

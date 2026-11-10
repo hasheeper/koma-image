@@ -1,4 +1,5 @@
 import { checkEditConfiguration } from "./edit-configuration.ts";
+import { isEmptyInsertion } from './text.ts';
 import { editSourceKey, patchEditOptions } from './edit-options.ts';
 import { normalizeOptions } from '../../domain/catalog.ts';
 import { chatOptionNames } from '../../domain/chat-options.ts';
@@ -48,8 +49,8 @@ export function parseEditDraft(input:Readonly<Record<string,unknown>>,base:Draft
  if(input.base_hash!==stateHash(base))throw new Error('草稿 base_hash 与本轮快照不符');
  if(input.new_board_name!==undefined)throw new Error('EDIT 页内草稿不能创建 IMAGE 画板');
  if(!Array.isArray(input.steps)||!input.steps.length||input.steps.length>12)throw new Error('草稿需要 1–12 个步骤');
- const extras:Draft['steps'][number][]=[], common:Record<string,unknown>[]=[];
- for(const raw of input.steps) {
+ const extras:Draft['steps'][number][]=[], common:Record<string,unknown>[]=[], sourceSteps:number[]=[];
+ for(const [index,raw] of input.steps.entries()) {
    const step=obj(raw);
    if(step.kind==='director_patch'){extras.push(parseDirector(step));continue;}
    if(step.kind==='params_patch') {
@@ -63,10 +64,11 @@ export function parseEditDraft(input:Readonly<Record<string,unknown>>,base:Draft
      if(step.kind==='restore_partial'&&Array.isArray(step.fields)&&step.fields.some(f=>['width','height','batchCount'].includes(f)))throw new Error('编辑不能恢复尺寸或批次');
      common.push(step);
    } else throw new Error('此步骤不能与 EDIT 页内草稿组合');
+   while(sourceSteps.length<common.length)sourceSteps.push(index+1);
  }
  const inner=adapted(base,s),synthetic=!common.length;
  const parsed=parseDraft({...input,base_hash:stateHash(inner),steps:common.length?common:[{kind:'prompt_patch',target:'image.prompt',mode:'rewrite',text:inner.form.prompt}]},inner,library,question);
- return {...parsed,target:'edit',base:structuredClone(base),baseHash:stateHash(base),synthetic,steps:[...parsed.steps,...extras]};
+ return {...parsed,target:'edit',base:structuredClone(base),baseHash:stateHash(base),synthetic,steps:[...parsed.steps.map((step,i)=>step.kind==='prompt_patch'?{...step,sourceStep:sourceSteps[i]}:step),...extras]};
 }
 export function configureEdit(s:EditDraftState,params:Readonly<Record<string,unknown>>,config=structuredClone(s.config)):EditConfiguration {
  const c=config;
@@ -171,8 +173,8 @@ export function validateEditDraft(draft:Draft,now:DraftState,options:ValidateOpt
    options.inspectInput?.(editDrawingForm(s,proposed),proposed);
  }
  const cap=naiCapabilities(after.chosen[after.mode]);
- if(cap.medium&&common.some(step=>step.kind==='prompt_patch'&&step.target.endsWith('negative')||step.kind==='params_patch'&&Object.keys(step.params).some(k=>['steps','sampler','cfgRescale','negativePreset'].includes(k))||step.kind==='character_edit'&&step.negative||step.kind==='restore_partial'&&step.fields.some(k=>['steps','sampler','cfgRescale','negativePreset','negative_prompt'].includes(k)||k==='characters'&&Array.isArray(step.values.characters)&&step.values.characters.some(c=>c.negative))))issue ||= 'Medium 的步数、采样器、负向与 Rescale 固定';
- if(after.upscaleOpen&&!draft.synthetic&&common.some(step=>step.kind==='prompt_patch'||step.kind==='character_edit'||step.kind==='restore_partial'||step.kind==='params_patch'))issue ||= '放大模式不接受提示词或生成参数';
+ if(cap.medium&&common.some(step=>step.kind==='prompt_patch'&&!isEmptyInsertion(step)&&step.target.endsWith('negative')||step.kind==='params_patch'&&Object.keys(step.params).some(k=>['steps','sampler','cfgRescale','negativePreset'].includes(k))||step.kind==='character_edit'&&step.negative||step.kind==='restore_partial'&&step.fields.some(k=>['steps','sampler','cfgRescale','negativePreset','negative_prompt'].includes(k)||k==='characters'&&Array.isArray(step.values.characters)&&step.values.characters.some(c=>c.negative))))issue ||= 'Medium 的步数、采样器、负向与 Rescale 固定';
+ if(after.upscaleOpen&&!draft.synthetic&&common.some(step=>step.kind==='prompt_patch'&&!isEmptyInsertion(step)||step.kind==='character_edit'||step.kind==='restore_partial'||step.kind==='params_patch'))issue ||= '放大模式不接受提示词或生成参数';
  try { configureEdit(s,{},after);issue ||= checkEditConfiguration(s,after); }catch(e){issue ||= e instanceof Error?e.message:String(e);}
  if(issue&&!extraRows.length&&draft.synthetic)extraRows.push({id:'edit:issue',kind:'parameter',label:'编辑配置',before:'',after:'',issue,enabled:true,locked:true,aligned:false});
  const steps=[...(draft.synthetic?[]:generic.steps),...extraRows].map(step=>({...step,locked:true,issue:step.issue||issue}));

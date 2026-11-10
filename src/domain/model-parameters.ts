@@ -13,8 +13,12 @@ export interface ParameterField {
 }
 export type ParameterFields = Record<string, ParameterField>;
 export type ParameterOverrides = Record<string, ParameterField | null>;
+/** These configuration values control app-managed inputs; they are never sent as scalars. */
+const sourceParameters = new Set(['markup']);
+export const requestParameterFields = (fields: ParameterFields): ParameterFields =>
+  Object.fromEntries(Object.entries(fields).filter(([key]) => !sourceParameters.has(key)));
 const forbidden = new Set(["__proto__", "prototype", "constructor"]);
-const controlled = new Set(["model", "prompt", "n", "image", "image[]", "mask", "contents", "responseModalities", "max_cost", "stream"]);
+const controlled = new Set(["model", "prompt", "n", "image", "image[]", "images", "mask", "markup", "markup_image", "contents", "responseModalities", "max_cost", "stream"]);
 export function validParameterKey(key: string): boolean {
   const path = key.split(".");
   return key.length <= 128 && path.length <= 4 && path.every(part => /^[a-zA-Z_][a-zA-Z0-9_]*$/.test(part) && !forbidden.has(part)) && !controlled.has(path[0]);
@@ -50,13 +54,18 @@ function readField(raw: unknown): ParameterField {
     field.default !== "" && !acceptsParameter(field, field.default)) throw new Error("参数选项或默认值无效");
   return field;
 }
-/** Persist only supported scalar schemas. Null explicitly disables an upstream/reference field. */
+function configurationField(key: string, raw: unknown): ParameterField {
+  const field = readField(raw);
+  if (sourceParameters.has(key) && (field.type !== 'boolean' || field.allowCustom)) throw new Error(`${key} 是来源能力开关，类型必须为开关`);
+  return field;
+}
+/** Null explicitly disables an upstream/reference field, including an app-managed source capability. */
 export function validateParameterOverrides(raw: unknown): ParameterOverrides {
   if (!raw || typeof raw !== "object" || Array.isArray(raw) || Object.keys(raw).length > 64) throw new Error("来源参数配置无效");
   const result: ParameterOverrides = {};
   for (const [key, value] of Object.entries(raw)) {
-    if (!validParameterKey(key)) throw new Error(`参数字段 ${key} 无效或由应用管理`);
-    result[key] = value === null ? null : readField(value);
+    if (!validParameterKey(key) && !sourceParameters.has(key)) throw new Error(`参数字段 ${key} 无效或由应用管理`);
+    result[key] = value === null ? null : configurationField(key, value);
   }
   return result;
 }
@@ -64,8 +73,8 @@ export function validateParameterOverrides(raw: unknown): ParameterOverrides {
 export function declaredParameterFields(raw: unknown): ParameterFields {
   const result: ParameterFields = {};
   for (const [key, value] of Object.entries(object(raw)).slice(0, 64)) {
-    if (!validParameterKey(key) || value === null) continue;
-    try { result[key] = readField(value); } catch { /* Keep other valid declarations usable. */ }
+    if (!validParameterKey(key) && !sourceParameters.has(key) || value === null) continue;
+    try { result[key] = configurationField(key, value); } catch { /* Keep other valid declarations usable. */ }
   }
   return result;
 }
@@ -87,7 +96,7 @@ export function requestOptions(fields: ParameterFields, raw: unknown): Record<st
   for (const [key, value] of Object.entries(object(raw))) {
     if (value === "" || value === undefined) continue;
     const field = fields[key];
-    if (!field || !acceptsParameter(field, String(value))) throw new Error(`当前来源不支持参数 ${key} 或其取值`);
+    if (!validParameterKey(key) || !field || !acceptsParameter(field, String(value))) throw new Error(`当前来源不支持参数 ${key} 或其取值`);
     result[key] = parameterValue(field, String(value));
   }
   return result;

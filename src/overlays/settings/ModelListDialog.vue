@@ -112,7 +112,7 @@ const families = computed(() =>
 const open = (family: string) =>
   Boolean(
     query.value ||
-    (folded.value[family] ?? ["gpt", "gemini", "novelai"].includes(family)),
+    (folded.value[family] ?? ["gpt", "gemini", "seedream", "novelai"].includes(family)),
   );
 watch(
   () => props.connection,

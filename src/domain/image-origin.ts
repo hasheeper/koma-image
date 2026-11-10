@@ -1,8 +1,15 @@
-import type { Fields, ConversationRecord, ConversationTurn, ConversationVersion } from "../storage/records.ts";
+import type { Fields, ConversationRecord, ConversationTurn, ConversationVersion, AssetRecord } from "../storage/records.ts";
 
 export type CreativeWorkspace = "image" | "chat" | "edit";
 export type LineId = `${CreativeWorkspace}:${string}`;
 const strings = ["boardId", "boardName", "boardColor", "chatConversationId", "chatConversationTitle", "chatTurnId", "chatVersionId", "chatAssetId", "editBoardId", "editBoardName", "editId", "editParent", "editSource", "editedAt", "editOriginId", "editVariant"] as const;
+
+export function readProjectImageSource(value: unknown): AssetRecord['projectSource'] {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) return;
+  const p = value as Record<string, unknown>;
+  if (typeof p.projectId === 'string' && p.projectId.length > 0 && p.projectId.length <= 120 && typeof p.path === 'string' && p.path.length > 0 && p.path.length <= 1024 && typeof p.version === 'string' && p.version.length > 0 && p.version.length <= 128)
+    return { projectId: p.projectId, path: p.path, version: p.version };
+}
 
 /** Only stable, non-secret provenance. Display tags are never identities. */
 export function imageOrigin(params: Readonly<Record<string, unknown>>): Fields {
@@ -12,6 +19,8 @@ export function imageOrigin(params: Readonly<Record<string, unknown>>): Fields {
   if (Number.isSafeInteger(params.chatTurnNumber) && Number(params.chatTurnNumber) > 0) out.chatTurnNumber = Number(params.chatTurnNumber);
   if (Number.isSafeInteger(params.editBoardSeq) && Number(params.editBoardSeq)>0) out.editBoardSeq=Number(params.editBoardSeq);
   if (Number.isSafeInteger(params.editVersion) && Number(params.editVersion) > 0) out.editVersion = Number(params.editVersion);
+  const project = readProjectImageSource(params.projectSource);
+  if (project) out.projectSource = project;
   return out;
 }
 export function imageLine(params: Readonly<Record<string, unknown>>): LineId | null {

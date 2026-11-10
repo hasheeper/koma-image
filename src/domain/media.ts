@@ -386,8 +386,6 @@ function validateNAIEditPayload(
   return payload;
 }
 
-/** The image editor's three modes share one base image. */
-export const EDITOR_MODES: EditorMode[] = ["img2img", "inpaint", "upscale"];
 /** Generic image editing uses declared capabilities, including user-defined IDs. */
 export function isGenerativeEditorModel(model?: CatalogModel): boolean {
   return !!model && model.provider !== "novelai" && model.chat && model.operations.includes("edit") && model.tools.includes("image-edit") && model.maxImages >= 1;

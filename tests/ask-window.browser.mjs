@@ -100,6 +100,10 @@ test('ASK island: collapsed tools, reviewed draft, apply/undo, focus guards and 
     await page.locator('#settingsPanel').waitFor({ state: 'hidden' });
     await page.locator('.ask-ready [aria-label="展开 ASK 对话"]').focus();
     await page.keyboard.press('Tab');
+    // Pending feedback keeps Tab as focus navigation; applying the original draft is explicit.
+    assert.deepEqual(await form(page), initial);
+    assert.equal(await page.evaluate(() => !!ask.draftPlan.value), true);
+    await page.locator('#askCompactDraft .ask-draft-apply').click();
     await islandMode(page, 'done');
     assert.equal((await form(page)).prompt, 'blue eyes');
     // Undo lives in the window: the write pill only opens it.
@@ -116,7 +120,7 @@ test('ASK island: collapsed tools, reviewed draft, apply/undo, focus guards and 
     await islandMode(page,'ready');
     await page.evaluate(() => drawing.patch({ prompt: 'green eyes' }));
     assert.equal(await page.locator('#askCompactDraft .ask-draft-apply').isDisabled(), true);
-    assert.match(await page.locator('#askCompactDraft .draft-issue').textContent(), /锚点不唯一或已不存在/);
+    assert.match(await page.locator('#askCompactDraft .draft-issue').textContent(), /第 1 步.*image\.prompt.*未找到锚点.*匹配 0 处/);
     await page.evaluate(() => drawing.patch({ prompt: 'red eyes' }));
     await page.locator('#askCompactDraft .ask-draft-apply').click();
     await islandMode(page, 'done');

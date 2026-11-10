@@ -47,7 +47,6 @@ export function initializePhotopea(id: string, maskMode = false) {
     var roles={baseId:base.id,scratchId:scratch.id,maskId:mask.id,carrierId:carrier.id};
     d.activeLayer=${maskMode ? "mask" : "scratch"};${state}d.clearHistory();app.UI.fitTheArea();`;
 }
-export const resetPhotopea = `while(app.documents.length){var count=app.documents.length;app.activeDocument.close(SaveOptions.DONOTSAVECHANGES);if(app.documents.length>=count)return reply("error","未能关闭上次文档，请重新载入");}`;
 export function closePhotopeaDocument(id: string) {
   return "for(var j=app.documents.length-1;j>=0;j--){var d=app.documents[j];if(d.source===" + literal("koma:" + id) + "){app.activeDocument=d;d.close(SaveOptions.DONOTSAVECHANGES);}}";
 }
@@ -90,6 +89,28 @@ export function applyPhotopeaInput(id: string, value: PhotopeaRoles, kind: "base
 export function closePhotopeaInput(id: string, initial = false) {
   return `${findDocument(id)}for(var j=app.documents.length-1;j>=0;j--){var md=app.documents[j];if(md.source===${literal(`koma-input:${id}`)}){app.activeDocument=md;md.close(SaveOptions.DONOTSAVECHANGES);}}
     app.activeDocument=d;${initial ? "d.clearHistory();" : ""}`;
+}
+/** Imported transparency becomes a real, soft user mask on the AI layer. The
+ * dedicated Koma mask/carrier remain independent and protected. */
+export function applyPhotopeaFusion(id: string, value: PhotopeaRoles, kind: 'image' | 'mask') {
+  return `${helpers}${findDocument(id)}${roles(value)}${validate}app.activeDocument=d;
+    var incoming=null;for(var j=0;j<d.layers.length;j++)if(d.layers[j].name===${literal(`koma-input:${id}`)})incoming=d.layers[j];
+    if(!incoming)return reply("error","融合素材缺失，请重新载入");
+    ${kind === 'image' ? `
+      var old=root(d,roles.scratchId);incoming.name="AI Result / 生成图";incoming.move(root(d,roles.baseId),ElementPlacement.PLACEBEFORE);
+      if(old)old.remove();roles.scratchId=incoming.id;d.activeLayer=incoming;
+    ` : `
+      d.activeLayer=incoming;alphaSelection();d.activeLayer=root(d,roles.scratchId);
+      var desc=new ActionDescriptor(),ref=new ActionReference();
+      desc.putClass(charIDToTypeID("Nw  "),charIDToTypeID("Chnl"));
+      ref.putEnumerated(charIDToTypeID("Chnl"),charIDToTypeID("Chnl"),charIDToTypeID("Msk "));
+      desc.putReference(charIDToTypeID("At  "),ref);
+      desc.putEnumerated(charIDToTypeID("Usng"),charIDToTypeID("UsrM"),charIDToTypeID("RvlS"));
+      executeAction(charIDToTypeID("Mk  "),desc,DialogModes.NO);incoming.remove();d.selection.deselect();
+      var select=new ActionDescriptor(),channel=new ActionReference();
+      channel.putEnumerated(charIDToTypeID("Chnl"),charIDToTypeID("Chnl"),charIDToTypeID("Msk "));
+      select.putReference(charIDToTypeID("null"),channel);executeAction(charIDToTypeID("slct"),select,DialogModes.NO);
+    `}${state}`;
 }
 /** The project is only an in-memory transport snapshot. It is never persisted. */
 export function preparePhotopeaExport(id: string, value: PhotopeaRoles) {

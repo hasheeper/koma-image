@@ -416,11 +416,7 @@ test("pacer: minimum gaps top up quick steps and never add to slow ones", async 
   pacer.push(() => order.push("next"), 160);
   await pacer.settled();
   assert.deepEqual(waits, [600]);
-  pacer.rush();
-  pacer.push(() => order.push("rushed"), 600);
-  await pacer.settled();
-  assert.deepEqual(waits, [600]);
-  assert.deepEqual(order, ["start", "end", "next", "rushed"]);
+  assert.deepEqual(order, ["start", "end", "next"]);
 });
 
 test("pacer: cancelling interrupts a pending dwell and discards queued output", async () => {

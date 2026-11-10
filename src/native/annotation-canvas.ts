@@ -35,26 +35,30 @@ export async function annotationPreview(source: Blob, value: AnnotationSnapshot)
   const bitmap = await createImageBitmap(source);
   try {
     if (bitmap.width !== value.width || bitmap.height !== value.height) throw new Error('批注来源尺寸已变化');
-    const { width, height } = value, { canvas, ctx } = context(width,height), unit = Math.max(1,Math.min(width,height)/700);
+    const { width, height } = value, { canvas, ctx } = context(width,height);
     ctx.drawImage(bitmap,0,0);
-    ctx.lineJoin = 'round'; ctx.lineCap = 'round';
-    const stroke = () => { for (const [color, weight] of [['rgba(0,0,0,.5)', 7], ['#fff', 4.5], ['#7c3aed', 2.2]] as const) { ctx.strokeStyle=color; ctx.lineWidth=weight*unit; ctx.stroke(); } };
-    for (const r of value.regions) if (r.shape !== 'point') {
-      annotationPath(ctx,r,width,height); ctx.fillStyle='rgba(124,58,237,.16)';ctx.fill();stroke();
-    }
-    value.regions.forEach((r,i) => {
-      const tag = annotationTag(r, i+1, width, height, unit*1.5);
-      if (r.shape === 'point') {
-        const x=r.bbox.x*width,y=r.bbox.y*height;
-        ctx.beginPath();ctx.moveTo(x,y+(tag.below?9:-9)*unit);ctx.lineTo(x,tag.below?tag.y:tag.y+tag.h);stroke();
-        ctx.beginPath();ctx.arc(x,y,9*unit,0,Math.PI*2);stroke();
-      }
-      ctx.beginPath();ctx.roundRect(tag.x,tag.y,tag.w,tag.h,9*unit);
-      ctx.strokeStyle='rgba(0,0,0,.45)';ctx.lineWidth=5*unit;ctx.stroke();ctx.fillStyle='#7c3aed';ctx.fill();ctx.strokeStyle='#fff';ctx.lineWidth=2.2*unit;ctx.stroke();
-      ctx.font=`800 ${18.75*unit}px monospace`;ctx.textAlign='center';ctx.textBaseline='middle';ctx.fillStyle='#fff';ctx.fillText(String(i+1),tag.x+tag.w/2,tag.y+tag.h/2);
-    });
+    drawAnnotationLayer(ctx, value.regions, width, height);
     return await canvas.convertToBlob({type:'image/png'});
   } finally { bitmap.close(); }
+}
+export function drawAnnotationLayer(ctx: PaintContext, regions: readonly RegionAnnotation[], width: number, height: number) {
+  const unit = Math.max(1, Math.min(width, height) / 700);
+  ctx.lineJoin = 'round'; ctx.lineCap = 'round';
+  const stroke = () => { for (const [color, weight] of [['rgba(0,0,0,.5)', 7], ['#fff', 4.5], ['#7c3aed', 2.2]] as const) { ctx.strokeStyle=color; ctx.lineWidth=weight*unit; ctx.stroke(); } };
+  for (const r of regions) if (r.shape !== 'point') {
+    annotationPath(ctx,r,width,height); ctx.fillStyle='rgba(124,58,237,.16)';ctx.fill();stroke();
+  }
+  regions.forEach((r,i) => {
+    const tag = annotationTag(r, i+1, width, height, unit*1.5);
+    if (r.shape === 'point') {
+      const x=r.bbox.x*width,y=r.bbox.y*height;
+      ctx.beginPath();ctx.moveTo(x,y+(tag.below?9:-9)*unit);ctx.lineTo(x,tag.below?tag.y:tag.y+tag.h);stroke();
+      ctx.beginPath();ctx.arc(x,y,9*unit,0,Math.PI*2);stroke();
+    }
+    ctx.beginPath();ctx.roundRect(tag.x,tag.y,tag.w,tag.h,9*unit);
+    ctx.strokeStyle='rgba(0,0,0,.45)';ctx.lineWidth=5*unit;ctx.stroke();ctx.fillStyle='#7c3aed';ctx.fill();ctx.strokeStyle='#fff';ctx.lineWidth=2.2*unit;ctx.stroke();
+    ctx.font=`800 ${18.75*unit}px monospace`;ctx.textAlign='center';ctx.textBaseline='middle';ctx.fillStyle='#fff';ctx.fillText(String(i+1),tag.x+tag.w/2,tag.y+tag.h/2);
+  });
 }
 /** Squared Euclidean distance to selected pixels, linear time and bounded scratch space. */
 function distanceField(mask: MaskBitmap): Float32Array {

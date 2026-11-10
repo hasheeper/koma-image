@@ -1,13 +1,13 @@
 # 文档索引
 
-更新：2026-10-29。现行文档按职责组织；已完成的方案与验收证据只放在 `archive/`。代码实现、本地模拟、真实供应商验证和线上发布分别核验，历史记录不代表当前版本或新的发布授权。
+更新：2026-11-09。现行文档按职责组织；已完成的方案与验收证据只放在 `archive/`。代码实现、本地模拟、真实供应商验证和线上发布分别核验，历史记录不代表当前版本或新的发布授权。
 
 ## 阅读入口
 
 | 要了解什么 | 从哪里开始 |
 | --- | --- |
 | 产品定位、功能与设计理念 | [产品总览](product/overview.md)、[设计语言](product/design-language.md) |
-| 现在做到哪一步、还缺什么 | [当前状态与待办](status.md) |
+| 现在做到哪一步、还缺什么 | [当前状态与待办](status.md)、[版本更新摘要](../CHANGELOG.md) |
 | 系统如何组织、改动有哪些边界 | [架构](architecture.md)、[业务契约](business-contracts.md) |
 | 开发、检查与发布 | [项目说明](../README.md#开发与检查)、[发布说明](release-guide.md) |
 | ASK 开发 | [ASK 契约与架构](ask/README.md)，再按其专题索引阅读 |
@@ -29,7 +29,7 @@ docs/
 ├── integrations/             图像协议、NAI、Photopea、外部协同
 ├── engineering/              数据调度、图片身份、样式与字体维护
 ├── ask/                      ASK 契约、状态、UI、提示词与协作
-└── archive/                  按主题整理的方案与验收；早期快照独立保留
+└── archive/                  按主题整理的方案与验收；早期设计与阶段证据
 ```
 
 ## 工作区
@@ -40,19 +40,25 @@ docs/
 | [IMAGE](workspaces/image.md) | 绘图、历史／收藏、参数导入、独立画板、多角色及坐标 |
 | [CHAT](workspaces/chat.md) | 会话、上下文、分支、多版本与图片交接 |
 | [EDIT](workspaces/edit.md) | 独立编辑画板、版本、蒙版、编辑工具与来源回流 |
-| [图片区域批注](workspaces/annotations.md) | 共享选区、ASK 坐标、EDIT 转换、CHAT 双图与人工局部回贴 |
+| [图片区域批注](workspaces/annotations.md) | 共享选区、ASK 坐标、双图／原生标注、人工局部回贴与边界色彩对齐 |
 | [设置与 TAGS](workspaces/settings-and-tags.md) | 供应商／Key、模型优先级、备份、词典与补全 |
+
+子功能：[版本演进](workspaces/recipe-retrospect.md)统一维护候选配方组、ASK 推演／同树重整、演进图／大图、原始配方 Diff、图上批注、生成跟踪、回退草稿与定稿；与图片区域批注分开。
+
+[版本演进实施记录](archive/workspaces/2026-11-08-version-evolution-plan.md)保留 E1–E5 规划、用户拍板与本地验证证据；现行契约以上述专题为准。
 
 ## 协议与集成
 
 | 文档 | 维护范围 |
 | --- | --- |
-| [图像协议](integrations/image-protocols.md) | 标准网关、OpenAI Images、Gemini、NovelAI 的协议能力与差异 |
+| [图像协议](integrations/image-protocols.md) | 标准网关、Seedream、OpenAI Images、Gemini、NovelAI 的协议能力与差异 |
 | [NovelAI 官方适配](integrations/novelai.md) | 型号、参数、参考、费用、输入预算及真实待验边界 |
-| [Photopea](integrations/photopea.md) | iframe 生命周期、分层工作栈、蒙版分离与自动回传 |
-| [外部协同与本地任务](integrations/bridge.md) | Bridge 目录／JSON、IMAGE 外部草稿、refs、Slate 任务与交付 |
+| [Photopea](integrations/photopea.md) | 唯一 iframe、普通编辑工作栈、结果融合软图层蒙版与 EDIT／CHAT 正式回传 |
+| [企划集、外部协同与本地任务](integrations/bridge.md) | 企划根目录／元数据、素材面板与 ASK 交接、Bridge IMAGE 外部草稿、Slate 任务与交付 |
 
 外部 Agent 直接读取[公开 SKILL.md](../public/skills/koma-bridge/SKILL.md)；精确字段以应用在协同目录生成的 `PROTOCOL.md` 为准。外部协同是应用级能力，不依赖 ASK 文本 Key。
+
+[企划集 P1–P6 实施记录](archive/bridge/2026-11-09-project-collection-plan.md)保存需求、实施顺序与本地验收；现行目录结构、面板和素材交接统一由上述协同专题维护。
 
 ## 工程维护
 

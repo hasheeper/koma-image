@@ -31,7 +31,7 @@ test('model settings: manage presets without a connection, persist deletion and 
   const t = await open('openai-images-v1', false), { page } = t;
   try {
     await settings(page);
-    assert.equal(await page.locator('.sm-model').count(), 18);
+    assert.equal(await page.locator('.sm-model').count(), 24);
     await page.getByRole('button', { name: '新增 Gemini 模型', exact: true }).click();
     await page.locator('#modelEntryName').fill('我的香蕉');
     await page.locator('#modelEntryTemplate').selectOption('gemini-3-pro-image');
@@ -351,7 +351,7 @@ test('source parameters UI: add typed fields, keep unsaved edits on refresh, per
       const sent = t.requests.filter(r => r.method === 'POST'); assert.equal(sent.length, 1);
       const body = JSON.parse(sent[0].body);
       if (gemini) assert.deepEqual(body.generationConfig, { responseModalities: ['TEXT', 'IMAGE'], temperature: 2, imageConfig: { includeRaiReason: false } });
-      else assert.deepEqual(body, { model: 'gpt-image-1.5', prompt: '合成模拟参数请求', n: 1, vendor_steps: 2, watermark: false });
+      else assert.deepEqual(body, { model: 'gpt-image-1.5', prompt: '合成模拟参数请求', n: 1, quality: 'auto', size: 'auto', output_format: 'png', vendor_steps: 2, watermark: false });
       assert.deepEqual(t.errors, []);
     } finally { await t.context.close(); }
   }

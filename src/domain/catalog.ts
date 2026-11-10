@@ -1,32 +1,36 @@
-import { configuredModels, findModel } from "./models.ts";
+import { configuredModels, findModel, imageModelFields } from "./models.ts";
 import type { ModelIdentity } from "./models.ts";
 import type { Routing } from "../config/connections.ts";
-import { imageConnections } from "../config/connections.ts";
+import { imageConnections, modelParameterOverrides } from "../config/connections.ts";
 import { object, strings } from "./value.ts";
 import type { GatewayProfile } from "../gateway/profile.ts";
 import { profileFor } from "../gateway/profile.ts";
-import { acceptsParameter, applyParameterOverrides, declaredParameterFields } from "./model-parameters.ts";
+import { acceptsParameter, applyParameterOverrides, declaredParameterFields, requestParameterFields } from "./model-parameters.ts";
 import type { ParameterFields } from "./model-parameters.ts";
 
 export interface CatalogEntry { id: string; family?: string }
 export interface CatalogModel {
   profileId?: string;
+  templateId?: string;
   /** Non-secret connection revision; invalidates cached read-only estimates. */
   sourceRevision?: string;
   id: string; upstreamId: string; connection: string; name: string; description: string; provider: string; family?: string;
   quotaGroup?: string; maxPixels: number; operations: string[]; tools: string[]; replaces: string[];
   fields: ParameterFields;
+  /** Full source configuration, including values that control app-managed inputs. */
+  configurationFields?: ParameterFields;
   parameterSource?: "declared" | "reference";
+  markupEligible?: boolean;
+  markup?: boolean;
   sourceMaxPixels: number; maxImages: number; chat: boolean; transparentBackground: boolean; unmetered: boolean;
 }
 export const bareId = (id: string) => id.replace(/@[^@/]+$/, "").replace(/^.*\//, "").toLowerCase();
-export const shownId = (id: string) => id.replace(/@[^@/]+$/, "");
 export function catalogEntries(raw: unknown): CatalogEntry[] {
   return Object.entries(object(object(raw).models)).map(([id, value]) => ({ id,
     family: typeof object(value).editor_family === "string" ? object(value).editor_family as string : undefined }));
 }
 export function autoMatch(entries: CatalogEntry[], model: ModelIdentity) {
-  return entries.find(e => bareId(e.id) === model.id && (!e.family || e.family === model.family))?.id ?? null;
+  return entries.find(e => [model.id, ...model.aliases].some(id => bareId(e.id) === bareId(id)) && (!e.family || e.family === model.family))?.id ?? null;
 }
 export function linkFor(routing: Routing, connection: string, model: ModelIdentity, entries: CatalogEntry[]) {
   if (!supportsModel(routing, connection, model)) return null;
@@ -40,6 +44,7 @@ export function supportsModel(routing: Routing, connection: string, model: Model
   if (!c) return false;
   const profile = profileFor(c.profileId);
   return profile.image && (profile.protocol === "novelai" ? model.family === "novelai"
+    : profile.protocol === "seedream" ? model.family === "seedream"
     : ["openai-images", "gemini-native"].includes(profile.protocol ?? "") ? model.family !== "novelai" : true);
 }
 export function sourceState(routing: Routing, connection: string, model: ModelIdentity, entries: CatalogEntry[]) {
@@ -97,9 +102,9 @@ export function normalizeCatalog(raw: unknown, routing: Routing, connection: str
     const meta = object(rawModel), entry = claimed.get(upstreamId);
     if (entry && routing.links[connection]?.[entry.id]?.on === false) continue;
     if (!entry && findModel(bareId(upstreamId))) continue;
-    // Once the editable list is saved, GPT/Gemini directory entries require a configured mapping.
+    // Once the editable list is saved, managed image families require a configured mapping.
     // This prevents deleted entries resurfacing under a supplier's alias; other gateway tools remain available.
-    if (!entry && routing.models && (["gpt", "gemini"].includes(String(meta.editor_family)) ||
+    if (!entry && routing.models && (["gpt", "gemini", "seedream"].includes(String(meta.editor_family)) ||
       ["openai", "gemini"].includes(String(meta.provider_id ?? meta.provider)))) continue;
     const id = entry?.id ?? upstreamId;
     let fields = declaredParameterFields(object(meta.image_capabilities).fields);
@@ -114,16 +119,35 @@ export function normalizeCatalog(raw: unknown, routing: Routing, connection: str
     for (const [key, value] of Object.entries(entry?.defaults ?? {})) {
       if (fields[key] && acceptsParameter(fields[key], value)) fields[key] = { ...fields[key], default: value };
     }
-    if (entry?.family !== "novelai") fields = applyParameterOverrides(fields, routing.links[connection]?.[id]?.parameters);
+    if (profile?.protocol === 'openai-images') {
+      const declared = object(meta.image_capabilities).markup;
+      if (typeof declared === 'boolean') fields.markup = { type: 'boolean', options: ['true', 'false'], default: String(declared) };
+      else if (!fields.markup && entry?.parameters?.markup) fields.markup = { ...entry.parameters.markup, options: [...entry.parameters.markup.options] };
+    }
+    const overrides = modelParameterOverrides(routing.links[connection]?.[id] ?? {});
+    const markupEligible = profile?.protocol === 'openai-images' && (!!fields.markup || !!overrides.markup);
+    if (entry?.family !== "novelai") fields = applyParameterOverrides(fields, overrides);
+    // Known defaults fill only compatible, enabled fields; source defaults keep precedence.
+    if (entry && entry.family !== 'novelai') {
+      const reference = imageModelFields(entry, profile?.protocol === 'openai-images' || entry.family === 'gpt' && profile?.protocol !== 'gemini-native');
+      for (const [key, field] of Object.entries(fields)) {
+        const fallback = reference[key]?.default;
+        if (!field.default && fallback && acceptsParameter(field, fallback)) fields[key] = { ...field, default: fallback };
+      }
+    }
+    const configurationFields = profile?.protocol === 'openai-images' ? fields : requestParameterFields(fields);
+    fields = requestParameterFields(configurationFields);
     const native = profile?.protocol && profile.protocol !== "standard";
-    models.push({ id, upstreamId, connection, sourceRevision: routing.connections[connection]?.revision, ...(profile ? { profileId: profile.id } : {}), name: String(entry?.name || meta.name || id), description: String(meta.description || ""),
+    models.push({ id, templateId: entry?.templateId ?? entry?.id, upstreamId, connection, sourceRevision: routing.connections[connection]?.revision, ...(profile ? { profileId: profile.id } : {}), name: String(entry?.name || meta.name || id), description: String(meta.description || ""),
       provider, family: entry?.family ?? (typeof meta.editor_family === "string" ? meta.editor_family : undefined),
       quotaGroup: typeof meta.quota_group === "string" ? meta.quota_group : undefined,
-      maxPixels: Number(meta.max_resolution) || 1_048_576, operations: strings(meta.operations), fields,
+      maxPixels: Number(meta.max_resolution) || 1_048_576, operations: strings(meta.operations), fields, configurationFields,
       parameterSource: object(meta.image_capabilities).source === "reference" ? "reference" : "declared",
+      markupEligible,
+      markup: configurationFields.markup?.default === 'true',
       replaces: strings(meta.replaces), tools: strings(meta.tools),
       sourceMaxPixels: Number(object(meta.generation_references).max_pixels) || 32_000_000,
-      maxImages: Math.min(entry?.inputImages ?? 16, native ? Number(meta.max_context_images) || 16 : contextImages), chat: entry?.chat === true || !!native && meta.chat === true,
+      maxImages: Math.min(entry?.inputImages ?? 16, native ? Number(meta.max_context_images) || 16 : contextImages), chat: entry?.chat === true || !!native && meta.chat === true || !routing.models && meta.editor_family === "seedream",
       transparentBackground: entry?.transparentBackground === true, unmetered: meta.unmetered === true });
   }
   return { models, features, defaults: object(value.defaults), samplers: strings(value.valid_samplers).length ? strings(value.valid_samplers) : ["k_euler_ancestral"] };
@@ -137,4 +161,4 @@ export function resolveModel(models: CatalogModel[], wanted: string) {
 }
 export const normalizeOptions = (model: CatalogModel, values: Record<string, string> = {}) => Object.fromEntries(
   Object.entries(model.fields).map(([key, field]) => [key,
-    values[key] === "" || acceptsParameter(field, values[key] ?? "") ? values[key] : field.default]));
+    acceptsParameter(field, values[key] ?? "") ? values[key] : field.default]));

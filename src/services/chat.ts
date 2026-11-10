@@ -1,3 +1,6 @@
+import { createEvolutionEvents, evolutionTarget, evolutionMask } from '../domain/evolution-input.ts';
+import { chatEvolutionInput, chatInputImage } from '../domain/chat-evolution.ts';
+import { annotationMask } from '../native/annotation-canvas.ts';
 import { annotationAlignment, validateRegions, validateAnnotationSnapshot, validateAnnotationAreas } from "../domain/region-annotation.ts";
 import type { AnnotationSnapshot } from "../domain/region-annotation.ts";
 import { decodeImage } from "./image-response.ts";
@@ -32,11 +35,13 @@ import { createHandoff, fitReference } from "./handoff";
 import { imageConnections } from "../config/connections.ts";
 import { chatImageId, chatImageOrigin } from "../domain/image-origin.ts";
 import { makeThumb } from "./image-response.ts";
+import { prepareAnnotationMarkup } from "../native/annotation-markup.ts";
 import type { ImageRecord } from "../domain/drawing.ts";
 
 export const chatOptions = (c: ConversationRecord) =>
   object(c.settings.options) as Record<string, string>;
 export function createChat(services: ApplicationServices, ui: Ui) {
+  const evolution=createEvolutionEvents(error=>ui.toast(`版本演进未更新：${message(error)}`,'warn'));
   const finished = new Map<string, number>();
   const assets = new AssetStore(),
     listeners = new Set<() => void>(),
@@ -84,6 +89,7 @@ export function createChat(services: ApplicationServices, ui: Ui) {
   const emit = () => {
     if (!disposed) for (const f of listeners) f();
   };
+  const inputImage=(c:ConversationRecord,id:string)=>{const ref=chatInputImage(c,id,true),lineage=assets.assets.get(id)?.lineage;return ref.id.startsWith('asset:')&&lineage?.parent_record_id?{id:lineage.parent_record_id,label:lineage.parent_ref?.tag??ref.label}:ref;};
   const selected = (c = current) =>
     models.find((m) => m.id === c.settings.model);
   const snapshotFor = (c = current) =>
@@ -293,18 +299,20 @@ export function createChat(services: ApplicationServices, ui: Ui) {
     const annotation = snapshot.annotation;
     if(annotation) {
       validateAnnotationSnapshot(annotation.snapshot);
-      if(snapshot.imageIds[0]!==annotation.inputAssetId || !annotation.singleImage && snapshot.imageIds[1]!==annotation.guideAssetId)
+      if (annotation.markup && !model.markupEligible) throw new Error("请选择支持原生标注的模型参考，或切回双图标注");
+      if(snapshot.imageIds[0] !== (annotation.markup?.inputAssetId ?? annotation.inputAssetId) || !annotation.markup && !annotation.singleImage && snapshot.imageIds[1]!==annotation.guideAssetId)
         throw new Error("批注改图需要原图和编号图，请换用支持双图的模型，或选择仅方位文字");
       if(!assets.assets.has(annotation.sourceAssetId)) throw new Error("批注原图已失效");
     }
-    const images = await assets.encode(snapshot.imageIds);
+    const encoded = await assets.encode([...snapshot.imageIds, ...(annotation?.markup ? [annotation.markup.overlayAssetId] : [])]);
+    const markup = annotation?.markup ? encoded.pop() : undefined;
     return {
-      payload: buildChatPayload(
+      payload: { ...buildChatPayload(
         model,
         snapshot.text,
         object(settings.options) as Record<string, string>,
-        images,
-      ),
+        encoded,
+      ), ...(markup ? { markup_image: markup } : {}) },
       snapshot,
       prompt,
       settings,
@@ -426,6 +434,9 @@ export function createChat(services: ApplicationServices, ui: Ui) {
     );
     try {
       const p = await prepare(c, existing);
+      const sourceAsset=p.snapshot.annotation?.sourceAssetId??p.snapshot.base;
+      const landed=evolution.begin(evolutionTarget('chat',c.id),sourceAsset?inputImage(c,sourceAsset).id:null);
+      const frozenMask=await evolutionMask(p.snapshot.annotation&&p.snapshot.annotation.snapshot.regions.length&&p.snapshot.annotation.snapshot.regions.every(r=>r.shape!=='point')?annotationMask(p.snapshot.annotation.snapshot):null);
       controller.signal.throwIfAborted();
       const result = await services.runTask(
         {
@@ -447,6 +458,7 @@ export function createChat(services: ApplicationServices, ui: Ui) {
             ));
             c.prompt = "";
           }
+          version!.evolutionInput={...chatEvolutionInput(c,turn!,version!),base:sourceAsset?inputImage(c,sourceAsset):null,references:p.snapshot.refs.filter(id=>id!==p.snapshot.annotation?.guideAssetId).map(id=>inputImage(c,id)),params:{model:p.model.id,...normalizeOptions(p.model,object(p.settings.options) as Record<string,string>)},mask:frozenMask,...(p.snapshot.annotation?{annotations:JSON.stringify(p.snapshot.annotation.snapshot.regions),params:{model:p.model.id,...normalizeOptions(p.model,object(p.settings.options) as Record<string,string>),...p.snapshot.annotation.snapshot.edges}}:{})};
           const revision = c.selectionRevision;
           Object.assign(busy!, {
             version,
@@ -500,6 +512,10 @@ export function createChat(services: ApplicationServices, ui: Ui) {
           );
           version!.via = output.via;
           finished.set(version!.id, Date.now());
+          for(const block of blocks)if(block.type==='image')landed(chatImageId(c.id,turn!.id,version!.id,block.assetId));
+          // Native CHAT decides which image becomes the next base (held base,
+          // multi-image response and annotation review included).
+          if(c.mainId)evolution.move(evolutionTarget('chat',c.id),inputImage(c,c.mainId).id);
           save();
           emit();
         },
@@ -533,7 +549,7 @@ export function createChat(services: ApplicationServices, ui: Ui) {
       void refreshQuota();
     }
   }
-  async function upload(files: File[]) {
+  async function upload(files: File[], projectSource?: import('../storage/records.ts').AssetRecord['projectSource']) {
     if (!mutable() || !files.length) return;
     const c = current;
     uploading++;
@@ -546,8 +562,11 @@ export function createChat(services: ApplicationServices, ui: Ui) {
         if (snapshotFor(c).imageIds.length + files.length > m.maxImages)
           throw new Error(`该模型最多使用 ${m.maxImages} 张图（含底图）`);
         const added = [];
-        for (const f of files)
-          added.push(await assets.add(f, f.name || "粘贴图片"));
+        for (const f of files) {
+          const asset = await assets.add(f, f.name || "粘贴图片");
+          if (projectSource) asset.projectSource = { ...projectSource };
+          added.push(asset);
+        }
         if (!conversations.includes(c)) return;
         for (const a of added) conversation.attachUpload(c, a.id);
         c.selectionRevision++;
@@ -629,6 +648,18 @@ export function createChat(services: ApplicationServices, ui: Ui) {
   document.addEventListener("visibilitychange", hide);
   return {
     assets,
+    onEvolution: evolution.subscribe,
+    onEvolutionMove: evolution.onMove,
+    evolutionSource(id:string) {const c=conversations.find(c=>c.id===id);return c?.mainId?inputImage(c,c.mainId).id:null;},
+    async restoreEvolution(conversationId:string,turnId:string,versionId:string,assetId:string) {
+      const c=conversations.find(c=>c.id===conversationId),t=c?.turns.find(t=>t.id===turnId),v=t?.versions.find(v=>v.id===versionId);
+      if(!mutable()||busy||uploading||!c||!t||v?.status!=='done'||!assets.assets.has(assetId)||!v.blocks.some(b=>b.type==='image'&&b.assetId===assetId)&&!Object.values(v.composites??{}).includes(assetId))throw new Error('对话图片不可恢复');
+      const old=conversation.chatSelection(c), previous=current;
+      hold();show(c);
+      const next={...old,headId:t.id,mainId:assetId,baseFollows:true,selectedVersions:{...old.selectedVersions,[t.id]:t.versions.indexOf(v)}};
+      try {await this.writeBranchDraft(next,conversation.chatDraftKey(c),false);}
+      catch(error){show(previous);emit();throw error;}
+    },
     isFresh(id: string) {
       return Date.now() - (finished.get(id) || 0) < 2000;
     },
@@ -642,7 +673,7 @@ export function createChat(services: ApplicationServices, ui: Ui) {
         throw new Error("这张对话图片已不可用");
       const params: Fields = { ...chatImageOrigin(c, turn, version, assetId), tool: "chat", model: String(turn.settings.model ?? ""),
         modelName: models.find(m => m.id === turn.settings.model)?.name ?? String(turn.settings.model ?? ""),
-        prompt: turn.prompt, chat_options: structuredClone(object(turn.settings.options)) as Fields, width: asset.width, height: asset.height };
+        evolutionInput:JSON.parse(JSON.stringify(chatEvolutionInput(c,turn,version,assetId,asset))), prompt: turn.prompt, chat_options: structuredClone(object(turn.settings.options)) as Fields, width: asset.width, height: asset.height };
       const record = { entity_key: `sha256:${asset.id}`, lineage: { via: "chat" as const }, id: chatImageId(c.id, turn.id, version.id, asset.id), createdAt: version.completedAt ?? Date.now(), blob: asset.blob,
         size: { width: asset.width, height: asset.height }, params, quote: version.quote ? structuredClone(version.quote) : null };
       const thumbBlob = await makeThumb(asset.blob);
@@ -711,7 +742,7 @@ export function createChat(services: ApplicationServices, ui: Ui) {
         save(); emit(); throw error;
       }
     },
-    async writeBranchDraft(next: conversation.ChatSelection, expected: string) {
+    async writeBranchDraft(next: conversation.ChatSelection, expected: string, track=true) {
       if (!mutable() || busy || conversation.chatDraftKey(current) !== expected) throw new Error("会话或上下文已变化，草稿未写入");
       if (next.mainId && !assets.assets.has(next.mainId)) throw new Error("分支底图已不可用");
       const owner = current, before = conversation.chatSelection(owner);
@@ -719,14 +750,15 @@ export function createChat(services: ApplicationServices, ui: Ui) {
       const turn = owner.turns.find((t) => t.id === next.headId);
       if (turn && next.mainId) conversation.selectSource(owner, turn, next.mainId);
       else owner.selectionRevision += 1;
-      Object.assign(owner, structuredClone(next));
+      conversation.applyChatSelection(owner, next);
       const applied = conversation.chatDraftKey(owner);
       emit();
       try { await flush(); }
       catch (error) {
-        if (conversation.chatDraftKey(owner) === applied) { Object.assign(owner, before); owner.selectionRevision += 1; }
+        if (conversation.chatDraftKey(owner) === applied) { conversation.applyChatSelection(owner, before); owner.selectionRevision += 1; }
         save(); emit(); throw error;
       }
+      if(track&&next.mainId)evolution.move(evolutionTarget('chat',owner.id),inputImage(owner,next.mainId).id);
       return applied;
     },
     /** Into the image's own conversation while it exists; otherwise the blank one is reused or a new one opens. Nothing is sent. */
@@ -761,7 +793,25 @@ export function createChat(services: ApplicationServices, ui: Ui) {
     annotationTextOnly(on: boolean) {
       if(!mutable()||busy||uploading)return;const a=current.pendingAnnotation;if(!a)return;
       if(a.text) current.prompt=current.prompt.replace(a.text,'').trim();
-      a.text='';a.singleImage=on;changed(true);
+      a.text='';a.singleImage=on;delete a.markup;changed(true);
+    },
+    async annotationMarkup() {
+      if (!mutable() || busy || uploading || !current.pendingAnnotation) return;
+      const owner = current, annotation = owner.pendingAnnotation!, model = selected(), revision = owner.selectionRevision;
+      if (!model?.markupEligible) return;
+      uploading++; hold(); emit();
+      try {
+        const pair = await prepareAnnotationMarkup(assets.get(annotation.sourceAssetId).blob, annotation.snapshot);
+        const size = { width: pair.width, height: pair.height };
+        const input = await assets.add(pair.input, '原生标注原图.png', size, 'image');
+        const overlay = await assets.add(pair.markup, '透明标注层.png', size, 'image');
+        if (!mutable() || owner !== current || owner.pendingAnnotation !== annotation || owner.selectionRevision !== revision || selected()?.id !== model.id)
+          throw new Error('图片或模型已变化，未切换标注方式');
+        annotation.singleImage = false;
+        annotation.markup = { inputAssetId: input.id, overlayAssetId: overlay.id };
+        annotation.text = ''; changed(true);
+      } catch (e) { if (owner === current) error = message(e); }
+      finally { uploading--; collect(); save(); emit(); if (owner === current && annotation.markup) scheduleQuote(); }
     },
     annotationComment(key: string, comment: string) {
       if(!mutable()||busy||uploading)return;const a=current.pendingAnnotation;if(!a)return;
@@ -775,19 +825,26 @@ export function createChat(services: ApplicationServices, ui: Ui) {
       if(!c||!turn||!v||v.status!=='done'||!a||!v.blocks.some(b=>b.type==='image'&&b.assetId===assetId))throw new Error("批注改图记录已失效");
       validateAnnotationAreas(a.snapshot.regions);
       const raw=assets.get(assetId),source=assets.get(a.sourceAssetId),snapshot=structuredClone(a.snapshot),revision=c.selectionRevision;
-      return {source:source.blob,raw:raw.blob,snapshot,title:'审核批注改图',apply:async(blob)=>{
+      const previousComposite=v.composites?.[assetId];
+      const landed=evolution.begin(evolutionTarget('chat',c.id),chatImageId(c.id,turn.id,v.id,assetId));
+      const alive=()=>conversations.includes(c)&&c.turns.includes(turn)&&turn.versions.includes(v)&&v.blocks.some(b=>b.type==='image'&&b.assetId===assetId);
+      const valid=()=>current===c&&alive()&&v.composites?.[assetId]===previousComposite;
+      return {source:source.blob,raw:raw.blob,snapshot,title:'审核批注改图',key:`${conversationId}:${turnId}:${versionId}:${assetId}`,valid,alive,apply:async(blob,settings={colorMatch:true,method:'local'})=>{
+        if(!valid())throw new Error('改图记录已变化，请重新打开');
         if(!mutable()||busy||uploading||!conversations.includes(c))throw new Error("对话暂不可写入");
         if(!annotationAlignment(snapshot,raw))throw new Error("模型直出的方向或宽高比不符，无法应用蒙版");
         uploading++;emit();
-        const old=v.composites?.[assetId],previousMain=c.mainId,previousHead=c.headId;
+        const old=v.composites?.[assetId],oldSettings=v.compositeSettings?.[assetId],previousMain=c.mainId,previousHead=c.headId;
         try{
           const size=await decodeImage(blob);if(blob.type!=='image/png'||size.width!==snapshot.width||size.height!==snapshot.height)throw new Error("回贴结果尺寸或格式无效");
           const result=await assets.add(blob,`${raw.name}-回贴.png`,{width:snapshot.width,height:snapshot.height});
-          if(!mutable()||!conversations.includes(c)||!turn.versions.includes(v))throw new Error("改图记录已变化");
+          if(!mutable()||!valid())throw new Error("改图记录已变化");
           v.composites={...v.composites,[assetId]:result.id};
+          v.compositeSettings={...v.compositeSettings,[assetId]:{...settings,boundaryColorVersion:1}};
           if(current===c&&c.selectionRevision===revision&&c.baseFollows){c.mainId=result.id;c.headId=turn.id;c.selectionRevision++;}
-          c.updatedAt=Date.now();await flush();emit();
-        }catch(e){if(old)v.composites={...v.composites,[assetId]:old};else if(v.composites)delete v.composites[assetId];if(c.mainId!==previousMain&&c.selectionRevision===revision+1){c.mainId=previousMain;c.headId=previousHead;c.selectionRevision=revision;}throw e;}
+          c.updatedAt=Date.now();await flush();emit();landed(chatImageId(c.id,turn.id,v.id,result.id));
+          if(c.mainId)evolution.move(evolutionTarget('chat',c.id),inputImage(c,c.mainId).id);
+        }catch(e){if(oldSettings)v.compositeSettings={...v.compositeSettings,[assetId]:oldSettings};else if(v.compositeSettings)delete v.compositeSettings[assetId];if(old)v.composites={...v.composites,[assetId]:old};else if(v.composites)delete v.composites[assetId];if(c.mainId!==previousMain&&c.selectionRevision===revision+1){c.mainId=previousMain;c.headId=previousHead;c.selectionRevision=revision;}throw e;}
         finally{uploading--;collect();save();emit();}
       }};
     },
@@ -795,7 +852,7 @@ export function createChat(services: ApplicationServices, ui: Ui) {
       model: string;
       options: Readonly<Record<string, string>>;
       text: string;
-      images: readonly ({ asset: string } | { blob: Blob; name: string; lineage?: import("../domain/image-identity.ts").ImageLineage })[];
+      images: readonly ({ asset: string } | { blob: Blob; name: string; lineage?: import("../domain/image-identity.ts").ImageLineage; projectSource?: import('../storage/records.ts').AssetRecord['projectSource'] })[];
     }) {
       const model = () => models.find((m) => m.id === draft.model),
         missing = () => draft.images.some((i) => "asset" in i && !assets.assets.has(i.asset));
@@ -814,6 +871,7 @@ export function createChat(services: ApplicationServices, ui: Ui) {
           else {
             const fitted = await fitReference(image.blob, image.name);
             const asset=await assets.add(fitted.blob, fitted.name, undefined, "image");
+            if(image.projectSource) asset.projectSource={...image.projectSource};
             if(image.lineage && !asset.lineage) asset.lineage={...image.lineage,...(asset.entity_key!==image.lineage.parent_entity_key?{tool_detail:'reference-fit'}:{})};
             ids.push(asset.id);
           }
@@ -861,6 +919,7 @@ export function createChat(services: ApplicationServices, ui: Ui) {
         throw error;
       }
       handoffs.set(target.id, { before, source: source.id });
+      if(ids[0])evolution.move(evolutionTarget('chat',target.id),inputImage(target,ids[0]).id);
       return applied;
     },
     /** Removes the opened conversation, or empties the reused blank one, only while unchanged. */
@@ -1005,7 +1064,8 @@ export function createChat(services: ApplicationServices, ui: Ui) {
     },
     mutate(fn: (c: ConversationRecord) => void, selection = false) {
       if (!mutable()) return;
-      fn(current);
+      const old=current.mainId;fn(current);
+      if(selection&&current.mainId&&old!==current.mainId)evolution.move(evolutionTarget('chat',current.id),inputImage(current,current.mainId).id);
       if(current.pendingAnnotation && current.mainId!==current.pendingAnnotation.inputAssetId) conversation.clearPendingAnnotation(current);
       changed(selection);
     },
@@ -1014,6 +1074,7 @@ export function createChat(services: ApplicationServices, ui: Ui) {
       const old = current.mainId;
       if(current.pendingAnnotation && current.pendingAnnotation.inputAssetId!==id) conversation.clearPendingAnnotation(current);
       current.mainId = id;
+      evolution.move(evolutionTarget('chat',current.id),inputImage(current,id).id);
       if (old && old !== id && (selected()?.maxImages ?? Infinity) > 1)
         conversation.retainImage(current, old);
       changed(true);
@@ -1072,7 +1133,7 @@ export function createChat(services: ApplicationServices, ui: Ui) {
       document.removeEventListener("visibilitychange", hide);
       assets.dispose();
       finished.clear();
-      listeners.clear();
+      evolution.dispose(); listeners.clear();
     },
   };
 }

@@ -25,11 +25,6 @@
 .editor-bar { gap: var(--sp-3); }
 .editor-bar-end { margin-left: auto; }
 .editor-bar-end .ibtn:disabled { opacity: 0.45; pointer-events: none; }
-.editor-photopea-logo {
-  display: block; width: var(--ico); height: var(--ico);
-  background: currentColor;
-  mask: url("../assets/photopea-logo.png") center / contain no-repeat;
-}
 
 /* ── Columns ────────────────────────────────────────────────── */
 .editor-shell {
@@ -208,7 +203,7 @@
 #editorSendMenu .menu-item:disabled { opacity: .4; pointer-events: none; }
 #editorSendMenu.has-source .menu-item { flex: 1; padding-inline: 8px; border-radius: 10px; }
 #editorSendMenu.has-source .editor-send-new { flex: 0 0 32px; padding: 0; }
-.editor-send-divider { flex: none; width: 1px; height: 14px; margin: 0 3px; background: var(--line-2); }
+.editor-send-divider, .editor-tool-divider { flex: none; width: 1px; height: 14px; margin: 0 3px; background: var(--line-2); }
 .editor-send-context { overflow: hidden; margin: 3px 8px 4px; color: var(--fg-3); font-size: var(--fz-2xs); line-height: 1.55; white-space: nowrap; text-overflow: ellipsis; }
 /* On light glass, a white hover surface rises gently from the gray capsule. */
 [data-theme="light"] #editorSendMenu { --editor-send-hover: var(--raised); --editor-send-hover-shadow: var(--sh-1); }
@@ -223,12 +218,10 @@
   .editor-send-trigger:active, #editorSendMenu .menu-item:active { transform: none; }
 }
 .editor-info[data-compare="on"] .editor-info-meta b { color: var(--a); }
-.editor-comparison { position: absolute; z-index: 4; left: 50%; bottom: calc(var(--editor-toolbar-height, 40px) + var(--sp-4) + 8px); transform: translateX(-50%); display: flex; align-items: center; justify-content: center; flex-wrap: wrap; gap: var(--sp-2); width: max-content; max-width: calc(100% - 24px); }
-.editor-comparison .seg { display: flex; padding: 3px; box-shadow: var(--sh-1); }
-.editor-comparison .seg button { min-height: 30px; padding: 0 12px; border-radius: var(--r2); color: var(--seg-ink); font-size: var(--fz-xs); white-space: nowrap; }
-.editor-comparison .seg button[aria-pressed="true"] { background: var(--seg-active-bg); color: var(--seg-active-ink); box-shadow: var(--seg-active-shadow); }
-.editor-comparison .seg button:disabled { opacity: .4; cursor: default; }
-.editor-comparison-note { flex-basis: 100%; text-align: center; color: var(--fg-3); font-size: var(--fz-xs); }
+.editor-comparison-modes { display: flex; align-items: center; }
+.editor-comparison-apply { height: var(--editor-tool-size, 32px); border-radius: 999px; --ico: var(--ico-md); }
+.editor-comparison-apply[data-compact] { width: var(--editor-tool-size, 32px); padding: 0; }
+.editor-comparison-note { text-align: center; color: var(--fg-3); font-size: var(--fz-xs); }
 /* One pane, named like NAI's selected tab, so switching model keeps the box's voice. */
 #editorImagePromptBox .promptbox-head > label { position: relative; display: inline-flex; align-items: center; color: var(--fg); font-size: var(--fz-xs); font-weight: var(--fw-bold); letter-spacing: -0.005em; }
 #editorImagePromptBox .promptbox-head > label::after { content: ""; position: absolute; left: 0; right: 0; bottom: -1px; height: 2px; background: var(--a); border-radius: 2px 2px 0 0; }
@@ -268,11 +261,9 @@
 .editor-picture-ops { padding-inline: 5px; }
 .editor-mask-tools { overflow-x: auto; scrollbar-width: none; }
 .editor-mask-tools > * { flex-shrink: 0; }
-.editor-annotation-actions { display: flex; align-items: center; justify-content: center; gap: 4px; max-width: 100%; }
-.editor-annotation-actions .btn { min-height: 32px; height: auto; white-space: normal; }
 /* Keep the contextual row's space while a flyout covers it: closing restores
    the tools without resizing the viewport or exposing a stray half-capsule. */
-.editor:has(.editor-flyout:popover-open) :is(.editor-mask-tools, .editor-annotation-actions) { visibility: hidden; pointer-events: none; }
+.editor:has(.editor-flyout:popover-open) .editor-mask-tools { visibility: hidden; pointer-events: none; }
 /* Picture operations use compact icon flyouts; the tool picker keeps labels. */
 .editor-tool {
   display: inline-flex; align-items: center; gap: 6px; flex: none;
@@ -290,12 +281,12 @@
 .editor-tool .editor-caret { --ico: var(--ico-xs); flex: none; transform: rotate(90deg); color: var(--fg-3); transition: transform var(--t1) var(--e); }
 .editor-tool[aria-expanded="true"] .editor-caret { transform: rotate(-90deg); }
 .editor-toolbar .ibtn { flex: none; width: var(--editor-tool-size); height: var(--editor-tool-size); --ico: var(--ico-md); color: var(--fg-2); }
-.editor-toolbar :is(.ibtn, .editor-tool, .editor-zoom, .editor-annotation-actions .btn):not(.editor-flyout *) {
+.editor-toolbar :is(.ibtn, .editor-tool, .editor-zoom):not(.editor-flyout *) {
   border-radius: 999px;
   transition: color var(--t1) var(--e), background var(--t1) var(--e), box-shadow var(--t1) var(--e), transform var(--t1) var(--e);
 }
-.editor-toolbar :is(.ibtn, .editor-tool, .editor-zoom, .editor-annotation-actions .btn):not(.editor-flyout *):is(:hover, :focus-visible) { color: var(--fg); background: var(--editor-tool-hover, var(--glass-hover)); box-shadow: var(--editor-tool-hover-shadow, none); }
-.editor-toolbar :is(.ibtn, .editor-tool, .editor-zoom, .editor-annotation-actions .btn):not(.editor-flyout *):active { transform: scale(.978); }
+.editor-toolbar :is(.ibtn, .editor-tool, .editor-zoom):not(.editor-flyout *):is(:hover, :focus-visible) { color: var(--fg); background: var(--editor-tool-hover, var(--glass-hover)); box-shadow: var(--editor-tool-hover-shadow, none); }
+.editor-toolbar :is(.ibtn, .editor-tool, .editor-zoom):not(.editor-flyout *):active { transform: scale(.978); }
 .editor-toolbar .ibtn[aria-pressed="true"] { color: var(--a); background: var(--a-dim); }
 .editor-toolbar .ibtn:disabled { opacity: 0.35; pointer-events: none; }
 .editor-info-actions .ibtn[aria-pressed="true"] { color: var(--a); background: transparent; opacity: 1; }
@@ -321,8 +312,8 @@
   .editor-toolbar { --editor-tool-size: 36px; }
 }
 @media (prefers-reduced-motion: reduce) {
-  .editor-toolbar :is(.ibtn, .editor-tool, .editor-zoom, .editor-annotation-actions .btn):not(.editor-flyout *) { transition: none; }
-  .editor-toolbar :is(.ibtn, .editor-tool, .editor-zoom, .editor-annotation-actions .btn):not(.editor-flyout *):active { transform: none; }
+  .editor-toolbar :is(.ibtn, .editor-tool, .editor-zoom):not(.editor-flyout *) { transition: none; }
+  .editor-toolbar :is(.ibtn, .editor-tool, .editor-zoom):not(.editor-flyout *):active { transform: none; }
 }
 
 /* ── Canvas operation sheets ────────────────────────────────── */
@@ -460,7 +451,6 @@
   .editor-zoom-step { display: none; }
   .editor-size { flex: none; width: 82px; padding-inline: 5px; gap: 4px; }
   .editor-size output { min-width: 20px; }
-  .editor-comparison { bottom: calc(var(--editor-toolbar-height, 40px) + 20px); }
   .editor-toolbar [data-tip]::after { display: none; }
 
   .editor-rail { order: 2; border-left: 0; border-top: 1px solid var(--line); }

@@ -24,8 +24,8 @@ const routing = computed(() => props.routing), raw = computed(() => props.raw), 
 const orderDialog = useTemplateRef<InstanceType<typeof ConnectionOrderDialog>>("orderDialog");
 const endpoint = (url: string) => url.replace(/^https:\/\//, "");
 // A healthy status shows its first clause ("可用"); the full text stays in the tooltip. Problems show in full.
-const statusLabel = (status?: { s: string; text: string }) =>
-  !status ? "未检查" : status.s === "ok" ? status.text.split(/ · |，/)[0] : status.text;
+const statusLabel = (status?: ConnectionStatus) =>
+  status?.label ?? (!status ? "未检查" : status.s === "ok" ? status.text.split(/ · |，/)[0] : status.text);
 const pools: [string, string, string][] = [
   ["novelai-v5", "novelai", "V5"],
   ["novelai-v4.5", "novelai", "V4.5"],

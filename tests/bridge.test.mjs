@@ -8,6 +8,7 @@ import { receiveDraft, DRAFT_SCHEMA, inboxDigest } from '../src/bridge/protocol.
 import { liveState, previewPictures } from '../src/bridge/state.ts';
 import { safePath, readInbox, fileDriver } from '../src/bridge/fs-driver.ts';
 import { protocolDocument } from '../src/bridge/protocol-doc.ts';
+import { checkShape } from '../src/ask/draft/schema-check.ts';
 const full = 'nai-diffusion-5-full', old = 'nai-diffusion-4-5-full', medium = full+'-medium';
 const model = id => ({id, upstreamId:id, profileId:'novelai-v1', maxPixels:2200000, replaces:[], transparentBackground:id===full});
 const base = () => ({workspace:'image',boardId:'board-a',boardName:'画板 A',boardPresent:true,form:{...structuredClone(DEFAULTS), model:full,prompt:'blue sky'},composer:'',conversationId:'c1',models:[full,old,medium].map(model),samplers:['k_euler_ancestral','k_euler']});
@@ -98,8 +99,36 @@ test('B1 half-written JSON receives one re-read; persistent malformed input is n
 test('B1 canonical dedup digest and generated protocol share the actual schema', async () => {
   assert.equal(await inboxDigest({a:1,b:2}),await inboxDigest({b:2,a:1}));
   assert.notEqual(await inboxDigest({a:1}),await inboxDigest({a:2}));
-  const schema=JSON.parse([...protocolDocument().matchAll(/```json\n([\s\S]*?)\n```/g)].at(-1)[1]);
-  assert.ok(schema.properties.steps.items.anyOf.some(s=>s.properties.kind.enum.includes('params_patch')));
+  const blocks=[...protocolDocument().matchAll(/```json\n([\s\S]*?)\n```/g)].map(m=>JSON.parse(m[1]));
+  const schema=blocks.at(-1),examples=blocks.filter(b=>b.schema===DRAFT_SCHEMA);
+  assert.ok(examples.length);
+  for(const draft of examples){checkShape(draft,schema);assert.doesNotThrow(()=>receiveDraft(draft,snapshot()));}
+  assert.equal(schema.required.includes('base_hash'),false,'optional hash must match the receive-time default');
+  for(const key of ['schema','draft_id','draft_title','steps'])assert.ok(schema.required.includes(key));
+  const variants=schema.properties.steps.items.anyOf;
+  assert.deepEqual(variants.map(s=>s.properties.kind.enum[0]).sort(),['character_edit','params_patch','prompt_patch','restore_partial','save_ref','slate_edit']);
+  assert.doesNotMatch(JSON.stringify(schema),/edit\.prompt|chat\.composer|edit_handoff|chat_handoff|director_patch|base_image_id|editMode|focusRect/);
+  const target=variants.find(s=>s.properties.kind.enum[0]==='prompt_patch').properties.target;
+  for(const value of ['image.prompt','image.negative','image.char.c12.prompt'])assert.match(value,new RegExp(target.pattern));
+  for(const value of ['chat.composer','edit.prompt','image.char.guard.prompt','image.char.c0.prompt'])assert.doesNotMatch(value,new RegExp(target.pattern));
+  const snap=snapshot();
+  snap.base.fileContext={id:null,directory:'',available:true};
+  snap.library=[{id:'picture',label:'#h1',aliases:['#h1'],blob:new Blob(['synthetic']),size:{width:832,height:1216},params:{seed:4},createdAt:1,origins:[]}];
+  for(const step of [
+    patch(),params({width:1216,height:832,seed:'0',cfgRescale:.2}),
+    {kind:'character_edit',op:'add',prompt:'silver hair'},
+    {kind:'restore_partial',source:'#h1',fields:['seed']},
+    {kind:'slate_edit',op:'create',slate_title:'夜城',todos:[{op:'add',todo_title:'首图'}]},
+    {kind:'save_ref',document:'memo',text:'保留冷暖光对比'},
+  ]){
+    const draft=envelope([step],{picture_ref_version:2,picture_scope_id:snap.pictureScope});
+    checkShape(draft,schema);assert.doesNotThrow(()=>receiveDraft(draft,snap));
+  }
+  for(const step of [{kind:'edit_handoff',image:'#h1'},{kind:'chat_handoff',images:[],options:{},text:'x'},params({editMode:'inpaint'})]){
+    const draft=envelope([step]);assert.throws(()=>checkShape(draft,schema));assert.throws(()=>receiveDraft(draft,snap));
+  }
+  const internal=envelope([patch()],{base_image_id:'#h1'});
+  assert.throws(()=>checkShape(internal,schema));assert.throws(()=>receiveDraft(internal,snap));
 });
 
 test('EA3 external Bridge rejects every EDIT write but retains read-only editor image references',()=>{

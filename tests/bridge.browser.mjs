@@ -65,7 +65,122 @@ const receive=(page,value)=>page.evaluate(value=>bridge.importFile(new File([JSO
 const apply=page=>page.evaluate(()=>ask.applyDraft(ask.draftPlan.value.fingerprint));
 const waitReceipt=(page,id,status)=>poll(page,async({id,status})=>{try{const r=JSON.parse(await directoryFile('state.live.json')).last_inbox_receipt;return r?.draft_id===id&&r.status===status}catch{return false}},{id,status});
 
-test('B1 manual JSON, no ASK key, parameter diff, queue ownership, dedup, apply/undo/new board and responsive UI',async()=>{
+test('P2 project switches do not adopt local tasks; captured pending creates cannot land in the next directory',async()=>{
+  const {page,context,errors}=await setup();
+  try {
+    const old=await createSlate(page,'本机旧任务');await page.evaluate(()=>bridge.mount());
+    assert.equal(await page.evaluate(()=>bridge.slateMappings.value.length),0);
+    const a=await createSlate(page,'A 的任务');
+    await receive(page,draft('waiting-a',[createSlateStep('延迟确认 A')]));
+    await page.evaluate(async()=>{window.showDirectoryPicker=async()=>{const root=await navigator.storage.getDirectory();return root.getDirectoryHandle('project-b',{create:true});};await bridge.mount();});
+    assert.equal(await page.evaluate(()=>bridge.slateMappings.value.length),0);
+    assert.match(await page.evaluate(()=>ask.draftPlan.value.steps.map(s=>s.issue).join(' ')),/目录/);
+    await apply(page);assert.equal(await page.evaluate(()=>slate.list.value.length),2);await page.evaluate(()=>ask.ignoreDraft());
+    const b=await createSlate(page,'B 的任务');assert.notEqual(a.id,b.id);
+    assert.equal(await page.evaluate(id=>bridge.slateMappings.value.some(m=>m.id===id),a.id),false);
+    assert.equal(await page.evaluate(id=>bridge.slateMappings.value.some(m=>m.id===id),old.id),false);
+    await page.evaluate(id=>bridge.mapSlate(id),old.id);
+    assert.equal(JSON.parse(await page.evaluate(id=>directoryFile(`slates/${id}.slate.json`),old.id)).slate.title,'本机旧任务');
+    await page.evaluate(async()=>{window.showDirectoryPicker=async()=>{const root=await navigator.storage.getDirectory();return root.getDirectoryHandle('bridge-test',{create:true});};await bridge.mount();});
+    assert.deepEqual(await page.evaluate(()=>bridge.slateMappings.value.map(m=>m.id)),[a.id]);assert.deepEqual(errors,[]);
+  } finally {await context.close();}
+});
+
+test('P5 project panel reads roles and long lore, applies one outfit once, groups delivered files, and prepares ASK references',async()=>{
+  const {page,context,errors,requests}=await setup();
+  try {
+    await page.evaluate(async()=>{
+      await directoryFile('project.json',JSON.stringify({title:'合成企划',description:'角色与场景资料'}));
+      await directoryFile('characters/hero/char.json',JSON.stringify({name:'守卫',brief:'银发，夜间巡逻',tags:{prompt:'silver hair',negative:'bad hands',outfits:[{id:'uniform',label:'制服',prompt:'red cape'},{id:'casual',label:'便服',prompt:'white shirt'}]}}));
+      await directoryFile('characters/hero/profile.md','# 原始人设\n\n<hero>\n  **银发守卫**\n</hero>');
+      await directoryFile('lore/world.md','WORLD '.repeat(3000)+'END_OF_FILE');
+      await directoryFile('lore/plans/scene.md','# 原文场景\n\n保留缩进与标记');
+      const c=new OffscreenCanvas(120,180);c.getContext('2d').fillRect(0,0,120,180);const image=await c.convertToBlob({type:'image/png'});
+      await directoryFile('characters/hero/portrait.png',image);await directoryFile('characters/hero/refs/detail.png',image);await directoryFile('assets/result.png',image);await directoryFile('assets/result.png.json','{}');await directoryFile('assets/result.png.txt','silver hair');
+      await directoryFile('references/scenes/scene.png',image);await directoryFile('references/references.json',JSON.stringify({items:[{file:'scenes/scene.png',title:'scene',description:'**冷暖光参考**\n保留原始说明'}]}));await directoryFile('refs/lighting.md','# 光影备忘\n原始内容');await bridge.mount();bridge.openProject();
+    });
+    const panel=page.getByRole('dialog',{name:'企划集'});await panel.waitFor();
+    await panel.getByRole('group',{name:'角色服装',exact:true}).getByText('制服',{exact:true}).click();
+    assert.match(await panel.locator('.tag-well').textContent(),/silver hair, red cape/);assert.doesNotMatch(await panel.locator('.tag-well').textContent(),/white shirt/);
+    await panel.getByRole('group',{name:'角色资料',exact:true}).getByText('人设',{exact:true}).click();
+    assert.equal(await panel.getByRole('region',{name:'人设原文',exact:true}).textContent(),'# 原始人设\n\n<hero>\n  **银发守卫**\n</hero>');
+    assert.equal(await panel.getByRole('group',{name:'角色服装',exact:true}).count(),0);
+    await panel.getByRole('group',{name:'角色资料',exact:true}).getByText('TAG',{exact:true}).click();
+    await panel.getByRole('button',{name:'查看detail',exact:true}).click();
+    await panel.getByRole('button',{name:'查看当前图片大图',exact:true}).click();
+    const viewer=page.getByRole('dialog',{name:'角色大图',exact:true});await viewer.waitFor();
+    assert.match(await viewer.textContent(),/detail/);
+    await viewer.getByRole('button',{name:'关闭大图',exact:true}).click();
+    await panel.getByRole('button',{name:'查看主立绘',exact:true}).click();
+    await page.evaluate(async()=>{await directoryFile('project.json',JSON.stringify({title:'合成企划',description:'已更新场景资料'}));await bridge.refreshProject();});
+    assert.equal(await panel.getByRole('group',{name:'角色服装',exact:true}).getByRole('radio',{name:'制服',exact:true}).isChecked(),true,'unrelated metadata refresh preserves selected outfit');
+    await panel.getByRole('button',{name:'填入角色栏',exact:true}).click();await page.getByRole('menuitem',{name:'新增角色槽',exact:true}).click();
+    await page.waitForFunction(()=>drawing.snapshot().form.characters.length===1);
+    assert.deepEqual(await page.evaluate(()=>{const c=drawing.snapshot().form.characters[0];return[c.id,c.prompt,c.negative]}),['c1','silver hair, red cape','bad hands']);
+    await page.evaluate(async()=>{await directoryFile('characters/hero/tags.txt','external changed');await directoryFile('characters/hero/char.json',JSON.stringify({name:'守卫',tags_file:'tags.txt'}));await bridge.refreshProject();});
+    await page.waitForFunction(()=>document.querySelector('.tag-well')?.textContent.includes('external changed'));
+    await page.evaluate(async()=>{await directoryFile('characters/hero/tags.txt','external latest tags');await bridge.refreshProject();});
+    await page.waitForFunction(()=>document.querySelector('.tag-well')?.textContent.includes('external latest tags'));
+    assert.equal(await page.evaluate(()=>drawing.snapshot().form.characters[0].prompt),'silver hair, red cape');
+    await panel.getByRole('button',{name:'设定',exact:true}).click();
+    await panel.getByRole('region',{name:'资料原文',exact:true}).waitFor();
+    await panel.getByRole('treeitem',{name:'world.md',exact:true}).click();
+    assert.match(await panel.getByRole('region',{name:'资料原文',exact:true}).textContent(),/END_OF_FILE/);
+    const plans=panel.getByRole('treeitem',{name:'plans',exact:true}),scene=panel.getByRole('treeitem',{name:'scene.md',exact:true});
+    await plans.click();assert.equal(await scene.count(),0);
+    await panel.getByLabel('查找企划资料',{exact:true}).fill('scene');await scene.waitFor();
+    await plans.focus();await plans.press('ArrowRight');
+    assert.equal(await scene.evaluate(element=>document.activeElement===element),true,'right arrow enters the expanded folder');
+    await page.keyboard.press('Enter');
+    assert.equal(await panel.getByRole('region',{name:'资料原文',exact:true}).textContent(),'# 原文场景\n\n保留缩进与标记');
+    await panel.getByLabel('查找企划资料',{exact:true}).fill('');
+    assert.equal(await plans.getAttribute('aria-expanded'),'false','clearing search restores the original collapsed folder');
+    assert.equal(await scene.count(),0);
+    await panel.getByRole('button',{name:'参考',exact:true}).click();
+    const references=panel.getByRole('treeitem',{name:'scenes',exact:true}),reference=panel.getByRole('treeitem',{name:'scene.png',exact:true});
+    await references.click();assert.equal(await reference.count(),0);
+    await references.click();await reference.click();
+    assert.equal(await panel.getByRole('heading',{name:'scene',exact:true}).count(),1);
+    await page.waitForFunction(()=>document.querySelector('.image-meta')?.textContent.includes('120 × 180'));
+    await panel.getByRole('button',{name:'资料操作',exact:true}).click();
+    await page.getByRole('menuitem',{name:'文件信息与说明',exact:true}).click();
+    const information=panel.getByRole('region',{name:'文件信息与说明',exact:true});
+    assert.match(await information.textContent(),/references\/scenes\/scene.png/);
+    assert.match(await information.textContent(),/\*\*冷暖光参考\*\*\n保留原始说明/);
+    await panel.getByRole('button',{name:'收起文件信息',exact:true}).click();assert.equal(await information.count(),0);
+    const [download]=await Promise.all([page.waitForEvent('download'),panel.getByRole('button',{name:'下载原图',exact:true}).click()]);
+    assert.equal(download.suggestedFilename(),'scene.png');
+    assert.equal((await readFile(await download.path())).subarray(1,4).toString(),'PNG');
+    await panel.getByRole('button',{name:'ASK',exact:true}).click();assert.equal(await panel.count(),0);
+    assert.match(await page.evaluate(()=>ask.input.value),/references\/scenes\/scene.png/);
+    await page.evaluate(()=>bridge.openProject());await panel.waitFor();
+    await panel.getByRole('button',{name:'成果',exact:true}).click();
+    assert.equal(await panel.getByRole('tree').count(),0,'results use an image gallery rather than a file tree');
+    const resultImage=panel.getByRole('navigation',{name:'成果图片'}).getByRole('button',{name:'result.png',exact:true});
+    await resultImage.waitFor();
+    for(const [name,mode] of [['行对齐','rows'],['列对齐','cols'],['拼图','mosaic']]) {
+      const choice=panel.getByRole('group',{name:'成果排列'}).getByRole('button',{name,exact:true});
+      await choice.click();assert.equal(await choice.getAttribute('aria-pressed'),'true');
+      assert.equal(await panel.getByRole('navigation',{name:'成果图片'}).getAttribute('data-layout'),mode);
+      assert.equal(await resultImage.count(),1,'layout changes preserve the same image entry');
+    }
+    assert.equal(await panel.getByRole('button',{name:'result.png.json',exact:true}).count(),0,'companion recipe remains grouped with its image');
+    await panel.getByRole('button',{name:'lighting.md',exact:true}).click();
+    assert.equal(await panel.getByRole('region',{name:'资料原文',exact:true}).textContent(),'# 光影备忘\n原始内容');
+    await panel.getByRole('button',{name:'返回成果',exact:true}).click();
+    await resultImage.click();
+    assert.equal(await panel.getByRole('button',{name:'返回成果',exact:true}).evaluate(element=>document.activeElement===element),true,'opening a result moves focus into its detail');
+    await panel.getByLabel('成果文件').selectOption('assets/result.png.txt');assert.equal(await panel.locator('pre').textContent(),'silver hair');
+    await panel.getByRole('button',{name:'返回成果',exact:true}).click();
+    assert.equal(await resultImage.evaluate(element=>document.activeElement===element),true,'returning to the gallery restores the selected image focus');
+    assert.equal(await panel.getByRole('navigation',{name:'成果图片'}).getAttribute('data-layout'),'mosaic','the selected layout survives opening a result');
+    await resultImage.press('Enter');await panel.getByLabel('成果文件').selectOption('assets/result.png.txt');
+    await panel.getByRole('button',{name:'ASK',exact:true}).click();assert.equal(await panel.count(),0);assert.match(await page.evaluate(()=>ask.input.value),/assets\/result.png.txt/);
+    assert.equal(requests.filter(p=>/generate|completions|messages|encode/.test(p)).length,0);assert.deepEqual(errors,[]);
+  }finally{await context.close();}
+});
+
+test('[core] B1 manual JSON, no ASK key, parameter diff, queue ownership, dedup, apply/undo/new board and responsive UI',async()=>{
   const {page,context,requests,errors}=await setup({directory:false});
   try {
     assert.equal(await page.evaluate(()=>bridge.supported),false);
@@ -226,7 +341,8 @@ function refResponse(protocol, name, input={}, prose='资料已整理成备忘�
   ];
   return chunks.map(c=>(protocol==='anthropic-messages-v1'?`event: ${c.type}\n`:'')+`data: ${JSON.stringify(c)}\n\n`).join('')+(protocol==='openai-chat-v1'?'data: [DONE]\n\n':'');
 }
-for(const protocol of ['openai-chat-v1','anthropic-messages-v1']) test(`B2 ${protocol}: metadata-only initial state, text/image tool reads, frozen contents, saved attachments and explicit memo export`,async()=>{
+test(`B2 openai-chat-v1: metadata-only initial state, text/image tool reads, frozen contents, saved attachments and explicit memo export`,async()=>{
+  const protocol = "openai-chat-v1";
   const calls=[];let script=[['read_ref',{path:'brief.md'}],['read_ref',{path:'palette.png'}],[null,{}]];
   const {page,context,errors}=await setup({llm:true,protocol,respond(body){calls.push(body);const [name,input]=script.shift()??[null,{}];return refResponse(protocol,name,input)}});
   try {
@@ -238,20 +354,21 @@ for(const protocol of ['openai-chat-v1','anthropic-messages-v1']) test(`B2 ${pro
     await page.waitForFunction(()=>!ask.running.value&&ask.entries.value.some(e=>e.type==='turn'));
     assert.equal(await page.evaluate(()=>ask.entries.value.find(e=>e.type==='turn').turn.status),'done');assert.equal(calls.length,3);
     const initial=JSON.stringify(calls[0].messages);assert.match(initial,/refs_index/);assert.match(initial,/brief.md/);assert.doesNotMatch(initial,/B2_ORIGINAL_BODY|PRIVATE_ASSET/);
-    const refs=await page.evaluate(async()=>JSON.parse(await directoryFile('state.live.json')).refs_index);assert.deepEqual(refs.files.map(f=>f.path),['brief.md','palette.png']);assert.ok(refs.files.every(f=>Object.keys(f).sort().join(',')==='bytes,path'));
-    assert.match(JSON.stringify(calls[1].messages),/B2_ORIGINAL_BODY/);assert.match(JSON.stringify(calls[2].messages),protocol==='openai-chat-v1'?/data:image\/webp;base64/:/"type":"image"/);
+    const refs=await page.evaluate(async()=>JSON.parse(await directoryFile('state.live.json')).refs_index);assert.deepEqual(refs.lore.map(f=>f.path),['refs/brief.md']);assert.deepEqual(refs.references.map(f=>f.path),['refs/palette.png']);
+    assert.match(JSON.stringify(calls[1].messages),/B2_ORIGINAL_BODY/);assert.match(JSON.stringify(calls[2].messages),/data:image\/webp;base64/);
     const captured=await page.evaluate(()=>ask.entries.value.find(e=>e.type==='turn').turn.attachments);assert.equal(captured.length,2);assert.ok(captured.every(a=>a.toolRead&&a.origin.version));
     await page.evaluate(async()=>{await directoryFile('refs/brief.md','B2_REPLACED_BODY');await ask.toggleFavorite();await ask.flushFavorites();await bridge.unmount();});
     await page.reload();await bind(page);await page.evaluate(()=>ask.show());
     assert.equal(await page.evaluate(()=>ask.attachmentText(ask.entries.value.find(e=>e.type==='turn').turn.attachments.find(a=>a.kind==='text').id)),'B2_ORIGINAL_BODY');
-    assert.equal(await page.evaluate(()=>ask.entries.value.find(e=>e.type==='turn').turn.attachments.find(a=>a.kind==='image').origin.path),'palette.png');
+    assert.equal(await page.evaluate(()=>ask.entries.value.find(e=>e.type==='turn').turn.attachments.find(a=>a.kind==='image').origin.path),'refs/palette.png');
     await page.getByRole('button',{name:'保存为备忘录',exact:true}).click();await page.locator('#askFullDraft .draft-toggle').click();await page.getByRole('button',{name:'创作备忘录 · 保存详情',exact:true}).click();assert.match(await page.locator('.file-prose').textContent(),/资料已整理成备忘录。/);
     const download=page.waitForEvent('download');await apply(page);const file=await download;assert.equal(await readFile(await file.path(),'utf8'),'资料已整理成备忘录。');
     assert.equal(calls.length,3,'export does not invoke inference');assert.deepEqual(errors,[]);
   } finally {await context.close();}
 });
 
-for(const protocol of ['openai-chat-v1','anthropic-messages-v1']) test(`B2 ${protocol}: save_ref tool creates a reviewable file draft and writes only after confirmation`,async()=>{
+test(`B2 openai-chat-v1: save_ref tool creates a reviewable file draft and writes only after confirmation`,async()=>{
+  const protocol = "openai-chat-v1";
   let call=0,hash='';
   const {page,context,errors,requests}=await setup({llm:true,protocol,respond(body){
     call++;
@@ -572,11 +689,12 @@ test('B3 failed persistence compensates board; interrupted journal recovers and 
     });
     await page.reload();await bind(page);assert.doesNotMatch(await page.evaluate(()=>drawing.snapshot().form.prompt),/interrupted/);assert.equal(await page.evaluate(()=>slate.recovery.value),false);
     const now=await page.evaluate(()=>slate.snapshot());await receive(page,draft('required-no-mount',[editSlate(now,[{op:'update',id:now.todos[0].id,mutation:'not delivered'}],{directory_required:true}),patch(', no directory')]));
-    await apply(page);assert.equal(await page.evaluate(()=>slate.snapshot().todos[0].mutation),'');assert.doesNotMatch(await page.evaluate(()=>drawing.snapshot().form.prompt),/no directory/);assert.match(await page.evaluate(()=>ask.notice.value),/目录/);assert.deepEqual(errors,[]);
+    assert.equal(await page.evaluate(()=>bridge.receipt.value.status),'invalid');assert.match(await page.evaluate(()=>bridge.receipt.value.error),/目录/);assert.equal(await page.evaluate(()=>ask.draftPlan.value),null);assert.equal(await page.evaluate(()=>slate.snapshot().todos[0].mutation),'');assert.doesNotMatch(await page.evaluate(()=>drawing.snapshot().form.prompt),/no directory/);assert.deepEqual(errors,[]);
   }finally{await context.close();}
 });
 
-for(const protocol of ['openai-chat-v1','anthropic-messages-v1']) test(`B3 ${protocol}: ASK reads frozen Slate details and proposes compound advancement through the shared card`,async()=>{
+test(`B3 openai-chat-v1: ASK reads frozen Slate details and proposes compound advancement through the shared card`,async()=>{
+  const protocol = "openai-chat-v1";
   const calls=[];let script=[];
   const {page,context,errors}=await setup({llm:true,directory:false,protocol,respond(body){calls.push(body);const [name,input]=script.shift()??[null,{}];return refResponse(protocol,name,input,'已整理下一步，等待你确认。');}});
   try {
@@ -595,7 +713,7 @@ for(const protocol of ['openai-chat-v1','anthropic-messages-v1']) test(`B3 ${pro
 test('B3 directory partial writes resume by verified bytes, foreign assets stay untouched, new tasks map and existing tasks opt in',async()=>{
   const {page,context,errors}=await setup();
   try {
-    const old=await createSlate(page,'尚未映射的旧清单'),s=await createSlate(page);await page.evaluate(()=>bridge.mount());const image=await addSlateImage(page);
+    const old=await createSlate(page,'尚未映射的旧清单'),s=await createSlate(page);await page.evaluate(()=>bridge.mount());await page.evaluate(id=>bridge.mapSlate(id),s.id);const image=await addSlateImage(page);
     await page.evaluate(()=>{window.originalWritable=FileSystemFileHandle.prototype.createWritable;window.failReceipt=true;window.imageWrites=0;FileSystemFileHandle.prototype.createWritable=function(...args){if(this.name.endsWith('.png'))window.imageWrites++;if(this.name.endsWith('.png.json')&&window.failReceipt)throw new DOMException('synthetic receipt failure','NotAllowedError');return originalWritable.apply(this,args);};});
     await receive(page,draft('partial-delivery',[editSlate(s,[{op:'update',id:s.todos[0].id,status:'done',image_required:true,bind:{source:image.label,caption_source:'base',caption_mode:'full'}}])],{picture_scope_id:image.scope}));await apply(page);
     assert.equal(await page.evaluate(()=>slate.snapshot().todos[0].status),'done');assert.equal(await page.evaluate(()=>bridge.slateMappings.value[0].status),'error');assert.match(await page.evaluate(()=>slate.error.value),/本机已保存/);

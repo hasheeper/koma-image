@@ -3,16 +3,18 @@ import { computed, nextTick, onBeforeUnmount, ref, useTemplateRef, watch } from 
 import { useServices } from "../../app/services";
 import { message } from "../../app/ui";
 import { catalogEntries, linkFor, normalizeCatalog } from "../../domain/catalog";
-import { configuredModels } from "../../domain/models";
+import { configuredModels, imageModelFields } from "../../domain/models";
 import type { ModelIdentity } from "../../domain/models";
 import type { Connection, Routing } from "../../config/connections";
+import { modelParameterOverrides, withModelParameters } from "../../config/connections";
 import type { ParameterField, ParameterFields, ParameterOverrides } from "../../domain/model-parameters";
-import { validateParameterOverrides } from "../../domain/model-parameters";
+import { acceptsParameter } from "../../domain/model-parameters";
 import { nativeMappedCatalog } from "../../gateway/native-protocols";
 import { profileFor } from "../../gateway/profile";
 import AppIcon from "../../shared/AppIcon.vue";
 import ModelIcon from "../../shared/ModelIcon.vue";
 import ModelParameterInput from "../../shared/ModelParameterInput.vue";
+import { chatOptionLabel } from "../../domain/chat-options";
 
 const props = defineProps<{ routing: Routing; raw: Record<string, unknown>; statuses: Record<string, { s: string; text: string }> }>();
 const emit = defineEmits<{ reload: [connection: string] }>();
@@ -21,6 +23,11 @@ const dialog = useTemplateRef<HTMLDialogElement>("dialog");
 type Row = { uid: number; original: string; key: string; on: boolean; type: "string" | "number" | "boolean"; options: string; optionDraft: string; default: string; min: string; max: string; allowCustom: boolean; dirty: boolean; label?: string };
 const selected = ref<{ model: ModelIdentity; connection: Connection; upstreamId: string } | null>(null);
 const rows = ref<Row[]>([]), busy = ref(false), error = ref("");
+const referenceFields = computed(() => {
+  if (!selected.value) return {} as ParameterFields;
+  const { model, connection } = selected.value, protocol = profileFor(connection.profileId).protocol;
+  return imageModelFields(model, protocol === 'openai-images' || model.family === 'gpt' && protocol !== 'gemini-native');
+});
 const expanded = ref<number | null>(null);
 let nextId = 0, overrides: ParameterOverrides = {};
 const removed = new Set<string>();
@@ -29,16 +36,17 @@ const base = computed(() => {
   if (!selection) return { fields: {} as ParameterFields, parameterSource: "declared" };
   const { connection, model } = selection, routing = structuredClone(props.routing);
   if (routing.links[connection.id]?.[model.id]) {
-    delete routing.links[connection.id][model.id].parameters;
+    routing.links[connection.id][model.id] = withModelParameters(routing.links[connection.id][model.id], {});
     routing.links[connection.id][model.id].on = true;
   }
   const profile = profileFor(connection.profileId), raw = (props.raw[connection.id] ?? { models: {} }) as Record<string, unknown>;
-  return normalizeCatalog(nativeMappedCatalog(profile, raw, routing, connection.id), routing, connection.id, profile)
-    .models.find(m => m.id === model.id) ?? { fields: {} as ParameterFields, parameterSource: "declared" };
+  const resolved = normalizeCatalog(nativeMappedCatalog(profile, raw, routing, connection.id), routing, connection.id, profile)
+    .models.find(m => m.id === model.id);
+  return { fields: resolved?.configurationFields ?? resolved?.fields ?? {}, parameterSource: resolved?.parameterSource ?? 'declared' };
 });
 const status = computed(() => selected.value ? props.statuses[selected.value.connection.id] : undefined);
 const sourceLabel = computed(() => base.value.parameterSource === "reference" ? "参考预设" : Object.keys(base.value.fields).length ? "接口声明" : "未声明参数");
-const sourceHint = computed(() => base.value.parameterSource === "reference" ? "接口未声明参数，当前使用参考预设，可自行修改。" : Object.keys(base.value.fields).length ? "参数来自此来源的模型目录声明，可自行补充和调整。" : "接口未声明参数，可手动添加。");
+const sourceHint = computed(() => selected.value?.model.referenceNote || (base.value.parameterSource === "reference" ? "接口未声明参数，当前使用参考预设，可自行修改。" : Object.keys(base.value.fields).length ? "参数来自此来源的模型目录声明，可自行补充和调整。" : "接口未声明参数，可手动添加。"));
 const protocolHint = computed(() => selected.value && profileFor(selected.value.connection.profileId).protocol === "gemini-native"
   ? "扩展字段相对 generationConfig，如 temperature、imageConfig.imageSize。" : "字段按接口原名填写，如 quality、size、output_format。");
 function row(key: string, field: ParameterField | null): Row {
@@ -63,7 +71,7 @@ watch(base, () => { if (selected.value) refreshRows(); });
 function open(model: ModelIdentity, connection: Connection) {
   const link = linkFor(props.routing, connection.id, model, catalogEntries(props.raw[connection.id]));
   if (!link || model.family === "novelai" || busy.value) return;
-  overrides = structuredClone(link.parameters ?? {});
+  overrides = structuredClone(modelParameterOverrides(link));
   removed.clear();
   rows.value = []; error.value = ""; expanded.value = null;
   selected.value = { model, connection, upstreamId: link.id };
@@ -97,6 +105,10 @@ function field(r: Row): ParameterField {
     ...(r.label ? { label: r.label } : {}), ...(r.allowCustom && r.type === "string" ? { allowCustom: true } : {}),
     ...(r.type === "number" && r.min.trim() ? { min: Number(r.min) } : {}), ...(r.type === "number" && r.max.trim() ? { max: Number(r.max) } : {}) };
 }
+function defaultValue(r: Row) {
+  const value = field(r), fallback = referenceFields.value[r.key]?.default;
+  return value.default || (fallback && acceptsParameter(value, fallback) ? fallback : '');
+}
 async function save() {
   if (!selected.value || busy.value) return;
   busy.value = true; error.value = "";
@@ -116,7 +128,7 @@ async function save() {
       parameters[key] = r.on ? field(r) : null;
     }
     next.links[selection.connection.id] ??= {};
-    next.links[selection.connection.id][selection.model.id] = { ...link, parameters: validateParameterOverrides(parameters) };
+    next.links[selection.connection.id][selection.model.id] = withModelParameters(link, parameters);
     await connections.save(next);
     dialog.value?.close(); selected.value = null; rows.value = []; overrides = {};
   } catch (e) { error.value = message(e); }
@@ -147,7 +159,7 @@ defineExpose({ open, close });
         <div class="mp-fields">
           <div class="mp-columns">
             <div class="mp-column-title"><span>参数</span><button class="ibtn ibtn-xs mp-add" type="button" aria-label="添加参数" title="添加参数" :disabled="busy" @click="add"><AppIcon name="i-plus" /></button></div>
-            <span v-if="rows.length" title="留空时跟随接口">默认值</span>
+            <span v-if="rows.length">默认值</span>
           </div>
           <div v-for="r in rows" :key="r.uid" class="mp-field" role="group" :aria-label="r.key || '新参数'" :data-off="!r.on">
             <div class="mp-row">
@@ -160,7 +172,7 @@ defineExpose({ open, close });
               </button>
               <div class="mp-value">
                 <label class="sr-only" :for="`mp-default-${r.uid}`">默认值</label>
-                <ModelParameterInput :id="`mp-default-${r.uid}`" :field="field(r)" :value="r.default" :disabled="busy || !r.on" @change="r.default = $event; r.dirty = true" />
+                <ModelParameterInput :id="`mp-default-${r.uid}`" :field="field(r)" :value="defaultValue(r)" :format="value => chatOptionLabel(value, r.key)" :disabled="busy || !r.on" @change="r.default = $event; r.dirty = true" />
               </div>
               <label class="s-toggle" :title="r.on ? '停用参数' : '启用参数'">
                 <input v-model="r.on" type="checkbox" role="switch" :aria-label="`启用 ${r.key || '新参数'}`" :disabled="busy" @change="r.dirty = true" /><span class="switch" aria-hidden="true" />
@@ -237,7 +249,7 @@ defineExpose({ open, close });
 .mp-key-editor .ico { transform: rotate(90deg); }
 .mp-key-editor .mp-key-input { min-width: 0; height: var(--mp-control-h); }
 .mp-value { min-width: 0; }
-.mp-value :deep(.model-parameter-input) { height: var(--mp-control-h); font: var(--fz-xs)/1.4 var(--mono); }
+.mp-value :deep(.model-parameter-input) { height: var(--mp-control-h); }
 .mp-value :deep(:disabled) { opacity: 0.45; }
 .mp-row .s-toggle { justify-self: end; width: 36px; margin: 0; }
 .mp-row .s-toggle .switch { --sw-w: 28px; --sw-h: 16px; }

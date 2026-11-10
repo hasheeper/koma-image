@@ -47,6 +47,7 @@ export function createApplicationServices(deps: {
   );
   const clients = new Map<string, ReturnType<typeof createGateway>>();
   const catalogs = new Map<string, import("../gateway/client.ts").GatewayCatalogCache>();
+  const gatewayListeners = new Set<(id: string) => void>();
   let databases: Awaited<ReturnType<typeof openDatabases>> | undefined;
   const references = createNaiReferences(() => { if (!databases) throw new Error("数据未就绪"); return databases; }, data);
   const backup = createBackupService({
@@ -92,7 +93,13 @@ export function createApplicationServices(deps: {
       const key = connections.catalogKey(id)!;
       let cache = catalogs.get(key);
       if (!cache) catalogs.set(key, cache = {});
-      gateway = createGateway(context, deps.fetch, undefined, cache);
+      gateway = createGateway(context, deps.fetch, undefined, cache, () => {
+        if (disposed || connections.catalogKey(id) !== key) return;
+        for (const listener of gatewayListeners) {
+          // Presentation feedback cannot turn a completed image request into a failure.
+          try { listener(id); } catch { /* The image result remains authoritative. */ }
+        }
+      });
       clients.set(context.cacheKey, gateway);
     }
     return gateway;
@@ -117,6 +124,10 @@ export function createApplicationServices(deps: {
     backup,
     tags,
     references,
+    subscribeGateway(listener: (id: string) => void) {
+      gatewayListeners.add(listener);
+      return () => gatewayListeners.delete(listener);
+    },
     selectSource: priority.select,
     get databases() {
       if (!databases) throw new Error("存储尚未就绪");
@@ -149,6 +160,7 @@ export function createApplicationServices(deps: {
         catalog: gateway.catalog,
         rawCatalog: gateway.rawCatalog,
         fetchedAt: gateway.fetchedAt,
+        successfulModels: gateway.successfulModels,
         estimate: gateway.estimate,
         quota: gateway.quota,
       };
@@ -237,6 +249,7 @@ export function createApplicationServices(deps: {
       unregister();
       clients.clear();
       catalogs.clear();
+      gatewayListeners.clear();
       connections.dispose();
       try {
         await data.dispose();

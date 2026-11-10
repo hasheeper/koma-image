@@ -18,26 +18,38 @@ export function createReferenceReader(deps: {
   added(value: Attachment): void;
 }) {
   const cache = new Map<string, Attachment>();
-  return async (input: Readonly<Record<string, unknown>>): Promise<ToolOutcome> => {
-    const { source, pool, attached, limits, visual, vision } = deps;
+  async function load(path: string) {
+    const { source, pool, attached, limits, visual } = deps;
+    if (!source) throw new Error('尚未挂载可读取的企划目录');
+    const frozen = cache.get(path);
+    if (frozen) return { item: frozen, fresh: false };
+    attachmentCapacity(attached, source.kind(path), 0, limits, true);
+    const read = await source.read(path, visual.signal, referenceByteLimit(source.kind(path), limits, deps.pageBytes()));
+    const prepared = await prepareAttachment(read.file, false, limits);
+    visual.signal.throwIfAborted();
+    attachmentCapacity(attached, prepared.kind, prepared.kind === 'text' ? prepared.text.length : 0, limits, true);
+    if (prepared.bytes + deps.pageBytes() > ATTACHMENT_LIMITS.pageBytes) throw new Error('本页附件已超过 200 MB');
+    return { item: pool.add({ ...prepared, origin: read.origin, toolRead: true }), fresh: true };
+  }
+  function accept(path: string, item: Attachment, fresh: boolean) {
+    if (fresh) { cache.set(path, item); deps.attached.push(item); deps.added(item); }
+  }
+  const read = async (input: Readonly<Record<string, unknown>>): Promise<ToolOutcome> => {
+    const { source, pool, visual, vision } = deps;
     if (!source) throw new Error("尚未挂载可读取的协同目录");
-    if (typeof input.path !== "string" || !input.path || input.path.length > 1024) throw new Error("path 需要 refs/ 内的相对文件名");
-    const path = source.resolve(input.path), offset = input.offset ?? 0;
+    if (typeof input.path !== "string" || !input.path || input.path.length > 1024) throw new Error("path 需要企划根目录相对路径");
+    const offset = input.offset ?? 0;
     if (typeof offset !== "number" || !Number.isSafeInteger(offset) || offset < 0) throw new Error("offset 需为非负安全整数");
-    const kind = source.kind(path);
+    if (input.path.endsWith('/')) {
+      if (!source.list) throw new Error('此资料来源不支持目录索引');
+      const page = source.list(input.path, offset);
+      return { content: [{ type: 'text', text: dataBlock(canonical(page)) }], stat: `${page.items.length} 项` };
+    }
+    const path = source.resolve(input.path), kind = source.kind(path);
     if (kind === "image" && visual.metadataOnly) throw new Error("本轮图片能力未启用，不能读取资料图片");
     if (kind === "image" && offset !== 0) throw new Error("图片不支持 offset");
     visual.signal.throwIfAborted();
-    let item = cache.get(path), fresh = false;
-    if (!item) {
-      attachmentCapacity(attached, kind, 0, limits);
-      const read = await source.read(path, visual.signal, referenceByteLimit(kind, limits, deps.pageBytes()));
-      const prepared = await prepareAttachment(read.file, false, limits);
-      visual.signal.throwIfAborted();
-      attachmentCapacity(attached, prepared.kind, prepared.kind === "text" ? prepared.text.length : 0, limits);
-      if (prepared.bytes + deps.pageBytes() > ATTACHMENT_LIMITS.pageBytes) throw new Error("本页附件已超过 200 MB");
-      item = pool.add({ ...prepared, origin: read.origin, toolRead: true }); fresh = true;
-    }
+    const { item, fresh } = await load(path);
     try {
       let outcome: ToolOutcome;
       if (item.kind === "text") {
@@ -51,8 +63,24 @@ export function createReferenceReader(deps: {
         outcome = { content: [{ type: "text", text: dataBlock(canonical({ id: item.id, path, version: item.origin?.version, ...(result.duplicate ? { already_viewed_this_turn: true } : {}), bytes: result.bytes, pixels: result.pixels })) }, ...(result.image ? [result.image] : [])], stat: result.duplicate ? "本轮已查看" : `${Math.ceil(result.bytes / 1024)} KB` };
       }
       visual.signal.throwIfAborted();
-      if (fresh) { cache.set(path, item); attached.push(item); deps.added(item); }
+      accept(path, item, fresh);
       return outcome;
     } catch (e) { if (fresh) pool.release([item.id]); throw e; }
   };
+  return Object.assign(read, {
+    /** Freeze locally for a pending handoff; this does not send pixels or claim a visual read. */
+    async prepareImage(input: string) {
+      const source = deps.source;
+      if (!source) throw new Error('尚未挂载可读取的企划目录');
+      const path = source.resolve(input);
+      if (source.kind(path) !== 'image') throw new Error('交接来源需要企划图片');
+      const { item, fresh } = await load(path);
+      if (item.kind !== 'image' || !item.origin?.projectId) {
+        if (fresh) deps.pool.release([item.id]);
+        throw new Error('图片缺少企划来源');
+      }
+      accept(path, item, fresh);
+      return item.id;
+    },
+  });
 }

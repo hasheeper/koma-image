@@ -11,6 +11,7 @@ const glyphs: Record<string, string> = {
   flux: "flux",
   qwen: "qwen-c",
   seedream: "bytedance-c",
+  volcengine: "volcengine-c",
   xai: "grok",
   wan: "alibabacloud-c",
   dashscope: "alibabacloud-c",

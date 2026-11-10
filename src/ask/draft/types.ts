@@ -16,6 +16,8 @@ export type TextMode = "replace" | "before" | "after" | "append" | "rewrite";
 export const restoreKeys = ["prompt", "negative_prompt", "model", "width", "height", "steps", "scale", "cfg", "cfgRescale", "noiseSchedule", "varietyPlus", "naiMode", "complexity", "qualityPreset", "negativePreset", "transparentBg", "sampler", "seed", "batchCount", "characters"] as const;
 export type RestoreKey = typeof restoreKeys[number];
 export interface TextStep {
+  /** Original 1-based submitted position, retained when empty insertions are removed. */
+  readonly sourceStep?: number;
   readonly kind: "prompt_patch";
   readonly target: TextTarget;
   readonly mode: TextMode;
@@ -40,7 +42,7 @@ export interface BranchStep {
 export interface HandoffImage {
   readonly binding?: import("../../domain/image-identity.ts").ImageTagBinding;
   readonly label: string;
-  readonly source: "history" | "favorites" | "chat" | "edit";
+  readonly source: "history" | "favorites" | "chat" | "edit" | "project";
   /** Drawing record ID for `#h`/`#f`, CHAT asset ID for `#c`. */
   readonly ref: string;
 }
@@ -93,7 +95,22 @@ export interface DraftState {
 export interface EditConfigStep {readonly kind:"edit_config";readonly params:Readonly<Record<string,unknown>>}
 export interface DirectorStep {readonly kind:"director_patch";readonly tool:string;readonly emotion?:string;readonly defry?:number;readonly prompt?:string}
 export interface EditHandoff { readonly image:HandoffImage; readonly target:EditDraftState; readonly created:boolean; readonly proposal:Draft; readonly params:Readonly<Fields>; readonly origin:"image"|"chat"|"edit" }
+export interface RollbackBase {
+  readonly recipe: import("../retrospect/recipe.ts").Recipe;
+  readonly expected: Readonly<Partial<DrawingForm>>;
+  readonly image: HandoffImage;
+  readonly fields: Readonly<Partial<DrawingForm>>;
+  readonly evolution: import('../retrospect/store.ts').EvolutionChange;
+}
+export interface EditRollback {
+  readonly evolution: import('../retrospect/store.ts').EvolutionChange;
+  readonly before: EditDraftState;
+  readonly after: EditDraftState;
+  readonly label: string;
+}
 export interface Draft {
+  readonly editRollback?: EditRollback;
+  readonly rollbackBase?: RollbackBase;
   readonly editHandoff?: EditHandoff;
   readonly target?: "edit";
   readonly synthetic?: boolean;
@@ -110,6 +127,13 @@ export interface Draft {
 export type Field = "composer" | keyof DrawingForm;
 export interface Change { readonly field: Field; readonly before: DrawingForm[keyof DrawingForm]; readonly after: DrawingForm[keyof DrawingForm] }
 export interface CheckedStep {
+  readonly anchorIssue?: {
+    readonly code: "anchor_not_found" | "anchor_ambiguous";
+    readonly step: number;
+    readonly target: TextTarget;
+    readonly anchor: string;
+    readonly matches: number;
+  };
   readonly characterId?: string;
   readonly characterLabel?: string;
   readonly id: string;
@@ -127,6 +151,8 @@ export interface CheckedStep {
   readonly suffix?: string;
 }
 export interface DraftPlan {
+  readonly editRollback?: EditRollback;
+  readonly rollbackBase?: RollbackBase;
   readonly editSourceTag?:string;
   readonly editHandoff?: EditHandoff;
   readonly edit?: {id:string;before:EditConfiguration;after:EditConfiguration;baseId:number;maskRevision:number;sourceKey?:string};

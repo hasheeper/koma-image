@@ -21,7 +21,10 @@ export interface AnnotationTarget {
 }
 export interface AnnotationReview {
   source: Blob; raw: Blob; snapshot: AnnotationSnapshot; title: string;
-  apply: (blob: Blob) => Promise<void>;
+  key: string;
+  valid: () => boolean;
+  alive: () => boolean;
+  apply: (blob: Blob, settings?: {colorMatch:boolean;method:'local'|'photopea'}) => Promise<void>;
 }
 export function createAnnotations(deps: {ask: Ask; editor: Editor; chat: Chat; router: AppRouter}) {
   const active=shallowRef<{target: AnnotationTarget; snapshot: AnnotationSnapshot}|null>(null);
@@ -89,9 +92,7 @@ export function createAnnotations(deps: {ask: Ask; editor: Editor; chat: Chat; r
         close();
       }finally{busy.value=false;}
     },
-    openReview(value:AnnotationReview){review.value=value;},
     chatReview(conversationId:string,turnId:string,versionId:string,assetId:string){review.value=deps.chat.annotationReview(conversationId,turnId,versionId,assetId);},
-    editorReview(boardId:string,versionId:number){review.value=deps.editor.annotationReview(boardId,versionId);},
     prompt:annotationPrompt,
     dispose(){close();drafts.clear();review.value=null;deps.editor.setAnnotationReader(undefined);},
   };

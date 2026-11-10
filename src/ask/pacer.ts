@@ -15,7 +15,6 @@ type Wait = (ms: number) => Promise<void>;
 export function createPacer(now = () => performance.now(), wait?: Wait) {
   let chain: Promise<void> = Promise.resolve(),
     last = 0,
-    rushed = false,
     cancelled = false,
     wake: (() => void) | undefined;
   async function pause(ms: number) {
@@ -35,7 +34,7 @@ export function createPacer(now = () => performance.now(), wait?: Wait) {
       chain = chain.then(async () => {
         if (cancelled) return;
         const due = last + gap - now();
-        if (due > 0 && !rushed) await pause(due);
+        if (due > 0) await pause(due);
         if (cancelled) return;
         step();
         last = now();
@@ -43,11 +42,6 @@ export function createPacer(now = () => performance.now(), wait?: Wait) {
     },
     /** Resolves once every queued step has run. */
     settled: () => chain,
-    /** Runs whatever is queued without further waiting (stop, failure). */
-    rush() {
-      rushed = true;
-      wake?.();
-    },
     /** Stop showing queued output, including an already pending dwell. */
     cancel() {
       cancelled = true;

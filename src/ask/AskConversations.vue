@@ -87,7 +87,7 @@ function blurred(event: FocusEvent) {
   <AiNameButton kind="conversation" :id="ask.conversationId.value" :disabled="ask.running.value" />
 </template>
 <style scoped>
-.ask-conv { display: flex; align-items: center; gap: 6px; min-width: 0; height: 30px; margin-left: 4px; padding: 0 8px; color: var(--fg-2); font-size: 13px; font-weight: var(--fw-medium); border-radius: 8px; }
+.ask-conv { display: flex; flex: 0 1 auto; align-items: center; gap: 6px; min-width: 0; max-width: 100%; height: 30px; margin-left: 4px; padding: 0 8px; color: var(--fg-2); font-size: 13px; font-weight: var(--fw-medium); border-radius: 8px; }
 .ask-conv:is(:hover, [aria-expanded="true"]) { color: var(--fg); background: var(--ask-hover); }
 .ask-conv-title { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .ask-conv .ico { flex: none; color: var(--fg-3); }

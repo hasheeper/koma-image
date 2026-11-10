@@ -1,15 +1,16 @@
 # 历史文档索引
 
-更新：2026-11-06。这里只保存当时的方案、设计确认与验收证据。现行行为从[文档索引](../README.md)进入；历史的测试数量、供应商结果、发布记录和授权只适用于其注明范围。公开前匿名化历史作者邮箱后，文内提交号同步映射到对应新提交；过程和验收事实保持原意。
+更新：2026-11-09。这里只保存当时的方案、设计确认与验收证据。现行行为从[文档索引](../README.md)进入；历史的测试数量、供应商结果、发布记录和授权只适用于其注明范围。公开前匿名化历史作者邮箱后，文内提交号同步映射到对应新提交；过程和验收事实保持原意。
 
 ## 目录与早期基线
 
-`engineering/` 保存文档、测试与连接维护记录；`nai/`、`ask/`、`image-identity/`、`bridge/`、`photopea/`、`workspaces/` 按主题保留设计与验收；`releases/` 单独保存推送、脱敏和线上核验。文件内日期与当时结论保持不变，仅更新移动后的引用。
+`engineering/` 保存文档、测试与连接维护记录；`nai/`、`ask/`、`image-identity/`、`bridge/`、`photopea/`、`workspaces/` 按主题保留设计与验收；`releases/` 单独保存推送、脱敏和线上核验。验收日期和结论保持原意；移除重复规范或裁去已完成计划时，单独记录保留范围。
 
-[2026-10-25 完整快照](2026-10-25/README.md)保留早期 M1–M7、ASK A／R／W／CP、角色画板、TS 与字体／样式治理的原文和过程。快照自成目录，其旧规范不参与现行契约优先级。
+[早期设计与阶段证据](2026-10-25/README.md)保留 M1–M7、ASK A／R／W／CP、角色画板、TS 与字体／样式的独有记录；2026-11-07 已删除重复规范、收拢已完成计划，旧规则不参与现行契约优先级。
 
 ## 工程与连接维护
 
+- [测试、残留代码与文档收口](engineering/2026-11-07-maintenance-investigation.md#收口结果)：保留调查基线，记录测试删减、旧 EDIT 链路清理、文档归属和本地验证。
 - [未发布版本本地收口](engineering/2026-11-06-unreleased-closeout.md)：运行包依赖、批注 ZIP 往返、HTML 定稿与提示词迁入，以及推送前文档／产物复核；记录当时的本地模拟验收；后续随 v0.5.0 发布。
 - [供应商接口用途样式咨询](engineering/2026-11-04-supplier-interface-consult.md)：Opus 5.5 原稿与主 Agent 代码核对，复用公共复选框及局部排版建议。
 - [模型与供应商连接调整规划](workspaces/2026-11-03-models-and-connections-plan.md)：已随 v0.4.0 发布；范围为 GPT／Gemini 条目管理与任意上游 ID、Chat／Images 共用连接、NAI 混列与 401 提示修复。
@@ -35,6 +36,8 @@
 
 ## ASK 回复模式
 
+- [通用图像模型知识咨询](ask/2026-11-10-image-model-knowledge-consult.md)：GPT Image 2.6／Gemini／Seedream 的共性介绍、按来源读取能力与新增模型适配，保留 Opus 5.5 原稿与实施取舍。
+- [工作区提示词精简修订稿](ask/2026-11-09-workspaces-prompt-review.md)：已按用户确认应用为 w37，清除 UI 操作与实现叙述，修正图片／配方／批注数据含义；保留采用时的完整正文与 Opus 5.5 原始精修记录。
 - [可选工具正文模式](ask/2026-11-02-ask-tool-response-plan.md)：按入口拆信封原则重写并实施，默认关闭、双协议宽容接收，接收后统一为普通文本，下游存储与压缩不作改动。
 
 ## ASK 的 NAI 基础感知与 EDIT
@@ -53,6 +56,7 @@
 
 ## 外部协同与任务
 
+- [企划集 P1–P6 实施记录](bridge/2026-11-09-project-collection-plan.md)：根目录分层索引、四栏面板、Slate 目录归属、12 个工具文本与企划图片交接的需求、实施和本地验证；[咨询原稿](bridge/2026-11-09-project-collection-design.md)保留设计来源与取舍。
 - [B1–B3 阶段规划](bridge/2026-10-26-bridge-plan.md)：阶段边界、六项补充和验收契约，已退出现行入口。
 - [B1 外部草稿](bridge/2026-10-26-bridge-b1-verification.md)、[B2 共享资料](bridge/2026-10-26-bridge-b2-verification.md)、[B3 本地任务与交付](bridge/2026-10-26-bridge-b3-verification.md)。
 - [Edge 外部 Agent 实战](bridge/2026-10-26-bridge-field-verification.md)、[协同 UI 与文件草稿](bridge/2026-10-26-bridge-ui-verification.md)。
@@ -62,10 +66,15 @@
 - [PE1 回传与纯修图交付](photopea/2026-10-27-photopea-pe1-verification.md)、[PE2 官方 iframe 与选区](photopea/2026-10-27-photopea-pe2-verification.md)、[PE3 静态包兼容](photopea/2026-10-27-photopea-pe3-verification.md)。
 - [主题和界面勘探](photopea/2026-10-27-photopea-ui-research.md)、[界面精简／保活／视口修复](photopea/2026-10-27-photopea-ui-verification.md)。
 - [工作栈、自动回传与同尺寸复用](photopea/2026-10-27-photopea-workstack-verification.md)。
+- [边界色彩对齐与结果融合实施验证](workspaces/2026-11-04-region-annotations-research-plan.md#9-验收与真实待验)：2026-11-09 本地实现、真实 Photopea 合成素材验证、比较工具栏与单按钮修复；尚未发布。
 
 ## HOME 与独立 EDIT
 
-- [图片区域批注勘探与规划](workspaces/2026-11-04-region-annotations-research-plan.md)：后续随 v0.5.0 发布；共享批注、ASK、EDIT 转换和 CHAT 双图，GPT／Gemini 结果经人工审核后应用本地回贴；NAI 复用现有能力，不接 OpenAI Mask。
+- [ASK 版本演进提示词提取稿](ask/2026-11-09-evolution-prompt-extract.md)：2026-11-09 当前代码原文审阅快照，包含系统段落、工具说明与 Schema、回退草稿和入口模板；不参与运行时加载。
+- [版本演进需求与实施规划](workspaces/2026-11-08-version-evolution-plan.md)：E1–E5 本地实施与模拟验证；活动树、自动归组、回退基底草稿、同树重整、显式定稿、NEW 与停止跟踪边界。
+- [单图演进复盘概念记录](workspaces/2026-11-07-recipe-retrospect.md)：实施前的职责收敛；平时零侵入、程序按需折叠配方、ASK 语义推演，现行规则见[版本演进专题](../workspaces/recipe-retrospect.md)。
+- [单图复盘正式接入与收口](workspaces/2026-11-08-recipe-retrospect-closeout.md)：连续分组 Diff、关系图／大图、图上批注、入口与本页状态的本地模拟验证；尚未发布。
+- [图片区域批注勘探与规划](workspaces/2026-11-04-region-annotations-research-plan.md)：共享批注、ASK 与 CHAT 双图已随 v0.5.0 发布；原始 EDIT 转换入口后来已收口。另含 2026-11-09 未发布的色彩对齐、NAI 直出保留与 Photopea 融合实施结果，不接 OpenAI Mask。
 - [HOME 设计与实施规划](workspaces/2026-10-28-home-plan.md)：保留原章节和概念稿差异，当前契约已收拢到 [HOME 工作区](../workspaces/home.md)。
 - [HD 页面形态确认](workspaces/2026-10-27-home-hd-confirmation.md)、[头部与 ASK 停靠确认](workspaces/2026-10-28-home-head-ask-confirmation.md)。
 - [HM1 数据](workspaces/2026-10-28-home-hm1-verification.md)、[HM2 页面](workspaces/2026-10-28-home-hm2-verification.md)、[HM3 ASK 与动效](workspaces/2026-10-28-home-hm3-verification.md)。
@@ -73,6 +82,7 @@
 
 ## 发布与脱敏记录
 
+- [v0.6.0 发布](releases/2026-11-10-v0.6.0-release.md)：版本演进、企划集、融合精修与多模型接入；记录本地验收、独立包依赖修复、脱敏与发布结果。
 - [v0.5.0 发布](releases/2026-11-06-v0.5.0-release.md)：图片批注、EDIT 通用图像模型、ASK 联动与诊断修复；记录 CI、脱敏和生产资源核验。
 
 - [v0.4.0 发布](releases/2026-11-04-v0.4.0-release.md)：模型与连接管理、来源参数、Gemini ASK、更新日志及导入安全修复，记录本地检查、脱敏与 Git／Pages 核验。

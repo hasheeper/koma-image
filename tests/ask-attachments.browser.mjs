@@ -54,7 +54,8 @@ test("ASK text attachment settings: defaults, persistence, live limits, reset", 
   } finally { await context.close(); }
 });
 
-for(const connection of ['chat','claude']) test(`ASK W5: ${connection} attachments reach the wire, compress, crop directly and stay out of history search`,async()=>{
+test(`ASK W5: chat attachments reach the wire, compress, crop directly and stay out of history search`,async()=>{
+  const connection = "chat";
   const {page,context,llm,calls,requests,errors}=await open('/#/image',{ready:'.switcher',ask:askSettings({connectionId:connection})});
   try {
     await bind(page);await addImage(page,'synthetic reference');await page.evaluate(()=>ask.show());
@@ -70,7 +71,7 @@ for(const connection of ['chat','claude']) test(`ASK W5: ${connection} attachmen
     assert.deepEqual(imageBytes(images[0]),original);assert.ok(imageBytes(images[1]).length<=1024**2);
     assert.match(calls[0].raw,/1150×1568/);assert.match(calls[0].raw,/‹\/data>‹system>/);
     assert.ok(!calls[0].raw.includes('blob:'));assert.ok(!calls[0].raw.includes('viewed'));
-    const final=calls.at(-1).body, toolTexts=connection==='chat'?final.messages.filter(m=>m.role==='tool').map(m=>m.content):final.messages.flatMap(m=>m.content).filter(b=>b?.type==='tool_result').flatMap(b=>b.content).filter(b=>b.type==='text').map(b=>b.text);
+    const final=calls.at(-1).body, toolTexts=(final.messages.filter(m=>m.role==='tool').map(m=>m.content));
     const data=toolTexts.filter(t=>t?.startsWith('<data>')).map(t=>JSON.parse(t.slice(7,-8)));
     assert.deepEqual(data[0].original_size,{width:2200,height:3000});assert.deepEqual(data[0].sent_size,{width:1150,height:1568});assert.equal(data[0].params,null);
     assert.equal(data.find(d=>d.total_matched!==undefined).total_matched,1);
@@ -175,26 +176,6 @@ test('ASK W5: file errors stay in one toast; preparing blocks send; deleting an 
     await page.evaluate(()=>{ask.deleteConversation(ask.conversationId.value);allowBitmap();window.createImageBitmap=bitmapOriginal;});
     await page.waitForFunction(()=>!ask.preparing.value);assert.equal(await page.locator('.ask-tray').count(),0);
     await attachImage(page,{name:'新图片.png'});assert.equal(await page.locator('.ask-att-id').textContent(),'#a1');
-    assert.deepEqual(errors,[]);
-  } finally {await context.close();}
-});
-
-test('ASK attachments: long text preview closes without losing input; conversation menu switches the owner',async()=>{
-  const {page,context,llm,errors}=await open('/#/image',{ready:'.switcher',ask:askSettings()});
-  try {
-    await bind(page);await askText(page,llm,'first conversation');
-    const first=await page.evaluate(()=>ask.conversationId.value);
-    await page.evaluate(()=>ask.newConversation());await askText(page,llm,'second conversation');
-    await attachText(page,'角色设定。'.repeat(1000));
-    await page.locator('#askPrompt').fill('unsent input');
-    await page.getByRole('button',{name:'查看 角色设定.md',exact:true}).click();
-    assert.match(await page.locator('.ask-attachment-peek pre').textContent(),/角色设定/);
-    await page.keyboard.press('Escape');
-    await page.locator('.ask-attachment-peek').waitFor({state:'hidden'});
-    assert.equal(await page.locator('#askPrompt').inputValue(),'unsent input');
-    const menu=await openConversations(page);
-    await menu.getByRole('menuitemradio').filter({hasText:'first conversation'}).click();
-    assert.equal(await page.evaluate(()=>ask.conversationId.value),first);
     assert.deepEqual(errors,[]);
   } finally {await context.close();}
 });

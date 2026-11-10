@@ -1,3 +1,6 @@
+import { getRecipeClusters, showRetrospect, setRetrospectStatus } from './retrospect/tools.ts';
+import type { RecipeReader } from './retrospect/tools.ts';
+import type { Retrospect } from './retrospect/model.ts';
 import { annotationCrop } from '../domain/region-annotation.ts';
 import { isPictureId } from "./ids.ts";
 import type { AskImage, AskText, AskTool } from "./messages.ts";
@@ -24,18 +27,22 @@ export interface ToolOutcome {
   readonly stat?: string;
   readonly picks?: readonly string[];
   readonly draft?: Draft;
+  readonly retrospect?: Retrospect;
 }
 /**
  * Everything a tool may touch. Getters only: no store, no service, nothing
  * that writes. Drafts go through draft/apply.ts from a user click, not here.
  */
 export interface ToolContext {
+  readonly evolutionBase?: (recordId: string) => import("./retrospect/store.ts").EvolutionChange & { edit?: import("../domain/edit-draft.ts").EditDraftState };
   readonly signal: AbortSignal;
   /** Set by「仅发元数据重试」: visual tools answer with an error this turn. */
   readonly metadataOnly: boolean;
   /** Full form text on demand; the initial snapshot is the draft base. */
   readonly state: (scope: "initial" | "latest", boardId?: string, editBoardId?: string) => { readonly text: string; readonly images: number } | Promise<{ readonly text: string; readonly images: number }>;
   readonly library?: readonly Picture[];
+  readonly recipes?: RecipeReader;
+  readonly setRetrospectStatus?: (id: string, status: 'active' | 'ended') => unknown;
   readonly vision?: Vision;
   readonly visual?: VisionContext;
   readonly tags?: TagSearch;
@@ -48,6 +55,7 @@ export interface ToolContext {
   /** Automatic draft preflight, never registered as a model-callable tool. */
   readonly checkNaiInput?: (draft: Draft) => Promise<NaiDraftCheck | null>;
   readonly readRef?: (input: Readonly<Record<string, unknown>>) => Promise<ToolOutcome>;
+  readonly prepareDraftImages?: (input: Readonly<Record<string, unknown>>) => Promise<Readonly<Record<string, unknown>>>;
 }
 export interface ToolEntry {
   readonly tool: AskTool;
@@ -178,7 +186,7 @@ const viewSheet: ToolEntry = {
   },
 };
 const readChat: ToolEntry = {
-  tool: { name: "get_chat_context", description: "读取本轮锁定的当前 CHAT 分支：文字勾选、各轮版本与图片 ID、底图、图片数量限制、当前模型与尺寸类选项（chat_model）、已有额度与实际发送文字。不包含其他分支；不请求报价或发送。", schema: schema({}) },
+  tool: { name: "get_chat_context", description: "读取本轮锁定的当前 CHAT 分支：文字勾选、各轮版本与图片 ID、底图、图片数量限制、当前模型能力与可写／只读选项（chat_model）、已有额度与实际发送文字。不包含其他分支；不请求报价或发送。", schema: schema({}) },
   verb: "读取", object: () => "对话上下文",
   run(_input, context) {
     if (!context.chatContext) throw new Error("当前会话尚未就绪");
@@ -229,14 +237,14 @@ const readTurn: ToolEntry = {
   },
 };
 const readRef: ToolEntry = {
-  tool: { name: "read_ref", description: "按用户问题需要读取协同 refs/ 资料。path 使用 workspace_state.refs_index 的完整相对路径；仅文件清单默认可见，未读取不能声称知道正文。同名须消歧。本轮首次读取冻结内容，重复或 offset 续读同一版本；下一轮重新读取。文本每次最多8000字符，按 next_offset 续读；图片以768px视觉通道读取，共享4次/1.5MP/400KB预算。与本轮附件合计最多4个文本和4张图片，不能读取目录外文件。", schema: schema({ path: { type: "string", minLength: 1, maxLength: 1024 }, offset: { type: "integer", minimum: 0 } }, ["path"]) },
+  tool: { name: "read_ref", description: "按问题读取 refs_index 中的企划资料。path 为企划根相对路径；文件路径返回原文或图片，末尾 / 的目录路径返回索引页，./ 返回全部已发现文件清单。offset/next_offset 在文本中为字符偏移、目录中为条目偏移。每轮最多 12 个不同文本文件，同文件分页不重复计数，仍受文本总预算约束。文本每页 8000 字，按 next_offset 续读；图片与其他视觉工具共享预算。本轮重复读取固定同一版本；不能根据摘要假定已读全文。", schema: schema({ path: { type: "string", minLength: 1, maxLength: 1024 }, offset: { type: "integer", minimum: 0 } }, ["path"]) },
   verb: "读取", object: input => typeof input.path === "string" ? input.path : "协同资料",
   run(input, context) {
     if (!context.readRef) throw new Error("尚未挂载可读取的协同目录");
     return context.readRef(input);
   },
 };
-/** Only read ports enter these tools; no generating or form-writing service. */
+/** Read ports plus a staged review-status port; no generating or form-writing service. */
 export function createTools(): ToolRegistry {
-  return new Map([getState, searchHistory, readMeta, diffMeta, viewImage, viewSheet, searchTags, readChat, readModelManual, proposeDraft, readTurn, readRef].map((entry) => [entry.tool.name, entry]));
+  return new Map([getState, searchHistory, readMeta, diffMeta, viewImage, viewSheet, searchTags, readChat, readModelManual, proposeDraft, readTurn, readRef, getRecipeClusters, showRetrospect, setRetrospectStatus].map((entry) => [entry.tool.name, entry]));
 }

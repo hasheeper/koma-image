@@ -26,7 +26,7 @@ function service(local, saved = new Map()) {
 const manifest = preferences => ({ app: 'koma-image', kind: 'backup', version: 2, id: '12345678-1234-1234-1234-123456789012', createdAt: new Date(0).toISOString(), favorites: [], conversations: [], assets: [], preferences });
 
 test('model entries: editable presets, deletions, stable identities and validation preserve fixed NAI', () => {
-  assert.equal(initialModelEntries().length, 13);
+  assert.equal(initialModelEntries().length, 19);
   const value = config(); value.models = [entry()];
   const restored = validateRouting(JSON.parse(JSON.stringify(value)));
   assert.deepEqual(restored.models, value.models);
@@ -161,7 +161,7 @@ test('shared supplier routes ASK and Images through one URL and credential with 
   connections.dispose();
 });
 
-test('source parameters: declared fields win over reference presets, empty defaults omit fields, manual overrides survive refresh and backups', async () => {
+test('source parameters: declared fields win over reference presets, empty selections use actual defaults, manual overrides survive refresh and backups', async () => {
   const { connections, storage } = service(), routing = config('openai-images-v1');
   routing.connections.b = connection('openai-images-v1', 'b');
   routing.models = [entry()];
@@ -188,7 +188,7 @@ test('source parameters: declared fields win over reference presets, empty defau
   await client.execute(buildChatPayload(model, 'test', {}), r => r.json());
   assert.deepEqual(JSON.parse(calls.at(-1).init.body), { model: 'vendor-render', prompt: 'test', n: 1, vendor_steps: 12, watermark: false });
   await client.execute(buildChatPayload(model, 'test', { vendor_steps: '', watermark: '' }), r => r.json());
-  assert.deepEqual(JSON.parse(calls.at(-1).init.body), { model: 'vendor-render', prompt: 'test', n: 1 });
+  assert.deepEqual(JSON.parse(calls.at(-1).init.body), { model: 'vendor-render', prompt: 'test', n: 1, vendor_steps: 12, watermark: false });
   const before = calls.length;
   await assert.rejects(client.execute({ model: model.id, image_options: { vendor_steps: '41' } }, r => r.json()), /vendor_steps/);
   await assert.rejects(client.execute({ model: model.id, image_options: { undeclared: 'x' } }, r => r.json()), /undeclared/);
@@ -229,7 +229,7 @@ test('source parameters: Gemini scalar extension paths and Images multipart carr
     } else {
       assert.ok(body instanceof FormData);
       assert.equal(body.get('watermark'), 'false'); assert.equal(body.get('compression'), '80');
-      assert.equal(body.get('n'), '1'); assert.equal(body.has('quality'), false);
+      assert.equal(body.get('n'), '1'); assert.equal(body.get('quality'), 'auto');
       assert.deepEqual(Buffer.from(await body.get('image[]').arrayBuffer()), Buffer.from(png.split(',')[1], 'base64'));
     }
     connections.dispose();

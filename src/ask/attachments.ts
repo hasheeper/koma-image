@@ -10,7 +10,7 @@ import { DEFAULT_TEXT_ATTACHMENT_LIMITS } from "./settings.ts";
 import type { TextAttachmentLimits } from "./settings.ts";
 import type { RefOrigin } from "./reference-source.ts";
 
-export const ATTACHMENT_LIMITS = Object.freeze({ images: 4, texts: 4, paste: 2000, bytes: 20 * 1024 ** 2, pageBytes: 200 * 1024 ** 2, pixels: 40_000_000, edge: 1568, sentBytes: 1024 ** 2 });
+export const ATTACHMENT_LIMITS = Object.freeze({ images: 4, texts: 4, toolTexts: 12, paste: 2000, bytes: 20 * 1024 ** 2, pageBytes: 200 * 1024 ** 2, pixels: 40_000_000, edge: 1568, sentBytes: 1024 ** 2 });
 export const attachmentAccept = "image/png,image/jpeg,image/webp,image/gif,image/avif,image/bmp,image/heic,image/heif,.txt,.md,.markdown,.json,.csv,.tsv,.yaml,.yml,.log";
 const textExtensions = /\.(?:txt|md|markdown|json|csv|tsv|ya?ml|log)$/i;
 const extension = (name: string) => name.match(/\.([a-z0-9]+)$/i)?.[1].toUpperCase() ?? "";
@@ -50,9 +50,9 @@ export function decodeText(bytes: ArrayBuffer, name: string, limits: Readonly<Te
   if (text.length > limits.chars) throw new Error(textLimitMessage(name, limits.chars));
   return text;
 }
-export function attachmentCapacity(existing: readonly Attachment[], kind: Attachment["kind"], chars = 0, limits: Readonly<TextAttachmentLimits> = DEFAULT_TEXT_ATTACHMENT_LIMITS) {
-  if (existing.filter(a => a.kind === kind).length >= (kind === "image" ? ATTACHMENT_LIMITS.images : ATTACHMENT_LIMITS.texts))
-    throw new Error(kind === "image" ? "每条最多 4 张图片" : "每条最多 4 个文本附件");
+export function attachmentCapacity(existing: readonly Attachment[], kind: Attachment["kind"], chars = 0, limits: Readonly<TextAttachmentLimits> = DEFAULT_TEXT_ATTACHMENT_LIMITS, toolRead = false) {
+  if (existing.filter(a => a.kind === kind && (kind === "image" || !!a.toolRead === toolRead)).length >= (kind === "image" ? ATTACHMENT_LIMITS.images : toolRead ? ATTACHMENT_LIMITS.toolTexts : ATTACHMENT_LIMITS.texts))
+    throw new Error(kind === "image" ? "每条最多 4 张图片" : toolRead ? "每轮最多读取 12 个文本文件" : "每条最多 4 个文本附件");
   if (kind === "text" && chars > limits.chars) throw new Error(textLimitMessage("文本附件", limits.chars));
   if (kind === "text" && existing.reduce((n, a) => n + (a.kind === "text" ? a.text.length : 0), chars) > limits.totalChars)
     throw new Error(`每条文本附件合计最多 ${limits.totalChars.toLocaleString("zh-CN")} 字符`);
@@ -164,16 +164,17 @@ export function attachmentBlocks(items: readonly Attachment[], metadataOnly: boo
   return [...items.filter(a => a.kind === "image"), ...items.filter(a => a.kind === "text")].flatMap<AskBlock>(a => {
     if (a.kind === "text") return [{ type: "text", source: { kind: "attachment", id: a.id }, text: `${dataText(`附件 ${a.id} · ${a.name} · ${a.text.length} 字`)}\n${dataBlock(a.text)}` }];
     return [
-      { type: "text", text: dataText(`附件 ${a.id} · ${a.name} · ${a.size.width}×${a.size.height} → ${a.sentSize.width}×${a.sentSize.height}${metadataOnly ? " · 本轮仅元数据，未发送图片" : ""}`) },
+      { type: "text", text: dataText(`附件 ${a.id} · ${a.name}${a.origin?.projectId ? ` · 企划图片 ${a.origin.path}` : ""} · ${a.size.width}×${a.size.height} → ${a.sentSize.width}×${a.sentSize.height}${metadataOnly ? " · 本轮仅元数据，未发送图片" : ""}`) },
       ...(!metadataOnly ? [{ ...a.sent, viewed: { ids: [a.id], spec: "attachment", bytes: a.sentBytes } }] : []),
       ...(a.params ? [{ type: "text" as const, text: dataBlock(JSON.stringify(a.params)) }] : []),
     ];
   });
 }
-export function attachmentPictures(items: readonly Attachment[]): Picture[] {
+export function attachmentPictures(items: readonly Attachment[], scopeId?: string): Picture[] {
   return items.flatMap(a => a.kind === "image" ? [{ id: a.id, entity_key: a.entity_key, label: a.id, aliases: [a.id], createdAt: 0, blob: a.blob, size: a.size,
     ...(a.annotations ? { annotations: structuredClone(a.annotations.snapshot) } : {}),
+    ...(a.origin?.projectId && scopeId ? { project: { ref: `${scopeId}/${a.id}`, path: a.origin.path, projectId: a.origin.projectId } } : {}),
     origins: [{ source: "attachment" as const, label: a.id, order: Number(a.id.slice(2)) }], params: { ...a.params?.fields },
-    attachment: { name: a.name, type: a.mime, original_size: a.size, sent_size: a.sentSize, original_bytes: a.bytes, sent_bytes: a.sentBytes, params: a.params },
+    attachment: { name: a.name, ...(a.origin ? { origin: a.origin } : {}), type: a.mime, original_size: a.size, sent_size: a.sentSize, original_bytes: a.bytes, sent_bytes: a.sentBytes, params: a.params },
   }] : []);
 }

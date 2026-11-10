@@ -1,3 +1,5 @@
+import { readEvolutionInput } from '../domain/evolution-input.ts';
+import { readProjectImageSource } from '../domain/image-origin.ts';
 import { validateAnnotationSnapshot } from "../domain/region-annotation.ts";
 import type { AnnotationSnapshot } from "../domain/region-annotation.ts";
 import { isEntityKey } from "../domain/image-identity.ts";
@@ -182,6 +184,7 @@ function validateChatAnnotation(value: unknown) {
   if(value===undefined)return;
   const a=object(value);
   if(!id(a.sourceAssetId)||!id(a.inputAssetId)||!id(a.guideAssetId)||typeof a.text!=="string"||a.text.length>24000||a.singleImage!==undefined&&typeof a.singleImage!=="boolean")throw bad();
+  if (a.markup !== undefined && (a.singleImage === true || !id(object(a.markup).inputAssetId) || !id(object(a.markup).overlayAssetId))) throw bad();
   try{validateAnnotationSnapshot(a.snapshot as unknown as AnnotationSnapshot);}catch{throw bad();}
 }
 export function validateConversation(value: unknown): ConversationRecord {
@@ -227,12 +230,16 @@ export function validateConversation(value: unknown): ConversationRecord {
         !id(v.id) || versions.has(v.id) || !quote(v.quote) ||
         v.error !== undefined && typeof v.error !== "string" ||
         v.completedAt !== undefined && !nonnegative(v.completedAt) ||
+        v.evolutionInput !== undefined && !readEvolutionInput(v.evolutionInput) ||
         v.via !== undefined && (!id(object(v.via).connection) || typeof object(v.via).upstreamId !== "string" || !String(object(v.via).upstreamId).length || String(object(v.via).upstreamId).length > 512) ||
         !Array.isArray(v.blocks) ||
         !["pending", "done", "error", "cancelled"].includes(String(v.status))
       )
         throw bad();
       if(v.composites!==undefined && (!plain(v.composites)||Object.entries(object(v.composites)).some(([raw,composite])=>!id(raw)||!id(composite)||!(v.blocks as unknown[]).some((b: unknown)=>object(b).type==='image'&&object(b).assetId===raw))))throw bad();
+      if(v.compositeSettings!==undefined && (!plain(v.compositeSettings)||Object.entries(object(v.compositeSettings)).some(([raw,settings])=>{
+        const s=object(settings);return !plain(settings)||!object(v.composites)[raw]||typeof s.colorMatch!=='boolean'||!['local','photopea'].includes(String(s.method))||s.boundaryColorVersion!==1||Object.keys(s).some(k=>!['colorMatch','method','boundaryColorVersion'].includes(k));
+      })))throw bad();
       versions.add(v.id);
       for (const item of v.blocks) {
         const b = object(item);
@@ -357,6 +364,8 @@ export function validateBackupManifest(value: unknown): BackupManifest {
     )
       throw bad();
     seenAssets.add(row.id);
+    const projectSource = readProjectImageSource(row.projectSource);
+    if (row.projectSource !== undefined && !projectSource) throw bad();
     assets.push({
       id: row.id,
       name: String(row.name || "图片"),
@@ -365,6 +374,7 @@ export function validateBackupManifest(value: unknown): BackupManifest {
       height: row.height,
       image: imageReference(row.image, "assets"),
       ...(row.lineage ? {lineage:checkedLineage(row.lineage)} : {}),
+      ...(projectSource ? {projectSource} : {}),
     } as AssetManifest);
   }
   const conversations = m.conversations.map(validateConversation),

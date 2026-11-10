@@ -34,16 +34,17 @@ async function open(profile, seed = true, customId = "", account = { status: 200
     }
     const record = { url: url.href, path: url.pathname, method: request.method(), headers: request.headers(), body: request.postData() };
     requests.push(record);
-    if (url.pathname.startsWith("/primary/")) {
+    if (url.pathname.startsWith("/primary/") || account.studioModels && url.pathname.startsWith("/service/")) {
       if (url.pathname.endsWith("/image/models")) return route.fulfill({ json: { studio_features: { version: 2, max_cost: true }, valid_samplers: account.mediumEditor ? ["k_euler_ancestral", "k_euler"] : undefined, models: {
         ...Object.fromEntries(["nai-diffusion-5-full", "nai-diffusion-5-curated", "nai-diffusion-4-5-full", "nai-diffusion-4-5-curated", ...(account.mediumEditor ? ["nai-diffusion-5-full-medium"] : [])].map(id => [id, { provider: "novelai", operations: ["generate", "edit"], tools: ["img2img", "inpaint", "upscale"], quota_group: "novelai-v5" }])),
         "gpt-image-1.5": { editor_family: "gpt", operations: ["generate", "edit"], tools: ["image-edit"], quota_group: "openai" },
+        ...account.studioModels,
       } } });
       if (url.pathname.endsWith("/media/quota")) return route.fulfill({ json: { credits: { remaining: 5000 }, images: { "novelai-v5": { remaining: 174, limit: 250 }, openai: { remaining: 50, limit: 100 } } } });
       if (url.pathname.endsWith("/token_stats_data")) return route.fulfill({ json: { temp_limits: { is_temp: false } } });
       if (url.pathname.endsWith("/estimate")) return route.fulfill({ json: { cost: account.quoteCost ?? 0 } });
       if (url.pathname.endsWith("/ai/generate-image")) return route.fulfill({ contentType: "application/zip", body: zip });
-      if (url.pathname.endsWith("/tools/run") || url.pathname.endsWith("/studio/image/generate")) return route.fulfill({ json: { data: [{ b64_json: png.toString("base64") }] } });
+      if (url.pathname.endsWith("/tools/run") || url.pathname.endsWith("/image/generate")) return route.fulfill({ json: { data: [{ b64_json: png.toString("base64") }] } });
     }
     if (url.pathname.endsWith("/models")) return url.pathname.endsWith("/v1beta/models")
       ? route.fulfill({ json: { models: [{ name: "models/" + (customId || "gemini-2.5-flash-image") }], nextPageToken: "repeated-token" } })
@@ -108,9 +109,21 @@ async function openEditorFixture(t, settings) {
   await t.page.locator('#imageEditor[data-active=true]').waitFor();
 }
 
+// Coordinate input waits for fonts and native canvas layout, not a fixed delay.
+async function editorInputBounds(page,selector) {
+  return page.locator(selector).evaluate(async el=>{
+    await document.fonts.ready;let previous='',stable=0;
+    for(let i=0;i<60;i++){
+      await new Promise(resolve=>requestAnimationFrame(resolve));const r=el.getBoundingClientRect(),key=[r.x,r.y,r.width,r.height].join();
+      stable=key===previous?stable+1:0;previous=key;
+      if(stable>=3&&r.width&&r.height)return {x:r.x,y:r.y,width:r.width,height:r.height};
+    }
+    throw new Error('Editor canvas input did not settle');
+  });
+}
 async function paintEditorMask(page) {
   await page.locator('#editorMask:not([hidden])').waitFor();
-  const box=await page.locator('#editorMask').boundingBox();
+  const box=await editorInputBounds(page,'#editorMask');
   await page.mouse.move(box.x+box.width*.5,box.y+box.height*.5);
   await page.mouse.down();await page.mouse.move(box.x+box.width*.55,box.y+box.height*.5,{steps:3});await page.mouse.up();
   await page.waitForFunction(()=>editor.snapshot().edit.canRun);
@@ -126,9 +139,11 @@ async function solidPng(page,width,height,color='#e04050') {
 
 async function drawEditorFocus(page, from=[.25,.25], to=[.75,.75]) {
   if (await page.locator('#editorSelectFocus').getAttribute('aria-pressed') !== 'true') await page.locator('#editorSelectFocus').click();
-  const b=await page.locator('#editorFocusRegion').boundingBox();
-  await page.mouse.move(b.x+b.width*from[0],b.y+b.height*from[1]);await page.mouse.down();
-  await page.mouse.move(b.x+b.width*to[0],b.y+b.height*to[1],{steps:12});await page.mouse.up();
+  const b=await editorInputBounds(page,'#editorFocusRegion');
+  const size=await page.evaluate(()=>({width:editor.snapshot().base.width,height:editor.snapshot().base.height}));
+  const dx=Math.sign(to[0]-from[0])*1.5/size.width,dy=Math.sign(to[1]-from[1])*1.5/size.height;
+  await page.mouse.move(b.x+b.width*(from[0]+dx),b.y+b.height*(from[1]+dy));await page.mouse.down();
+  await page.mouse.move(b.x+b.width*(to[0]-dx),b.y+b.height*(to[1]-dy),{steps:12});await page.mouse.up();
   await page.getByRole('button',{name:'画笔',exact:true}).click();
 }
 

@@ -1,6 +1,6 @@
 # 界面工程：样式与字体维护
 
-更新：2026-11-01。维护现行级联、主题材质、组件责任与字体配置／重建；G0–G4 过程、大小对比和验收见[归档](../archive/2026-10-25/README.md)。视觉标准见[设计语言](../product/design-language.md)，检查规则集中在本文[样式检查](#样式检查)。
+更新：2026-11-09。维护现行级联、主题材质、组件责任与字体配置／重建；G0–G4 过程、大小对比和验收见[归档](../archive/2026-10-25/README.md)。视觉标准见[设计语言](../product/design-language.md)，检查规则集中在本文[样式检查](#样式检查)。
 
 ## 基础入口与级联
 
@@ -57,7 +57,7 @@ Koma 字标在亮色中为纯墨蓝，方块保留品牌紫，形状与字体不
 | 层级 | 位置与责任 |
 | --- | --- |
 | 基础行为 | `src/shared/ui/use-popover.ts` 管原生菜单开闭、定位测量、resize／scroll、可选 Observer／visualViewport 和 KeepAlive／卸载清理；`src/shared/popover.ts` 保留定位及方向键工具 |
-| 共享呈现 | `shared/ui/PopoverMenu.vue` 提供插槽式操作菜单；`shared/boards/BoardMenu.vue` 提供画板胶囊、列表、嵌套菜单与行内改名；`shared/nai/` 提供 IMAGE／EDIT 共用的模型、提示词选项、角色、参考、底部面板、Guidance 与 token 计数 |
+| 共享呈现 | `shared/ui/PopoverMenu.vue` 提供插槽式操作菜单；`shared/boards/BoardMenu.vue` 提供画板胶囊、列表、嵌套菜单与行内改名；`shared/nai/` 提供 IMAGE／EDIT 共用的模型、提示词选项、角色、参考、底部面板、Guidance 与 token 计数；`shared/gallery/` 提供 HOME 定稿与企划成果共用的行／列／拼图纯布局及切换控件，图片来源与偏好由各页面持有 |
 | 业务包装 | IMAGE `BoardSwitcher.vue` 和 EDIT `EditBoards.vue` 各自接收服务、执行操作与删除／关闭确认；`ask/AskMenu.vue` 只补 ASK 的 Escape 层和窗口可见性；设置组件归 `overlays/settings/` |
 
 共享呈现不取得其他工作区服务。NAI 组合控件通过 `app/nai-composer.ts` 接收所在工作区的端口与 ID 前缀；`DrawingBottomPanel.vue` 的参数内容由工作区插槽提供，IMAGE 保留 `DrawingParameters.vue`，EDIT 保留 `EditorParameters.vue`。画板组件只发出 select／rename／remove／create／action，不处理持久化、任务锁或确认弹窗。
@@ -68,7 +68,7 @@ Koma 字标在亮色中为纯墨蓝，方块保留品牌紫，形状与字体不
 
 运行 `npm run dev` 后访问 [组件预览](http://127.0.0.1:3216/__ui)。入口为 `src/dev/UiPreview.vue`，可切换暗／亮主题、加载／错误和禁用状态，操作真实画板菜单、NAI 选择器、Guidance 与连接列表。预览中的按钮只改变内存示例，不配置 Key、不初始化应用服务、不请求供应商、不写数据库或偏好；刷新还原。
 
-`src/main.ts` 仅在开发模式与 `/__ui` 路径选择预览，正式入口仍由 `app/bootstrap.ts` 创建唯一应用。生产构建删除预览分支及其专有组件代码；生产站点没有预览页或产品导航入口。使用公共 CSS 与实际组件，不另抄一套展示组件。行为测试位于 `tests/ui-components.browser.mjs`，按需运行 `node --test tests/ui-components.browser.mjs`；视觉调整只目视检查，不锁定尺寸和动画数值。
+`src/main.ts` 仅在开发模式与 `/__ui` 路径选择预览，正式入口仍由 `app/bootstrap.ts` 创建唯一应用。生产构建删除预览分支及其专有组件代码；生产站点没有预览页或产品导航入口。使用公共 CSS 与实际组件，不另抄一套展示组件。组件行为由真实工作区的画板菜单、设置和草稿主链路覆盖；开发预览只用于人工查看，不另维护示例内容测试。视觉调整目视检查，不锁定尺寸和动画数值。
 
 ### 设置页分工
 
@@ -116,7 +116,7 @@ Koma 字标在亮色中为纯墨蓝，方块保留品牌紫，形状与字体不
 
 `src/shared/ThemeToggle.vue` 维护五个工作区共用的单击外观按钮，当前暗／亮分别用本地图标精灵中的月亮／太阳表示，标签说明下一步切换目标；不依赖菜单。`src/app/theme.ts` 同时提供按钮和通用设置的两档选择，首屏脚本与服务均以暗色为缺省，不监听系统颜色。
 
-Photopea 高级编辑宿主、固定紧凑顶栏与加载／错误反馈归 `PhotopeaPanel.vue` 的 scoped 样式，覆盖现有 EDIT 的全部可用空间。顶栏无展开／折叠功能。回传下拉复用共享菜单；跨域 iframe 内部只用官方 Environment API 设置首次创建时的 White／Dark Blue、中文、面板折叠以及菜单／工具白名单，配置归 `photopea-scripts.ts`，不覆写第三方 DOM／CSS。
+Photopea 应用级唯一宿主、固定紧凑顶栏与加载／错误反馈归 `PhotopeaPanel.vue` 的 scoped 样式，覆盖当前工作区。顶栏无展开／折叠功能。回传下拉复用共享菜单；分体边角只在存在两个按钮时生效，融合的独立确认按钮使用完整圆角。跨域 iframe 内部只用官方 Environment API 设置首次创建时的 White／Dark Blue、中文、面板折叠以及菜单／工具白名单，配置归 `photopea-scripts.ts`，不覆写第三方 DOM／CSS。
 
 宿主容器为相对定位的 block，使用 `overflow: clip` 阻止 iframe 内部聚焦导致宿主自动滚动；iframe 绝对固定 `top: 0; left: 0; margin: 0`，宽高均为 100%。不使用固定 gutter 扩宽，避免裁掉右侧工具。
 
@@ -127,6 +127,8 @@ NAI 提示词内底栏归 `NaiPromptOptions.vue`，档位菜单归 `NaiSelect.vu
 通用菜单的表面、行高、状态、分组标题、右侧附注、分隔线与入场写在 `controls.css`；`switch-menu`（ui）、`conv-menu`／`model-panel`（chat）、`conn-menu`（settings）与各组件菜单只保留宽度、定位和特殊部件，例如画板行内 ⋯ 与底栏、模型分组、编辑参数输入。EDIT 画布工具弹窗的玻璃材质例外统一归 `editor.css` 的 `.editor-flyout`，与底部工具胶囊共用表面。ASK 与原有任务菜单在触屏保持 32px 行的例外由 `PopoverMenu.vue` 的 `compact` 属性启用。
 
 外部协同目录标签归 `src/bridge/DirectoryChip.vue`，锚定菜单的定位和焦点清理归 `shared/ui/PopoverMenu.vue`；ASK 内通过 `AskMenu.vue` 注册关闭层，HOME 直接使用通用菜单，材质取共享菜单；手动 JSON 兜底归 `BridgeSettings.vue`，在已有设置 ASK 页面内复用共享设置行。无资料选择或独立导出弹窗。
+
+企划集界面归 `src/bridge/project/` 的 scoped 样式：`ProjectPanel.vue` 管居中弹窗、右上关闭、导航、卡片总览与响应布局；以命名容器 `project-window` 的宽度驱动列数与详情适配。`ProjectCharacter.vue` 管角色检视、服装选择与原文阅读框，`ProjectMedia.vue` 管立绘／参考图缩略条及大图弹窗，`ProjectImage.vue` 管图片适配、图内棋盘底、同图衬底与参考图边缘渐隐，加载后提供实际尺寸及比例。`ProjectFile.vue` 管资料原文并将图片交给 `ProjectImageFile.vue`，后者共用参考／成果的图片舞台、底部信息和按需说明，不再固定图片高度。图片使用懒加载和独立资源清理；不复制静态预览样例数据，不在全局 CSS 增补企划专用覆盖。操作继续复用 `ProjectActions.vue`、`PopoverMenu.vue` 和现有服务，底部 EDIT／下载快捷按钮与更多菜单使用同一操作状态。
 
 任务与配方审阅归 `DraftSlate.vue`，文件紧凑行与可读详情归 `DraftFiles.vue`；共用 DraftCard 的图标槽、缩进和颜色变量。完成记录复用 `AskToolGroup.vue`，外部来源以同行小字显示，详细来源按需展开；不添加全局补丁或独立草稿卡。
 
@@ -149,6 +151,8 @@ EDIT 已独立，版本栏由 `editor.css` 的 `--editor-rail` 管理，不再�
 Director 魔棒、工具条、强度分段与选项菜单的私有规则归 `DirectorTools.vue`；批注、重绘、放大与 Director 弹窗共用 `.editor-flyout` 材质、菜单行和反馈，放大与 Director 参数共用 `.editor-mini-*` 行和动作布局。倍率、尺寸和执行按钮保持单行，放大面板按内容宽度展开并受视口限制，不将按钮挤到下一行。根弹窗定位归 `src/workspaces/edit/panels.ts`，位于主编辑胶囊上方 8px 并限制到视口内；打开时隐藏上方画笔／批注操作胶囊但保留占位，关闭后原位恢复。NovelAI Upscale 与其他模型文字使用 `--sans`／`--fw-semibold`，不改共享菜单字重。
 
 EDIT 底部按编辑、视图、图片操作分为三个同高玻璃胶囊，复用发送胶囊的材质与亮暗悬停；移动端同样绝对定位在画布内，不增加独立底板，宽度不足时按整组居中换行，蒙版画笔按需展开在上方。工具尺寸使用 `--editor-tool-size`，鼠标 32px、触屏 36px；主生成按钮的尺寸规则限定在 `.composer-foot`，不得影响弹窗。布局归 `editor.css`，`src/native/editor-toolbar.ts` 只测量整体高度，为画布与对比控件留位；不搬移 Vue 节点，页面隐藏时暂停 Observer 与 rAF，恢复时重新测量，卸载时清理。
+
+结果比较由 `EditComparisonTools.vue` 呈现，直接位于 `.editor-toolbar` 的独立上排；只接收状态并发出查看／色彩／融合／应用事件，预览与写入仍由原服务负责。窄屏复用 `EditToolMode.vue` 的文字主按钮及 `after-options` 插槽；图标统一由 `shared/PhotopeaIcon.vue` 提供，胶囊与应用按钮的局部尺寸归 `editor.css`。CHAT 的 `AnnotationReview.vue` 沿用共享 `.seg`、`.switch` 和按钮，不复制另一套工具栏或业务状态。
 
 EDIT 右上角发送操作带的横向布局、胶囊玻璃与亮色悬停归 `editor.css`，行为见[批注交接](../workspaces/annotations.md#edit选区与交接)。它复用 `PopoverMenu` 的开闭与焦点策略，并显式开启横向键盘导航和关闭后保留节点，以支持原生 `display/overlay` 过渡；其他菜单保持原行为。
 
@@ -265,3 +269,7 @@ npm run check
 可用 `--output /path/to/scratch-family` 将重建结果写到临时位置而不替换正式资源，`--workers` 控制离线处理进程数，默认最多 4 个。该设置与应用任务并发无关。
 
 字体来源、比例字形修改及许可见[第三方资源](../third-party-assets.md)。
+
+## 演进
+
+`src/ask/retrospect/` 持有演进界面私有样式。`RecipeInspector` 统一正式与静态预览的配方外壳、停靠／关闭控件和操作插槽，`ComparePair` 复用 PopoverMenu 与 `CompareIdentity`；局部下拉箭头使用专属类名，不复用全局抽屉的 `.caret`。`RecipeReview`／`GroupBody` 持有浅槽连续分组与现有 Diff token，不在宿主另写一套正文覆盖。关系图与大图由 `StageDock` 统一承载底部胶囊，复用 EDIT 材质与按钮，`GraphTools`／`StageTools` 只提供当前视图工具；`StageDock` 测量自身高度供窄屏配方浮窗避让，隐藏视图不覆盖有效测量，卸载清理 Observer。画布不为工具栏裁切留白，工具宿主透传指针事件，仅胶囊恢复交互。选择复用 EditToolMode，批注编辑条沿用区域批注呈现；配方开合／停靠状态和画布避让归 `RetrospectPanel`。`VersionGraph` 在原生相机绘制中同步更新局部 CSS 圆点背景的尺寸、偏移与密度淡化，以及节点控件反向缩放变量和细节档位，不增加监听器、动画循环或全局样式。`VersionNode` 持有图外标题、相册下方的短圆角状态浮片、唯一选中边界及右侧图钉，复用 `i-pin`；图钉和分页为独立按钮，隔离指针与双击事件，恢复经宿主复用原端口。`node-chrome.ts` 共用上下文字预留、状态行尺寸与缩放档位，供画布命中和渲染使用。节点拖动的原生 rAF、Pointer Capture 和取消清理由 `VersionGraph` 持有；`continuation.ts` 共用连线与后继放置计算，手动锚点与画布镜头在本页 store 保存，不进入演进修订号；指针过程由原生驱动，离开关系图或卸载时才提交镜头快照。实际新增版本继承预留锚点，重开不重新布局或适应全图。`RetrospectHost` 负责唯一 ASK 浮窗的 Teleport，主外壳仍只挂一个实例。字段规则、选择／批注与状态生命周期仅在[演进专题](../workspaces/recipe-retrospect.md)维护，原型方案仍在 `.local/`，不打包未选分支。

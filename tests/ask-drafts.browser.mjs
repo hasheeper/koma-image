@@ -5,7 +5,43 @@ import { useAskFixture, submitAsk, hosts, open, openai, text, tool, end, askSett
 
 useAskFixture();
 
-for (const connectionId of ['chat', 'claude']) test(`ASK draft feedback: ${connectionId} ordinary follow-up replaces an unapplied draft and retries with its context`, async () => {
+test('ASK empty insertions: stale anchors are ignored, empty proposals have no card and explicit new-board intent survives', async () => {
+  const { page, context, llm, requests, errors } = await open('/#/image', { ready: '.switcher', ask: askSettings({ images: false }) });
+  try {
+    await bind(page);
+    await page.evaluate(() => drawing.patch({ prompt: 'scene, old detail, subject' }));
+    await askDraft(page, llm, [patchStep('replace', ', old detail', ''), patchStep('after', 'old detail', '')]);
+    assert.equal(await page.evaluate(() => ask.draftPlan.value.steps.length), 1);
+    await applyDraft(page);
+    assert.equal((await form(page)).prompt, 'scene, subject');
+    await undoCheckpoint(page);
+    assert.equal((await form(page)).prompt, 'scene, old detail, subject');
+
+    llm.push(proposal([patchStep('after', 'missing', ''), patchStep('append', '', '')]));
+    await page.locator('#askPrompt').fill('检查还有没有要改的'); await submitAsk(page);
+    await page.waitForFunction(() => !ask.running.value && ask.entries.value.at(-1)?.turn?.status === 'done');
+    assert.equal(await page.locator('.ask-draft[data-status="pending"]').count(), 0);
+    assert.equal(await page.evaluate(() => ask.draftPlan.value), null);
+    assert.match(await drawer(page).textContent(), /无需修改/);
+
+    const count = await page.evaluate(() => drawing.snapshot().boards.length);
+    llm.push({ body: body => openai(text('保留原配方，复制到新画板。'), tool('empty-new-board', 'propose_draft', {
+      base_hash: wireStates(body).at(-1).base_hash, draft_title: '复制配方', new_board_name: '新画板', steps: [patchStep('append', '', '')],
+    }), end('tool_calls')) });
+    await page.locator('#askPrompt').fill('复制到新画板'); await submitAsk(page);
+    await page.locator('.ask-draft[data-status="pending"]').waitFor();
+    assert.equal(await page.evaluate(() => ask.draftPlan.value.steps.length), 0);
+    await applyDraft(page);
+    assert.equal(await page.evaluate(() => drawing.snapshot().boards.length), count + 1);
+    assert.equal((await form(page)).prompt, 'scene, old detail, subject');
+    await undoCheckpoint(page);
+    assert.equal(await page.evaluate(() => drawing.snapshot().boards.length), count);
+    assert.deepEqual(generation(requests), []); assert.deepEqual(errors, []);
+  } finally { await context.close(); }
+});
+
+test(`ASK draft feedback: chat ordinary follow-up replaces an unapplied draft and retries with its context`, async () => {
+  const connectionId = "chat";
   const { page, context, llm, calls, requests, errors } = await open('/#/image', { ready: '.switcher', ask: askSettings({ connectionId, images: false }) });
   const reply = steps => llm.push({ body: body => scripted(connectionId, 'propose_draft', {
     base_hash: wireStates(body).at(-1).base_hash, draft_title: '调整眼睛', steps,
@@ -286,7 +322,7 @@ test('ASK H0: HOME restores local CHAT only; ASK warming issues no quote or quot
 });
 
 test('ASK H3: IMAGE handoff opens a new CHAT conversation with #h, size and text; no quote until the user edits; undo removes it, redo reopens it',{timeout:60000},async()=>{
-  const {page,context,llm,requests,errors}=await open('/#/chat',{ready:'#chatPrompt',ask:askSettings(),standard:true,chatModel:true});
+  const {page,context,llm,calls,requests,errors}=await open('/#/chat',{ready:'#chatPrompt',ask:askSettings(),standard:true,chatModel:true});
   try {
     await bind(page);await page.waitForFunction(()=>chat.snapshot().ready);
     await page.locator('#chatPrompt').fill('old chat text');await page.waitForFunction(()=>chat.snapshot().quote);
@@ -298,6 +334,10 @@ test('ASK H3: IMAGE handoff opens a new CHAT conversation with #h, size and text
     await page.waitForFunction(()=>drawing.snapshot().quote.status==='ready');await page.waitForTimeout(150);
     const settings=await page.evaluate(()=>localStorage.getItem('koma.chat.settings.v1')),start=requests.length;
     await askDraft(page,llm,[handoffStep(['#h1'],'改为两人脸贴脸的横版特写')],'把 #h1 交给对话改横版','交给对话');
+    const capabilities=wireStates(calls[0].body)[0].chat_model;
+    assert.equal(capabilities.family,'gpt');assert.equal(capabilities.parameter_source,'declared');
+    assert.equal(capabilities.native_markup,false);assert.equal(capabilities.read_only.quality.value,'auto');
+    assert.deepEqual(Object.keys(capabilities.writable),['size']);
     const plan=await page.evaluate(()=>{const p=ask.draftPlan.value;return {ids:p.steps.map(s=>s.id),issues:p.steps.filter(s=>s.issue),handoff:p.handoff};});
     assert.deepEqual(plan.ids,['0:new','0:image:0','0:option:size','0:text']);assert.deepEqual(plan.issues,[]);
     assert.deepEqual(plan.handoff.images.map(i=>[i.label,i.source]),[['#h1','history']]);
@@ -545,7 +585,8 @@ test('ASK A4 inline: autocomplete retains Tab/Esc and IME; K dismisses suggestio
  }finally{await context.close();}
 });
 
-for (const connectionId of ['chat','claude']) test(`C4 boards/characters: ${connectionId} frozen state, grouped draft, source board and new-board checkpoint`, async()=>{
+test(`C4 boards/characters: chat frozen state, grouped draft, source board and new-board checkpoint`, async()=>{
+  const connectionId = "chat";
   const {page,context,llm,calls,requests,errors}=await open('/#/image',{ready:'.switcher',standard:true,ask:askSettings({connectionId,images:false})});
   try {
     await bind(page);await page.waitForFunction(()=>drawing.snapshot().models.length===2);
@@ -555,7 +596,7 @@ for (const connectionId of ['chat','claude']) test(`C4 boards/characters: ${conn
       window.otherBoard=await drawing.createBoard(false);await drawing.patch({prompt:'inactive_secret'});await drawing.switchBoard(sourceBoard);ask.show();
     });
     await page.waitForFunction(()=>drawing.snapshot().quote.status==='ready');requests.length=0;
-    const response=(name,input)=>scripted(connectionId==='chat'?'chat':'claude',name,input);
+    const response=(name,input)=>scripted(('chat'),name,input);
     llm.push({body:body=>response('get_state',{board_id:wireStates(body)[0].image.boards.find(b=>b.id!==wireStates(body)[0].image.active_board_id).id})},
       {body:body=>response('propose_draft',{base_hash:wireStates(body)[0].base_hash,draft_title:'调整角色二',steps:[
         {kind:'prompt_patch',target:'image.char.c2.prompt',mode:'replace',anchor:'blue hair',text:'green hair'},
@@ -590,7 +631,8 @@ for (const connectionId of ['chat','claude']) test(`C4 boards/characters: ${conn
   } finally {await context.close();}
 });
 
-for (const connectionId of ['chat', 'claude']) test(`ASK named board: ${connectionId} locked destination, ordinary split menu, compact apply and checkpoint`, async () => {
+test(`ASK named board: chat locked destination, ordinary split menu, compact apply and checkpoint`, async () => {
+  const connectionId = "chat";
   const { page, context, llm, calls, requests, errors } = await open('/#/image', { ready: '.switcher', standard: true, ask: askSettings({ connectionId, images: false }) });
   try {
 
@@ -615,7 +657,7 @@ for (const connectionId of ['chat', 'claude']) test(`ASK named board: ${connecti
     assert.equal(await page.locator('.draft-title strong').textContent(), '整理夜景构图');
     assert.match(await page.locator('.ask-draft-apply').textContent(), /新建并应用/);
     const tools = calls[0].body.tools;
-    const schema = connectionId === 'chat' ? tools.find(t => t.function.name === 'propose_draft').function.parameters : tools.find(t => t.name === 'propose_draft').input_schema;
+    const schema = (tools.find(t => t.function.name === 'propose_draft').function.parameters);
     assert.equal(schema.properties.new_board_name.maxLength, 80);
     await page.evaluate(id => drawing.switchBoard(id), other);
     await page.waitForFunction(()=>drawing.snapshot().quote.status==='ready'); requests.length = 0;

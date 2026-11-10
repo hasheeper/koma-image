@@ -55,6 +55,50 @@ async function askDraft(t,steps) {
  const issues=await t.page.evaluate(()=>ask.draftPlan.value.steps.filter(s=>s.issue).map(s=>s.issue));
  assert.deepEqual(issues,[]);
 }
+test('P4 project images freeze through directory replacement, saved pending drafts, CHAT/EDIT apply and undo', {timeout:90000},async t=>{
+ const f=await setup(t),{page}=f;
+ const directory=()=>{
+   FileSystemHandle.prototype.queryPermission=async()=> 'granted';FileSystemHandle.prototype.requestPermission=async()=> 'granted';
+   window.showDirectoryPicker=async()=> (await navigator.storage.getDirectory()).getDirectoryHandle('project-a',{create:true});
+   window.projectFile=async(path,value)=>{let root=await showDirectoryPicker();const parts=path.split('/'),name=parts.pop();for(const p of parts)root=await root.getDirectoryHandle(p,{create:true});const h=await root.getFileHandle(name,{create:value!==undefined});if(value===undefined)return h.getFile();const w=await h.createWritable();await w.write(value);await w.close();};
+ };
+ await page.context().addInitScript(directory);await page.evaluate(directory);
+ await page.evaluate(async()=>{await bridge.restored;window.originalProjectImage=await makeImage('#cc3355',512,768);await projectFile('characters/hero/portrait.png',originalProjectImage);await bridge.mount();await chat.start();await ask.setImages(false);app_shell.router.switchWorkspace('image');});
+ await page.waitForFunction(()=>chat.snapshot().model);
+ await askDraft(f,[{kind:'chat_handoff',images:['characters/hero/portrait.png'],options:{},text:'expression study'}]);
+ assert.equal(await page.evaluate(()=>ask.draftPlan.value.handoff.images[0].source),'project');
+ const hash=await page.evaluate(async()=>{const {imageEntity}=await import('/src/domain/image-identity.ts');return imageEntity(originalProjectImage)});
+ assert.equal(f.calls.flatMap(c=>c.messages).some(m=>Array.isArray(m.content)&&m.content.some(b=>b.type==='image_url')),false,'local preparation does not send unseen image pixels');
+ await page.evaluate(async()=>{await ask.toggleFavorite();await ask.flushFavorites();await projectFile('characters/hero/portrait.png',await makeImage('#116644',768,512));await bridge.unmount();});
+ await page.reload();await page.waitForSelector('#prompt');
+ await page.evaluate(async()=>{const p=document.body.__vue_app__._instance.provides;for(const n of ['ask','drawing','editor','chat','bridge','app-shell'])window[n.replaceAll('-','_')]=p[Object.getOwnPropertySymbols(p).find(k=>k.description===n)];await ask.restored;await chat.start();});
+ await page.waitForFunction(()=>ask.draftPlan.value?.handoff);
+ assert.deepEqual(await page.evaluate(()=>ask.draftPlan.value.steps.filter(s=>s.issue).map(s=>s.issue)),[]);
+ await page.evaluate(()=>ask.applyDraft(ask.draftPlan.value.fingerprint));
+ assert.equal(await page.evaluate(()=>chat.snapshot().current.prompt),'expression study');assert.equal(await page.evaluate(()=>chat.snapshot().current.turns.length),0);
+ assert.equal(await page.evaluate(async()=>{const c=chat.snapshot().current,a=chat.assets.get(c.attachments[0]);return (await import('/src/domain/image-identity.ts')).imageEntity(a.blob)}),hash);
+ assert.equal(await page.evaluate(()=>{const c=chat.snapshot().current;return chat.assets.get(c.attachments[0]).projectSource.path}),'characters/hero/portrait.png');
+ await page.evaluate(()=>ask.undoDraft());await page.evaluate(()=>ask.restoreDraft(ask.redoId.value));assert.equal(await page.evaluate(()=>chat.snapshot().current.prompt),'expression study');
+ await page.evaluate(async()=>{await bridge.mount();await ask.setImages(true);app_shell.router.switchWorkspace('image');});
+ f.queue.push(()=> 'data: '+JSON.stringify({choices:[{index:0,delta:{tool_calls:[{index:0,id:'read-project',type:'function',function:{name:'read_ref',arguments:JSON.stringify({path:'characters/hero/portrait.png'})}}]},finish_reason:'tool_calls'}]})+'\n\ndata: [DONE]\n\n');
+ f.queue.push(body=>{
+   const id=JSON.stringify(body.messages.filter(m=>m.role==='tool')).match(/#a\d+/)?.[0];assert.ok(id,'read_ref returns a usable attachment ID');
+   return response(body,[{kind:'edit_handoff',image:id,prompt:'gentle rim light',mode:'img2img'}]);
+ });
+ await page.evaluate(()=>{ask.show();ask.input.value='读取企划立绘后准备 EDIT';return ask.send()});await page.waitForFunction(()=>!ask.running.value&&!!ask.draftPlan.value?.edit);
+ assert.deepEqual(await page.evaluate(()=>ask.draftPlan.value.steps.filter(s=>s.issue).map(s=>s.issue)),[]);
+ const target=await page.evaluate(()=>ask.draftPlan.value.edit.id);
+ await page.evaluate(()=>ask.applyDraft(ask.draftPlan.value.fingerprint));
+ assert.equal(await page.evaluate(id=>editor.askSnapshot(id).config.fields.prompt,target),'gentle rim light');
+ assert.deepEqual(await page.evaluate(id=>{const s=editor.askSnapshot(id);return[s.source.width,s.source.height]},target),[768,512]);
+ assert.equal(await page.evaluate(id=>editor.record(editor.askSnapshot(id).source.recordId).params.projectSource.path,target),'characters/hero/portrait.png');
+ await page.evaluate(()=>ask.undoDraft());assert.equal(await page.evaluate(id=>!!editor.askSnapshot(id),target),false);
+ await page.evaluate(()=>bridge.openProject());
+ const panel=page.getByRole('dialog',{name:'企划集'});await panel.waitFor();await panel.getByRole('button',{name:'资料操作',exact:true}).click();await page.getByRole('menuitem',{name:'在 EDIT 打开',exact:true}).click();
+ await page.waitForFunction(()=>editor.askSnapshot()?.source?.width===768);
+ assert.equal(await page.evaluate(()=>editor.record(editor.askSnapshot().source.recordId).params.projectSource.path),'characters/hero/portrait.png','the direct panel import preserves the same project provenance');
+ assert.equal(f.requests.some(url=>/\/images\/(generations|edits)|\/ai\/generate|:generateContent/.test(url)),false);assert.deepEqual(f.errors,[]);
+});
 test('ASK describes generic EDIT parameters without NAI budgets and only applies a prompt draft',async t=>{
  const f=await setup(t),{page}=f;
  await page.waitForFunction(()=>editor.snapshot().models.some(m=>m.id==='gpt-image-1.5'));

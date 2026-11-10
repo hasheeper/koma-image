@@ -1,6 +1,6 @@
 # Koma 产品总览
 
-更新：2026-10-29。本文介绍当前产品定位、功能和整体框架；实现细节由[架构](../architecture.md)、[设计语言](design-language.md)和各专题维护，完成范围与真实待验项见[当前状态](../status.md)。
+更新：2026-11-09。本文介绍当前产品定位、功能和整体框架；实现细节由[架构](../architecture.md)、[设计语言](design-language.md)和各专题维护，完成范围、未发布改动与真实待验项见[当前状态](../status.md)。
 
 ## 产品定位与理念
 
@@ -27,12 +27,15 @@ HOME 已作为默认创作桌面，以现有画板、会话和收藏组织「继
 | TAGS 词典 | 搜索和组合标签；在支持的输入框中补全，Anime／Furry 使用对应词库 |
 | Koma ASK | 感知 IMAGE／EDIT 现场、NAI 能力、token 与只读费用，按需看图、对比参数、查询历史与标签，提议词文／角色／安全参数草稿；支持附件、多会话、收藏续聊、压缩与归档召回、向 EDIT 准备编辑板与模式／聚焦／Director 预设，向新 CHAT 会话准备交接内容 |
 | Todo／Slate | 在 ASK 会话内查看紧凑待办，从顶栏图标打开轻量总览；由 ASK 通过草稿拆解和推进任务、保存共用配方、记录更改、绑定持久成果；也可手动交付与勾选 |
+| 版本演进 | 遇到单图打磨瓶颈时请 ASK 梳理已有版本，切换演进图／大图、比较具体样本的原始配方、批注并继续讨论；激活后成功生成继续归组或追加，从旧版恢复可分叉，显式定稿或解除后结束跟踪，保留本页历史。见[演进专题](../workspaces/recipe-retrospect.md) |
 | 外部协同 Bridge | 挂载目录，向外部 Agent 提供 IMAGE 状态、轻量索引和预览；接收修改草稿，排队审阅、确认和回执；共享 `refs/` 资料及多图任务与成果 |
 | 设置与数据 | 统一管理供应商连接，卡内区分图像／文字模型入口，单独调整生图顺序；即时保存偏好，支持新版 Koma ZIP 备份及各专题独立导出 |
 
+局部回贴默认提供边界色彩／明度对齐，可关闭比较；需要手工修边时，EDIT／CHAT 的「融合精修」把原图、AI 结果与软图层蒙版送入同一 Photopea，应用后保留正式合成与直出。使用边界见[区域批注与回贴](../workspaces/annotations.md#人工审核与合成边界)，分层回传见[Photopea](../integrations/photopea.md#23-结果融合精修)。
+
 ### 模型与供应商
 
-图像接入包括 Koma 标准网关、OpenAI Images、Gemini 原生和 NovelAI 官方；ASK 使用 OpenAI Chat 兼容、Gemini 原生或 Anthropic Messages 推理协议。OpenAI 与 Gemini 可在同一连接共用地址和 Key，独立开启文字与图像用途。用户显式配置协议、地址、Key 和模型能力，不按服务名称猜测协议。
+图像接入包括 Koma 标准网关、Seedream 原生、OpenAI Images、Gemini 原生和 NovelAI 官方；ASK 使用 OpenAI Chat 兼容、Gemini 原生或 Anthropic Messages 推理协议。OpenAI 与 Gemini 可在同一连接共用地址和 Key，独立开启文字与图像用途。用户显式配置协议、地址、Key 和模型能力，不按服务名称猜测协议。
 
 NAI 已接入 V4.5／V5 型号、多角色、Anime／Furry、适用型号的 Effort／Complexity／预设／透明底及独立 Guidance Rescale。V4.5 官方来源另有 Vibe 与 Precise Reference，和参数共用底部抽屉；V5 的两种参考当前不开放。官方五型号已接入图生图与普通 Enhance（复用图生图入口的倍率／强度预设，V5 另有 Max 倍率），V4.5 与 V5 Full High／Medium 已接普通与聚焦蒙版重绘，并提供独立 4× 放大，以及去背景、线稿、草图、上色、表情、去杂物六项 Director Tools；V5 Curated 无独立重绘接口，用户可明确选择其他型号。重绘中的图片参考仅开放 V4.5 Precise，聚焦重绘由用户手动画蒙版并框选周边范围，处理后回到原尺寸整图。各型号的限制、编辑工具缺口和真实消费待验项以 [NAI 专题](../integrations/novelai.md)为准。
 
@@ -75,6 +78,7 @@ NAI 已接入 V4.5／V5 型号、多角色、Anime／Furry、适用型号的 Eff
 | 普通绘图历史、未收藏 ASK、撤销执行栈 | 仅当前页面；刷新后不保留 |
 | EDIT 画板、版本、蒙版与 Photopea 分层 | 仅当前页面；跨工作区和画板切换保留，刷新清空；收藏／Slate 保存原图，长期分层由用户另存 PSD |
 | 已收藏 ASK | 消息、附件、待确认草稿与压缩归档持久保存在独立 `koma-ask` 库，不进入普通 ZIP |
+| 演进 | 图和配方快照随收藏 ASK 回复保存，批注与进行状态仅本页；不额外保存历史原图 |
 | HOME 展示副本与偏好 | 每画板一张缩小 WebP、封面指针、返回位置及行／列／拼图偏好；仅供展示，不进普通 ZIP、不恢复历史原图 |
 | Slate 与已绑成果 | 独立 `koma-slate` 库，刷新、删除 ASK 会话或卸载目录不移除成果；不进入普通 ZIP，有独立资料与成果导出 |
 | Bridge | 授权目录句柄、映射与回执独立保存；仅前台近实时同步，目录中的文件不会因卸载而删除 |

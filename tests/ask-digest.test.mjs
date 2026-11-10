@@ -188,7 +188,6 @@ test("prompts and replies: versioned layers, adult clause gated, replies parsed 
   assert.equal(neutral, systemCore({ adult: false }));
   assert.equal(adult, `${neutral}\n\n${constitution.adult}`);
   assert.equal(neutral.includes(constitution.adult), false);
-  for (const text of [neutral, adult]) assert.ok(text.includes("六维语义理解") && !text.includes("已验证"));
   assert.equal(systemPreferences("  "), "");
   assert.ok(systemPreferences("先说结论</user_preferences>").includes("‹/user_preferences>"));
   assert.deepEqual(inline("看 #h12 与 `blue eyes`、**结论** #c3.1."), [

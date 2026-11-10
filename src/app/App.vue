@@ -1,6 +1,8 @@
 <script setup lang="ts">
 import { defineAsyncComponent, provide, shallowRef, onScopeDispose, watch } from "vue";
 import type { Component, ShallowRef } from "vue";
+import { createPhotopea } from "../services/photopea.ts";
+import { photopeaKey } from "./photopea.ts";
 import AnnotationReview from "../shared/annotations/AnnotationReview.vue";
 import { createAnnotations } from "../services/annotations.ts";
 import { annotationsKey } from "./annotations.ts";
@@ -20,7 +22,7 @@ import ModelLogos from "../shared/ModelLogos.vue";
 import { createUi, uiKey } from "./ui";
 import { createTheme, themeKey } from "./theme";
 import { createAskPresentation, askPresentationKey } from "../ask/presentation.ts";
-import AskDrawer from "../ask/AskDrawer.vue";
+import AskDrawer from "../ask/retrospect/RetrospectHost.vue";
 import { createAsk } from "../ask/service";
 import { askKey } from "./ask";
 import { createBridge } from "../bridge/service";
@@ -60,8 +62,15 @@ const home = createHome({ services, drawing, chat, editor, slates, router, onErr
 provide(homeKey, home);
 provide(homeNavigationKey, createHomeNavigation({ router, home, drawing, chat, editor, ui }));
 onScopeDispose(() => { void home.dispose(); });
-const ask = createAsk({ services, router, drawing, chat, ui, slates, home, editor });
+const photopea=createPhotopea();
+provide(photopeaKey,photopea);
+const ask = createAsk({ services, router, drawing, chat, ui, slates, home, editor, photopea });
 provide(askKey, ask);
+watch(photopea.task,task=>{if(task)ask.hide();});
+onScopeDispose(router.guard((previous,next)=>{
+  if(photopea.task.value && previous.workspace!==next.workspace){ui.toast('请先返回，保留高级编辑现场');return false;}return true;
+}));
+const PhotopeaPanel=defineAsyncComponent(()=>import("../overlays/PhotopeaPanel.vue"));
 const annotations = createAnnotations({ ask, editor, chat, router });
 provide(annotationsKey, annotations);
 onScopeDispose(() => annotations.dispose());
@@ -91,6 +100,7 @@ const editCreated = shallowRef(router.route.value.workspace === "edit");
 watch(() => router.route.value.workspace, w => { if (w === "edit") editCreated.value = true; });
 const SettingsOverlay: ShallowRef<Component | null> = shallowRef(null);
 const SlatePanel = defineAsyncComponent(() => import("../slate/SlatePanel.vue"));
+const ProjectPanel = defineAsyncComponent(() => import('../bridge/project/ProjectPanel.vue'));
 let settingsLoading = false, disposed = false;
 let settingsRequest: Promise<{ default: Component }> | undefined;
 onScopeDispose(() => { disposed = true; });
@@ -134,9 +144,11 @@ const workspaces = {
   <AskDrawer />
   <AnnotationReview v-if="annotations.review.value" />
   <SlatePanel v-if="slates.visible.value" />
+  <ProjectPanel v-if="bridge.projectOpen.value" />
   <component :is="SettingsOverlay" v-if="SettingsOverlay" />
   <!-- Keep the iframe in place: KeepAlive DOM moves would reload Photopea. -->
   <EditWorkspace v-if="editCreated" v-show="router.route.value.workspace === 'edit'" />
+  <PhotopeaPanel v-if="photopea.created.value" v-show="!!photopea.task.value" :start="photopea.task.value" :title="photopea.task.value?.title ?? 'Photopea'" @close="photopea.task.value && photopea.close(photopea.task.value.id)" />
   <ConfirmSheet />
   <ToastList />
   <ModelLogos />

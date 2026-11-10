@@ -4,6 +4,7 @@ import { useDrawing } from "../../app/drawing";
 import { message, useUi } from "../../app/ui";
 import { findModel } from "../../domain/models";
 import BoardMenu from "../../shared/boards/BoardMenu.vue";
+import BoardRetrospectEntry from "../../ask/retrospect/BoardRetrospectEntry.vue";
 import AiNameButton from "../../shared/AiNameButton.vue";
 const { drawing, view } = useDrawing(), ui = useUi();
 const items = computed(() => view.value.boards.map(board => ({
@@ -23,6 +24,6 @@ async function remove(id: string) {
   <BoardMenu id="boardMenu" action-prefix="boardActions" :items="items" :active-id="view.activeBoardId" create-label="新建空白画板" remove-label="删除画板" :footer="footer"
     @select="id => run(() => drawing.switchBoard(id))" @rename="(id, name) => run(() => drawing.renameBoard(id, name))" @remove="remove"
     @create="run(() => drawing.createBoard(false))" @action="id => run(() => drawing.createBoard(id === 'copy'))">
-    <template #currentActions="{ id }"><AiNameButton class="bd-ai" kind="board" :id="id" /></template>
+    <template #currentActions="{ id }"><BoardRetrospectEntry /><AiNameButton class="bd-ai" kind="board" :id="id" /></template>
   </BoardMenu>
 </template>

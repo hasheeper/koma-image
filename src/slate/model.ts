@@ -27,6 +27,8 @@ export interface SlateAsset {
 export interface BindRequest { entity_key?: string; source_ref?: import("../domain/image-identity.ts").ImageTagBinding; assetId: string; source: "history" | "favorites" | "edit"; ref: string; label: string; metadata: string }
 export interface SlateChange {
   before: Slate | null; after: Slate | null; id: string; bindings: BindRequest[]; directoryRequired: boolean;
+  /** Captured by the application, never accepted from model input. */
+  directoryId?: string | null;
 }
 export const contentKey = (slate: Slate | null) => canonical(slate ? { ...slate, version: 0 } : null);
 export const summary = (s: Slate | null) => s ? { id: s.id, title: s.title, version: s.version,

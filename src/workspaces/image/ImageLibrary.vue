@@ -5,6 +5,7 @@ import { useDrawing } from "../../app/drawing";
 import type { ImageRecord } from "../../domain/drawing";
 import { imageFileName } from "../../domain/drawing";
 import { names } from "../../storage/names";
+import HistoryRetrospectMenu from "../../ask/retrospect/HistoryRetrospectMenu.vue";
 import AppIcon from "../../shared/AppIcon.vue";
 import WaveHost from "./WaveHost.vue";
 import { stripBar } from "./library-strip";
@@ -43,6 +44,11 @@ function choose(id: string) {
 function toggleCompare() {
   comparing.value = !comparing.value;
   if (!comparing.value) selected.value = [];
+}
+function askRetrospect() {
+  const anchor = view.value.current ? askLabel(view.value.current.id) : null;
+  ask.show({ ...(anchor ? { anchor } : {}), question: `请梳理${anchor ? ` ${anchor} 所属主题` : '当前画板'}刚才的配方演进，排除无关主题，整理分支并分析下一步如何调整。` });
+  if (narrow.value) image.menuOpen = false;
 }
 function askDiff() {
   const labels = selected.value.map(askLabel).filter((v): v is string => !!v);
@@ -368,6 +374,7 @@ async function preview(item: ImageRecord, e: Event) {
       >
         <AppIcon name="i-trash" />
       </button>
+      <HistoryRetrospectMenu v-if="image.library === 'history' && view.history.length > 1 && (image.historyOpen || narrow)" @start="askRetrospect" />
     </footer>
   </aside>
 </template>

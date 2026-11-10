@@ -161,7 +161,7 @@ test("real browser schemas, atomic chat transactions, original Blob bytes and on
   }
 });
 
-test("two tabs share task slots and import exclusions; closing a tab releases locks", async () => {
+test("[core] two tabs share task slots and import exclusions; closing a tab releases locks", async () => {
   const context = await browser.newContext();
   const a = await start(context),
     b = await start(context);

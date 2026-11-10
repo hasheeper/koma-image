@@ -63,7 +63,7 @@ test("OpenAI Images: authenticated catalog, JSON generation, multipart reference
   let request = calls.at(-1);
   assert.equal(request.url.pathname, "/oai/v1/images/generations");
   assert.equal(request.init.headers.Authorization, "Bearer synthetic-native-key");
-  assert.deepEqual(JSON.parse(request.init.body), { model: "gpt-image-1.5", prompt: "exact prompt", n: 1 });
+  assert.deepEqual(JSON.parse(request.init.body), { model: "gpt-image-1.5", prompt: "exact prompt", n: 1, quality: "auto", size: "auto", output_format: "png" });
   await gateway.execute(buildChatPayload(model, "edit prompt", {}, [png, png]), r => r.json());
   request = calls.at(-1);
   assert.equal(request.url.pathname, "/oai/v1/images/edits");

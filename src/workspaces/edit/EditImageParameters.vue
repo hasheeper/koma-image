@@ -1,15 +1,31 @@
 <script setup lang="ts">
-import { computed } from 'vue';
+import { computed, ref } from 'vue';
 import { useEditor } from '../../app/editor';
 import { normalizeOptions } from '../../domain/catalog';
 import { chatOptionLabel, chatOptionNames } from '../../domain/chat-options';
+import { annotationModeField, annotationModeLabel } from '../../domain/image-controls';
+import type { ParameterField } from '../../domain/model-parameters';
 import AppIcon from '../../shared/AppIcon.vue';
 import ModelParameterInput from '../../shared/ModelParameterInput.vue';
 const { editor, view } = useEditor();
 const options = computed(() => view.value.model ? normalizeOptions(view.value.model, view.value.session.options[view.value.model.id]) : {});
 const locked = computed(() => view.value.busy || view.value.preparing);
+const controls = computed(() => {
+  const fields: { key: string; field: ParameterField; value: string; disabledOptions?: string[]; format: (value: string) => string; change: (value: string) => void }[] =
+    Object.entries(view.value.model?.fields ?? {}).map(([key, field]) => ({ key, field, value: options.value[key] ?? '',
+      format: value => chatOptionLabel(value, key), change: value => editor.setOption(key, value, view.value.session.mode) }));
+  if (view.value.model?.markupEligible || view.value.session.imageEdit.markup) fields.push({
+    key: annotationModeField.key, field: annotationModeField, value: view.value.session.imageEdit.markup ? 'native' : 'dual',
+    disabledOptions: view.value.model?.markupEligible ? [] : ['native'], format: annotationModeLabel,
+    change: value => editor.setImageEdit({ markup: value === 'native', ...(value === 'native' ? { textOnly: false } : {}) }),
+  });
+  return fields;
+});
 const edges = { dilate: '外扩', feather: '羽化' } as const;
 type Edge = keyof typeof edges;
+// Quota/catalog updates can render while the user is typing; retain the uncommitted input.
+const edgeDrafts = ref<Partial<Record<Edge, string>>>({});
+function draftEdge(key: Edge, event: Event) { edgeDrafts.value[key] = (event.target as HTMLInputElement).value; }
 const percent = (key: Edge) => Math.round(view.value.session.imageEdit.edges[key] * 1000) / 10;
 function edge(key: Edge, event: Event) {
   const input = event.target as HTMLInputElement;
@@ -19,10 +35,10 @@ function edge(key: Edge, event: Event) {
 </script>
 <template>
   <div class="image-edit-parameters">
-    <div v-if="Object.keys(view.model?.fields ?? {}).length" class="image-edit-fields">
-      <div v-for="(field, key) in view.model?.fields" :key="key" class="image-edit-field">
-        <label :for="`editorImageOption-${key}`">{{ field.label || chatOptionNames[key] || key }}</label>
-        <ModelParameterInput :id="`editorImageOption-${key}`" :field="field" :value="options[key]" :format="chatOptionLabel" :disabled="locked" @change="editor.setOption(key, $event, view.session.mode)" />
+    <div v-if="controls.length" class="image-edit-fields">
+      <div v-for="control in controls" :key="control.key" class="image-edit-field">
+        <label :for="`editorImageOption-${control.key}`">{{ control.field.label || chatOptionNames[control.key] || control.key }}</label>
+        <ModelParameterInput :id="`editorImageOption-${control.key}`" :field="control.field" :value="control.value" :format="control.format" :disabled="locked" :disabled-options="control.disabledOptions" @change="control.change" />
       </div>
     </div>
     <details class="image-edit-edges">
@@ -31,14 +47,14 @@ function edge(key: Edge, event: Event) {
         <div v-for="(name, key) in edges" :key="key" class="scrub scrub-sm" :style="{ '--p': `${percent(key) / 2.5 * 100}%` }">
           <span>{{ name }}</span>
           <div class="image-edit-edge-value">
-            <input type="number" :aria-label="`蒙版${name}百分比`" :title="`${name}占原图短边的百分比`" min="0" max="2.5" step="0.1" :value="percent(key)" :disabled="locked" @change="edge(key, $event)" @keydown.enter.prevent="($event.target as HTMLInputElement).blur()" />
+            <input type="number" :aria-label="`蒙版${name}百分比`" :title="`${name}占原图短边的百分比`" min="0" max="2.5" step="0.1" :value="edgeDrafts[key] ?? percent(key)" :disabled="locked" @focus="draftEdge(key, $event)" @input="draftEdge(key, $event)" @change="edge(key, $event)" @blur="delete edgeDrafts[key]" @keydown.enter.prevent="($event.target as HTMLInputElement).blur()" />
             <span aria-hidden="true">%</span>
           </div>
           <input type="range" :aria-label="`蒙版${name}`" min="0" max="2.5" step="0.1" :value="percent(key)" :aria-valuetext="`${percent(key)}%`" :disabled="locked" @input="edge(key, $event)" />
         </div>
       </div>
     </details>
-    <label v-if="view.model && view.model.maxImages < 2" class="check"><input type="checkbox" :checked="view.session.imageEdit.textOnly" @change="editor.setImageEdit({textOnly: ($event.target as HTMLInputElement).checked})" /><span aria-hidden="true" /><span>仅方位文字</span></label>
+    <label v-if="view.model && view.model.maxImages < 2 && !view.session.imageEdit.markup" class="check"><input type="checkbox" :checked="view.session.imageEdit.textOnly" @change="editor.setImageEdit({textOnly: ($event.target as HTMLInputElement).checked})" /><span aria-hidden="true" /><span>仅方位文字</span></label>
   </div>
 </template>
 <style scoped>

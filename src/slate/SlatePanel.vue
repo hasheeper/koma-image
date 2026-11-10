@@ -5,6 +5,7 @@ import { useAsk } from "../app/ask.ts";
 import { useBridge } from "../app/bridge.ts";
 import { useDrawing } from "../app/drawing.ts";
 import { message } from "../app/ui.ts";
+import OverviewRetrospects from "../ask/retrospect/OverviewRetrospects.vue";
 import AppIcon from "../shared/AppIcon.vue";
 import PopoverMenu from "../shared/ui/PopoverMenu.vue";
 import { parseSlateEdit } from "./edit.ts";
@@ -44,7 +45,7 @@ onBeforeUnmount(() => { dialog.value?.close(); if (originalFocus instanceof HTML
         <button class="ibtn" type="button" aria-label="关闭任务总览" @click="close"><AppIcon name="i-close" /></button>
       </div>
     </header>
-    <div class="overview-body">
+    <div class="overview-body"><OverviewRetrospects /><h3 v-if="slates.list.value.length && ask.retrospects.records.value.length" class="overview-section-title">待办清单</h3>
       <div v-for="s in slates.list.value" :key="s.id" class="overview-row">
         <button class="overview-item" type="button" :disabled="!ask.canManage.value || slates.busy.value" @click="open(s.id)"><AppIcon name="i-tasks" :class="{ current: ask.activeSlate.value?.id === s.id }" /><span :title="s.title">{{ s.title }}</span><small>{{ s.todos.filter(t => t.status === 'done').length }}/{{ s.todos.length }}</small><AppIcon name="i-chevron" /></button>
         <PopoverMenu compact :id="`slate-${s.id}-options`" :label="`${s.title} · 清单选项`" side="right">
@@ -52,7 +53,7 @@ onBeforeUnmount(() => { dialog.value?.close(); if (originalFocus instanceof HTML
           <template #default="{ close: dismiss }"><button class="menu-item danger" role="menuitem" type="button" :disabled="!ask.canManageTasks.value" @click="dismiss(); remove(s.id)"><AppIcon name="i-trash" /><span class="menu-label">删除清单</span></button></template>
         </PopoverMenu>
       </div>
-      <p v-if="!slates.list.value.length" class="overview-empty">暂无待办清单</p>
+      <p v-if="!slates.list.value.length && !ask.retrospects.records.value.length" class="overview-empty">暂无任务</p>
     </div>
     <form v-if="creating" class="overview-create" @submit.prevent="create"><input v-model="title" type="text" aria-label="清单名称" placeholder="清单名称…" maxlength="120" /><button type="submit" :disabled="!title.trim() || slates.busy.value">创建</button></form>
     <div v-for="issue in issues" :key="issue.id" class="overview-issue"><span :title="issue.error">{{ slates.get(issue.id)?.title || '目录任务' }}</span><button type="button" @click="bridge.resolveSlate(issue.id, 'review'); close(); ask.show()">审阅修改</button></div>
@@ -71,6 +72,7 @@ onBeforeUnmount(() => { dialog.value?.close(); if (originalFocus instanceof HTML
 .slate-panel .ibtn .ico { --ico: var(--ico-sm); }
 .slate-panel .ibtn[aria-expanded="true"] { color: var(--fg); background: var(--hover); }
 .slate-panel .ibtn:focus-visible, .overview-item:focus-visible { outline: 1.5px solid color-mix(in srgb, var(--a) 70%, transparent); outline-offset: -1.5px; }
+.overview-section-title { margin: 8px 6px 4px; color: var(--fg-3); font-size: var(--fz-xs); font-weight: var(--fw-medium); }
 .overview-body { max-height: min(360px, 50dvh); overflow: auto; }
 .overview-row { display: grid; grid-template-columns: minmax(0, 1fr) var(--overview-action-size); align-items: center; gap: 2px; }
 .overview-item { display: grid; grid-template-columns: var(--ico-sm) minmax(0, 1fr) auto var(--ico-xs); align-items: center; gap: 8px; min-width: 0; min-height: 36px; padding: 0 6px; color: var(--fg-2); text-align: left; border-radius: var(--r1); }

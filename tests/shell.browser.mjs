@@ -93,7 +93,7 @@ async function clean(result) {
   await result.context.close();
 }
 
-test("single document, cached drafts and nodes, back/forward, and global overlay", async () => {
+test("[core] single document, cached drafts and nodes, back/forward, and global overlay", async () => {
   const result = await open("/?image=synthetic-ticket&repeat=a&repeat=b");
   const { page, context } = result;
   const prompt = await page.locator("#prompt").elementHandle();

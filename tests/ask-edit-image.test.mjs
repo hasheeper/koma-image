@@ -11,8 +11,9 @@ import { proposeDraft } from '../src/ask/draft/tool.ts';
 const field=(options,def,extra={})=>({options,default:def,...extra});
 const common={chat:true,operations:['generate','edit'],tools:['image-edit'],maxImages:8,maxPixels:4194304,sourceMaxPixels:32000000,parameterSource:'declared',sourceRevision:'r1'};
 const models=[
-  {...common,id:'gpt-image-2',name:'Image 2',upstreamId:'vendor/custom-img',connection:'a',profileId:'openai-images-v1',provider:'openai',fields:{quality:field(['high','low'],'high'),size:field(['auto','1024x1024'],'auto'),'custom.strength':field([],'0.5',{type:'number',min:0,max:1}),enabled:field([],'true',{type:'boolean'})}},
-  {...common,id:'gemini-3-pro-image',name:'香蕉',upstreamId:'vendor/banana',connection:'b',profileId:'gemini-native-v1',provider:'google',fields:{aspect_ratio:field(['1:1','16:9'],'1:1'),image_size:field(['1K','2K'],'2K')}},
+  {...common,id:'gpt-image-2',name:'Image 2',family:'gpt',markup:true,upstreamId:'vendor/custom-img',connection:'a',profileId:'openai-images-v1',provider:'openai',fields:{quality:field(['high','low'],'high'),size:field(['auto','1024x1024'],'auto'),'custom.strength':field([],'0.5',{type:'number',min:0,max:1}),enabled:field([],'true',{type:'boolean'})}},
+  {...common,id:'gemini-3-pro-image',name:'香蕉',family:'gemini',upstreamId:'vendor/banana',connection:'b',profileId:'gemini-native-v1',provider:'google',fields:{aspect_ratio:field(['1:1','16:9'],'1:1'),image_size:field(['1K','2K'],'2K')}},
+  {...common,id:'my-model',name:'创作模型',family:'seedream',upstreamId:'vendor/custom-seedream',connection:'b',profileId:'seedream-v1',provider:'seedream',fields:{size:field(['2K','3K'],'2K'),watermark:field(['true','false'],'false',{type:'boolean'})}},
 ];
 function base(id=models[0].id) {
   const form=structuredClone(DEFAULTS);
@@ -32,7 +33,9 @@ test('generic EDIT awareness separates saved/default options, exposes source ide
   for(const m of models){const s=base(m.id),v=editAwareness(s.edit).snapshot;
     assert.deepEqual(v.form.image_options,{});assert.deepEqual(v.effective.image_options,Object.fromEntries(Object.entries(m.fields).map(([k,f])=>[k,f.default])));
     assert.equal(v.source.upstream_id,m.upstreamId);assert.equal(v.source.connection_id,m.connection);
-    assert.equal(v.capabilities.available_models.length,2);assert.ok(v.capabilities.draft_fields.includes('image_options'));
+    assert.equal(v.capabilities.available_models.length,models.length);assert.ok(v.capabilities.draft_fields.includes('image_options'));
+    assert.equal(v.capabilities.family,m.family);assert.equal(v.capabilities.native_markup,m.markup===true);
+    assert.deepEqual(v.capabilities.available_models.map(m=>[m.family,m.native_markup]),[['gpt',true],['gemini',false],['seedream',false]]);
     assert.deepEqual(v.capabilities.modes,['img2img','inpaint']);
     assert.equal(v.capabilities.models,undefined);assert.equal(v.capabilities.emotions,undefined);
     assert.equal(v.input_budget.status,'not_applicable');assert.equal(v.form.steps,undefined);

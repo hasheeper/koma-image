@@ -2,7 +2,6 @@
 import ModelParameterInput from "../../shared/ModelParameterInput.vue";
 import {
   computed,
-  defineAsyncComponent,
   ref,
   shallowRef,
   watch,
@@ -47,13 +46,13 @@ async function annotate(initialTool: AnnotationShape = 'point') {
   try { await annotations.open({blob:v.blob,name:v.name,recordId:v.recordId,tag:editor.reference(v),workspace:'edit',initialTool,inline:true,edit:{boardId:editor.session.id,versionId:v.id}}); }
   catch(e){ui.toast(message(e),'err');}
 }
-function reviewAnnotations(){const v=view.value.viewed;if(!v)return;try{annotations.editorReview(editor.session.id,v.id);}catch(e){ui.toast(message(e),'err');}}
 
 import { useAsk } from "../../app/ask";
 import { useChat } from "../../app/chat";
 import { createHandoff } from "../../services/handoff";
 import type { AnnotationShape } from "../../domain/region-annotation";
-import { annotationAlignment, canMaskAnnotations } from "../../domain/region-annotation";
+import { compositeKey } from "../../native/inpaint-result.ts";
+import { annotationAlignment } from "../../domain/region-annotation";
 import type { AnnotationViewport } from "../../native/region-annotator";
 import RegionAnnotator from "../../shared/annotations/RegionAnnotator.vue";
 import { useAnnotations } from "../../app/annotations.ts";
@@ -79,6 +78,8 @@ import ThemeToggle from "../../shared/ThemeToggle.vue";
 import EditBoards from "./EditBoards.vue";
 import { createFocusRegion } from "../../native/focus-region";
 import EditToolMode from "./EditToolMode.vue";
+import EditComparisonTools from "./EditComparisonTools.vue";
+import PhotopeaIcon from "../../shared/PhotopeaIcon.vue";
 import EnhanceControl from "./EnhanceControl.vue";
 import DirectorTools from "./DirectorTools.vue";
 import { placeEditorPanel } from "./panels";
@@ -94,7 +95,8 @@ import CharactersEditor from "../../shared/nai/CharactersEditor.vue";
 import DrawingBottomPanel from "../../shared/nai/DrawingBottomPanel.vue";
 import EditorParameters from "../../overlays/EditorParameters.vue";
 import EditImageParameters from "./EditImageParameters.vue";
-const PhotopeaPanel = defineAsyncComponent(() => import("../../overlays/PhotopeaPanel.vue"));
+import { usePhotopea } from "../../app/photopea.ts";
+const photopeaService=usePhotopea();
 const { editor, view } = useEditor(),
   { router, narrow } = useShell(),
   services = useServices(),
@@ -112,7 +114,7 @@ const upscaleMode = shallowRef<InstanceType<typeof EditToolMode>>();
 const directorPanel = shallowRef<InstanceType<typeof DirectorTools>>();
 const bottomPanel = shallowRef<InstanceType<typeof DrawingBottomPanel>>();
 const photopea = shallowRef<ReturnType<typeof editor.beginExternalEdit>>();
-const photopeaCreated = shallowRef(false);
+
 const tab = ref<"prompt" | "negative_prompt">("prompt"),
   brush = ref(64),
   eraser = ref(false),
@@ -124,6 +126,7 @@ const tab = ref<"prompt" | "negative_prompt">("prompt"),
   canvasFullscreen = ref(false),
   drop = ref("");
 const comparisonMode = shallowRef<'source' | 'raw' | 'composite'>('raw'), previewImage = shallowRef<EditorVersion>();
+const colorMatch=shallowRef(true);
 const previewBusy = shallowRef(false), previewError = shallowRef('');
 let previewController: AbortController | undefined;
 const comparison = computed(() => {
@@ -131,7 +134,7 @@ const comparison = computed(() => {
   if (!info) return;
   const versions = view.value.session.versions;
   const source = versions.find(v => v.id === info.sourceId), raw = versions.find(v => v.id === info.rawId), composite = versions.find(v => v.id === info.compositeId);
-  if (source && raw) return { source, raw, composite, info, compatible: !!annotationAlignment(source, raw) };
+  if (source && raw) return { source, raw, composite:composite?.comparison?.appliedKey===compositeKey({colorMatch:colorMatch.value,focus:info.focus})?composite:undefined, info, compatible: !!info.focus || !!annotationAlignment(source, raw) };
 });
 const unsavedPreview = computed(() => !!comparison.value && comparisonMode.value === 'composite' && !comparison.value.composite);
 const { chat, view: chatView } = useChat();
@@ -147,7 +150,7 @@ async function showComparison(mode: typeof comparisonMode.value) {
   const boardId = s.value.id, versionId = group.raw.id;
   previewController?.abort(); const controller = previewController = new AbortController(); previewBusy.value = true;
   try {
-    const blob = await editor.previewComparison(boardId, versionId, controller.signal);
+    const blob = await editor.previewComparison(boardId, versionId, controller.signal,colorMatch.value);
     if (controller.signal.aborted || comparison.value?.raw !== group.raw) return;
     previewImage.value = { ...group.raw, blob, url: URL.createObjectURL(blob), width: group.source.width, height: group.source.height };
     comparisonMode.value = 'composite';
@@ -156,9 +159,20 @@ async function showComparison(mode: typeof comparisonMode.value) {
 }
 async function applyComparison() {
   const group = comparison.value; if (!group) return;
-  try { await editor.applyComparison(s.value.id, group.raw.id); }
+  try { await editor.applyComparison(s.value.id, group.raw.id,colorMatch.value); }
   catch (e) { ui.toast(message(e), 'err'); }
 }
+async function toggleColorMatch() {
+  colorMatch.value = !colorMatch.value;
+  const wasPreview=comparisonMode.value==='composite';clearPreview();
+  if(wasPreview)await showComparison('composite');
+}
+function openFusion() {
+  const group=comparison.value;if(!group)return;
+  try {saveMask();closeSelection();photopeaService.open(editor.beginComparisonFusion(s.value.id,group.raw.id,colorMatch.value));pause();}
+  catch(e){ui.toast(message(e),'err');}
+}
+watch(()=>photopeaService.task.value,(value,old)=>{if(!value&&old?.fusion){editor.cancelExternalEdit(old.id);void activate();}});
 function clearPreview() {
   previewController?.abort(); previewController = undefined; previewBusy.value = false; previewError.value = '';
   if (previewImage.value) URL.revokeObjectURL(previewImage.value.url);
@@ -337,9 +351,9 @@ function compare(value: boolean) {
   syncMaskLock();
 }
 watch(() => comparison.value?.raw, () => {
-  clearPreview(); comparisonMode.value = view.value.viewed?.id === comparison.value?.info.compositeId ? 'composite' : 'raw';
+  colorMatch.value=comparison.value?.info.colorMatch!==false;clearPreview(); comparisonMode.value = view.value.viewed?.id === comparison.value?.info.compositeId ? 'composite' : 'raw';
 });
-watch(() => view.value.viewed?.id, () => { if (comparison.value) comparisonMode.value = view.value.viewed?.id === comparison.value.info.compositeId ? 'composite' : 'raw'; });
+watch(() => view.value.viewed?.id, () => {if(comparison.value){clearPreview();colorMatch.value=view.value.viewed?.comparison?.colorMatch!==false;comparisonMode.value=view.value.viewed?.params?.localComposite?'composite':'raw';}});
 watch([shown, comparisonMode], () => { void nextTick(() => canvas?.layout()); });
 onBeforeUnmount(clearPreview);
 function syncMaskLock() {
@@ -611,11 +625,12 @@ function openPhotopea() {
   try {
     closePop(); bottomPanel.value?.close();
     const start = editor.beginExternalEdit();
-    pause(); photopeaCreated.value = true; photopea.value = start;
+    pause(); photopea.value = start; photopeaService.open({id:start.id,title:view.value.viewed?.name ?? "图像",editor:start});
   } catch (e) { ui.toast(e instanceof Error ? e.message : String(e), "err"); }
 }
 async function closePhotopea() {
   if (photopea.value) editor.cancelExternalEdit(photopea.value.id);
+  if(photopea.value)photopeaService.close(photopea.value.id);
   photopea.value = undefined;
   await nextTick();
   if (view.value.open) {
@@ -623,6 +638,7 @@ async function closePhotopea() {
     dialog.value?.querySelector<HTMLButtonElement>(".editor-bar-end button:not([hidden])")?.focus({ preventScroll: true });
   }
 }
+watch(()=>photopeaService.task.value, task=>{if(!task && photopea.value)void closePhotopea();});
 watch([() => view.value.contextId, () => view.value.open], () => {
   if (photopea.value && (!view.value.open || photopea.value.id !== view.value.externalId)) void closePhotopea();
 });
@@ -816,7 +832,7 @@ async function copyReference(v: EditorVersion) {
     :data-canvas-fullscreen="narrow && canvasFullscreen || undefined"
     :data-photopea="photopea ? 'on' : undefined"
     data-workspace-root="edit"
-    :inert="askFullscreen"
+    :inert="askFullscreen || !!photopeaService.task.value"
     aria-label="图像编辑"
     @keydown="key"
     @keyup="keyup"
@@ -831,11 +847,10 @@ async function copyReference(v: EditorVersion) {
     @dragend="drop = ''"
     @drop="dropImage"
   >
-    <PhotopeaPanel v-if="photopeaCreated" v-show="!!photopea" :start="photopea" :title="view.viewed?.name ?? '图像'" @close="closePhotopea" />
     <header class="topbar editor-bar" :hidden="!!photopea" :inert="!!photopea">
       <WorkspaceSwitch workspace="edit" />
       <div class="topbar-end editor-bar-end" role="group" aria-label="工具">
-        <button id="editorPhotopea" class="ibtn" type="button" aria-label="高级编辑" data-tip="高级编辑 · Photopea" :hidden="narrow" :disabled="locked || !view.viewed" @click="openPhotopea"><span class="editor-photopea-logo" aria-hidden="true" /></button>
+        <button id="editorPhotopea" class="ibtn" type="button" aria-label="高级编辑" data-tip="高级编辑 · Photopea" :hidden="narrow" :disabled="locked || !view.viewed" @click="openPhotopea"><PhotopeaIcon /></button>
         <button
           class="ibtn"
           type="button"
@@ -1146,25 +1161,14 @@ async function copyReference(v: EditorVersion) {
               </template>
             </PopoverMenu>
           </div>
-          <div v-if="comparison" class="editor-comparison" aria-label="改图对比">
-            <div class="seg" role="group" aria-label="对比图片">
-              <button type="button" :aria-pressed="comparisonMode === 'source'" @click="showComparison('source')">原图</button>
-              <button type="button" :aria-pressed="comparisonMode === 'raw'" @click="showComparison('raw')">AI 生成</button>
-              <button type="button" :aria-pressed="comparisonMode === 'composite'" :disabled="!comparison.info.mask || !comparison.compatible || previewBusy" :title="!comparison.info.mask ? '本轮没有明确范围的蒙版' : !comparison.compatible ? '方向或宽高比不符，无法应用蒙版' : '查看冻结蒙版的本地替换预览'" @click="showComparison('composite')">蒙版替换</button>
-            </div>
-            <button v-if="unsavedPreview" class="btn btn-quiet btn-sm" type="button" :disabled="locked || previewBusy" title="请先检查主体位置、比例与构图" @click="applyComparison">应用蒙版</button>
-            <span v-if="previewError || previewBusy || !comparison.compatible" class="editor-comparison-note" role="status">{{ previewError || (previewBusy ? '准备预览…' : '画幅不一致，仅保留 AI 生成图') }}</span>
-          </div>
           <div
             class="editor-toolbar"
             role="toolbar"
             aria-label="画布工具"
             :hidden="!shown"
           >
+            <span v-if="comparison && (previewError || previewBusy || !comparison.compatible)" class="editor-comparison-note" role="status">{{ previewError || (previewBusy ? '准备预览…' : '画幅不一致，仅保留 AI 生成图') }}</span>
             <div v-show="selecting" ref="annotationToolbar"></div>
-            <div v-if="!selecting && shown?.annotation && canMaskAnnotations(shown.annotation.snapshot.regions)" class="editor-annotation-actions editor-tool-capsule" role="group" aria-label="批注操作">
-                <button v-if="shown?.annotation && canMaskAnnotations(shown.annotation.snapshot.regions)" class="btn btn-sm btn-quiet" :disabled="locked" @click="reviewAnnotations"><AppIcon name="i-mask" />{{ shown.annotation.rawId ? '查看直出／回贴' : '审核并应用蒙版' }}</button>
-            </div>
             <div class="editor-mask-tools editor-tool-capsule" role="group" aria-label="蒙版画笔" :hidden="!maskActive || selecting">
                 <button class="ibtn" type="button" aria-label="导入黑白蒙版" data-tip="导入黑白蒙版"
                   :disabled="locked" @click="maskFile?.click()"><AppIcon name="i-upload" /></button>
@@ -1223,6 +1227,7 @@ async function copyReference(v: EditorVersion) {
                   <AppIcon name="i-trash" /></button
                 >
             </div>
+            <EditComparisonTools v-if="comparison" v-show="!selecting" :mode="comparisonMode" :compact="narrow" :color-match="colorMatch" :can-composite="!!comparison.info.mask && comparison.compatible" :busy="previewBusy" :locked="locked" :can-apply="unsavedPreview" :reason="!comparison.info.mask ? '本轮没有明确范围的蒙版' : !comparison.compatible ? '方向或宽高比不符，无法应用蒙版' : undefined" @select="showComparison" @color="toggleColorMatch" @fusion="openFusion" @apply="applyComparison" />
             <div v-show="!selecting" class="editor-tool-controls">
               <div class="editor-picture-ops editor-tool-capsule" role="group" aria-label="编辑工具">
                 <EditToolMode id="editorAnnotate" label="批注" aria-label="批注工具" :icon="annotationTool.icon" :title="annotationTool.label" :active="selecting" :value="selecting ? selection?.tool ?? 'point' : 'point'" menu-label="批注方式" :options="annotationOptions" :disabled="locked || !shown || !!comparison" @toggle="selecting ? closeSelection() : annotate()" @select="value => annotate(value as AnnotationShape)" />

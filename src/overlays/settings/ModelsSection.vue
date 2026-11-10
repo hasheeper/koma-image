@@ -28,7 +28,7 @@ const parameters = useTemplateRef<InstanceType<typeof ModelParametersDialog>>("p
 const sourceTriggers = useTemplateRef<HTMLButtonElement[]>("sourceTriggers"), rowTriggers = useTemplateRef<HTMLButtonElement[]>("rowTriggers");
 const opened = ref(new Set<string>()), saving = ref(false);
 const addingSource = ref<string | null>(null);
-const groups = { gpt: "GPT", gemini: "Gemini", novelai: "NovelAI" };
+const groups = { gpt: "GPT", gemini: "Gemini", seedream: "Seedream", novelai: "NovelAI" };
 const models = computed(() => configuredModels(props.routing));
 const sources = computed(() => imageConnections(props.routing));
 const failures = computed(() => sources.value.filter(c => props.statuses[c.id]?.s === "err"));

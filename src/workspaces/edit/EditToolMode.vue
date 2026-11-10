@@ -6,7 +6,7 @@ import { placeEditorPanel } from "./panels";
 
 const props = defineProps<{
   id: string; label: string; ariaLabel?: string; icon: string; active: boolean; disabled: boolean;
-  menuLabel: string; value: string; controls?: string; title?: string;
+  menuLabel: string; value: string; controls?: string; title?: string; text?: string;
   options: { value: string; label: string; icon: string; disabled?: boolean }[];
 }>();
 const emit = defineEmits<{ toggle: []; select: [value: string] }>();
@@ -70,15 +70,16 @@ defineExpose({ close });
 </script>
 
 <template>
-  <div class="editor-tool-mode" :data-active="active">
+  <div class="editor-tool-mode" :data-active="active" :data-text="text ? true : undefined">
     <button :id="id" class="editor-tool editor-tool-main" type="button" :aria-label="ariaLabel ?? label" :data-tip="title ?? ariaLabel ?? label" :aria-pressed="active" :aria-controls="controls" :popovertarget="controls" :aria-expanded="controls ? active : undefined" :disabled="disabled" @click="!controls && emit('toggle')">
-      <AppIcon :name="icon" />
+      <span v-if="text">{{ text }}</span><AppIcon v-else :name="icon" />
     </button>
     <button ref="trigger" :id="`${id}Toggle`" class="editor-tool editor-tool-arrow" type="button" :aria-label="`选择${menuLabel}`" aria-haspopup="menu" :popovertarget="`${id}Menu`" :aria-controls="`${id}Menu`" :aria-expanded="expanded" :disabled="disabled" @pointerdown="keyboard = false" @keydown="triggerKey"><AppIcon name="i-chevron" class="editor-caret" /></button>
     <div ref="menu" :id="`${id}Menu`" class="menu editor-flyout editor-tool-menu" popover role="menu" :aria-label="menuLabel" @beforetoggle="beforeToggle" @toggle="toggled" @keydown="menuKey">
       <button v-for="option in options" :key="option.value" type="button" tabindex="-1" class="menu-item" role="menuitemradio" :aria-checked="value === option.value" :disabled="disabled || option.disabled" @click="choose(option.value)">
         <AppIcon :name="option.icon" /><span class="menu-label">{{ option.label }}</span><AppIcon class="menu-check" name="i-check" />
       </button>
+      <slot name="after-options" :close="() => close(true)" />
     </div>
   </div>
 </template>
@@ -86,6 +87,8 @@ defineExpose({ close });
 <style scoped>
 .editor-tool-mode { display: inline-grid; grid-template-columns: var(--editor-tool-size) var(--editor-tool-arrow-size); flex: none; align-items: stretch; border-radius: 999px; }
 .editor-tool-mode > .editor-tool-main { justify-content: center; padding: 0; }
+.editor-tool-mode[data-text] { grid-template-columns: auto var(--editor-tool-arrow-size); }
+.editor-tool-mode[data-text] > .editor-tool-main { padding-inline: var(--sp-2); }
 .editor-tool-mode > .editor-tool-arrow { width: 100%; padding: 0; justify-content: center; }
 .editor-tool-mode[data-active="true"] > .editor-tool-arrow { color: var(--a); }
 </style>

@@ -26,7 +26,7 @@
 
 - **五个工作区**：`HOME`（创作线与定稿墙）、`IMAGE`（NovelAI 多画板与多角色）、`CHAT`（多轮对话改图与分支）、`EDIT`（局部重绘、Director Tools 与内嵌 Photopea）、`TAGS`（中英标签词典）。切页保留现场，图片跨区流转自动记录来源与参数血统。
 - **Koma ASK**：跨工作区常驻的辅助侧栏。按需看图、查词、比对参数、预检 Token 预算；改词、调参、配角色与跨区送修统一生成 **Diff 草稿卡**，确认后写入，可随时撤销。
-- **任务板与外部协同**：内置 `Slate` 待办清单管理多图进度与绑图交付；支持挂载本地目录（`.koma-bridge`），供 Claude Code、Codex 等外部 Agent 读写状态、共享 `refs/` 资料与投递草稿。
+- **企划集、任务板与外部协同**：挂载企划根目录浏览角色、设定、参考与成果，将素材送入工作区；`Slate` 管理多图进度与交付，外部 Agent 可读取状态、共享资料与投递草稿。
 - **纯本地存储**：无云端账号与业务后台，画板、收藏定稿与会话均保存在浏览器 IndexedDB 中，支持 ZIP 完整备份。
 
 <a id="工作区"></a>
@@ -47,7 +47,7 @@
 
 ### 💬 CHAT · 多轮对话改图
 
-接入 OpenAI Images 与 Gemini 原生接口，通过自然语言与多参考图生成或修改画面。右侧上下文面板可自由勾选参与当前分支的历史轮次与锁定底图，支持在任意轮次分叉对比多个版本，或一键将多轮叠改提纯为新分支。
+接入 OpenAI Images、Gemini 与 Seedream 原生接口，通过自然语言与多参考图生成或修改画面。右侧上下文面板可自由勾选参与当前分支的历史轮次与锁定底图，支持在任意轮次分叉对比多个版本，或一键将多轮叠改提纯为新分支。
 
 ### 🛠️ EDIT · 局部重绘与 Photopea
 
@@ -55,6 +55,7 @@
 
 - **NAI 编辑工具链**：支持图生图、Enhance（1× / 1.5× / 2×）与 V5 Max Enhance、普通蒙版重绘、**聚焦重绘（Focused Inpainting，手动框选参考范围 + 自动裁切放大至约 1MP 重绘后缩回贴合原图）**、官方 4× 放大，以及 6 项 **Director Tools**（去背景三结果同组切换、线稿、草图、上色、24 种表情、去杂物）。同尺寸切换衍生版本时默认保留画布蒙版。
 - **内嵌 Photopea 工作栈**：页内一键打开保活的 Photopea 实例，自动建立 **「原图 + 涂鸦与修补 + Koma 蒙版」** 三层结构；应用返回时自动分离干净底图与重绘蒙版，并保留各画板独立分层现场。纯手动修图结果无需再跑生成，即可直接收藏或绑入任务交付。
+- **结果融合精修**：蒙版回贴默认进行边界色彩／明度对齐，可关闭对比；EDIT／CHAT 可将原图、AI 结果和软图层蒙版送入同一 Photopea 修边，应用后保留正式合成与原始直出。详见[局部回贴](docs/workspaces/annotations.md#人工审核与合成边界)。
 
 ### 🏷️ TAGS · 标签词典
 
@@ -63,7 +64,8 @@
 ### 🤝 ASK · 旁路搭档与外部协同
 
 - **诊断与起草**：按需调用拼图预览、单图审视与局部裁切查看画面细节，对比历史参数差异，并在递交草稿前用本地工具预检候选词段的 Token 用量；支持在 `IMAGE`、`CHAT`、`EDIT` 之间一键带图与预设交接。
-- **Slate 任务板与 `.koma-bridge`**：在会话内拆解多图待办、锁定画风基底、绑图结单；挂载本地目录后，外部 Agent 可在无需配置站内 ASK Key 的情况下读取画板状态与 `refs/` 资料、投递修改草稿并接收 `assets/` 交付原图（详见 [SKILL.md](https://koma-image.pages.dev/skills/koma-bridge/SKILL.md)）。
+- **版本演进（本地未发布）**：遇到打磨瓶颈时，请 ASK 从已有历史中梳理版本与分叉；在演进图／大图中比较原始配方、批注节点与连线，并继续讨论。激活后成功生成继续归组或生长，从旧版恢复可分叉，显式定稿后结束跟踪。详见[演进说明](docs/workspaces/recipe-retrospect.md)。
+- **企划集与 Slate**：目录入口打开角色／设定／参考／成果面板；ASK 按需读取资料并准备 CHAT／EDIT 图片交接。任务继续在会话内拆解、绑图结单，挂载不自动带入其他企划的活动任务。外部 Agent 无需站内 ASK Key 即可协作，外部草稿仍只写 IMAGE。当前契约见[企划集与外部协同](docs/integrations/bridge.md)，已发布外部指南见 [SKILL.md](https://koma-image.pages.dev/skills/koma-bridge/SKILL.md)。
 
 <a id="外部-agent-接入"></a>
 
@@ -71,9 +73,11 @@
 
 **[打开外部 Agent 使用指南 · SKILL.md](https://koma-image.pages.dev/skills/koma-bridge/SKILL.md)**
 
-Claude Code、Codex 等能访问本机文件的 Agent，可以通过协同目录读取画板、查看预览、修改提示词与参数、维护多图任务。指南可直接通过网页按纯文本读取，**无需下载或安装技能，也无需配置站内 ASK 文本模型或 Key**。
+Claude Code、Codex 等能访问本机文件的 Agent，可以通过协同目录整理企划资料、读取画板、查看预览、修改提示词与参数、维护多图任务。指南可直接通过网页按纯文本读取，**无需下载或安装技能，也无需配置站内 ASK 文本模型或 Key**。
 
-1. 在 Koma 的 **HOME 头部**或 **ASK 输入框「＋」旁**挂载一个本机目录，例如 `.koma-bridge/`。
+本地开发版使用[当前源码内的指南](public/skills/koma-bridge/SKILL.md)；企划集新增规则尚未发布到上述线上地址。实际字段以所用 Koma 生成的根目录 `PROTOCOL.md` 为准，内含目录、换装 TAG、参考图示例与外部草稿完整 Schema。
+
+1. 在 Koma 的 **HOME 头部**或 **ASK 输入框「＋」旁**挂载企划根目录；已有 `.koma-bridge/` 同样可用。
 2. 将下面这段话发给外部 Agent，填入实际挂载目录的完整路径。
 3. Agent 投递后，回到 Koma 审阅草稿并点击「应用」；需要生图时再使用原有生成按钮。
 
@@ -85,7 +89,7 @@ https://koma-image.pages.dev/skills/koma-bridge/SKILL.md
 请读取其中的 PROTOCOL.md 和 state.live.json，按我的要求准备修改草稿。
 ```
 
-详细说明见[外部协同与任务板](docs/integrations/bridge.md)。
+使用本地开发版时，将上面指南地址替换为当前源码中 `public/skills/koma-bridge/SKILL.md` 的实际文件路径。整理企划资料可直接按任务改文件；画板与任务状态修改须投递草稿。详细说明见[外部协同与任务板](docs/integrations/bridge.md)。
 
 ## 🔌 协议与连接
 
@@ -96,12 +100,13 @@ https://koma-image.pages.dev/skills/koma-bridge/SKILL.md
 | NovelAI 官方 | `IMAGE` 绘图、`EDIT` 编辑、放大、参考编码与 Director Tools |
 | OpenAI Images | `CHAT` 图像生成与多参考图修改 |
 | Gemini 原生 | `CHAT` 多模态图文生成与参考图修改 |
+| Seedream 原生 | `CHAT` / `EDIT` 生图与多参考图修改，5.0 参数参考及 5.5 手动模板 |
 | Koma 标准网关 | `IMAGE` / `CHAT` / `EDIT` 统一目录、预报价与生成路由 |
 | OpenAI Chat / Anthropic / Gemini 原生 | `ASK` 流式推理、工具调用、自动命名与上下文压缩 |
 
 详情见[图像协议说明](docs/integrations/image-protocols.md)与[当前状态](docs/status.md)。
 
-默认使用暗色界面，可从顶栏外观图标或「设置 → 通用 → 外观」切换暗色／系统／亮色，选择会在当前浏览器保存。
+默认使用暗色界面，可从顶栏外观图标或「设置 → 通用 → 外观」切换暗色／亮色，选择会在当前浏览器保存。
 
 ## 🔒 本地存储与隐私
 

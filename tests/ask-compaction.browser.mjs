@@ -1,11 +1,12 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 
-import { useAskFixture, origin, reasoning, open, openai, text, anthropic, askSettings, generation, bind, drawer, openMore, openDebug, patchStep, askDraft, applyDraft, editQuestion, scripted, wireStates, savedAsk, reloadAsk, cp2Reply, cp2Send, cp2History, cp2Result, cp2Marks, cp2Plain, cp2Context, cp3HasMemory, cp3Threshold, cp3Manual } from "./helpers/ask-fixture.mjs";
+import { useAskFixture, origin, reasoning, open, openai, text, askSettings, generation, bind, drawer, openMore, openDebug, patchStep, askDraft, applyDraft, editQuestion, scripted, wireStates, savedAsk, reloadAsk, cp2Reply, cp2Send, cp2History, cp2Result, cp2Marks, cp2Plain, cp2Context, cp3HasMemory, cp3Threshold, cp3Manual } from "./helpers/ask-fixture.mjs";
 
 useAskFixture();
 
-for (const connectionId of ['chat', 'claude']) test(`ASK CP4: ${connectionId} second automatic compaction, frozen prefix and full paged recall after reload`, async () => {
+test(`ASK CP4: chat second automatic compaction, frozen prefix and full paged recall after reload`, async () => {
+  const connectionId = "chat";
   const { page, context, llm, calls, requests, errors } = await open('/#/image', { ready: '.switcher', ask: askSettings({ connectionId }) });
   try {
     await cp2History(page, llm, connectionId); await cp3Manual(page, llm, connectionId, '第一份边界备忘录。');
@@ -29,9 +30,9 @@ for (const connectionId of ['chat', 'claude']) test(`ASK CP4: ${connectionId} se
     assert.deepEqual(compact.body.tools, before.tools); assert.deepEqual(compact.body.system, before.system);
     assert.match(compact.raw, /第一份边界备忘录/); assert.doesNotMatch(compact.raw, /第二次压缩后的新问题/);
     assert.match(normal.raw, /第二份边界备忘录/); assert.doesNotMatch(normal.raw, /第一份边界备忘录|甲甲甲甲/);
-    assert.equal(cp2Marks(compact.body), connectionId === 'claude' ? 4 : 0);
-    assert.equal(cp2Marks(normal.body), connectionId === 'claude' ? 4 : 0);
-    assert.equal(compact.body.max_tokens, connectionId === 'claude' ? 8192 : undefined);
+    assert.equal(cp2Marks(compact.body), 0);
+    assert.equal(cp2Marks(normal.body), 0);
+    assert.equal(compact.body.max_tokens, undefined);
     const logs = await page.evaluate(() => ask.debug.value.calls);
     assert.equal(logs[11].purpose, 'compaction'); assert.equal(logs[12].afterCompaction, true);
     for (const i of [11, 12]) {
@@ -72,7 +73,8 @@ for (const connectionId of ['chat', 'claude']) test(`ASK CP4: ${connectionId} se
   } finally { await context.close(); }
 });
 
-for (const connectionId of ['chat', 'claude']) test(`ASK CP4: ${connectionId} archived/retained forks isolate future attachments and survive source deletion`, async () => {
+test(`ASK CP4: chat archived/retained forks isolate future attachments and survive source deletion`, async () => {
+  const connectionId = "chat";
   const { page, context, llm, calls, requests, errors } = await open('/#/image', { ready: '.switcher', ask: askSettings({ connectionId }) });
   try {
     await cp2History(page, llm, connectionId);
@@ -215,7 +217,8 @@ for (const connectionId of ['chat', 'claude']) test(`ASK CP2: ${connectionId} du
   } finally { await context.close(); }
 });
 
-for (const connectionId of ['chat', 'claude']) test(`ASK CP2: ${connectionId} network stop, save failure and queued/active-save stop preserve context and pending input`, async () => {
+test(`ASK CP2: chat network stop, save failure and queued/active-save stop preserve context and pending input`, async () => {
+  const connectionId = "chat";
   const { page, context, llm, calls, requests, errors } = await open('/#/image', { ready: '.switcher', ask: askSettings({ connectionId }) });
   let release;
   try {
@@ -320,7 +323,8 @@ test("ASK CP3: threshold settings, invalid input, restore default, reload", asyn
   } finally { await context.close(); }
 });
 
-for (const connectionId of ['chat', 'claude']) test(`ASK CP3: ${connectionId} manual menu, memory boundary, original preview/reference`, async () => {
+test(`ASK CP3: chat manual menu, memory boundary, original preview/reference`, async () => {
+  const connectionId = "chat";
   const { page, context, llm, calls, requests, errors } = await open('/#/image', { ready: '.switcher', ask: askSettings({ connectionId }) });
   try {
      await bind(page); await page.evaluate(() => ask.show());
@@ -423,7 +427,8 @@ for (const connectionId of ['chat', 'claude']) test(`ASK CP3: ${connectionId} ma
   } finally { await context.close(); }
 });
 
-for (const connectionId of ['chat', 'claude']) test(`ASK CP3: ${connectionId} automatic compaction precedes consumption, uses latest board and stops the whole send`, async () => {
+test(`ASK CP3: chat automatic compaction precedes consumption, uses latest board and stops the whole send`, async () => {
+  const connectionId = "chat";
   const { page, context, llm, calls, requests, errors } = await open('/#/image', { ready: '.switcher', ask: askSettings({ connectionId }) });
   let release;
   const begin = async memo => {
@@ -464,7 +469,8 @@ for (const connectionId of ['chat', 'claude']) test(`ASK CP3: ${connectionId} au
   } finally { release?.(); await context.close(); }
 });
 
-for (const connectionId of ['chat', 'claude']) test(`ASK CP3: ${connectionId} automatic failure sends original history once; retry is explicit and unknown usage does not auto-compact`, async () => {
+test(`ASK CP3: chat automatic failure sends original history once; retry is explicit and unknown usage does not auto-compact`, async () => {
+  const connectionId = "chat";
   const { page, context, llm, calls, requests, errors } = await open('/#/image', { ready: '.switcher', ask: askSettings({ connectionId }) });
   try {
     await cp2History(page, llm, connectionId); await cp3Threshold(page, 2000);
@@ -482,10 +488,7 @@ for (const connectionId of ['chat', 'claude']) test(`ASK CP3: ${connectionId} au
     assert.equal(calls.length, 9);
     // Complete four new turns but let the last completed request report no usage.
     for (let i = 0; i < 4; i++) {
-      llm.push({ body: connectionId === 'chat'
-        ? openai(text('没有 usage 的回答'), { choices: [{ index: 0, delta: {}, finish_reason: 'stop' }] })
-        : anthropic({ type: 'message_start', message: {} }, { type: 'content_block_start', index: 0, content_block: { type: 'text', text: '没有 usage 的回答' } },
-          { type: 'content_block_stop', index: 0 }, { type: 'message_delta', delta: { stop_reason: 'end_turn' } }, { type: 'message_stop' }) });
+      llm.push({ body: (openai(text('没有 usage 的回答'), { choices: [{ index: 0, delta: {}, finish_reason: 'stop' }] })) });
       await cp2Send(page, `未知测量 ${i}`);
     }
     assert.equal((await savedAsk(page))[0].session.lastInputTokens, null);
@@ -495,7 +498,8 @@ for (const connectionId of ['chat', 'claude']) test(`ASK CP3: ${connectionId} au
   } finally { await context.close(); }
 });
 
-for (const connectionId of ['chat', 'claude']) test(`ASK CP3: ${connectionId} archived edit stop preserves editor/tray; retry and archive fork rebuild once, retained edits keep memory`, async () => {
+test(`ASK CP3: chat archived edit stop preserves editor/tray; retry and archive fork rebuild once, retained edits keep memory`, async () => {
+  const connectionId = "chat";
   const { page, context, llm, calls, requests, errors } = await open('/#/image', { ready: '.switcher', ask: askSettings({ connectionId }) });
   let release;
   try {

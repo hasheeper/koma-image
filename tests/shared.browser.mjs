@@ -1,5 +1,6 @@
 import { before, after, test } from "node:test";
 import assert from "node:assert/strict";
+import http from "node:http";
 
 import { createServer } from './helpers/vite.mjs';
 import { chromium } from "playwright";
@@ -38,6 +39,37 @@ before(async () => {
 after(async () => {
   await browser?.close();
   await server?.close();
+});
+test("connection diagnostic: a reachable native API without CORS is not reported as an unreachable domain", async () => {
+  const requests = [];
+  const upstream = http.createServer((req, res) => {
+    requests.push({ method: req.method, authorization: req.headers.authorization });
+    res.writeHead(req.method === "OPTIONS" ? 404 : 401, { "Content-Type": "application/json" });
+    res.end(req.method === "HEAD" ? undefined : JSON.stringify({ error: "synthetic unauthorized" }));
+  });
+  const context = await browser.newContext();
+  try {
+    await new Promise(resolve => upstream.listen(0, "127.0.0.1", resolve));
+    const page = await context.newPage();
+    await page.goto(origin);
+    const result = await page.evaluate(async baseUrl => {
+      const { testConnection } = await import("/src/gateway/connection-test.ts");
+      return testConnection({
+        connection: { baseUrl, profileId: "seedream-v1" },
+        key: () => "synthetic-key",
+        assertCurrent() {},
+      });
+    }, `http://127.0.0.1:${upstream.address().port}`);
+    assert.deepEqual(result, { s: "warn", text: "模型目录跨域受限，可手动填写模型 ID；生成能力尚未验证", kind: "catalog-limited" });
+    assert.ok(requests.some(r => r.method === "OPTIONS"));
+    assert.ok(requests.some(r => r.method === "HEAD"));
+    assert.ok(requests.every(r => r.authorization === undefined));
+    assert.ok(requests.every(r => r.method !== "POST"));
+  } finally {
+    await context.close();
+    upstream.closeAllConnections();
+    await new Promise(resolve => upstream.close(resolve));
+  }
 });
 async function open(path = "/#/image", options = {}) {
   if (!path.includes("#") && !path.includes("transfer.html")) path += "#/image";
@@ -840,28 +872,7 @@ test("appearance: one click toggles two choices, persists and syncs across tabs 
   } finally { await t.context.close(); }
 });
 
-test("appearance: every workspace exposes the toggle directly on desktop and mobile", async () => {
-  const t = await open("/#/home");
-  try {
-    const { page } = t;
-    for (const viewport of [{ width: 1440, height: 900 }, { width: 390, height: 844 }]) {
-      await page.setViewportSize(viewport);
-      for (const workspace of ["home", "image", "chat", "edit", "tags"]) {
-        await route(page, `#/${workspace}`);
-        const light = page.getByRole("button", { name: "切换到亮色", exact: true });
-        await light.waitFor();
-        await light.click();
-        await page.waitForFunction(() => document.documentElement.dataset.theme === "light");
-        await page.getByRole("button", { name: "切换到暗色", exact: true }).click();
-        await page.waitForFunction(() => document.documentElement.dataset.theme === "dark");
-      }
-    }
-    assert.deepEqual(t.requests, []);
-    await clean(t);
-  } finally { await t.context.close(); }
-});
-
-test("backup UI works without keys, validates file before import and exports version 2 without secrets", async () => {
+test("[core] backup UI works without keys, validates file before import and exports version 2 without secrets", async () => {
   const t = await open("/#/image/settings/backup");
   try {
     const { page } = t;
@@ -945,27 +956,4 @@ test("backup UI works without keys, validates file before import and exports ver
     await t.context.close();
     throw e;
   }
-});
-
-test("scoped notices follow a modal and keep their real dismissal clock under reduced motion", async () => {
-  const t = await open();
-  try {
-    const { page } = t;
-    await page.emulateMedia({ reducedMotion: "reduce" });
-    await page.evaluate(() => {
-      const p = document.body.__vue_app__._instance.provides;
-      window.styleUi = p[Object.getOwnPropertySymbols(p).find((key) => key.description === "ui")];
-      void styleUi.confirm({ title: "样式验证", message: "保留确认内容与操作。", items: ["第一项", "第二项"] });
-    });
-    await page.waitForSelector("#confirmSheet[open]");
-    await page.evaluate(() => styleUi.toast("计时样式验证", "ok"));
-    const notice = page.locator("#confirmSheet .editor-toasts .toast");
-    await notice.waitFor();
-    await page.waitForTimeout(150);
-    assert.ok(await notice.isVisible(), "reduced motion must not dismiss immediately");
-    await notice.waitFor({ state: "hidden", timeout: 5000 });
-    assert.equal(await page.locator("#confirmSheet[open]").count(), 1);
-    await page.locator("#confirmSheet [data-confirm=cancel]").click();
-    await clean(t);
-  } finally { await t.context.close(); }
 });

@@ -1,3 +1,4 @@
+import type { Retrospect } from './retrospect/model.ts';
 import { ProviderError } from "./messages.ts";
 import type { AskBlock, AskCall, AskEvent, AskRequest, AskResult, AskUsage, GeminiReplay } from "./messages.ts";
 import { LIMITS } from "./session.ts";
@@ -23,6 +24,7 @@ export type RunEvent =
       readonly reason?: string;
       readonly picks?: readonly string[];
       readonly draft?: Draft;
+      readonly retrospect?: Retrospect;
     }
   | { readonly type: "usage"; readonly usage: AskUsage }
   | { readonly type: "done"; readonly reason: "end" | "final" | "length" };
@@ -125,7 +127,8 @@ export async function* run(options: RunOptions): AsyncGenerator<RunEvent, void> 
         stat = "",
         toolReason: string | undefined,
         picks: readonly string[] | undefined,
-        draft: Draft | undefined;
+        draft: Draft | undefined,
+        retrospect: Retrospect | undefined;
       if (final) result = failure(call.id, "本轮草稿已提交，后续工具未执行。");
       else if (blocked)
         result = failure(call.id, reservedDraftUsed
@@ -146,6 +149,7 @@ export async function* run(options: RunOptions): AsyncGenerator<RunEvent, void> 
           toolReason = outcome.reason;
           picks = outcome.picks;
           draft = outcome.draft;
+          retrospect = outcome.retrospect;
           final ||= !!entry.final && !outcome.error;
         } catch (error) {
           signal.throwIfAborted();
@@ -154,7 +158,7 @@ export async function* run(options: RunOptions): AsyncGenerator<RunEvent, void> 
       }
       results.push(result);
       const reason = toolReason ?? (result.error ? result.content.filter(b => b.type === "text").map(b => b.text).join("\n").trim() || "工具执行失败" : undefined);
-      yield { type: "tool-end", id: call.id, ok: !result.error, stat, ...(reason ? { reason } : {}), ...(picks ? { picks } : {}), ...(draft ? { draft } : {}) };
+      yield { type: "tool-end", id: call.id, ok: !result.error, stat, ...(reason ? { reason } : {}), ...(picks ? { picks } : {}), ...(draft ? { draft } : {}), ...(retrospect ? { retrospect } : {}) };
     }
     turn.push({ role: "user", content: results });
     if (final) {

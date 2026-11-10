@@ -205,7 +205,8 @@ export function reviveConversation(
   hasAsset: (id: string) => boolean = () => true,
 ): ConversationRecord {
   const conversation = { ...newConversation(record.settings), ...record };
-  if(conversation.pendingAnnotation && [conversation.pendingAnnotation.sourceAssetId, conversation.pendingAnnotation.inputAssetId, conversation.pendingAnnotation.guideAssetId].some(id=>!hasAsset(id))) clearPendingAnnotation(conversation);
+  const pending = conversation.pendingAnnotation;
+  if(pending && [pending.sourceAssetId, pending.inputAssetId, pending.guideAssetId, ...(pending.markup ? [pending.markup.inputAssetId, pending.markup.overlayAssetId] : [])].some(id=>!hasAsset(id))) clearPendingAnnotation(conversation);
   for (const turn of conversation.turns)
     for (const version of turn.versions) {
       if (version.status === "pending")
@@ -259,20 +260,20 @@ export function contextSnapshot(
   const skip = new Set(conversation.skipTurnIds);
   const turns = branchTurns(conversation).filter((t) => !skip.has(t.id));
   const annotation = conversation.pendingAnnotation;
-  const base = annotation?.inputAssetId || conversation.mainId || null;
+  const base = annotation?.markup?.inputAssetId || annotation?.inputAssetId || conversation.mainId || null;
   // The user's own uploads stay in context across turns: a result image should
   // not silently evict the original everything is being edited from.
   const refs = [
     ...new Set(
-      [...(annotation && !annotation.singleImage ? [annotation.guideAssetId] : []), ...conversation.keepIds, ...conversation.attachments].filter(
-        (assetId) => assetId && assetId !== base && (!annotation?.singleImage || assetId !== annotation.guideAssetId),
+      [...(annotation && !annotation.singleImage && !annotation.markup ? [annotation.guideAssetId] : []), ...conversation.keepIds, ...conversation.attachments].filter(
+        (assetId) => assetId && assetId !== base && (!annotation || assetId !== annotation.inputAssetId && (!(annotation.singleImage || annotation.markup) || assetId !== annotation.guideAssetId)),
       ),
     ),
   ];
   const wanted = [...(base ? [base] : []), ...refs];
   const imageIds = wanted.slice(0, Math.max(0, limit));
   const dropped = wanted.slice(imageIds.length);
-  const instruction = annotation ? annotationPrompt(annotation.snapshot.regions, !annotation.singleImage, annotation.text ? prompt.replace(annotation.text, "").trim() : prompt) : prompt;
+  const instruction = annotation ? annotationPrompt(annotation.snapshot.regions, annotation.markup ? 'markup' : !annotation.singleImage, annotation.text ? prompt.replace(annotation.text, "").trim() : prompt) : prompt;
   const text = turns.length
     ? [
         "此前的绘图要求（按顺序）：",
@@ -363,9 +364,16 @@ export function selectSource(conversation: ConversationRecord, turn: Conversatio
   conversation.selectionRevision += 1;
 }
 
-export type ChatSelection = Pick<ConversationRecord, "headId" | "mainId" | "skipTurnIds" | "baseFollows" | "prompt">;
+export type ChatSelection = Pick<ConversationRecord, "headId" | "mainId" | "skipTurnIds" | "baseFollows" | "prompt"> & { selectedVersions?: Record<string, number> };
 export function chatSelection(c: ConversationRecord): ChatSelection {
-  return { headId: c.headId, mainId: c.mainId, skipTurnIds: [...c.skipTurnIds], baseFollows: c.baseFollows, prompt: c.prompt };
+  return { headId: c.headId, mainId: c.mainId, skipTurnIds: [...c.skipTurnIds], baseFollows: c.baseFollows, prompt: c.prompt,
+    selectedVersions: Object.fromEntries(c.turns.map(t => [t.id, t.selectedVersion])) };
+}
+/** Keep draft-only selection metadata out of persisted conversation fields. */
+export function applyChatSelection(c: ConversationRecord, selection: ChatSelection) {
+  const { selectedVersions, ...fields } = structuredClone(selection);
+  Object.assign(c, fields);
+  for (const t of c.turns) if (selectedVersions?.[t.id] !== undefined) t.selectedVersion = selectedVersions[t.id];
 }
 /** Includes context/version changes and generation completions, excludes cosmetic titles. */
 export function chatDraftKey(c: ConversationRecord): string {
@@ -381,4 +389,7 @@ export function clearPendingAnnotation(c: ConversationRecord): void {
   if(a.text) c.prompt=c.prompt.replace(a.text,'').trim();delete c.pendingAnnotation;
 }
 
-export function isAnnotationGuide(c: ConversationRecord, id: string): boolean { return c.pendingAnnotation?.guideAssetId === id || c.turns.some(t=>t.snapshot.annotation?.guideAssetId===id); }
+export function isAnnotationGuide(c: ConversationRecord, id: string): boolean {
+  const matches = (a?: ConversationRecord['pendingAnnotation']) => !!a && (a.guideAssetId === id || a.markup?.overlayAssetId === id);
+  return matches(c.pendingAnnotation) || c.turns.some(t => matches(t.snapshot.annotation));
+}

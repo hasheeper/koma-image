@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import WorkspaceEvolutionEntry from "../../ask/retrospect/WorkspaceEvolutionEntry.vue";
 import AnnotationCard from "../../shared/annotations/AnnotationCard.vue";
 import ModelParameterInput from "../../shared/ModelParameterInput.vue";
 import { computed, shallowRef, ref, watch, nextTick, onDeactivated } from "vue";
@@ -6,6 +7,8 @@ import { useShell } from "../../app/shell";
 import { useAskPresentation } from "../../ask/presentation";
 const { fullscreen: askFullscreen } = useAskPresentation();
 import { useChat } from "../../app/chat";
+import { usePhotopea } from "../../app/photopea.ts";
+const photopea = usePhotopea();
 import { useAnnotations } from "../../app/annotations.ts";
 import { chatImageId } from "../../domain/image-origin.ts";
 import { useServices } from "../../app/services";
@@ -402,7 +405,7 @@ onDeactivated(() => {
 });
 </script>
 <template>
-  <div class="chat-app" id="chatApp" data-workspace-root="chat" :inert="askFullscreen">
+  <div class="chat-app" id="chatApp" data-workspace-root="chat" :inert="askFullscreen || !!photopea.task.value">
     <header class="topbar">
       <WorkspaceSwitch workspace="chat" /><button
         class="ibtn rail-toggle"
@@ -415,7 +418,7 @@ onDeactivated(() => {
         <AppIcon name="i-sidebar" />
       </button>
       <div class="topbar-menu">
-        <div class="topbar-end" role="group" aria-label="工具"></div>
+        <div class="topbar-end" role="group" aria-label="工具"><WorkspaceEvolutionEntry :available="view.current.turns.some(t => t.versions.some(v => v.status === 'done'))" /></div>
         <button
           ref="menu"
           class="ibtn chat-menu"
@@ -529,7 +532,7 @@ onDeactivated(() => {
           :data-drop="drop || undefined"
           @submit.prevent="chat.execute()"
         >
-          <AnnotationCard v-if="c.pendingAnnotation" inline :regions="c.pendingAnnotation.snapshot.regions" :preview="chat.assets.assets.get(c.pendingAnnotation.guideAssetId)?.url" :single-image="c.pendingAnnotation.singleImage" :disabled="!!view.busy" @comment="chat.annotationComment" @mode="chat.annotationTextOnly" @remove="chat.clearAnnotations()" />
+          <AnnotationCard v-if="c.pendingAnnotation" inline :regions="c.pendingAnnotation.snapshot.regions" :preview="chat.assets.assets.get(c.pendingAnnotation.guideAssetId)?.url" :single-image="c.pendingAnnotation.singleImage" :markup="!!c.pendingAnnotation.markup" :markup-eligible="view.model?.markupEligible" :disabled="!!view.busy || !!view.uploading" @comment="chat.annotationComment" @mode="chat.annotationTextOnly" @markup="chat.annotationMarkup()" @remove="chat.clearAnnotations()" />
           <div class="chat-attachments" aria-label="本轮图片">
             <div
               v-for="id in c.attachments.filter(id => id !== c.pendingAnnotation?.guideAssetId)"
@@ -738,7 +741,7 @@ onDeactivated(() => {
                 ? "OpenAI"
                 : g.provider === "gemini"
                   ? "Gemini"
-                  : g.provider
+                  : g.provider === "seedream" ? "Seedream" : g.provider
             }}</span>
           </p>
           <label
@@ -796,7 +799,6 @@ onDeactivated(() => {
         >
           <label class="param-name" :for="`chatOption-${key}`">{{ field.label || chatOptionNames[key] || key }}</label>
           <div v-if="field.options.length && !field.allowCustom && field.type !== 'number'" class="param-chips">
-            <label class="param-chip"><input type="radio" :name="`chatOption-${key}`" :checked="!options[key]" @change="chat.setOption(key, '')" /><span>跟随接口</span></label>
             <label
               v-for="value in field.options"
               :key="value"
@@ -806,10 +808,10 @@ onDeactivated(() => {
                 :name="`chatOption-${key}`"
                 :checked="options[key] === value"
                 @change="chat.setOption(key, value)"
-              /><span>{{ field.type === 'boolean' ? value === 'true' ? '开启' : '关闭' : chatOptionLabel(value) }}</span></label
+              /><span>{{ field.type === 'boolean' ? value === 'true' ? '开启' : '关闭' : chatOptionLabel(value, key) }}</span></label
             >
           </div>
-          <ModelParameterInput v-else :id="`chatOption-${key}`" :field="field" :value="options[key]" :disabled="!!view.busy" @change="chat.setOption(key, $event)" />
+          <ModelParameterInput v-else :id="`chatOption-${key}`" :field="field" :value="options[key]" :format="value => chatOptionLabel(value, key)" :disabled="!!view.busy" @change="chat.setOption(key, $event)" />
         </div>
       </div>
     </div></Teleport

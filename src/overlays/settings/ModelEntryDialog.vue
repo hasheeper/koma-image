@@ -16,8 +16,9 @@ const dialog = useTemplateRef<HTMLDialogElement>("dialog");
 const target = ref<string | null>(null), family = ref("gpt"), name = ref(""), template = ref("gpt-image-2");
 const defaults = ref<Record<string, string>>({});
 const busy = ref(false), error = ref("");
+const referenceNote = computed(() => editablePresets.find(m => m.id === template.value)?.referenceNote);
 const existing = computed(() => configuredModels(props.routing).find(m => m.id === target.value));
-function open(value: ModelIdentity | "gpt" | "gemini") {
+function open(value: ModelIdentity | "gpt" | "gemini" | "seedream") {
   if (busy.value) return;
   const model = typeof value === "string" ? null : value;
   if (model?.family === "novelai") return;
@@ -55,7 +56,7 @@ defineExpose({ open, close });
   <dialog ref="dialog" class="modal set-ui model-entry-dialog" aria-labelledby="modelEntryTitle" @cancel.prevent="close">
     <form class="modal-form" @submit.prevent="save">
       <header class="modal-head">
-        <h2 id="modelEntryTitle" class="model-entry-title"><ModelIcon :family="family" />{{ target ? '编辑模型' : `新增 ${family === 'gpt' ? 'GPT' : 'Gemini'} 模型` }}</h2>
+        <h2 id="modelEntryTitle" class="model-entry-title"><ModelIcon :family="family" />{{ target ? '编辑模型' : `新增 ${family === 'gpt' ? 'GPT' : family === 'seedream' ? 'Seedream' : 'Gemini'} 模型` }}</h2>
         <button class="ibtn" type="button" aria-label="关闭模型编辑" :disabled="busy" @click="close"><AppIcon name="i-close" /></button>
       </header>
       <div class="modal-body">
@@ -65,6 +66,7 @@ defineExpose({ open, close });
             <option v-for="preset in editablePresets.filter(m => m.family === family)" :key="preset.id" :value="preset.id">{{ preset.name }}</option>
           </select>
         </div>
+        <p v-if="referenceNote" class="hint">{{ referenceNote }}</p>
         <p v-if="error" role="alert" class="modal-error">{{ error }}</p>
       </div>
       <footer class="modal-foot">

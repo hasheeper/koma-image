@@ -162,12 +162,14 @@ export function createSlateSync(slates: Slates, storage: ReturnType<typeof bridg
   }
   return {
     mappings,
-    attach(s: SlateSession) { session = s; return serial(async () => { await slates.restored; const active = slates.snapshot(); if (active) await ensure(s, active.id); mappings.value = await read(s); }); },
+    attach(s: SlateSession) { session = s; return serial(async () => { await slates.restored; mappings.value = await read(s); }); },
     async detach() { session = null; await sequence; mappings.value = []; },
     scan: (s: SlateSession) => serial(() => scan(s)),
-    deliver(slate: Slate | null, id: string, required: boolean, created = false) {
+    deliver(slate: Slate | null, id: string, required: boolean, created = false, directoryId: string | null = session?.id ?? null) {
       const s = session;
-      if (!s) return required ? Promise.reject(new Error("目录已断开，交付未完成")) : Promise.resolve();
+      if (directoryId === null) return required ? Promise.reject(new Error('请先挂载企划目录')) : Promise.resolve();
+      if (s && s.id !== directoryId) return Promise.reject(new Error('企划目录已切换，原目录交付未完成'));
+      if (!s) return Promise.reject(new Error("目录已断开，原目录交付未完成"));
       return serial(async () => {
         if (s.signal.aborted) throw new Error("目录已断开");
         if (slate && (required || created)) await ensure(s, id);

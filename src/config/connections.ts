@@ -18,6 +18,16 @@ export interface ModelLink {
   manual: boolean;
   on: boolean;
   parameters?: ParameterOverrides;
+  /** Read compatibility for the earlier source-capability setting; new edits use parameters. */
+  markup?: boolean;
+}
+export function modelParameterOverrides(link: Pick<ModelLink, 'parameters' | 'markup'>): ParameterOverrides {
+  return { ...(typeof link.markup === 'boolean' ? { markup: { type: 'boolean' as const, options: ['true', 'false'], default: String(link.markup) } } : {}), ...link.parameters };
+}
+export function withModelParameters(link: ModelLink, parameters: ParameterOverrides): ModelLink {
+  const next = { ...link, parameters: validateParameterOverrides(parameters) };
+  delete next.markup;
+  return next;
 }
 export interface Routing {
   version: 1;
@@ -48,11 +58,13 @@ export function validateModelLinks(value: unknown): Record<string, ModelLink> {
       throw new Error("模型来源配置无效");
     if (claimed.has(link.id)) throw new Error("同一供应商的模型 ID 不能重复关联");
     claimed.add(link.id);
+    if (link.markup !== undefined && typeof link.markup !== "boolean") throw new Error("原生标注能力配置无效");
     links[model] = {
       id: link.id,
       manual: link.manual === true,
       on: link.on !== false,
       ...(link.parameters !== undefined ? { parameters: validateParameterOverrides(link.parameters) } : {}),
+      ...(link.markup !== undefined ? { markup: link.markup } : {}),
     };
   }
   return links;
@@ -145,7 +157,7 @@ export function validateRouting(value: unknown): Routing {
       name: c.name.trim(),
       baseUrl,
       credentialRef: c.credentialRef,
-      profileId: c.profileId,
+      profileId: profile.id,
       revision: c.revision,
     };
   }

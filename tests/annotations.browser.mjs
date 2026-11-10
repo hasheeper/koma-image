@@ -32,6 +32,110 @@ async function setup(outputSize = [128, 128]){
  await page.goto(origin+'/#/chat');await page.waitForFunction(()=>!!document.body.__vue_app__?._instance);await bind(page);await page.waitForFunction(()=>chat.snapshot().ready);await page.evaluate(()=>chat.setModel('gpt-image-2'));
  return {context,page,posts,errors};
 }
+
+test('boundary matching is optional, cached by settings, preserves raw and creates distinct explicit composites',async()=>{
+ const t=await setup();try{
+  const values=await t.page.evaluate(async()=>{
+   await editor.open('image',await makeImage(),'color-source.png');editor.setModel('gpt-image-2');editor.setMode('inpaint');editor.patch({prompt:'adjust boundary'});
+   const c=new OffscreenCanvas(256,256),x=c.getContext('2d');x.fillStyle='white';x.fillRect(64,64,128,128);await editor.importMask(await c.convertToBlob({type:'image/png'}),'alpha');
+   await editor.run();const raw=editor.snapshot().viewed,board=editor.session.id,bytes=[...new Uint8Array(await raw.blob.arrayBuffer())];
+   const on=await editor.previewComparison(board,raw.id,undefined,true),off=await editor.previewComparison(board,raw.id,undefined,false);
+   const a=await readPixels(on),b=await readPixels(off),at=(64*256+90)*4;
+   const first=await editor.applyComparison(board,raw.id,true),again=await editor.applyComparison(board,raw.id,true),second=await editor.applyComparison(board,raw.id,false);
+   return {different:a.data.some((v,i)=>v!==b.data[i]),outside:[...a.data.slice(0,4)],edgeOn:[...a.data.slice(at,at+4)],edgeOff:[...b.data.slice(at,at+4)],same:first.id===again.id,distinct:first.id!==second.id,retained:editor.session.versions.includes(first),rawUnchanged:bytes.join() === [...new Uint8Array(await raw.blob.arrayBuffer())].join()};
+  });
+  assert.equal(values.different,true);assert.deepEqual(values.outside,[161,41,66,255]);assert.equal(values.same,true);assert.equal(values.distinct,true);assert.equal(values.retained,true);assert.equal(values.rawUnchanged,true);assert.deepEqual(t.errors,[]);
+ }finally{await t.context.close();}
+});
+
+test('CHAT fusion launch returns a formal composite, persists settings and rejects stale reviews',async()=>{
+ const t=await setup();try{
+  await t.page.evaluate(async()=>{const source=await makeImage(),snapshot=await makeSnapshot(source),{annotationPreview}=await import('/src/native/annotation-canvas.ts');await chat.prepareAnnotations(source,await annotationPreview(source,snapshot),snapshot);await chat.execute();});
+  await t.page.waitForFunction(()=>!chat.snapshot().busy&&chat.snapshot().current.turns[0]?.versions[0]?.status==='done');
+  const target=await t.page.evaluate(()=>{const c=chat.snapshot().current,t=c.turns.at(-1),v=t.versions.at(-1),raw=v.blocks.find(b=>b.type==='image').assetId;annotations.chatReview(c.id,t.id,v.id,raw);return {c:c.id,t:t.id,v:v.id,raw};});
+  await t.page.getByRole('button',{name:'融合精修',exact:true}).click();
+  const state=await t.page.evaluate(async target=>{
+   const p=document.body.__vue_app__._instance.provides,photopea=p[Object.getOwnPropertySymbols(p).find(k=>k.description==='photopea')],task=photopea.task.value;
+   const valid=task.fusion.valid();await task.fusion.apply(await makeImage(256,256,'#667788'));photopea.close(task.id);await chat.flush();
+   const c=chat.snapshot().current,v=c.turns.find(t=>t.id===target.t).versions.find(v=>v.id===target.v);
+   const stale=chat.annotationReview(c.id,target.t,target.v,target.raw);chat.addConversation();let rejected=false;try{await stale.apply(await makeImage());}catch{rejected=true;}
+   return {valid,composite:!!v.composites[target.raw],raw:v.blocks.some(b=>b.type==='image'&&b.assetId===target.raw),settings:v.compositeSettings[target.raw],rejected};
+  },target);
+  assert.equal(state.valid,true);assert.equal(state.composite,true);assert.equal(state.raw,true);assert.deepEqual(state.settings,{colorMatch:true,method:'photopea',boundaryColorVersion:1});assert.equal(state.rejected,true);assert.deepEqual(t.errors,[]);
+ }finally{await t.context.close();}
+});
+
+test('compact fusion tools share the comparison menu, keep apply explicit and launch the frozen Photopea task',async()=>{
+ const t=await setup();try{
+  await t.page.setViewportSize({width:390,height:844});
+  await t.page.evaluate(async()=>{
+   await editor.open('image',await makeImage(),'compact.png');editor.setModel('gpt-image-2');editor.setMode('inpaint');editor.patch({prompt:'adjust boundary'});
+   const c=new OffscreenCanvas(256,256),x=c.getContext('2d');x.fillStyle='white';x.fillRect(64,64,128,128);await editor.importMask(await c.convertToBlob({type:'image/png'}),'alpha');await editor.run();
+  });
+  const menu=t.page.getByRole('button',{name:'选择比较图片',exact:true});
+  await menu.click();await t.page.getByRole('menuitemradio',{name:'原图',exact:true}).click();
+  assert.equal(await t.page.evaluate(()=>editor.askSnapshot().imageEditing.comparison.display.mode),'source');
+  await menu.click();await t.page.getByRole('menuitemcheckbox',{name:'色彩对齐',exact:true}).click();
+  assert.equal(await t.page.getByRole('menuitemcheckbox',{name:'色彩对齐',exact:true}).getAttribute('aria-checked'),'false');
+  await t.page.getByRole('menuitemradio',{name:'蒙版替换',exact:true}).click();
+  await t.page.getByRole('button',{name:'应用蒙版',exact:true}).click();await t.page.waitForFunction(()=>!!editor.snapshot().viewed?.params?.localComposite);
+  assert.equal(await t.page.evaluate(()=>editor.snapshot().viewed.comparison.colorMatch),false);
+  await menu.click();await t.page.getByRole('button',{name:'融合精修',exact:true}).click();
+  const task=await t.page.evaluate(()=>{const p=document.body.__vue_app__._instance.provides,s=p[Object.getOwnPropertySymbols(p).find(k=>k.description==='photopea')],t=s.task.value;const result={fusion:!!t?.fusion,color:t?.fusion.options.colorMatch,valid:t?.fusion.valid()};s.close(t.id);return result;});
+  assert.deepEqual(task,{fusion:true,color:false,valid:true});assert.deepEqual(t.errors,[]);
+ }finally{await t.context.close();}
+});
+
+test('EDIT fusion commits full-coverage raw as a composite and rejects cancelled, duplicate and wrong-size returns',async()=>{
+ const t=await setup();try{
+  const result=await t.page.evaluate(async()=>{
+   await editor.open('image',await makeImage(),'full-coverage.png');
+   const sourceId=editor.snapshot().viewed.id,token=editor.beginExternalEdit();
+   const raw=await editor.applyExternalEdit(token.id,{mode:'image',image:await makeImage(256,256,'#667788')});
+   const bits=new Uint8Array(256*256/8);bits.fill(255);
+   raw.comparison={sourceId,rawId:raw.id,mask:{width:256,height:256,bits},edges:{dilate:0,feather:0}};
+   const board=editor.session.id,count=editor.session.versions.length;
+   const cancelled=editor.beginComparisonFusion(board,raw.id,false);cancelled.fusion.cancel(false);
+   let stale=false;try{await cancelled.fusion.apply(raw.blob);}catch{stale=true;}
+   const task=editor.beginComparisonFusion(board,raw.id,false);
+   let wrongSize=false;try{await task.fusion.apply(await makeImage(128,128));}catch{wrongSize=true;}
+   const unchanged=editor.session.versions.length===count;await task.fusion.apply(raw.blob);
+   let duplicate=false;try{await task.fusion.apply(raw.blob);}catch{duplicate=true;}
+   return {stale,wrongSize,unchanged,duplicate,added:editor.session.versions.length-count,kind:editor.snapshot().viewed.kind,
+    formal:raw.comparison.compositeId===editor.snapshot().viewed.id,raw:editor.session.versions.includes(raw)};
+  });
+  assert.deepEqual(result,{stale:true,wrongSize:true,unchanged:true,duplicate:true,added:1,kind:'manual',formal:true,raw:true});assert.deepEqual(t.errors,[]);
+ }finally{await t.context.close();}
+});
+
+test('focused fusion maps crop coordinates and transports feathered alpha without binary thresholding',async()=>{
+ const t=await setup();try{
+  const result=await t.page.evaluate(async()=>{
+   const {prepareMaskedResult}=await import('/src/native/inpaint-result.ts'),{photopeaSoftMask}=await import('/src/native/photopea-input.ts');
+   const {inpaintFocusPlan}=await import('/src/domain/inpaint-focus.ts');
+   const bits=new Uint8Array(512*512/8);for(let y=160;y<352;y++)for(let x=160;x<352;x++){const p=y*512+x;bits[p>>3]|=1<<(p&7);}
+   const focus=inpaintFocusPlan({width:512,height:512},{x:128,y:128,width:256,height:256});
+   const prepared=await prepareMaskedResult(await makeImage(512,512,'#224466'),await makeImage(1024,1024,'#aa7755'),{width:512,height:512,bits},{dilate:.006,feather:.01},{focus,colorMatch:false});
+   const image=await readPixels(prepared.composite),alpha=await readPixels(await photopeaSoftMask(prepared.softMask));
+   const at=(x,y)=>[...image.data.slice((y*512+x)*4,(y*512+x)*4+4)];
+   return {outside:at(0,0),context:at(140,140),inside:at(256,256),soft:alpha.data.some((v,i)=>i%4===3&&v>0&&v<255),transparent:alpha.data[3]===0};
+  });
+  assert.deepEqual(result.outside,[34,68,102,255]);assert.deepEqual(result.context,[34,68,102,255]);assert.deepEqual(result.inside,[170,119,85,255]);assert.equal(result.soft,true);assert.equal(result.transparent,true);assert.deepEqual(t.errors,[]);
+ }finally{await t.context.close();}
+});
+
+test('local fusion overlays transparent AI pixels without punching holes in the frozen source',async()=>{
+ const t=await setup();try{
+  const pixels=await t.page.evaluate(async()=>{
+   const {prepareMaskedResult}=await import('/src/native/inpaint-result.ts');
+   const c=new OffscreenCanvas(256,256),x=c.getContext('2d');x.fillStyle='rgba(200,100,50,0.5)';x.fillRect(128,0,128,256);
+   const raw=await c.convertToBlob({type:'image/png'}),bits=new Uint8Array(256*256/8);bits.fill(255);
+   const prepared=await prepareMaskedResult(await makeImage(256,256,'#224466'),raw,{width:256,height:256,bits},{dilate:0,feather:0},{colorMatch:false});
+   const p=await readPixels(prepared.composite);return {clear:[...p.data.slice(0,4)],half:[...p.data.slice(128*4,128*4+4)]};
+  });
+  assert.deepEqual(pixels.clear,[34,68,102,255]);assert.equal(pixels.half[3],255);assert.ok(Math.abs(pixels.half[0]-117)<=1);assert.deepEqual(t.errors,[]);
+ }finally{await t.context.close();}
+});
 test('IMAGE annotation entries reuse EDIT, select the requested image and restore its comments',async()=>{
  const t=await setup();try{
   const recordId=await t.page.evaluate(async()=>{
@@ -155,8 +259,10 @@ test('annotation polygon vertices, comment edits and clear support local undo an
   const original=await read();assert.equal(original[0].points.length,3);
   await t.page.locator('[data-midpoint="0"] circle').click();assert.equal((await read())[0].points.length,4);
   await t.page.getByRole('button',{name:'删除顶点',exact:true}).click();assert.deepEqual(await read(),original);
-  const v=await t.page.locator('[data-vertex="1"]').boundingBox();
-  await t.page.mouse.move(v.x+v.width/2,v.y+v.height/2);await t.page.mouse.down();await t.page.mouse.move(...at(.8,.3),{steps:4});await t.page.mouse.up();
+  // The comment/vertex toolbar can refit the image after the polygon was drawn.
+  const vertex=t.page.locator('[data-vertex="1"]');await vertex.click({trial:true});
+  const v=await vertex.boundingBox(),image=await t.page.locator('#editorStage').boundingBox();
+  await t.page.mouse.move(v.x+v.width/2,v.y+v.height/2);await t.page.mouse.down();await t.page.mouse.move(image.x+image.width*.8,image.y+image.height*.3,{steps:4});await t.page.mouse.up();
   const moved=await read();assert.equal(moved[0].key,original[0].key);assert.ok(Math.abs(moved[0].points[1].x-.8)<.01);
   await t.page.getByRole('button',{name:'撤销批注',exact:true}).click();assert.deepEqual(await read(),original);
   await t.page.getByRole('button',{name:'重做批注',exact:true}).click();assert.deepEqual(await read(),moved);
@@ -180,24 +286,13 @@ test('pinch zoom cancels an unfinished annotation instead of committing a spurio
   assert.equal(await t.page.getByPlaceholder('添加批注…').count(),0);assert.deepEqual(t.errors,[]);
  }finally{await t.context.close();}
 });
-test('EDIT annotation masks support union, replacement and undo; native NAI focus constraints stay separate',async()=>{
- const t=await setup();try{const result=await t.page.evaluate(async()=>{
- const blob=await makeImage();await editor.open('image',blob,'source.png');const s=editor.session,v=editor.snapshot().base,snapshot=await makeSnapshot(blob);snapshot.image.entity_key=v.entity_key;
- const target={boardId:s.id,versionId:v.id}, {maskStateBitmap}=await import('/src/native/photopea-input.ts'),{createMaskEditor}=await import('/src/native/mask-editor.ts');
- await editor.applyAnnotations(target,snapshot,false,false);const a=await maskStateBitmap(s.mask);
- snapshot.regions[0].bbox={x:.65,y:.65,w:.15,h:.15};await editor.applyAnnotations(target,snapshot,true,false);const b=await maskStateBitmap(s.mask);
- const mask=createMaskEditor(document.createElement('canvas'),()=>{});mask.restore(s.mask);mask.undo();const restored=await maskStateBitmap(mask.snapshot());mask.dispose();
- await editor.applyAnnotations(target,snapshot,false,false);const c=await maskStateBitmap(s.mask);
- return {a:Array.from(a.bits),b:Array.from(b.bits),c:Array.from(c.bits),restored:Array.from(restored.bits),base:s.baseId,view:s.viewId,source:v.id};
- });assert.deepEqual(result.restored,result.a);assert.ok(result.a.some((v,i)=>result.b[i]!==v));assert.ok(result.c.some((v,i)=>result.b[i]!==v));assert.equal(result.base,result.source);assert.equal(result.view,result.source);assert.deepEqual(t.errors,[]);}finally{await t.context.close();}
-});
 test('CHAT double-image requests freeze annotations, keep raw until manual apply and survive reload without guide reuse',async()=>{
  const t=await setup();try{
  const before=await t.page.evaluate(async()=>{const source=await makeImage(),snapshot=await makeSnapshot(source),{annotationPreview}=await import('/src/native/annotation-canvas.ts');await chat.prepareAnnotations(source,await annotationPreview(source,snapshot),snapshot);return {base:chat.snapshot().current.mainId,guide:chat.snapshot().current.pendingAnnotation.guideAssetId};});
  await t.page.evaluate(()=>chat.execute());await t.page.waitForFunction(()=>!chat.snapshot().busy&&chat.snapshot().current.turns[0]?.versions[0]?.status==='done');
  assert.equal(t.posts.length,1);assert.ok(t.posts[0].init_image);assert.equal(t.posts[0].additional_images.length,1);assert.equal(t.posts[0].mask_image,undefined);
  let state=await t.page.evaluate(()=>{const s=chat.snapshot(),c=s.current;return {main:c.mainId,keep:c.keepIds,images:s.context.imageIds,assets:[...chat.assets.assets.keys()],snapshot:c.turns[0].snapshot};});assert.equal(state.main,before.base);assert.ok(!state.keep.includes(before.guide));assert.ok(!state.images.includes(before.guide));assert.ok(state.assets.includes(before.guide));assert.equal(state.snapshot.imageIds[1],before.guide);
- await t.page.getByRole('button',{name:'审核并应用蒙版',exact:true}).click();await t.page.getByRole('button',{name:'回贴预览',exact:true}).click();await t.page.getByRole('button',{name:'应用蒙版',exact:true}).click();await t.page.waitForFunction(()=>!annotations.review.value);
+ await t.page.getByRole('button',{name:'审核并应用蒙版',exact:true}).click();await t.page.getByRole('button',{name:'蒙版替换',exact:true}).click();await t.page.getByRole('button',{name:'应用蒙版',exact:true}).click();await t.page.waitForFunction(()=>!annotations.review.value);
  const saved=await t.page.evaluate(async()=>{await chat.flush();const c=chat.snapshot().current,t=c.turns[0],v=t.versions[0],raw=v.blocks.find(b=>b.type==='image').assetId,merged=v.composites[raw];const p=await readPixels(chat.assets.get(merged).blob);return {id:c.id,base:c.mainId,raw,merged,width:p.width,outside:Array.from(p.data.slice(0,4)),inside:Array.from(p.data.slice((90*256+90)*4,(90*256+90)*4+4))};});
  assert.equal(saved.base,saved.merged);assert.notEqual(saved.raw,saved.merged);assert.equal(saved.width,256);assert.deepEqual(saved.outside,[161,41,66,255]);assert.deepEqual(saved.inside,[37,128,236,255]);
  await t.page.getByRole('button',{name:'查看模型直出',exact:true}).click();assert.equal(await t.page.evaluate(()=>chat.snapshot().current.mainId),saved.base);
@@ -313,16 +408,6 @@ test('annotation ZIP restores clean/guide/raw/composite assets and pending edits
   assert.ok(reexported.ids.includes(completedCopy.id));for(const id of required)assert.ok(reexported.assets.includes(id));
   assert.deepEqual(t.errors,[]);
  }finally{await t.context.close();}
-});
-
-test('EDIT GPT double-image edit releases task with raw result and applies locally after review',async()=>{
- const t=await setup();try{const result=await t.page.evaluate(async()=>{
- const source=await makeImage();await editor.open('image',source,'source.png');const parent=editor.snapshot().base,owner=editor.session,snapshot=await makeSnapshot(source);snapshot.image.entity_key=parent.entity_key;
- await editor.runAnnotations({boardId:owner.id,versionId:parent.id},snapshot,'gpt-image-2');const raw=editor.snapshot().viewed,base=owner.baseId;
- const review=editor.annotationReview(owner.id,raw.id),{composeAnnotatedResult}=await import('/src/native/inpaint-result.ts');await review.apply(await composeAnnotatedResult(review.source,review.raw,review.snapshot));
- const merged=editor.snapshot().viewed,hasRaw=owner.versions.includes(raw);editor.remove(raw.id);const protectedRaw=owner.versions.includes(raw);editor.remove(merged.id);const unlinked=raw.annotation.compositeId===undefined;editor.remove(raw.id);
- return {base,parent:parent.id,raw:{id:raw.id,width:raw.width},applied:{id:merged.id,width:merged.width},hasRaw,protectedRaw,unlinked,removed:!owner.versions.includes(raw),uniqueIdentity:raw.sourceId!==merged.sourceId,busy:editor.snapshot().busy};
- });assert.equal(t.posts.length,1);assert.equal(t.posts[0].tool,'image-edit');assert.equal(t.posts[0].mask_image,undefined);assert.equal(t.posts[0].sampler,undefined);assert.equal(result.base,result.parent);assert.equal(result.raw.width,128);assert.equal(result.applied.width,256);assert.equal(result.hasRaw,true);assert.equal(result.protectedRaw,true);assert.equal(result.unlinked,true);assert.equal(result.removed,true);assert.equal(result.uniqueIdentity,true);assert.equal(result.busy,false);assert.deepEqual(t.errors,[]);}finally{await t.context.close();}
 });
 
 test('polygon double-click closure, resize and deletion preserve keys and sequential labels',async()=>{
@@ -490,6 +575,8 @@ test('EDIT switches to generic editing and compares original/raw/frozen-mask rep
   assert.equal(await t.page.evaluate(()=>editor.askSnapshot().imageEditing.comparison.display.mode),'source');
   await t.page.evaluate(async()=>{editor.view(editor.session.baseId);const c=new OffscreenCanvas(256,256),g=c.getContext('2d');g.fillStyle='white';g.fillRect(0,0,16,16);await editor.importMask(await c.convertToBlob({type:'image/png'}),'alpha');});
   await t.page.evaluate(id=>editor.view(id),raw);
+  assert.equal(await t.page.getByRole('button',{name:'色彩对齐',exact:true}).getAttribute('aria-pressed'),'true');
+  await t.page.getByRole('button',{name:'色彩对齐',exact:true}).click();
   await t.page.getByRole('button',{name:'蒙版替换',exact:true}).click();await t.page.getByRole('button',{name:'应用蒙版',exact:true}).waitFor();
   assert.equal(await t.page.evaluate(()=>editor.session.versions.length),2);
   assert.deepEqual(await t.page.evaluate(()=>editor.askSnapshot().imageEditing.comparison.display),{mode:'composite',preview:'ready'});

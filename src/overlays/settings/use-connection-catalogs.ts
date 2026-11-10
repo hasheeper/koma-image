@@ -1,11 +1,13 @@
-import { onBeforeUnmount, ref, shallowRef } from "vue";
+import { computed, onBeforeUnmount, ref, shallowRef } from "vue";
 import type { Ref } from "vue";
 import { useServices } from "../../app/services";
-import { message } from "../../app/ui";
 import { novelaiConnectionLabel } from "../../gateway/native-protocols";
 import type { Routing } from "../../config/connections";
+import { catalogFailureStatus, connectionDisplayStatus } from "../../gateway/connection-status";
+import type { ConnectionStatus } from "../../gateway/connection-status";
+import { profileFor } from "../../gateway/profile";
 
-export type ConnectionStatus = { s: string; text: string };
+export type { ConnectionStatus } from "../../gateway/connection-status";
 export function useConnectionCatalogs(options: {
   isOpen: () => boolean; showCatalogs: () => boolean;
   listConnection: Ref<string | null>; askList: Ref<string | null>;
@@ -15,7 +17,23 @@ export function useConnectionCatalogs(options: {
   const routing = shallowRef<Routing>(connections.configuration);
   const raw = shallowRef<Record<string, unknown>>({});
   const balances = shallowRef<Record<string, Record<string, unknown>>>({});
-  const statuses = ref<Record<string, ConnectionStatus>>({});
+  const diagnostics = ref<Record<string, ConnectionStatus>>({});
+  const generationRevision = ref(0);
+  const statuses = computed<Record<string, ConnectionStatus>>(() => {
+    void generationRevision.value;
+    const result: Record<string, ConnectionStatus> = {};
+    for (const c of Object.values(routing.value.connections)) {
+      let successfulModels: string[] = [];
+      if (connections.hasCredential(c.credentialRef)) {
+        try { successfulModels = services.gateway(c.id).successfulModels(); } catch { /* Data may still be opening. */ }
+      }
+      const status = connectionDisplayStatus(routing.value, c.id, raw.value[c.id], diagnostics.value[c.id], successfulModels);
+      if (status) result[c.id] = status;
+    }
+    return result;
+  });
+  function recordStatus(id: string, status: ConnectionStatus) { diagnostics.value[id] = status; }
+  const ungateway = services.subscribeGateway(() => { generationRevision.value++; });
   type ConnectionCheck = { controller: AbortController; contextKey: string; promise: Promise<void> };
   const checks = new Map<string, ConnectionCheck>(), queuedChecks = new Set<string>();
   let catalogKeys = new Map(Object.keys(routing.value.connections).map(id => [id, connections.catalogKey(id)]));
@@ -38,7 +56,7 @@ export function useConnectionCatalogs(options: {
     const c = routing.value.connections[id], key = connections.catalogKey(id);
     if (!c) return;
     if (!key) {
-      statuses.value[id] = { s: "wait", text: "未配置 Key" };
+      recordStatus(id, { s: "wait", text: "未配置 Key", label: "等待配置" });
       return;
     }
     const contextKey = connections.context(id).cacheKey, previous = checks.get(id);
@@ -47,7 +65,7 @@ export function useConnectionCatalogs(options: {
     const controller = new AbortController(), { signal } = controller;
     const check: ConnectionCheck = { controller, contextKey, promise: Promise.resolve() };
     checks.set(id, check);
-    if (!raw.value[id]) statuses.value[id] = { s: "wait", text: "检查中…" };
+    if (!raw.value[id] && !diagnostics.value[id]) recordStatus(id, { s: "wait", text: "检查中…" });
     check.promise = (async () => {
       try {
         const gateway = services.gateway(id);
@@ -59,12 +77,12 @@ export function useConnectionCatalogs(options: {
         if (connections.context(id).cacheKey !== contextKey) { queueLoad([id]); return; }
         if (results[0].status === "fulfilled") {
           raw.value = { ...raw.value, [id]: results[0].value };
-          statuses.value[id] = { s: "ok", text: gateway.profile.protocol === "novelai" ? novelaiConnectionLabel(results[0].value) : gateway.profile.reasoning ? "可用 · 推理尚未实测" : "可用 · 刚刚检查" };
-        } else statuses.value[id] = { s: "err", text: message(results[0].reason) };
+          recordStatus(id, { s: "ok", text: gateway.profile.protocol === "novelai" ? novelaiConnectionLabel(results[0].value) : gateway.profile.reasoning ? "可用 · 推理尚未实测" : "可用 · 刚刚检查" });
+        } else recordStatus(id, catalogFailureStatus(gateway.profile, results[0].reason));
         if (results[1].status === "fulfilled") balances.value = { ...balances.value, [id]: results[1].value.media };
       } catch (error) {
         if (!disposed && !signal.aborted && checks.get(id) === check)
-          statuses.value[id] = { s: "err", text: message(error) };
+          recordStatus(id, catalogFailureStatus(profileFor(c.profileId), error));
       } finally { if (checks.get(id) === check) checks.delete(id); }
     })();
     return check.promise;
@@ -82,7 +100,7 @@ export function useConnectionCatalogs(options: {
     if (changed.length) {
       stopChecks(changed);
       const nextRaw = { ...raw.value }, nextBalances = { ...balances.value };
-      for (const id of changed) { delete nextRaw[id]; delete nextBalances[id]; delete statuses.value[id]; }
+      for (const id of changed) { delete nextRaw[id]; delete nextBalances[id]; delete diagnostics.value[id]; }
       raw.value = nextRaw;
       balances.value = nextBalances;
     }
@@ -91,6 +109,6 @@ export function useConnectionCatalogs(options: {
     if (askList.value && !routing.value.connections[askList.value]) askList.value = null;
     if (options.isOpen()) queueLoad(changed);
   });
-  onBeforeUnmount(() => { disposed = true; stopChecks(); unconnections(); });
-  return { routing, raw, balances, statuses, load, loadConnection, stopChecks };
+  onBeforeUnmount(() => { disposed = true; stopChecks(); unconnections(); ungateway(); });
+  return { routing, raw, balances, statuses, recordStatus, load, loadConnection, stopChecks };
 }

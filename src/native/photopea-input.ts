@@ -34,3 +34,16 @@ export async function photopeaInput(image: Blob, state?: MaskState) {
   }
   return { image: normalized, mask };
 }
+
+/** Grayscale 0..255 is transported as transparency so Reveal Selection creates
+ * a soft layer mask. This must never pass through binary decodeMask. */
+export async function photopeaSoftMask(blob: Blob) {
+  const bitmap = await createImageBitmap(blob);
+  try {
+    const canvas = new OffscreenCanvas(bitmap.width,bitmap.height), ctx=canvas.getContext('2d',{willReadFrequently:true});
+    if (!ctx) throw new Error('当前浏览器不支持图片处理');
+    ctx.drawImage(bitmap,0,0); const pixels=ctx.getImageData(0,0,bitmap.width,bitmap.height);
+    for (let i=0;i<pixels.data.length;i+=4) { pixels.data[i+3]=pixels.data[i];pixels.data[i]=pixels.data[i+1]=pixels.data[i+2]=255; }
+    ctx.putImageData(pixels,0,0);return await canvas.convertToBlob({type:'image/png'});
+  } finally { bitmap.close(); }
+}

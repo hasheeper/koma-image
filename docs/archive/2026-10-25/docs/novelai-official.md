@@ -2,7 +2,7 @@
 
 # P3：NovelAI 官方连接
 
-更新于 2026-10-23。NovelAI 官方 API 作为独立 Gateway Profile 适配，用户添加连接和 Key，地址固定为官方地址。其他兼容服务由用户选择其实际提供的公开协议，不按渠道名称或域名判断。跨协议实现见[原生图像协议](native-image-protocols.md)。多角色能力已完成[资料与代码勘探](novelai-multi-character.md)，角色 A、画板胶囊 A、官方与标准网关映射及 ASK 配合已完成本地模拟验收，见[基础实施计划](multi-character-boards-plan.md)；真实生成效果仍待核验。
+更新于 2026-10-23。NovelAI 官方 API 作为独立 Gateway Profile 适配，用户添加连接和 Key，地址固定为官方地址。其他兼容服务由用户选择其实际提供的公开协议，不按渠道名称或域名判断。跨协议实现见[原生图像协议](native-image-protocols.md)。多角色能力已完成[资料与代码勘探](novelai-multi-character.md)，角色 A、画板胶囊 A、官方与标准网关映射及 ASK 配合已完成本地模拟验收，见[基础实施记录](multi-character-boards-record.md)；真实生成效果仍待核验。
 
 ## 状态
 
@@ -42,4 +42,4 @@
 当前验证仅使用合成图片、模拟凭据与拦截响应。不能用这些结果替代真实供应商联调，也不把完整 P3 标记为完成。
 
 
-2026-10-23 多角色基础适配已接入：沿用 `v4_prompt` / `v4_negative_prompt`，正负角色按同序对应，自动定位关闭 `use_coords`；V4.5 提交时投影格中心，V5 保留自由坐标。基础生图与已开放 img2img 使用显式来源快照，模拟验收见[多角色与画板](multi-character-boards-plan.md#9-本轮落地记录2026-10-23)。这没有扩展官方重绘／放大，也不代表真实账户验证。
+2026-10-23 多角色基础适配已接入：沿用 `v4_prompt` / `v4_negative_prompt`，正负角色按同序对应，自动定位关闭 `use_coords`；V4.5 提交时投影格中心，V5 保留自由坐标。基础生图与已开放 img2img 使用显式来源快照，模拟验收见[多角色与画板](multi-character-boards-record.md)。这没有扩展官方重绘／放大，也不代表真实账户验证。

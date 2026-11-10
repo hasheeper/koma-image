@@ -428,13 +428,27 @@ test("connection diagnostic: a refused request is told apart from an unreachable
   );
   assert.equal(refused.calls.length, 2);
   assert.equal(refused.calls[1].init.mode, "no-cors");
+  assert.equal(refused.calls[1].init.method, "HEAD");
+  assert.equal(refused.calls[1].init.redirect, "follow");
+  assert.equal(refused.calls[1].init.credentials, "omit");
   assert.equal(refused.calls[1].init.headers, undefined);
   const down = diagnosticFetch(
     () => new TypeError("Failed to fetch"),
     () => new TypeError("Failed to fetch"),
   );
   const result = await testConnection(diagnosticContext(), down.fetch);
-  assert.deepEqual([result.s, result.text], ["err", "网络不可达或域名错误"]);
+  assert.deepEqual([result.s, result.text], ["err", "连接失败，请检查网络、地址或浏览器跨域限制"]);
+});
+test("connection diagnostic: an optional image catalog failure does not claim generation is unavailable or verified", async () => {
+  for (const profileId of ["seedream-v1", "openai-images-v1", "gemini-native-v1"]) {
+    const context = diagnosticContext({ connection: { baseUrl: "https://gateway.example.test", profileId } });
+    const cors = await testConnection(context, diagnosticFetch(() => new TypeError("Failed to fetch")).fetch);
+    assert.deepEqual(cors, { s: "warn", text: "模型目录跨域受限，可手动填写模型 ID；生成能力尚未验证", kind: "catalog-limited" });
+    const absent = await testConnection(context, diagnosticFetch(() => reply(404, {})).fetch);
+    assert.deepEqual(absent, { s: "warn", text: "模型目录不可用，可手动填写模型 ID；生成能力尚未验证", kind: "catalog-limited" });
+    const unauthorized = await testConnection(context, diagnosticFetch(() => reply(401, {})).fetch);
+    assert.deepEqual(unauthorized, { s: "err", text: "鉴权失败（401），请检查 API Key" });
+  }
 });
 test("connection diagnostic: the local proxy uses its token, never a Key, and is not probed", async () => {
   const context = diagnosticContext({

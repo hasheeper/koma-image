@@ -3,23 +3,15 @@ import assert from "node:assert/strict";
 
 import { constitution } from "../src/ask/prompts/constitution.ts";
 import { manuals } from "../src/ask/prompts/manuals.ts";
-import { useAskFixture, submitAsk, reasoning, open, openai, text, tool, end, anthropic, askSettings, generation, bind, addImage, drawer, toolReply, textReply, patchStep, form, openConversations, attachText, scripted, wireStates } from "./helpers/ask-fixture.mjs";
+import { useAskFixture, submitAsk, reasoning, open, openai, text, tool, end, askSettings, generation, bind, addImage, drawer, toolReply, textReply, patchStep, form, openConversations, attachText, scripted, wireStates } from "./helpers/ask-fixture.mjs";
 
 useAskFixture();
 
-for (const connectionId of ['chat','claude']) test(`ASK retrieval: ${connectionId} raw state, multiword history, online batch verification and picks`, async () => {
+test(`ASK retrieval: chat raw state, multiword history, online batch verification and picks`, async () => {
+  const connectionId = "chat";
   const {page,context,llm,calls,requests,errors}=await open('/#/image',{ready:'.switcher',ask:askSettings({connectionId,images:false})});
   const queries=[];
-  const answer=(name,input)=>connectionId==='chat'
-    ? openai(name?tool('retrieval',name,input):text('已核验，请选择目标图片。'),end(name?'tool_calls':'stop'))
-    : anthropic(
-      {type:'message_start',message:{usage:{input_tokens:50}}},
-      {type:'content_block_start',index:0,content_block:name?{type:'tool_use',id:'retrieval',name,input:{}}:{type:'text',text:'已核验，请选择目标图片。'}},
-      ...(name?[{type:'content_block_delta',index:0,delta:{type:'input_json_delta',partial_json:JSON.stringify(input)}}]:[]),
-      {type:'content_block_stop',index:0},
-      {type:'message_delta',delta:{stop_reason:name?'tool_use':'end_turn'},usage:{output_tokens:10}},
-      {type:'message_stop'},
-    );
+  const answer=(name,input)=>(openai(name?tool('retrieval',name,input):text('已核验，请选择目标图片。'),end(name?'tool_calls':'stop')));
   try {
     await context.route('https://tagsuggest.zeabur.app/api/tags/suggest?*',async route=>{
       const request=route.request(),q=new URL(request.url()).searchParams.get('q');queries.push(q);
@@ -45,7 +37,7 @@ for (const connectionId of ['chat','claude']) test(`ASK retrieval: ${connectionI
     const final=JSON.stringify(calls.at(-1).body);
     assert.match(final,/total_matched/);assert.match(final,/matched_snippet/);
     assert.match(final,/loose_socks/);assert.match(final,/泡泡袜/);assert.match(final,/503/);
-    const content=connectionId==='chat'?calls.at(-1).body.messages.filter(m=>m.role==='tool').map(m=>m.content):calls.at(-1).body.messages.flatMap(m=>m.content).filter(b=>b?.type==='tool_result').flatMap(b=>b.content).map(b=>b.text);
+    const content=(calls.at(-1).body.messages.filter(m=>m.role==='tool').map(m=>m.content));
     const tags=content.map(t=>t?.startsWith('<data>')?JSON.parse(t.slice(7,-8)):null).find(v=>v?.results);
     assert.deepEqual(tags.results.map(r=>r.status),['ok','ok','error']);
     assert.equal(tags.results[0].matches[0].tag,'loose_socks');
@@ -88,20 +80,12 @@ test('ASK retrieval: stopping a pending dictionary batch rolls back the turn and
   } finally {release();await context.close();}
 });
 
-for (const connectionId of ["chat", "claude"]) test(`ASK prompts: ${connectionId} adult gate changes next turn; manuals append only as tool results`, async () => {
+test(`ASK prompts: chat adult gate changes next turn; manuals append only as tool results`, async () => {
+  const connectionId = "chat";
   const { page, context, llm, calls, requests, errors } = await open("/#/image", {ready:".switcher",ask:askSettings({connectionId,images:false})});
   let release;
-  const answer = (manual = false) => connectionId === "chat"
-    ? openai(manual ? tool("manual_1", "get_model_manual", {id:"nai5-comics"}) : text("已核对。"), end(manual ? "tool_calls" : "stop"))
-    : anthropic(
-      {type:"message_start",message:{id:"synthetic",usage:{input_tokens:50,output_tokens:0}}},
-      {type:"content_block_start",index:0,content_block:manual ? {type:"tool_use",id:"manual_1",name:"get_model_manual",input:{}} : {type:"text",text:"已核对。"}},
-      ...(manual ? [{type:"content_block_delta",index:0,delta:{type:"input_json_delta",partial_json:JSON.stringify({id:"nai5-comics"})}}] : []),
-      {type:"content_block_stop",index:0},
-      {type:"message_delta",delta:{stop_reason:manual ? "tool_use" : "end_turn"},usage:{output_tokens:10}},
-      {type:"message_stop"},
-    );
-  const system = call => connectionId === "chat" ? call.body.messages[0].content : call.body.system.map(b=>b.text).join("\n\n");
+  const answer = (manual = false) => (openai(manual ? tool("manual_1", "get_model_manual", {id:"nai5-comics"}) : text("已核对。"), end(manual ? "tool_calls" : "stop")));
+  const system = call => call.body.messages[0].content;
   const setAdult = value => page.evaluate(value => {
     localStorage.setItem("koma.ask.adult.v1",String(value));
     window.dispatchEvent(new StorageEvent("storage",{key:"koma.ask.adult.v1"}));
@@ -134,7 +118,8 @@ for (const connectionId of ["chat", "claude"]) test(`ASK prompts: ${connectionId
   } finally {release?.();await context.close();}
 });
 
-for (const connection of ['chat','claude']) test(`ASK clean context: ${connection} fresh conversations and explicit clearing have no implicit image; silent drafts complete with prose`, async()=>{
+test(`ASK clean context: chat fresh conversations and explicit clearing have no implicit image; silent drafts complete with prose`, async()=>{
+  const connection = "chat";
   const {page,context,llm,calls,requests,errors}=await open('/#/image',{ready:'.switcher',ask:askSettings({connectionId:connection})});
   try {
     await bind(page);
@@ -173,7 +158,7 @@ for (const connection of ['chat','claude']) test(`ASK clean context: ${connectio
     assert.equal(state.image.form.seed,'123');
     assert.doesNotMatch(calls[1].raw,/old_laundry_scene|old_cafe_scene|旧会话唯一标记/);
     assert.match(calls[1].raw,/魔法少女绘奈|星形发饰/);
-    assert.deepEqual(calls[2].body.tool_choice,connection==='chat'?'none':{type:'none'});
+    assert.deepEqual(calls[2].body.tool_choice,'none');
     assert.deepEqual(calls[2].body.tools,calls[1].body.tools);
     assert.match(await drawer(page).locator('.ask-markdown').textContent(),/已按绘奈的新设定起草/);
     assert.equal(await page.locator('.ask-turn').count(),1);

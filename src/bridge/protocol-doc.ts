@@ -1,88 +1,178 @@
-import { draftSchema } from "../ask/draft/schema.ts";
-import { DRAFT_SCHEMA, LIVE_SCHEMA } from "./protocol.ts";
+import { externalDraftSchema } from './draft-schema.ts';
+import { DRAFT_SCHEMA, LIVE_SCHEMA } from './protocol.ts';
+
 export function protocolDocument() {
-  return `# Koma 外部协同协议（B1–B3）
+  return `# Koma 企划目录与外部协同协议
 
 状态：${LIVE_SCHEMA}；草稿：${DRAFT_SCHEMA}。
-无需配置 ASK 文本推理 Key；前台近实时同步。未经用户选择，不向外部工程目录写出原图。
+本文件定义当前 Koma 的企划格式与外部接口。外部 Agent 使用本地文件协作，无需站内 ASK Key。
 
-## 文件
+## 文件分工
 
-- Koma 写 PROTOCOL.md、state.live.json 与 live/*.webp。不要编辑这些文件。
-- 外部将完整 JSON 写入 draft.inbox.json。建议先写临时文件再替换；Koma 不删除收件文件。
-- refs/ 放共享文本与图片资料；Koma 只索引文件名和字节数，按 ASK read_ref 请求读取正文；手动附件使用原生文件选择器。
-- slates/*.slate.json 使用 koma.bridge.slate.v1，完整 slate 与 Koma 维护的 deliveries 分开；外部变更须经草稿审阅。
-- 挂载映射活动任务板和已绑成果；挂载期间手动新建或确认草稿创建的活动任务板自动加入，其他已有任务板显式加入。assets/ 只写用户选中的原图、同名 .json 参数回执与 .txt 标注。
+| 路径 | 用途与写入规则 |
+| --- | --- |
+| PROTOCOL.md、state.live.json、live/*.webp | Koma 生成；外部只读。分别是协议、实时状态与有限图片预览 |
+| project.json、characters/、lore/、references/ | 企划资料；按用户任务直接编辑文件，Koma 重新扫描后读取 |
+| refs/ | 兼容共享资料及配方／备忘录；外部可按用户任务维护资料，Koma 的 save_ref 也写到这里 |
+| draft.inbox.json | 外部投递一份完整草稿，Koma 只读；修改画板、任务或请求 Koma 保存资料走此入口 |
+| slates/*.slate.json | 任务文件；外部变更进入草稿审阅，确认后才更新本机任务 |
+| assets/ | Koma 写出的成果原图及参数／标注；外部只读，新增交付使用任务绑图 |
 
-## 共享资料与导出
+直接改企划资料会改变磁盘文件，不经过 Koma 草稿确认；它不会自动覆盖画板。草稿投递只提出修改，用户确认后才应用，不触发生成或 CHAT 发送。
+控制文件始终位于挂载根目录；成果沿用 assets/、slates/、refs/，不另建 outputs/。
 
-state.live.json 和 ASK 初始状态的 refs_index 仅含清单，不含文件正文或图片。
-清单最多展示 48 项，omitted 为省略项数；扫描上限为 512 个支持的文件、4096 项目录条目、8 层子目录。
-limited=true 表示还有文件未扫描，total 此时仅为已发现数量。只扫描 refs/，不接受父级或绝对路径，隐藏及已知凭据文件不读取。
-ASK 可按完整相对路径调用 read_ref；同名须消歧，文本每次最多 8000 字符，同轮续读固定版本。
-本地附件和工具读取共享附件数量、大小与文本限制，工具读图共享视觉预算；实际读取内容随收藏会话保存，目录修改不回改历史。
-文件保存使用共享草稿步骤 save_ref，document 为 recipe/memo/slate，可选 document_title（最长 80 字符）；memo 必须带 text（最多 24000 字符）。
-配方固定 JSON（koma.bridge.recipe.v1），备忘录固定 Markdown，任务交接资料固定 JSON（koma.bridge.slate.v1）。
-recipe/slate 冻结提议时的画板/任务快照，不是同稿应用后的结果，也不是出图回执；本机参考资产不附原图和编码。
-文件在 DraftCard 的文件行中审阅，用户统一确认后保存。不能指定路径、格式或覆盖文件；文件名自动生成唯一后缀。
-挂载时目标固定为该目录 refs/，未挂载时固定为浏览器下载。原目录失联、改变或权限失效时阻断整稿，不静默改为下载。
-写入失败保留草稿并补偿本次文件；撤销仅删除仍属于本次操作且未被修改的 refs 文件。已经发起的下载不能收回。
-写入 refs/ 后刷新清单，不额外调用推理。
+## 企划结构与示例
 
-## 提交
+外部 Agent 可按用户要求理解并拆解 TXT、Markdown、YAML、XML 等原始设定稿，将公共设定归入 lore/、角色资料归入 characters/<char_id>/，再按下列字段供 Koma 读取。
+下列示例属于同一份企划。没有 JSON 元数据时也可按默认文件名组织。
 
-外层字段为 schema、draft_id（1–120 位字母、数字、下划线、点或短横线）、可选 source_label。
-其余正文直接使用下方 propose_draft Schema。外部支持 IMAGE 的 prompt_patch、character_edit、restore_partial、params_patch 、slate_edit 与 save_ref；不能写 CHAT 或 EDIT；edit.*、director_patch、edit_handoff 与编辑专用参数仅供站内 ASK 使用，外部提交返回 invalid。
-缺失 base_hash 时按收件当刻活动 IMAGE 画板的实时状态冻结；显式 base_hash 须匹配本页已导出的基底，过期请重新导出。
-新版外层带 picture_ref_version:2。引用 #h/#e 带 picture_scope_id；#f 带 favorites_scope_id；混合引用分别带回。
-EDIT 完整码 #e板号.版本[a-c]；本板简写 #e版本[a-c] 另带 edit_board_id 匹配 edit.active_board_id，外部推荐完整码。旧无标记投递继续保守校验 picture_scope_id。
-编号目录包含尺寸、Seed 与短摘录；restore_partial 的真实恢复值由 Koma 读取，不能提交 values。
-params_patch.params 仅允许 Schema 白名单参数，使用表单字段 cfgRescale，Seed 为字符串，空串随机、"0" 合法。
-角色目标使用 image.char.c1.prompt 等稳定 ID；插入方式用 after，不使用 ops 或 insert_after。
-prompt_patch 的 rewrite 替换目标全文，append 追加文本；replace/before/after 是局部修改，必须提供在目标中恰好出现一次的非空 anchor。空 Prompt 应使用 rewrite 或 append。
-
-\`\`\`json
-${JSON.stringify({ schema: DRAFT_SCHEMA, draft_id: "example-001", source_label: "外部助手", draft_title: "补充光线", steps: [{kind:"prompt_patch",target:"image.prompt",mode:"append",text:", warm evening light"}] }, null, 2)}
+\`\`\`text
+企划根目录/
+├── project.json
+├── characters/guard/
+│   ├── char.json
+│   ├── profile.md
+│   ├── portrait.png
+│   └── extra/weapon.png
+├── lore/world.md
+├── references/
+│   ├── references.json
+│   └── city/night.png
+├── refs/
+├── slates/
+└── assets/
 \`\`\`
 
-## 回执与确认
-
-仅读取 state.live.json.last_inbox_receipt：draft_id、status（pending/applied/dismissed/invalid）、可选 error。
-pending 表示等待或审阅；applied 表示用户勾选部分已保存，不代表已生成，也不保证用户后来没有撤销。
-ASK 忙或已有草稿时排队，绝不覆盖原草稿。用户确认后才应用，可应用到新画板、可撤销，所有生成仍由用户自己操作。
-同 ID 同正文幂等；更改正文使用新 draft_id。收到本 ID 的终态后再投下一份。单文件不保证多个写入方无损排队。
-坏 JSON 静默重读一次，不吞掉后续完整版本。未收藏的 pending 草稿刷新失效，必须基于新状态重新投递。
-
-## 状态与图片
-
-boards/form 保留画板与表单字段；selected_image/recent_history.params 是该图已有的真实参数，缺失字段不补造。
-历史与收藏索引分别在 history_index、favorites_index，带具体 record_id/entity_key；#f 固定，取消不重排。
-picture_scope_id 为本页 #h/#e 编号空间，切板与 ASK 会话不改变；favorites_scope_id 为持久收藏库，普通刷新不改变。
-edit 为只读板/版本目录：board_seq、完整 id、本板 local_id、实体、父图和工具。不增加 EDIT 自动预览或原图导出。参数属于具体记录，不能从同实体另一条记录替换。
-最多导出选中图和最近三张历史的去重预览，最长边 768。文本变更不重新编码。
-手动状态 JSON 中 preview 为 null 时没有附带可读预览文件。本机参考资产 ID 不代表外部已获得原图或 Vibe 编码。
-只应有一个 Koma 写入者；跨来源页面、应用或外部程序没有共享文件锁保证。
-
-## 默认本地任务与目录交付
-
-任务板无需目录或 ASK Key。active_slate 为轻量摘要，完整任务/配方位于 slates 文件；内置 ASK 使用 get_state(include_slate=true) 按需读取。
-挂载自动加入当刻的活动任务板；挂载期间手动新建或经草稿确认创建的活动任务板也自动加入。通过外部任务文件创建时沿用原文件映射，不重复生成任务文件。切换到其他已有且未映射的任务板，仍需点击「同步到当前目录」。同步失败或尚未完成时 active_slate 摘要不代表任务文件已经写出；请检查 slates/，可用摘要中的 ID/版本继续提交草稿。
-slate_edit 的 op 为 create/update/delete；现有目标带 slate_id 和 expected_version。创建使用 slate_title，Todo 标题用 todo_title，避免兼容中转剥离 Schema 的 title 元数据。每份草稿一个 slate_edit，todos 内 add/update/remove；每板最多 100 Todo、任务正文总计最多 900 KiB。新增 Todo 用 {op:"add",todo_title:"任务标题"}，省略 id；误填的 id 会被忽略，由应用生成新的稳定 ID。update/remove 必须使用状态中已有 Todo 的稳定 id，不能使用 CG 序号或自行编造编号。
-可以在同稿记录 mutation/绑图/完成并用 prompt_patch/params_patch 准备下一张，用户整体确认。需交图任务没有绑定不能完成；锁定配方修改须显式 unlock。
-绑定仅接受本轮 #h/#f/#e，按上述编号类别验证作用域；EDIT 结果无需先收藏或注册 #h，目标默认 assets/ 唯一路径。caption_source 明确选择 base/sent/character，caption_mode 仅 full/strip_syntax，角色须给 character_id；缺失来源不替换原文。
-strip_syntax 只剥离配对 {}、[]、数字::正文:: 和无属性的配对 XML 标签；转义、畸形或其他语法保留，不筛画师名。
-绑图即时保存本机原字节、SHA-256、真实尺寸和已有生成参数；目录失败保留本机任务与成果。directory_required=true 仅用于用户要求已完成目录交付的组合，文件/回执失败不报告整稿应用成功。
-外部文件不可声明新的本机绑定或伪造 deliveries。现有 binding 原样保留或明确解绑；新成果使用 slate_edit.bind。新目录任务、修改或 deleted:true tombstone 都转为草稿。
-修改已有任务文件须保留当前 slate.id/slate.version，版本过期或缺失拒绝接收；版本由 Koma 在确认后递增，外部不要自行递增。
-路径冲突不覆盖不同原图字节，换新 target_path。交付按原图、回执、标注、任务 JSON 顺序校验，部分完成可续办。删除/撤销保留外部成果文件。目录冲突需审阅或用户明确保留本机版本。
-任务/资产/画板通过提交记录补偿和恢复，跨文件/跨存储并非原生原子事务；外部程序不共享浏览器锁。
-
-## 共享草稿 Schema
-
-此处直接由站内工具定义生成；CHAT 与 EDIT 分支仅供站内 ASK 使用，外部不开放。
+### project.json
 
 \`\`\`json
-${JSON.stringify(draftSchema, null, 2)}
+{
+  "title": "夜城企划",
+  "description": "角色、城市设定与光线参考。",
+  "paths": {
+    "characters": "characters",
+    "lore": "lore",
+    "references": "references"
+  }
+}
+\`\`\`
+
+project.json 可省略，title 默认取目录名；paths 省略的项采用 characters、lore、references。映射相对于企划根目录，只改变资料来源，不重定向 refs/、slates/、assets/、live/ 和控制文件。
+
+### characters/guard/char.json
+
+\`\`\`json
+{
+  "name": "银发守卫",
+  "aliases": ["夜巡者"],
+  "brief": "银发红瞳的旧城守卫，谨慎寡言，负责夜间巡查。",
+  "profile": "profile.md",
+  "portrait": "portrait.png",
+  "tags": {
+    "prompt": "1girl, silver hair, red eyes",
+    "negative": "",
+    "outfits": [
+      { "id": "uniform", "label": "巡逻制服", "prompt": "military uniform, red cape", "negative": "" },
+      { "id": "casual", "label": "日常便服", "prompt": "white shirt, black trousers", "negative": "cape" }
+    ]
+  },
+  "refs": [
+    { "file": "extra/weapon.png", "title": "佩剑", "description": "只参考护手与握柄结构。" }
+  ]
+}
+\`\`\`
+
+- char_id 取角色目录名（此处 guard），与画板 c1/c2 槽位解耦。写入 TAG 是一次性操作，档案变更不自动改画板。
+- name/title 为简短名称，brief 为角色识别摘要，description 为参考用途或补充说明；profile 指向完整人设原文文件。
+- char.json 内的 profile、portrait、brief_file、tags_file、refs[].file 均相对于该角色目录。输出给 Koma 的资料引用则用企划根相对路径，例如 characters/guard/extra/weapon.png。
+- brief 内嵌文本优先，其次 brief_file，再其次 brief.md、brief.txt；tags 内嵌字符串／对象优先，其次 tags_file，再其次 tags.txt。使用内嵌值时修改同名独立文件不会改变当前取值。
+- profile 缺省查找 profile.md、profile.txt；portrait 缺省查找 portrait.png、portrait.webp、portrait.jpg、portrait.jpeg。显式文件路径缺失或类型错误时提示该项问题，不回退到默认文件。
+- Koma 将 tags 字符串和 tags.txt 按完整正向词文读取。Agent 整理换装时使用 tags 对象：顶层 prompt 保存固定外貌，outfits 分别保存主服装与替换装；Koma 组合共同 prompt/negative 与所选的一套 outfits，均有内容时用逗号分隔。不选服装则只用共同部分。
+- outfits 的 id 唯一且非空，prompt 必填；label 省略时使用 id，negative 可省略。服装标题只用于识别，不写进 TAG。
+- 角色 refs/ 与 extra/ 都自动收录图片，可并存；refs 元数据用于命名及说明。根 refs/ 是另一个共享目录，通过完整路径区分。
+
+### references/references.json
+
+\`\`\`json
+{
+  "items": [
+    {
+      "file": "city/night.png",
+      "title": "旧城夜景",
+      "category": "场景",
+      "description": "参考街道透视和冷暖光，不继承画中人物。"
+    }
+  ]
+}
+\`\`\`
+
+file 相对于公共参考目录（默认 references/，可由 project.json 映射）。未登记的公共图片、角色 refs/extra 图片仍按文件名显示；缺少某项资料不妨碍其他内容读取。企划路径不能直接充当 restore_partial 或 Todo 绑图的图片编号，也不能通过外部草稿交接到 CHAT／EDIT。
+
+### 索引与读取
+
+state.live.json.refs_index 提供角色摘要及 TAG／档案／立绘／参考图路径，另列设定、公共参考和其他文件。按企划根相对路径读取完整资料；索引有省略或 limited=true 时可继续查看实际资料目录。
+路径使用 / 分隔的根内相对路径。Koma 收录配置的资料目录、refs/slates/assets 及根下 TXT/Markdown；整理完成后核对更新的索引与资料读取问题。
+
+## 草稿提交
+
+外部支持 IMAGE 的 prompt_patch、params_patch、character_edit、restore_partial，以及 slate_edit、save_ref；不支持 CHAT／EDIT 写入或 base_image_id。下方 Schema 是完整投递对象。
+每稿最多 12 步，单文件不超过 1 MiB；完整写入同目录临时文件后再替换 draft.inbox.json。不同正文使用新 draft_id（1–120 位字母、数字、下划线、点或短横线），source_label 可选，如实填写来源。
+推荐原样带回 state.live.json.base_hash，保留本次读取的基底；省略时以接收时活动 IMAGE 画板为基底。显式哈希须匹配本页近期导出的基底，过期则重新读取状态并调整草稿。
+以下最小示例省略可选 base_hash；正式操作推荐补上刚读取的值。
+
+### draft.inbox.json
+
+\`\`\`json
+${JSON.stringify({ schema: DRAFT_SCHEMA, draft_id: 'example-001', source_label: '外部助手', draft_title: '补充光线', steps: [{ kind: 'prompt_patch', target: 'image.prompt', mode: 'append', text: ', warm evening light' }] }, null, 2)}
+\`\`\`
+
+- prompt_patch：rewrite 替换全文，append 末尾追加；replace/before/after 必须带在目标中恰好出现一次的非空 anchor。步骤按顺序执行，锚点匹配前序修改后的文本；空字段用 rewrite 或 append。目标如 image.prompt、image.negative、image.char.c1.prompt。
+- params_patch：使用 params 对象和白名单参数，cfgRescale 是正确字段名；Seed 是字符串，空串随机，"0" 合法；宽高对齐 64px。型号和采样器使用当前状态中的可用值，参数还须满足该模型能力。
+- character_edit：现有角色使用状态中的稳定 cN，不能用档案 char_id 或数组位置代替。add 的 prompt 必填，新 ID 由 Koma 分配；reorder 给完整 ID 顺序。
+- restore_partial：source 使用当前索引的 #h/#f/#e，fields 指定要恢复的字段；该图片须有对应参数，值由 Koma 读取，提交时仅指定字段名。
+- new_board_name：需要另开 IMAGE 画板时填写，应用时复制基底并叠加本稿修改。
+
+### 图片引用
+
+引用图片时带 picture_ref_version:2；引用 #h/#e 带回 picture_scope_id，引用 #f 带回 favorites_scope_id，混合引用分别带回。#h/#e 只在本页有效，切板不改变编号空间；#f 属于持久收藏库，普通刷新不重排。旧无标记投递仍校验 picture_scope_id。
+EDIT 推荐完整码 #e板号.版本[a-c]。本板简写 #e版本[a-c] 另带 edit_board_id，须匹配 edit.active_board_id；去背景 a/b/c 分别为抠图／重建／混合，不带字母取接收快照中的当前变体。
+
+## 回执、状态与预览
+
+在 state.live.json.last_inbox_receipt 中按 draft_id 核对结果：pending 为排队／待审，applied 为用户选中的修改已保存，dismissed 为已忽略，invalid 为未接收并带 error。applied 仅表示应用草稿，生成是后续操作。
+同 ID 同正文幂等，修改内容须新 ID；等本次终态再投下一份，多发送方共用投递槽时需协调。未收藏的 pending 草稿刷新后失效，应基于新状态重新提议。
+回执不更新时检查 updated_at、目录连接和页面是否在前台。
+
+boards/form 是当前 IMAGE 画板和表单，active_workspace 为 CHAT／EDIT 时也不改变外部写入目标。selected_image/recent_history.params 是对应图片的参数，basePrompt/baseNegative 与实际请求词文分别保存。
+history_index、favorites_index、edit 是图片目录；record_id 对应具体参数记录，entity_key 关联同一原图字节，配方以具体记录为准。
+preview 指向导出的缩略预览，null 表示未附带图片文件；原图细节与透明度需读取原件。本机参考资产 ID 是资产标识，图片与编码不随 ID 导出。
+
+## 任务与成果交付
+
+active_slate 是工作台当前任务的摘要，目录归属、完整任务及交付状态以对应 slates/*.slate.json 为准。挂载／切换只加载该目录任务；当前目录新建或用户显式关联的任务才写出。
+
+- slate_edit 的 op 为 create/update/delete。创建使用 slate_title；更新／删除须使用真实 slate_id 与 expected_version。每稿最多一个 slate_edit，每板最多 100 个 Todo、正文总计最多 900 KiB。
+- todos 用 add/update/remove；标题字段为 todo_title，新增省略 id，由 Koma 分配。update/remove 使用已有 Todo ID。状态为 todo/in_progress/done/abandoned；mutation 记录改动。
+- golden_recipe.capture_current 捕获同稿应用后的完整画板，修改锁定配方须显式 unlock。可与 prompt_patch/params_patch 组合准备下一张图。
+- 需要交图的 Todo 必须绑图才能完成；纯文本任务用 image_required:false。bind.source 接受当前 #h/#f/#e，按上节带回作用域。caption_source 必选 base/sent/character，caption_mode 必选 full/strip_syntax；角色标注另给 character_id，缺失来源不替换为其他文本。
+- strip_syntax 只剥离配对 {}、[]、数字::正文:: 和无属性的配对 XML 标签；转义、畸形或其他语法保留，不筛画师名。
+- 成果保存在 assets/，默认使用唯一路径。标注与回执在图片完整文件名后追加扩展名，例如 assets/scene.png、assets/scene.png.json、assets/scene.png.txt，不是 scene.json。路径冲突不覆盖不同原图字节，换用新 target_path。
+- 绑图保存原字节、真实尺寸和已有生成参数；本机成功不保证目录交付成功，核对 deliveries 与实际文件。directory_required:true 表示整稿须等目录交付成功，要求当前已挂载目录。
+
+直接修改现有任务文件时保留 slate.id、slate.version 与已有绑定，版本由 Koma 确认后递增；新增成果用 slate_edit.bind。新任务文件、修改和 deleted:true tombstone 都进入审阅。目录交付失败时可查看同步错误并重试。
+
+## 让 Koma 保存资料
+
+save_ref 的 document 为 recipe/memo/slate，可选 document_title（最长 80 字符）；memo 必须带 text（最多 24000 字符）。recipe 固定保存 koma.bridge.recipe.v1 JSON，memo 保存 Markdown，slate 保存 koma.bridge.slate.v1 JSON。
+recipe/slate 保存提议时的快照，不是同稿应用后的结果或出图回执；本机参考资产不附原图或编码。与 golden_recipe.capture_current 的取值时点不同。
+确认后写入提议时固定目录的 refs/，未挂载时下载；不指定路径、格式或覆盖文件，文件名自动带唯一后缀。目录失联或已切换时阻断整稿，不静默改为下载。
+
+## 外部草稿完整 Schema
+
+base_hash 可省略；除字段结构外，提交还会校验锚点、图片作用域、模型能力与任务版本。
+
+\`\`\`json
+${JSON.stringify(externalDraftSchema, null, 2)}
 \`\`\`
 `;
 }

@@ -62,7 +62,7 @@ const modelsSection =
 const importInput = useTemplateRef<HTMLInputElement>("importInput");
 const busy = ref(false), version = ref(0);
 const testing = ref<string | null>(null), listConnection = ref<string | null>(null), askList = ref<string | null>(null);
-const { routing, raw, balances, statuses, load, loadConnection, stopChecks } = useConnectionCatalogs({
+const { routing, raw, balances, statuses, recordStatus, load, loadConnection, stopChecks } = useConnectionCatalogs({
   isOpen: () => !!dialog.value?.open,
   showCatalogs: () => ["connections", "models"].includes(activeSection.value),
   listConnection, askList,
@@ -225,11 +225,12 @@ async function test(id: string) {
   const notice = ui.toast(`正在连接 ${connection.name}…`, "load");
   try {
     const result = await testConnection(connections.context(id));
-    statuses.value[id] = result;
-    ui.toast(`${connection.name} · ${result.text}`, result.s, undefined, notice);
+    recordStatus(id, result);
+    const shown = statuses.value[id] ?? result;
+    ui.toast(`${connection.name} · ${shown.label ?? shown.text}`, shown.s === "wait" ? "warn" : shown.s, undefined, notice);
     if (result.s === "ok") await load(true, [id]);
   } catch (error) {
-    statuses.value[id] = { s: "err", text: message(error) };
+    recordStatus(id, { s: "err", text: message(error) });
     ui.toast(`${connection.name} · ${message(error)}`, "err", undefined, notice);
   } finally {
     testing.value = null;

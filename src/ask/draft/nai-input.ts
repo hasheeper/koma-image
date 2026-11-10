@@ -5,6 +5,7 @@ import { object } from "../../domain/value.ts";
 import { naiAwareness } from "../../services/nai-awareness.ts";
 import { editAwareness } from "../../services/edit-awareness.ts";
 import { validateDraft } from "./validate.ts";
+import { isEmptyInsertion } from './text.ts';
 import type { Draft } from "./types.ts";
 
 interface InputReaders {
@@ -32,7 +33,7 @@ export function textPlacementIssue(prompt: string): string | null {
 function mediumWrite(draft: Draft) {
   const fixed = ['steps', 'sampler', 'cfgRescale', 'negativePreset'];
   return draft.steps.some(step =>
-    step.kind === 'prompt_patch' && step.target.endsWith('negative') ||
+    step.kind === 'prompt_patch' && !isEmptyInsertion(step) && step.target.endsWith('negative') ||
     step.kind === 'params_patch' && Object.keys(step.params).some(k => fixed.includes(k)) ||
     step.kind === 'character_edit' && !!step.negative ||
     step.kind === 'restore_partial' && step.fields.some(k => fixed.includes(k) || k === 'negative_prompt' ||
@@ -54,6 +55,7 @@ export async function checkNaiInput(proposal: Draft, readers?: InputReaders) {
   const data = object(value), budget = object(data.input_budget);
   const diagnostics = Array.isArray(data.diagnostics) ? data.diagnostics.map(object) : [];
   const errors = plan.steps.filter(s => s.enabled && s.issue).map(s => s.issue);
+  const stepErrors = plan.steps.flatMap(s => s.enabled && s.issue && s.anchorIssue ? [s.anchorIssue] : []);
   // Preparing words is allowed before a generation source is configured.
   // Execution readiness stays visible in state, but is not an input validity error.
   errors.push(...diagnostics.filter(d => d.severity === 'error' && d.code !== 'source_unavailable').map(d => String(d.message)));
@@ -77,6 +79,6 @@ export async function checkNaiInput(proposal: Draft, readers?: InputReaders) {
   return { ok: !errors.length, target: draft.target === 'edit' ? 'edit' as const : 'image' as const, model_id: candidate.model,
     input_budget: { status: budget.status ?? 'unavailable', ...(budget.encoder ? { encoder: budget.encoder } : {}),
       ...(budget.positive ? { positive: compact(budget.positive), negative: compact(budget.negative), text: compact(budget.text) } : {}) },
-    errors: [...new Set(errors)], warnings };
+    errors: [...new Set(errors)], ...(stepErrors.length ? { step_errors: stepErrors } : {}), warnings };
 }
 export type NaiDraftCheck = NonNullable<Awaited<ReturnType<typeof checkNaiInput>>>;

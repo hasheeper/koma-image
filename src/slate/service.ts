@@ -21,7 +21,8 @@ export function createSlates(services: ApplicationServices, drawing: Drawing, ed
   const ready = shallowRef(false), busy = shallowRef(false), recovery = shallowRef(false);
   const listeners = new Set<() => void>(), pageId = crypto.randomUUID();
   let deliveryErrorId: string | null = null;
-  let disposed = false, syncDelivery: ((s: Slate | null, id: string, required: boolean, created: boolean) => Promise<void>) | null = null;
+  let disposed = false, syncDelivery: ((s: Slate | null, id: string, required: boolean, created: boolean, directoryId: string | null) => Promise<void>) | null = null;
+  let directoryContext: () => string | null = () => null;
   const jobs = new Set<Promise<unknown>>();
   let releaseOwner!: () => void, acquiredOwner!: () => void;
   const ownerReady = new Promise<void>(resolve => { acquiredOwner = resolve; });
@@ -76,10 +77,16 @@ export function createSlates(services: ApplicationServices, drawing: Drawing, ed
   }
   const restored = run(async () => { await ownerReady; const state = await read(); publish(state); try { publish(await recover(state)); } catch (e) { error.value = String(e instanceof Error ? e.message : e); } ready.value = true; });
   async function commit(change: SlateChange, board?: BoardWrite, retainUndo = false) {
+    const directoryId = change.directoryId === undefined ? directoryContext() : change.directoryId;
+    const checkDirectory = () => {
+      if ((change.directoryRequired || !change.before && directoryId !== null) && directoryId !== directoryContext()) throw new Error('企划目录已切换，请恢复原目录后应用');
+    };
+    checkDirectory();
     await restored;
     return run(async () => {
       let state = await read();
       if (state.journal) throw new Error("请先恢复上次中断的任务操作");
+      checkDirectory();
       const current = state.slates.find(s => s.id === change.id) ?? null;
       if (contentKey(current) !== contentKey(change.before) || current?.version !== change.before?.version) { publish(state); throw new Error("任务板已变化，请重新核对草稿"); }
       if (board && !boardMatches(board, "before")) throw new Error("画板已变化，组合未应用");
@@ -108,11 +115,11 @@ export function createSlates(services: ApplicationServices, drawing: Drawing, ed
       const version = Math.max(current?.version ?? 0, state.versions?.[change.id] ?? 0) + 1;
       const after = change.after ? { ...structuredClone(change.after), version } : null;
       const created = !!after && !current && !state.versions?.[change.id];
-      const journal: Journal = { id: crypto.randomUUID(), change: { ...change, after }, ...(board ? { board } : {}) };
+      const journal: Journal = { id: crypto.randomUUID(), change: { ...change, after, directoryId }, ...(board ? { board } : {}) };
       const retained = retainUndo ? [...await idbRequest<string[] | undefined>(tx().objectStore("state").get(`retain:${pageId}`)) ?? [], ...[change.before, change.after].flatMap(s => s?.todos.flatMap(t => t.binding?.assetId ?? []) ?? [])] : undefined;
       state = { ...state, journal }; await persist(state, prepared, retained);
       try {
-        if (change.directoryRequired) await syncDelivery!(after, change.id, true, created);
+        if (change.directoryRequired) await syncDelivery!(after, change.id, true, created, directoryId);
         if (board) await boardWrite(board);
         const slates = state.slates.filter(s => s.id !== change.id);
         if (after) slates.push(after);
@@ -125,7 +132,7 @@ export function createSlates(services: ApplicationServices, drawing: Drawing, ed
       }
       publish(state); channel.postMessage("changed"); error.value = "";
       if (!change.directoryRequired && syncDelivery) {
-        try { await syncDelivery(after, change.id, false, created); }
+        try { await syncDelivery(after, change.id, false, created, directoryId); }
         catch (e) { deliveryErrorId = change.id; error.value = `本机已保存，目录待同步：${e instanceof Error ? e.message : String(e)}`; }
       }
     });
@@ -139,7 +146,7 @@ export function createSlates(services: ApplicationServices, drawing: Drawing, ed
     snapshot: () => structuredClone(list.value.find(s => s.id === activeId.value) ?? null),
     get: (id: string) => structuredClone(list.value.find(s => s.id === id) ?? null),
     subscribe(fn: () => void) { listeners.add(fn); return () => listeners.delete(fn); },
-    connectSync(fn: NonNullable<typeof syncDelivery>) { syncDelivery = fn; return () => { if (syncDelivery === fn) syncDelivery = null; }; },
+    connectSync(fn: NonNullable<typeof syncDelivery>, context: () => string | null = () => null) { syncDelivery = fn; directoryContext = context; return () => { if (syncDelivery === fn) { syncDelivery = null; directoryContext = () => null; } }; },
     async select(id: string) { await restored; await run(async () => { const state = await read(); if (!state.slates.some(s => s.id === id)) throw new Error("任务板不存在"); state.active = id; await persist(state); publish(state); channel.postMessage("changed"); }); },
     async retryRecovery() { await run(async () => { publish(await recover(await read())); error.value = ""; }); },
     /** Page undo owners retain only asset IDs; blobs stay out of Vue/draft history. */

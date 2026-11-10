@@ -51,6 +51,7 @@ export async function packageRelease(output = join(root, ".local/releases")) {
     "src/gateway/profile.ts",
     "src/gateway/transport.ts",
     "src/domain/models.ts",
+    "src/domain/seedream.ts",
     "src/domain/model-parameters.ts",
     "src/domain/value.ts",
     "docs/third-party-assets.md",

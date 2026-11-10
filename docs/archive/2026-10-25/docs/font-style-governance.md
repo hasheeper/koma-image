@@ -2,7 +2,7 @@
 
 # G0／G1：样式基线与字体配置
 
-2026-10-20。本文记录 G0／G1 当时的基线与验证；后续 G2–G4 已完成，现行入口与归属见[样式归属记录](style-ownership.md)，检查与本轮 Git 交付见[收口记录](style-checks.md)。范围见[CSS 治理计划](css-governance-plan.md)。
+2026-10-20。本文记录 G0／G1 当时的基线与验证；后续 G2–G4 已完成，现行入口与归属见[样式归属记录](style-ownership.md)，检查与本轮 Git 交付见[收口记录](style-checks.md)。范围见[CSS 治理计划](font-style-governance.md)。
 
 ## G0：当前应用基线
 
@@ -97,4 +97,4 @@ npm run check
 - 临时目录中验证生成文件过期、预加载缺失／不匹配、Unicode 越界均被拒绝，原 CSS 不被覆盖；模拟离线切片失败及替换失败，原字体目录保留。
 - 离线脚本已在临时目录完整生成 303 个分片。除重建产生的 `head` 时间戳与校验字段外，所有字体表与现有分片一致；正式 WOFF2 未被替换。
 
-字体来源与许可见[第三方资源](third-party-assets.md)。G2／G3 已完成基础拆分、入口去重与组件归属整理，后续维护请同时参阅[现行样式归属](style-ownership.md)。
+字体来源与许可见[第三方资源](../../../third-party-assets.md)。G2／G3 已完成基础拆分、入口去重与组件归属整理，后续维护请同时参阅[现行样式归属](style-ownership.md)。

@@ -114,11 +114,13 @@ export function annotationTag(r: RegionAnnotation, n: number, width: number, hei
 const percent = (n: number) => `${Math.round(n * 100)}%`;
 const location = (b: UnitRect) => ['左上', '上方', '右上', '左侧', '中央', '右侧', '左下', '下方', '右下'][Math.min(2, Math.floor((b.y + b.h / 2) * 3)) * 3 + Math.min(2, Math.floor((b.x + b.w / 2) * 3))];
 const bounds = (b: UnitRect) => `横向 ${percent(b.x)}–${percent(b.x+b.w)}，纵向 ${percent(b.y)}–${percent(b.y+b.h)}`;
-export function annotationPrompt(regions: readonly RegionAnnotation[], dual = true, extra = '', painted?: UnitRect): string {
+export function annotationPrompt(regions: readonly RegionAnnotation[], dual: boolean | 'markup' = true, extra = '', painted?: UnitRect): string {
   validateRegions(regions, true);
   if (!regions.length && !painted) return extra;
   const point = regions.some(r => r.shape === 'point');
-  const lines = dual
+  const lines = dual === 'markup'
+    ? ['首张图片是要修改的干净原图；独立透明标注层中的紫色线框、填充和编号仅用于定位，编号对应下面的批注。', '请以原图为底，按标注和文字要求修改：']
+    : dual
     ? [regions.length ? '图 1 是要修改的原图；图 2 是同尺寸的定位图，紫色线框和编号标出要改的位置，编号对应下面的批注。' : '图 1 是要修改的原图；图 2 是同尺寸的定位图，半透明紫色标出修改范围。', regions.length ? '请以图 1 为底，按批注修改：' : '请以图 1 为底，只修改紫色范围内的内容：']
     : ['请以输入图为底，按以下要求修改。位置按画面宽高的百分比给出，原点在左上角：'];
   lines.push(...regions.map((r, i) => `${i+1}. ${r.shape === 'point' ? '位置点' : `${r.shape === 'rect' ? '矩形' : r.shape === 'ellipse' ? '椭圆' : '多边形'}区域`}${dual ? '' : `，画面${location(r.bbox)}`}（${r.shape === 'point' ? `横向 ${percent(r.bbox.x)}，纵向 ${percent(r.bbox.y)}` : bounds(r.bbox)}）：${r.comment.trim() || (extra.trim() ? '按用户补充修改此处' : dual ? '按定位图修改此处' : '修改此处')}`));
@@ -126,7 +128,7 @@ export function annotationPrompt(regions: readonly RegionAnnotation[], dual = tr
   if (extra.trim()) lines.push(extra);
   if (painted) lines.push(`${regions.length ? '另有手绘修改范围' : '修改范围'}：${bounds(painted)}。`);
   lines.push(`除${regions.length ? '批注涉及' : '修改范围内'}的内容外，人物、构图、比例、分格和画风保持不变；画面方向与宽高比和${dual ? '图 1' : '原图'}一致，输出完整画面。`);
-  if (dual) lines.push('图 2 仅用于定位，结果中不得出现紫色线框、填充或编号。');
+  if (dual) lines.push(dual === 'markup' ? '透明标注层仅用于定位，结果中不得出现紫色线框、填充或编号。' : '图 2 仅用于定位，结果中不得出现紫色线框、填充或编号。');
   const text = lines.join('\n');
   if (text.length > 24_000) throw new Error('批注改图说明超过 24000 字符，请精简后再交接');
   return text;

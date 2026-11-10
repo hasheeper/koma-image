@@ -4,7 +4,7 @@ import { editorModels, validateEditorSource } from "../../domain/media.ts";
 import { isEnhanceScale } from "../../domain/nai-enhance.ts";
 import type {Draft,DraftState,DraftPlan,ValidateOptions,EditHandoff} from './types.ts';
 import type {Picture} from '../library.ts';
-import {parseDraft,stateHash,validateDraft} from './validate.ts';
+import {parseDraft,stateHash,validateDraft,handoffImage} from './validate.ts';
 import {editStateHash} from '../../domain/edit-draft.ts';
 import type {EditDraftState,EditConfiguration} from '../../domain/edit-draft.ts';
 import {DEFAULTS} from '../../domain/drawing.ts';
@@ -36,8 +36,8 @@ export function parseEditHandoff(input:Readonly<Record<string,unknown>>,base:Dra
  const step=steps[0];
  checkShape(step,draftSchema.properties.steps.items.anyOf.find(s=>s.properties.kind.enum.includes('edit_handoff'))!,'编辑交接');
  const label=String(step.image??''),p=library.find(p=>p.aliases.includes(label)),origin=p?.origins.find(o=>o.label===label);
- if(!p||!origin||origin.source==='attachment'||label.startsWith('#a'))throw new Error('交接来源不在本轮工作区图片快照中');
- const existing=base.editBoards?.find(s=>s.recordIds?.includes(p.id)||s.sourceKey===`record:${p.id}`||s.id===p.params.editBoardId);
+ if(!p||!origin||(!p.project&&(origin.source==='attachment'||label.startsWith('#a'))))throw new Error('交接来源不在本轮工作区或企划图片快照中');
+ const existing=p.project?undefined:base.editBoards?.find(s=>s.recordIds?.includes(p.id)||s.sourceKey===`record:${p.id}`||s.id===p.params.editBoardId);
  const target=structuredClone(existing??initialEditState(p,base));
  const params=step.params===undefined?{}:step.params;
  if(!params||typeof params!=='object'||Array.isArray(params))throw new Error('params 无效');
@@ -47,7 +47,7 @@ export function parseEditHandoff(input:Readonly<Record<string,unknown>>,base:Dra
  proposalSteps.push(...raw.filter(s=>s.kind==='slate_edit'));
  const fakeBase={...base,workspace:'edit' as const,edit:target};
  const proposal=parseDraft({...input,base_hash:editStateHash(target),steps:proposalSteps},fakeBase,library,question);
- const image={label,source:origin.source,ref:origin.source==='chat'?p.scope?.asset_id??p.id:p.id,binding:p.bindings?.[label]};
+ const image=p.project?handoffImage(label,base,library):{label,source:origin.source as 'history'|'favorites'|'chat'|'edit',ref:origin.source==='chat'?p.scope?.asset_id??p.id:p.id,binding:p.bindings?.[label]};
  const handoff:EditHandoff={image,target,created:!existing,proposal,params:structuredClone(p.params),origin:origin.source==='chat'?'chat':origin.source==='edit'?'edit':'image'};
  return {...proposal,target:undefined,base:structuredClone(base),baseHash:stateHash(base),editHandoff:handoff};
 }

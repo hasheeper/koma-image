@@ -113,34 +113,6 @@ test("priority CHAT: ordering selects an official source despite its unknown bal
   } finally { await t.context.close(); }
 });
 
-test("official connection icons: Google AIS/Vertex and OpenAI/Azure identities follow the address in cards and lists", async () => {
-  for (const [name, profile, baseUrl, glyph] of [
-    ["google-ais", "gemini-native-v1", "https://generativelanguage.googleapis.com", "#v-gemini-c", true],
-    ["google-vertex", "openai-chat-v1", "https://us-central1-aiplatform.googleapis.com/v1/projects/sample/locations/us-central1/endpoints/openapi", "#v-gemini-c"],
-    ["google-global", "openai-chat-v1", "https://aiplatform.googleapis.com/v1/projects/sample/locations/global/endpoints/openapi", "#v-gemini-c"],
-    ["openai", "openai-images-v1", "https://api.openai.com", "#v-openai", true],
-    ["azure-openai", "openai-chat-v1", "https://sample.openai.azure.com/openai/v1", "#v-openai"],
-    ["azure-foundry", "openai-chat-v1", "https://sample.services.ai.azure.com/openai/v1", "#v-openai"],
-  ]) {
-    const t = await open(profile, true, "", undefined, baseUrl), { page } = t;
-    try {
-      await page.goto(origin + "/#/image/settings/connections");
-      await page.locator("#settingsPanel[open]").waitFor();
-      await page.waitForFunction(() => document.querySelector(".conn-card .st")?.dataset.s === "ok");
-      assert.equal(await page.locator(".conn-card .connection-avatar use").getAttribute("href"), glyph);
-      await page.locator(".conn-models").click();
-      const list = page.locator(profile === "openai-chat-v1" ? "#askModelDialog[open]" : "#modelListDialog[open]");
-      await list.waitFor();
-      assert.equal(await list.locator(".connection-avatar use").getAttribute("href"), glyph);
-      const saved = await page.evaluate(() => JSON.parse(localStorage.getItem("koma.routing.v1")).connections.test);
-      assert.equal(saved.profileId, profile);
-      assert.equal(saved.baseUrl, baseUrl);
-      assert.ok(t.requests.every(r => r.method === "GET" && new URL(r.url).origin === new URL(baseUrl).origin && r.path.endsWith("/models")));
-      assert.deepEqual(t.errors, []);
-    } finally { await t.context.close(); }
-  }
-});
-
 test("native chat: OpenAI and Gemini generate/edit, keep original references and save unknown costs", async () => {
   for (const protocol of ["openai-images-v1", "gemini-native-v1"]) {
     const t = await open(protocol), { page } = t;

@@ -7,7 +7,7 @@ import { stripSyntax, captionText } from '../src/slate/captions.ts';
 import { parseDraft, validateDraft, stateHash } from '../src/ask/draft/validate.ts';
 import { draftView } from '../src/ask/draft/view.ts';
 import { receiveDraft } from '../src/bridge/protocol.ts';
-import { externalEdit, slateFile, combineSlateDocument } from '../src/slate/documents.ts';
+import { externalEdit, slateFile } from '../src/slate/documents.ts';
 import { createTools } from '../src/ask/tools.ts';
 import { imageParameters } from '../src/domain/image-parameters.ts';
 const form = {...structuredClone(DEFAULTS),prompt:'sky'};
@@ -78,7 +78,7 @@ test('B3 golden recipe needs explicit unlock; all real board fields preserved an
   assert.deepEqual(recipeForm(boardForm(form)),boardForm(form));
 });
 test('B3 draft summaries count task changes and keep recipe content in details with unlock and delivery requirements visible',()=>{
-  const state={...base(),slate:create()};state.slate.golden_recipe={form:boardForm({...form,prompt:'long_marker '.repeat(1000)}),locked:true};
+  const state={...base(),slate:create(),fileContext:{id:'project-a',directory:'A',available:true}};state.slate.golden_recipe={form:boardForm({...form,prompt:'long_marker '.repeat(1000)}),locked:true};
   const proposed=parseDraft({draft_title:'紧凑预览',base_hash:stateHash(state),steps:[{...update(state.slate),slate_title:'新名称',directory_required:true,golden_recipe:{capture_current:true,unlock:true,locked:true},todos:[{op:'remove',id:state.slate.todos[0].id},{op:'add',todo_title:'新任务',description:'full_description '.repeat(200),image_required:false}]}]},state,[]);
   const checked=validateDraft(proposed,state,{off:new Set()}),row=draftView(checked).fields[0].steps[0];
   assert.equal(row.kind,'slate');assert.equal(row.heading,'重命名 · 新名称');assert.equal(row.summary,'新增 1 项 · 删除 1 项');assert.match(row.recipe,/更新配方/);assert.equal(row.caution,'本次解锁配方 · 要求目录交付');
@@ -116,9 +116,7 @@ test('B3 existing task files cannot rebase stale or missing versions onto the la
   assert.equal(step.todos[0].description,'review this change');
   assert.equal(current.todos[0].description,'','conversion never mutates local state');
 });
-test('B3 full state is read only on demand; selected Slate exports remain explicitly scoped',async()=>{
+test('B3 full state is read only on demand',async()=>{
   const slate=create(),get=createTools().get('get_state'),ctx={state:()=>({text:'summary',images:0}),readSlate:()=>slate};
   assert.equal((await get.run({},ctx)).content.length,1);assert.match((await get.run({include_slate:true},ctx)).content[1].text,new RegExp(slate.id));
-  const doc={title:'memo',stem:'memo',formats:{md:'chosen text'}};
-  assert.equal(combineSlateDocument(doc,null),doc);const combined=combineSlateDocument(doc,slate);assert.match(combined.formats.md,/chosen text/);assert.match(combined.formats.md,/系列/);
 });

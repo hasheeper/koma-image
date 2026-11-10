@@ -26,9 +26,13 @@ export interface ChatAnnotation {
   guideAssetId: string;
   text: string;
   singleImage?: boolean;
+  /** Present only for a native-markup turn; both assets are frozen and included in backups. */
+  markup?: { inputAssetId: string; overlayAssetId: string };
 }
 export interface ConversationVersion {
+  evolutionInput?: import('../domain/evolution-input.ts').EvolutionInput;
   composites?: Record<string, string>;
+  compositeSettings?: Record<string,{colorMatch:boolean;method:'local'|'photopea';boundaryColorVersion:1}>;
   via?: { connection: string; upstreamId: string };
   completedAt?: number;
   id: string;
@@ -74,6 +78,7 @@ export interface ConversationRecord {
   updatedAt: number;
 }
 export interface AssetRecord {
+  projectSource?: { projectId: string; path: string; version: string };
   lineage?: import("../domain/image-identity.ts").ImageLineage;
   entity_key?: string;
   id: string;
@@ -91,7 +96,7 @@ export interface HandoffRecord {
 export const HANDOFF_MAX_AGE = 30 * 60 * 1000;
 export function assetRefs(conversations: ConversationRecord[]): Set<string> {
   const refs = new Set<string>();
-  const annotation = (a?: ChatAnnotation) => { if(a) for(const id of [a.sourceAssetId,a.inputAssetId,a.guideAssetId]) refs.add(id); };
+  const annotation = (a?: ChatAnnotation) => { if(a) for(const id of [a.sourceAssetId,a.inputAssetId,a.guideAssetId, ...(a.markup ? [a.markup.inputAssetId,a.markup.overlayAssetId] : [])]) refs.add(id); };
   for (const c of conversations) {
     annotation(c.pendingAnnotation);
     for (const id of [c.mainId, ...c.attachments, ...c.keepIds])

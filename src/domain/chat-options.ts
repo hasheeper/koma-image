@@ -1,15 +1,17 @@
-/** Option keys a new conversation may take from an ASK draft; quality stays the user's choice. */
+/** Option keys a new conversation may take from an ASK draft; other controls stay the user's choice. */
 export const chatSizeKeys: readonly string[] = ["size", "aspect_ratio", "image_size"];
 /** Shown to ASK so it can remind the user, never written by a draft. */
-export const chatReadOnlyKeys: readonly string[] = ["quality"];
+export const chatReadOnlyKeys: readonly string[] = ["quality", "complexity", "output_format", "watermark"];
 
 /** Parameter panel names and values, shared by CHAT and ASK draft cards. */
 export const chatOptionNames: Readonly<Record<string, string>> = {
   quality: "质量",
+  complexity: "复杂度",
   size: "画幅",
   aspect_ratio: "比例",
   image_size: "分辨率",
   output_format: "格式",
+  watermark: "水印",
 };
 const values: Readonly<Record<string, string>> = {
   auto: "自动",
@@ -22,4 +24,5 @@ const values: Readonly<Record<string, string>> = {
   "1536x1024": "横向",
   "1024x1536": "竖向",
 };
-export const chatOptionLabel = (v: string) => values[v] || v.toUpperCase();
+export const chatOptionLabel = (v: string, key?: string) =>
+  key === 'complexity' ? ({ low: '低', medium: '中', high: '高' }[v] || v) : values[v] || v.toUpperCase();

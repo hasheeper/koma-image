@@ -1,12 +1,18 @@
 <script setup lang="ts">
-import { nextTick, shallowRef, useId } from 'vue';
+import { computed, nextTick, shallowRef, useId } from 'vue';
 import type { RegionAnnotation } from '../../domain/region-annotation.ts';
+import { annotationModes } from '../../domain/image-controls.ts';
 import AppIcon from '../AppIcon.vue';
 import { usePopover } from '../ui/use-popover.ts';
+import ValueSelect from '../nai/NaiSelect.vue';
 
-const props = defineProps<{ regions: readonly RegionAnnotation[]; preview?: string; sent?: boolean; dim?: boolean; disabled?: boolean; inline?: boolean; singleImage?: boolean; returnEdit?: boolean }>();
-const emit = defineEmits<{ comment: [key: string, text: string]; remove: []; mode: [single: boolean]; edit: [] }>();
+const props = defineProps<{ regions: readonly RegionAnnotation[]; preview?: string; sent?: boolean; dim?: boolean; disabled?: boolean; inline?: boolean; singleImage?: boolean; returnEdit?: boolean; markup?: boolean; markupEligible?: boolean }>();
+const emit = defineEmits<{ comment: [key: string, text: string]; remove: []; mode: [single: boolean]; markup: []; edit: [] }>();
 const open = shallowRef(false), host = shallowRef<HTMLElement>(), panel = shallowRef<HTMLElement>(), id = useId();
+const mode = computed(() => props.markup ? 'native' : props.singleImage ? 'text' : 'dual');
+const modes = computed(() => annotationModes.filter(option => option.value !== 'native' || props.markupEligible || props.markup)
+  .map(option => ({ ...option, disabled: option.value === 'native' && !props.markupEligible })));
+function selectMode(value: string) { if (value === 'native') emit('markup'); else emit('mode', value === 'text'); }
 const shapes = { point: ['i-annotation-point', '点'], rect: ['i-select-rect', '矩形'], ellipse: ['i-select-ellipse', '椭圆'], polygon: ['i-select-polygon', '多边形'] } as const;
 const popover = usePopover(panel, {
   position() {
@@ -38,9 +44,8 @@ function key(event: KeyboardEvent, r: RegionAnnotation) {
         <img v-if="preview" :src="preview" alt="" /><AppIcon v-else name="i-annotate" />
         <strong>批注</strong><span class="annotation-card-count">{{ regions.length }}</span><AppIcon name="i-chevron" class="annotation-card-arrow" :class="{ open }" />
       </button>
-      <div v-if="inline && !sent" class="seg" role="group" aria-label="指示方式">
-        <button type="button" :aria-pressed="!singleImage" :disabled="disabled" title="发送原图和编号定位图" @click="emit('mode', false)">双图</button>
-        <button type="button" :aria-pressed="!!singleImage" :disabled="disabled" title="发送原图和方位文字" @click="emit('mode', true)">仅文字</button>
+      <div v-if="inline && !sent" class="annotation-mode">
+        <ValueSelect :id="`annotation-mode-${id}`" label="标注方式" :value="mode" :options="modes" :disabled="disabled" @change="selectMode" />
       </div>
       <button v-if="!sent" type="button" class="ibtn" aria-label="移除批注" :disabled="disabled" @click="emit('remove')"><AppIcon name="i-close" /></button>
     </div>
@@ -63,7 +68,7 @@ function key(event: KeyboardEvent, r: RegionAnnotation) {
 .annotation-card.inline { align-self: stretch; padding: 6px; border: 0; background: var(--well); }
 .annotation-card-head { display: flex; align-items: center; gap: 6px; min-height: 38px; padding: 3px 4px; }
 .inline .annotation-card-head { min-height: 32px; padding: 0; }
-.annotation-card-open { display: flex; flex: 1; min-width: 0; align-items: center; gap: 8px; padding: 0 4px 0 0; text-align: left; border-radius: var(--r2); }
+.annotation-card-open { display: flex; flex: 1; min-width: 0; align-items: center; gap: 8px; padding: 0 4px 0 0; color: var(--fg); text-align: left; border-radius: var(--r2); }
 .annotation-card-open img { flex: none; width: 28px; height: 28px; object-fit: cover; border-radius: var(--r1); }
 .annotation-card.dim { border-style: dashed; }
 .annotation-card.dim .annotation-card-open img { opacity: .4; filter: grayscale(1); }
@@ -72,8 +77,8 @@ function key(event: KeyboardEvent, r: RegionAnnotation) {
 .annotation-card-arrow { --ico: var(--ico-xs); color: var(--fg-3); rotate: 90deg; }
 .annotation-card-arrow.open { rotate: -90deg; }
 .annotation-card-head .ibtn { flex: none; width: 28px; height: 28px; --ico: var(--ico-sm); }
-.annotation-card-head .seg { flex: none; padding: 2px; border: 0; box-shadow: none; }
-.annotation-card-head .seg button { padding: 3px 8px; font-size: var(--fz-xs); border-radius: var(--r1); white-space: nowrap; }
+.annotation-mode { flex: none; }
+.annotation-mode :deep(.choice-value) { color: var(--fg-2); font-weight: var(--fw-medium); }
 .annotation-card-panel { width: min(320px, calc(100vw - 24px)); margin: 0; padding: 6px; border: 1px solid var(--line-2); border-radius: var(--r3); color: var(--fg); background: var(--raised); box-shadow: var(--sh-2); }
 .annotation-card-panel.inline { width: auto; padding: 4px 0 0; border: 0; background: transparent; box-shadow: none; }
 .annotation-card-list { max-height: min(240px, 45vh); overflow: auto; overscroll-behavior: contain; }

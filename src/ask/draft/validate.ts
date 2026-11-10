@@ -1,3 +1,7 @@
+import { recipeOf } from '../retrospect/recipe.ts';
+import { isEmptyInsertion } from './text.ts';
+import { prepareRecipe } from '../retrospect/restore.ts';
+import type { EvolutionChange } from '../retrospect/store.ts';
 import { naiCapabilities } from "../../domain/nai.ts";
 import { parseEditHandoff,validateEditHandoff } from "./edit-handoff.ts";
 import { parseEditDraft, validateEditDraft, draftTarget } from "./edit.ts";
@@ -34,7 +38,9 @@ export const stateHash = (s: DraftState) => s.workspace === "edit" && s.edit ? e
 const outsideChat = (base: DraftState) => {
   if (base.workspace && base.workspace !== "chat") throw new Error("在 HOME／IMAGE／TAGS 提问时，写入 CHAT 一律新开会话：请改用 chat_handoff");
 };
-function handoffImage(label: string, base: DraftState, library: readonly Picture[]): HandoffImage {
+export function handoffImage(label: string, base: DraftState, library: readonly Picture[]): HandoffImage {
+  const project = library.find(p => p.aliases.includes(label))?.project;
+  if (project) return { label, source: 'project', ref: project.ref };
   if (label.startsWith("#a")) throw new Error("附件不能作为交接图片");
   if (label.startsWith("#c")) {
     const image = base.chat ? chatImage(base.chat, label) : null;
@@ -46,18 +52,47 @@ function handoffImage(label: string, base: DraftState, library: readonly Picture
   if (!picture || (origin?.source !== "history" && origin?.source !== "favorites" && origin?.source !== "edit")) throw new Error(`${label} 不在本轮图片快照中`);
   return { label, source: origin.source, ref: picture.id, ...(picture.bindings?.[label] ? {binding:picture.bindings[label]} : {}) };
 }
-export function parseDraft(input: Readonly<Record<string, unknown>>, base: DraftState, library: readonly Picture[], question = ""): Draft {
+export function parseDraft(input: Readonly<Record<string, unknown>>, base: DraftState, library: readonly Picture[], question = "", evolutionBase?: (recordId: string) => EvolutionChange & { edit?: import("../../domain/edit-draft.ts").EditDraftState }): Draft {
+  if(input.base_image_id!==undefined&&base.workspace==='edit') {
+    if(!evolutionBase||input.new_board_name!==undefined||input.base_hash!==stateHash(base)||!base.edit)throw new Error('回退草稿需要当前编辑演进与原始快照');
+    const label=text(input.base_image_id,32),p=library.find(p=>p.aliases.includes(label));if(!p)throw new Error('回退图片未读取');
+    const {edit:target,...change}=evolutionBase(p.id);if(!target||target.id!==base.edit.id)throw new Error('回退基底须在当前编辑画板');
+    if(target.source?.width!==base.edit.source?.width||target.source?.height!==base.edit.source?.height)throw new Error('回退图片尺寸不同，请先在演进图中从该图开始，检查蒙版后再提议');
+    const prepared={...base,edit:target}, {base_image_id:_base,...inputWithoutBase}=input;
+    const parsed=parseEditDraft({...inputWithoutBase,base_hash:stateHash(prepared)},prepared,library,question);
+    return {...parsed,editRollback:{evolution:change,before:structuredClone(base.edit),after:target,label}};
+  }
+  if (input.base_image_id !== undefined && (!evolutionBase || base.workspace !== "image" || input.new_board_name !== undefined || draftTarget(input, base) === "edit" || Array.isArray(input.steps) && input.steps.some(s => s?.kind === "edit_handoff" || s?.kind === "chat_handoff" || s?.kind === "chat_distill_branch"))) throw new Error("base_image_id 仅用于内置 ASK 当前 IMAGE 演进的回退草稿");
   if(Array.isArray(input.steps)&&input.steps.some(s=>s?.kind==="edit_handoff"))return parseEditHandoff(input,base,library,question);
   if (draftTarget(input,base) === "edit") return parseEditDraft(input,base,library,question);
   // Keep in-flight responses and earlier tool turns using `title` readable.
   const title = text(input.draft_title ?? input.title, 120).trim();
   if (!title || input.base_hash !== stateHash(base)) throw new Error("草稿 base_hash 与本轮快照不符，请使用本轮原始值");
   if (!Array.isArray(input.steps) || !input.steps.length || input.steps.length > 12) throw new Error("草稿需要 1–12 个步骤");
-  const rawSteps = input.steps;
-  const steps = rawSteps.map((raw) => {
+  let rollbackBase: Draft['rollbackBase'];
+  let roleIds: ReadonlyMap<string, string> | undefined;
+  if (input.base_image_id !== undefined) {
+    const label = text(input.base_image_id, 32), source = library.find(p => p.aliases.includes(label));
+    if (!source || !/^#[hf]\d+$/.test(label)) throw new Error('回退基底不在本轮 IMAGE 历史或收藏中');
+    const image = handoffImage(label, base, library);
+    if (!image.binding) throw new Error('回退基底缺少稳定图片绑定');
+    const prepared = prepareRecipe(recipeOf(source.params), { form: base.form, nextCharacterId: base.nextCharacterId ?? nextCharacterId(base.form.characters), models: base.models, samplersFor: id => base.samplersByModel?.[id] ?? base.samplers });
+    const sourceRoles = Array.isArray(source.params.localCharacters) ? source.params.localCharacters as { id: string }[] : [];
+    roleIds = new Map(sourceRoles.map((c, i) => [c.id, prepared.form.characters[i].id]));
+    rollbackBase = { image, recipe: recipeOf(source.params), expected: boardForm(base.form), fields: prepared.changes, evolution: evolutionBase!(source.id) };
+  }
+  const rawSteps = input.steps.map(raw => {
+    if (!roleIds) return raw;
+    const step = { ...record(raw) };
+    if (typeof step.target === 'string') step.target = step.target.replace(/image\.char\.(c[1-9]\d*)\./, (_, id: string) => `image.char.${roleIds!.get(id) ?? 'missing'}.`);
+    if (typeof step.id === 'string') step.id = roleIds.get(step.id) ?? 'missing';
+    if (Array.isArray(step.ids)) step.ids = step.ids.map(id => roleIds!.get(String(id)) ?? 'missing');
+    return step;
+  });
+  const steps = rawSteps.map((raw, index) => {
     const step = record(raw);
     if (step.kind === "save_ref") return parseFile(step, base);
-    if (step.kind === "slate_edit") return parseSlateEdit(step, base.slate ?? null, base.form, library);
+    if (step.kind === "slate_edit") return parseSlateEdit(step, base.slate ?? null, base.form, library, base.fileContext?.id ?? null);
     if (step.kind === "params_patch") return { kind: "params_patch" as const, params: parseParameters(step.params) };
     if (step.kind === "prompt_patch") {
       const target = text(step.target, 80), mode = text(step.mode, 20);
@@ -65,8 +100,9 @@ export function parseDraft(input: Readonly<Record<string, unknown>>, base: Draft
       if (target === "chat.composer") outsideChat(base);
       if (!["replace", "before", "after", "append", "rewrite"].includes(mode)) throw new Error("草稿修改方式无效");
       const anchor = step.anchor === undefined ? "" : text(step.anchor);
-      if (!["append", "rewrite"].includes(mode) && !anchor.trim()) throw new Error("局部修改需要非空 anchor");
-      return { kind: "prompt_patch" as const, target: target as TextTarget, mode: mode as TextMode, anchor, text: text(step.text) };
+      const replacement = text(step.text);
+      if (!["append", "rewrite"].includes(mode) && !isEmptyInsertion({ mode: mode as TextMode, text: replacement }) && !anchor.trim()) throw new Error("局部修改需要非空 anchor");
+      return { kind: "prompt_patch" as const, sourceStep: index + 1, target: target as TextTarget, mode: mode as TextMode, anchor, text: replacement };
     }
     if (step.kind === "character_edit") {
       if (!["add", "remove", "reorder", "set_enabled", "set_position", "set_placement"].includes(String(step.op))) throw new Error("角色动作无效");
@@ -90,7 +126,7 @@ export function parseDraft(input: Readonly<Record<string, unknown>>, base: Draft
       if (rawSteps.length !== 1 || !base.chat) throw new Error("分支草稿需要当前会话快照，且必须独立提交");
       const source = text(step.source, 30), image = chatImage(base.chat, source);
       if (!image) throw new Error("分支起点不在当前分支或没有已完成图片");
-      if (!image.selected) throw new Error("分支起点须在该轮当前选中的版本中；请让用户先在 CHAT 切换版本，或改用 chat_handoff 新开会话");
+
       if (!Array.isArray(step.exclude) || step.exclude.some((id) => typeof id !== "string" || !chatTurn(base.chat!, id))) throw new Error("排除轮次不在本轮分支快照中");
       return { kind: "chat_distill_branch" as const, source, exclude: [...new Set(step.exclude as string[])], text: text(step.text) };
     }
@@ -138,7 +174,7 @@ export function parseDraft(input: Readonly<Record<string, unknown>>, base: Draft
   if (workspaces.size !== 1) throw new Error("一份草稿只能写入一个工作区");
   const newBoardName = input.new_board_name === undefined ? undefined : text(input.new_board_name, 80).trim();
   if (newBoardName !== undefined && (!newBoardName || !workspaces.has("image") || !base.boardId)) throw new Error("new_board_name 需要非空名称，且仅用于有来源画板的 IMAGE 草稿");
-  return { title, ...(newBoardName === undefined ? {} : { newBoardName }), baseHash: stateHash(base), question, steps, base: structuredClone(base) };
+  return { title, ...(rollbackBase ? { rollbackBase } : {}), ...(newBoardName === undefined ? {} : { newBoardName }), baseHash: stateHash(base), question, steps, base: structuredClone(base) };
 }
 
 /** Normalized code units retain original source spans, including repeated spaces. */
@@ -160,61 +196,93 @@ const occurrences = (value: string, needle: string) => {
   for (let i = value.indexOf(needle); i >= 0 && needle; i = value.indexOf(needle, i + 1)) found.push(i);
   return found;
 };
-export function matchAnchor(value: string, anchor: string) {
+function inspectAnchor(value: string, anchor: string) {
   const exact = occurrences(value, anchor);
-  if (exact.length === 1) return { start: exact[0], end: exact[0] + anchor.length, aligned: false };
-  if (exact.length > 1) return null;
+  if (exact.length === 1) return { matches: 1, match: { start: exact[0], end: exact[0] + anchor.length, aligned: false } };
+  if (exact.length > 1) return { matches: exact.length, match: null };
   const source = normalized(value), needle = normalized(anchor).text;
-  if (!needle) return null;
+  if (!needle) return { matches: 0, match: null };
   const matches = occurrences(source.text, needle);
-  return matches.length === 1 ? { start: source.starts[matches[0]], end: source.ends[matches[0] + needle.length - 1], aligned: true } : null;
+  return { matches: matches.length, match: matches.length === 1 ? { start: source.starts[matches[0]], end: source.ends[matches[0] + needle.length - 1], aligned: true } : null };
+}
+export function matchAnchor(value: string, anchor: string) {
+  return inspectAnchor(value, anchor).match;
 }
 const roleGroupText = (chars: DraftState["form"]["characters"], placement: string) => `${placement === "manual" ? "手动定位" : "自动定位"}\n${chars.map((c, i) => `角色 ${i + 1} (${c.id}) · ${c.on ? "启用" : "停用"} · ${c.centers.map(p => `${p.x}/${p.y}`).join("; ")}\nPrompt: ${c.prompt}\nNegative: ${c.negative || "（空）"}`).join("\n")}`;
 const labels: Partial<Record<Field, string>> = { prompt: "Prompt", negative: "Negative", composer: "对话输入框", width: "宽", height: "高", steps: "步数", scale: "Guidance", cfg: "中转 CFG（旧）", cfgRescale: "Guidance Rescale", noiseSchedule: "噪声调度", varietyPlus: "Variety+", naiMode: "模式", complexity: "Complexity", qualityPreset: "质量预设", negativePreset: "负向预设", transparentBg: "透明底", sampler: "采样器", seed: "Seed", model: "模型", batchCount: "批次" };
 
 export function validateDraft(draft: Draft, now: DraftState, options: ValidateOptions): DraftPlan {
+  if(draft.editRollback) {
+    const r=draft.editRollback,live=now.edit;
+    const pristine=now===draft.base||canonical(live?.config)===canonical(r.after.config)&&live?.baseId===r.after.baseId;
+    const issue=!live||live.id!==r.before.id?'编辑画板已变化':!pristine&&(live.baseId!==r.before.baseId||live.maskRevision!==r.before.maskRevision||canonical(live.config)!==canonical(r.before.config))?'编辑底图、蒙版或配置已变化，请重新提议':'';
+    const adjusted={...now,edit:{...r.after,models:live?.models??r.after.models,blocked:live?.blocked??r.after.blocked}};
+    const plan=validateDraft({...draft,editRollback:undefined},adjusted,options);
+    const edit=plan.edit??{id:r.after.id,before:r.after.config,after:r.after.config,baseId:r.after.baseId,maskRevision:r.after.maskRevision};
+    return {...plan,editRollback:r,edit:{...edit,before:r.before.config,baseId:r.before.baseId},steps:[{id:'edit-base',label:'回退基底',kind:'branch',enabled:true,locked:true,aligned:false,issue,before:r.before.sourceTag??'当前底图',after:r.label},...plan.steps.map(s=>({...s,issue:s.issue||issue}))]};
+  }
   if(draft.editHandoff)return validateEditHandoff(draft,now,options);
   if(draft.target === "edit") return validateEditDraft(draft,now,options);
-  if (draft.steps[0].kind === "chat_distill_branch") return validateBranch(draft, now, options);
-  if (draft.steps[0].kind === "chat_handoff") return validateHandoff(draft, now, options);
-  const workspace: "image" | "chat" = draft.steps[0].kind === "prompt_patch" && draft.steps[0].target.startsWith("chat.") ? "chat" : "image";
-  const initial = structuredClone({ ...now.form, characters: now.form.characters ?? [], composer: now.composer }), working = structuredClone(initial);
-  let allocation = Math.max(now.nextCharacterId ?? 1, draft.base.nextCharacterId ?? 1, nextCharacterId(draft.base.form.characters ?? []));
+  if (draft.steps[0]?.kind === "chat_distill_branch") return validateBranch(draft, now, options);
+  if (draft.steps[0]?.kind === "chat_handoff") return validateHandoff(draft, now, options);
+  const workspace: "image" | "chat" = draft.steps[0]?.kind === "prompt_patch" && draft.steps[0].target.startsWith("chat.") ? "chat" : "image";
+  const initial = structuredClone({ ...now.form, characters: now.form.characters ?? [], composer: now.composer }), working = structuredClone({ ...initial, ...draft.rollbackBase?.fields });
+  let allocation = Math.max(now.nextCharacterId ?? 1, draft.base.nextCharacterId ?? 1, nextCharacterId(draft.base.form.characters ?? []), nextCharacterId(working.characters));
   const finalModel = draft.steps.reduce((id, step, i) => {
     if (options.off.has(`${i}:model`)) return id;
     const value = step.kind === 'params_patch' ? step.params.model
       : step.kind === 'restore_partial' && step.fields.includes('model') ? resolveModel(now.models, String(step.values.model ?? ''))?.id : undefined;
     if (!value || !sameValue(initial.model, draft.base.form.model) && !sameValue(initial.model, value)) return id;
     return value;
-  }, now.form.model);
+  }, working.model);
   const checked: CheckedStep[] = [];
+  const sourceRoles = draft.rollbackBase?.fields.characters ?? draft.base.form.characters;
+  if (draft.rollbackBase) {
+    const b = draft.rollbackBase;
+    let unavailable = '';
+    try { prepareRecipe(b.recipe, { form: now.form, nextCharacterId: now.nextCharacterId ?? 1, models: now.models, samplersFor: id => now.samplersByModel?.[id] ?? now.samplers }); } catch (error) { unavailable = error instanceof Error ? error.message : '回退配方不可用'; }
+    const issue = unavailable || (stateHash(now) !== draft.baseHash ? '画板已变化，请重新提议回退草稿' : options.has?.(b.image) === false ? '回退基底图片已移除' : '');
+    checked.push({ id: 'evolution-base', label: '回退基底', kind: 'branch', locked: true, enabled: true, aligned: false, issue, before: '', after: `${b.evolution.after.cursor.nodeId} · ${b.image.label}` });
+    for (const field of Object.keys(b.fields) as (keyof typeof b.fields)[]) {
+      if (sameValue(initial[field], working[field]) || field === 'placement') continue;
+      const text = field === 'prompt' || field === 'negative', characters = field === 'characters';
+      const show = (side: typeof working) => characters ? roleGroupText(side.characters, side.placement) : typeof side[field] === 'object' ? canonical(side[field]) : String(side[field] ?? '');
+      checked.push({ id: `base:${field}`, label: characters ? '角色组 · 回退' : `${labels[field] ?? field} · 回退`, kind: text || characters ? 'rewrite' : 'parameter', locked: true, enabled: true, aligned: false, issue, before: show(initial), after: show(working) });
+    }
+  }
   let aligned = stateHash(now) !== draft.baseHash;
-  const checkText = (id: string, target: TextTarget, mode: TextMode, anchor: string, replacement: string, label?: string) => {
+  const checkText = (id: string, target: TextTarget, mode: TextMode, anchor: string, replacement: string, label?: string, sourceStep = Number.parseInt(id, 10) + 1) => {
+    if (isEmptyInsertion({ mode, text: replacement })) return;
     const match = /^(?:image|edit)\.char\.(c[1-9]\d*)\.(prompt|negative)$/.exec(target);
     const char = match ? working.characters.find(c => c.id === match[1]) : undefined;
     const charField = match?.[2] as "prompt" | "negative" | undefined;
     const field = target === "chat.composer" ? "composer" : target === "image.prompt" ? "prompt" : target === "image.negative" ? "negative" : null;
     const before = char && charField ? char[charField] : field ? working[field] : "";
-    const originalChar = match ? draft.base.form.characters?.find(c => c.id === match[1]) : undefined;
+    const originalChar = match ? sourceRoles?.find(c => c.id === match[1]) : undefined;
     const original = charField ? originalChar?.[charField] ?? "" : field === "composer" ? draft.base.composer : field ? draft.base.form[field] : "";
     const initialText = charField ? initial.characters.find(c => c.id === match![1])?.[charField] ?? "" : field ? initial[field] : "";
     let issue = !field && (!char || !originalChar) ? "目标角色已不存在" : target === "chat.composer" && now.conversationId !== draft.base.conversationId ? "当前对话已切换" : "";
     if (workspace === "image" && now.boardPresent === false) issue = "来源画板已删除";
-    let start = 0, end = before.length, moved = false;
+    let start = 0, end = before.length, moved = false, anchorIssue: CheckedStep['anchorIssue'];
     if (mode === "append" || mode === "rewrite") {
-      if (initialText !== original) issue ||= "原文已变化，需基于当前内容重新提议";
+      if (!draft.rollbackBase && initialText !== original) issue ||= "原文已变化，需基于当前内容重新提议";
       if (mode === "append") start = end;
     } else {
-      const found = matchAnchor(before, anchor);
-      if (!found) issue ||= "锚点不唯一或已不存在";
-      else { start = found.start; end = found.end; moved = found.aligned; }
+      const { match: found, matches } = inspectAnchor(before, anchor);
+      if (!found && !issue) {
+        const field = (options.editing ? target.replace(/^image\./, 'edit.') : target) as TextTarget;
+        anchorIssue = { code: matches ? 'anchor_ambiguous' : 'anchor_not_found', step: sourceStep, target: field, anchor, matches };
+        const excerpt = anchor.length > 80 ? anchor.slice(0, 80) + '…' : anchor;
+        issue = `第 ${sourceStep} 步 · ${field}：${matches ? '锚点匹配多处' : '未找到锚点'} ${JSON.stringify(excerpt)}（匹配 ${matches} 处）`;
+      }
+      if (found) { start = found.start; end = found.end; moved = found.aligned; }
       if (mode === "before") end = start;
       if (mode === "after") start = end;
     }
     const after = before.slice(0, start) + replacement + before.slice(end);
     if (after.length > 24000) issue ||= "结果超过 24000 字";
     const enabled = !options.off.has(id);
-    checked.push({ id, ...(match ? { characterId: match[1], characterLabel: `角色 ${initial.characters.findIndex(c => c.id === match[1]) + 1} · ${match[1]}` } : {}), label: label ?? (charField === "negative" ? "Negative" : charField === "prompt" ? "Prompt" : labels[field ?? "prompt"]) ?? target, kind: mode === "rewrite" ? "rewrite" : "patch", enabled, issue, aligned: moved || initialText !== original, before: mode === "rewrite" ? before : before.slice(start, end), after: mode === "rewrite" ? after : replacement, prefix: mode === "rewrite" ? "" : before.slice(Math.max(0, start - 60), start), suffix: mode === "rewrite" ? "" : before.slice(end, end + 60) });
+    checked.push({ id, ...(anchorIssue ? { anchorIssue } : {}), ...(match ? { characterId: match[1], characterLabel: `角色 ${initial.characters.findIndex(c => c.id === match[1]) + 1} · ${match[1]}` } : {}), label: label ?? (charField === "negative" ? "Negative" : charField === "prompt" ? "Prompt" : labels[field ?? "prompt"]) ?? target, kind: mode === "rewrite" ? "rewrite" : "patch", enabled, issue, aligned: moved || initialText !== original, before: mode === "rewrite" ? before : before.slice(start, end), after: mode === "rewrite" ? after : replacement, prefix: mode === "rewrite" ? "" : before.slice(Math.max(0, start - 60), start), suffix: mode === "rewrite" ? "" : before.slice(end, end + 60) });
     aligned ||= moved;
     if (enabled && !issue) { if (char && charField) char[charField] = after; else if (field) working[field] = after; }
   };
@@ -227,12 +295,13 @@ export function validateDraft(draft: Draft, now: DraftState, options: ValidateOp
     if (step.kind === "slate_edit") {
       const before = step.change.before, live = now.slate ?? null;
       let issue = before && (live?.id !== before.id || live.version !== before.version) ? "任务板版本已变化，请重新提议" : "";
+      if ((step.change.directoryRequired || !before && step.change.directoryId != null) && (step.change.directoryId !== (now.fileContext?.id ?? null) || !now.fileContext?.available)) issue ||= '企划目录已断开或切换，请恢复原目录后应用';
       for (const image of step.change.bindings) if (options.has?.(image) === false) issue ||= `${image.label} 已移除`;
       if (options.off.size) issue ||= "任务与画板是一个组合，请整体应用或重新提议";
       checked.push({ id: String(i), label: step.unlockRecipe ? "任务板 · 解锁配方" : "任务板", kind: "slate", locked: true, enabled: true, issue, aligned: !!issue, before: describe(before), after: describe(step.change.after) });
       return;
     }
-    if (step.kind === "prompt_patch") return checkText(String(i), step.target, step.mode, step.anchor, step.text);
+    if (step.kind === "prompt_patch") return checkText(String(i), step.target, step.mode, step.anchor, step.text, undefined, step.sourceStep);
     if (step.kind === "character_edit") {
       const id = String(i), enabled = !options.off.has(id), cap = characterCapability(finalModel);
       let issue = now.boardPresent === false ? "来源画板已删除" : !sameValue(initial.characters, draft.base.form.characters ?? []) || initial.placement !== draft.base.form.placement && draft.base.form.placement !== undefined ? "角色组已在外部修改，请重新提议" : "";
@@ -255,7 +324,7 @@ export function validateDraft(draft: Draft, now: DraftState, options: ValidateOp
         if (!cap.max) issue ||= "当前模型不支持角色定位";
         if (enabled && !issue) { working.placement = step.placement!; if (step.placement === "manual") chars.forEach(c => { if (!c.centers.length) c.centers = [{ x: .5, y: .5 }]; }); }
       } else if (!c) issue ||= "目标角色已不存在";
-      else if (!draft.base.form.characters?.some(x => x.id === c.id)) issue ||= "目标不在初始角色组中";
+      else if (!sourceRoles?.some(x => x.id === c.id)) issue ||= "目标不在初始角色组中";
       else if (step.op === "remove") { label = "删除"; before = `${c.prompt || c.id}\nNegative: ${c.negative || "（空）"}`; after = "移除"; chars.splice(chars.indexOf(c), 1); }
       else if (step.op === "set_enabled") { label = "状态"; before = c.on ? "启用" : "停用"; after = step.on ? "启用" : "停用"; c.on = step.on!; }
       else if (step.op === "set_position") { label = "位置"; before = c.centers.map(p => `${p.x}, ${p.y}`).join(" / "); after = step.cell ?? `${step.x}, ${step.y}`; c.centers = [center!]; }
@@ -343,8 +412,15 @@ export function validateDraft(draft: Draft, now: DraftState, options: ValidateOp
     else if (contentKey(slate.before) === contentKey(slate.after)) slate = undefined;
   }
   if (files.length) { if (options.off.size) for (let i = 0; i < checked.length; i++) checked[i] = { ...checked[i], issue: checked[i].issue || "文件与画板是一个组合，请整体应用或重新提议" }; for (let i = 0; i < checked.length; i++) checked[i] = { ...checked[i], locked: true }; if (checked.some(step => step.issue)) { Object.assign(working, structuredClone(initial)); slate = undefined; } }
+  if (draft.rollbackBase) {
+    const baseRow = checked[0];
+    const issue = baseRow.issue || (options.off.size ? '回退基底与修改请整体应用或重新提议' : '') ||
+      (samplerConflict || sizeConflict ? '回退配方的模型、尺寸或采样器不可用' : '') || checked.find(s => s.enabled && s.issue)?.issue || '';
+    for (let i = 0; i < checked.length; i++) checked[i] = { ...checked[i], locked: true, ...(issue ? { issue: checked[i].issue || issue } : {}) };
+    if (issue) Object.assign(working, structuredClone(initial));
+  }
   const changes = (Object.keys(working) as Field[]).filter((field) => !sameValue(working[field], initial[field])).map((field) => ({ field, before: initial[field], after: working[field] }));
-  const plan = { boardId: slate && !changes.length && !draft.newBoardName ? undefined : draft.base.boardId, boardName: now.boardName, ...(draft.newBoardName === undefined ? {} : { newBoardName: draft.newBoardName }), title: draft.title, workspace, conversationId: draft.base.conversationId, steps: checked, changes, aligned, ...(files.length ? { files } : {}), ...(slate ? { slate } : {}) };
+  const plan = { ...(draft.rollbackBase ? { rollbackBase: draft.rollbackBase } : {}), boardId: slate && !changes.length && !draft.newBoardName ? undefined : draft.base.boardId, boardName: now.boardName, ...(draft.newBoardName === undefined ? {} : { newBoardName: draft.newBoardName }), title: draft.title, workspace, conversationId: draft.base.conversationId, steps: checked, changes, aligned, ...(files.length ? { files } : {}), ...(slate ? { slate } : {}) };
   return { ...plan, fingerprint: hash(canonical(plan)) };
 }
 
@@ -356,6 +432,7 @@ function validateBranch(draft: Draft, now: DraftState, options: ValidateOptions)
   const issue = now.conversationId !== draft.base.conversationId ? "当前对话已切换" : now.chat?.key !== base.key ? "会话或上下文已变化，请重新提议" : "";
   const exclude = options.off.has("0:exclude") ? [] : step.exclude;
   const before = base.selection, after = { ...before, headId: image.source.turnId, mainId: image.assetId,
+    selectedVersions: { ...before.selectedVersions, [image.source.turnId]: image.version },
     skipTurnIds: [...new Set([...before.skipTurnIds, ...exclude.flatMap((id) => chatTurn(base, id)?.turnId ?? [])])],
     prompt: options.off.has("0:text") ? before.prompt : step.text };
   const steps: CheckedStep[] = [

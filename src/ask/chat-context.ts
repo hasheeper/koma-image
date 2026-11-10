@@ -1,3 +1,4 @@
+import { chatEvolutionInput, evolutionTurns } from '../domain/chat-evolution.ts';
 import { chatImageId, chatImageOrigin } from "../domain/image-origin.ts";
 import { ancestry, chatDraftKey, chatSelection, contextSnapshot } from "../domain/conversation.ts";
 import type { ChatSelection } from "../domain/conversation.ts";
@@ -26,11 +27,11 @@ export interface ChatDraftSnapshot {
   readonly sources: readonly ChatSource[];
 }
 const finished = (v: ConversationVersion | undefined) => v?.status === "done" ? v.blocks.flatMap((b) => b.type === "image" ? [v.composites?.[b.assetId] ?? b.assetId] : []) : [];
-export function chatSnapshot(state: ReturnType<Chat["snapshot"]>): ChatDraftSnapshot {
+export function chatSnapshot(state: ReturnType<Chat["snapshot"]>, evolution = false): ChatDraftSnapshot {
   const c = state.current;
-  return { key: chatDraftKey(c), selection: chatSelection(c), sources: ancestry(c).map((t, i) => ({
+  return { key: chatDraftKey(c), selection: chatSelection(c), sources: (evolution?evolutionTurns(c):ancestry(c)).map((t, i) => ({
     label: `#c${i + 1}.${t.selectedVersion + 1}`, turnId: t.id, prompt: t.prompt,
-    assetId: finished(t.versions[t.selectedVersion])[0] ?? null, versions: t.versions.map(finished),
+    assetId: finished(t.versions[t.selectedVersion])[0] ?? null, versions: t.versions.map(v=>{const ids=finished(v);return evolution?[...ids,...v.blocks.flatMap(b=>v.status==='done'&&b.type==='image'&&!ids.includes(b.assetId)?[b.assetId]:[])]:ids;}),
   })) };
 }
 const chatId = /^#c([1-9]\d*)\.([1-9]\d*)(?:([a-z])|\.([1-9]\d*))?$/;
@@ -46,26 +47,32 @@ export function chatImage(snapshot: Pick<ChatDraftSnapshot, "sources">, label: s
 export const chatTurn = (snapshot: Pick<ChatDraftSnapshot, "sources">, label: string) =>
   chatId.test(label) ? snapshot.sources[Number(chatId.exec(label)![1]) - 1] ?? null : null;
 /** Every finished image on the current branch; `#cN.M` stays the label of single-image versions. */
-export function chatImages(state: ReturnType<Chat["snapshot"]>) {
+export function chatImages(state: ReturnType<Chat["snapshot"]>, evolution = false) {
   const c = state.current;
-  return ancestry(c).flatMap((turn, i) => turn.versions.flatMap((version, j) => {
+  return (evolution ? evolutionTurns(c) : ancestry(c)).flatMap((turn, i) => turn.versions.flatMap((version, j) => {
     const ids = finished(version), base = `#c${i + 1}.${j + 1}`;
-    return ids.map((assetId, k) => ({ turn, version, assetId, index: k, number: j, selected: j === turn.selectedVersion,
-      label: ids.length > 1 ? k < 26 ? `${base}${String.fromCharCode(97+k)}` : `${base}.${k + 1}` : base, aliases: [...new Set([...(k < 26 ? [`${base}${String.fromCharCode(97+k)}`] : []), ids.length > 1 ? `${base}.${k + 1}` : base, `${base}.${k + 1}`, ...(k ? [] : [base])])] }));
+    const extra = evolution && version.status === 'done' ? version.blocks.flatMap(b=>b.type==='image'&&!ids.includes(b.assetId)?[b.assetId]:[]) : [];
+    return [...ids,...extra].map((assetId, k) => { const supplemental=k>=ids.length;
+      const label=supplemental?`${base}${String.fromCharCode(97+Math.max(1,ids.length)+k-ids.length)}`:ids.length>1?`${base}${String.fromCharCode(97+k)}`:base;
+      return {turn,version,assetId,index:k,number:j,selected:j===turn.selectedVersion,label,
+        aliases:supplemental?[label]:[...new Set([...(k<26?[`${base}${String.fromCharCode(97+k)}`]:[]),ids.length>1?`${base}.${k+1}`:base,`${base}.${k+1}`,...(k?[]:[base])])]};
+    });
   }));
 }
 export interface ChatOptionState { readonly value: string; readonly options: readonly string[] }
 export type ChatModelState = { readonly ready: false } | {
   readonly ready: true; readonly name: string; readonly max_images: number;
+  readonly family: string | null; readonly parameter_source: CatalogModel["parameterSource"] | null; readonly native_markup: boolean;
   readonly writable: Readonly<Record<string, ChatOptionState>>; readonly read_only: Readonly<Record<string, ChatOptionState>>;
 };
-/** Display name, image limit and the known option keys only: no connection, upstream ID or other settings. */
+/** Declared family/capabilities and known controls only: no connection, upstream ID or other settings. */
 export function chatModelState(state: ReturnType<Chat["snapshot"]>): ChatModelState {
   const m = state.model;
   if (!state.ready || !m) return { ready: false };
   const values = normalizeOptions(m, object(state.current.settings.options) as Record<string, string>),
     pick = (keys: readonly string[]) => Object.fromEntries(keys.filter((k) => m.fields[k]).map((k) => [k, { value: values[k], options: [...m.fields[k].options] }]));
-  return { ready: true, name: m.name, max_images: m.maxImages, writable: pick(chatSizeKeys), read_only: pick(chatReadOnlyKeys) };
+  return { ready: true, name: m.name, family: m.family ?? null, parameter_source: m.parameterSource ?? null, native_markup: m.markup === true,
+    max_images: m.maxImages, writable: pick(chatSizeKeys), read_only: pick(chatReadOnlyKeys) };
 }
 /** The draft-side copy keeps the model ID locally so a later model switch can be detected; it is never sent. */
 export function chatDraftModel(state: ReturnType<Chat["snapshot"]>): ChatModelDraft | null {
@@ -91,14 +98,14 @@ function turnParams(settings: Fields, models: readonly CatalogModel[]) {
   const known = Object.fromEntries([...chatSizeKeys, ...chatReadOnlyKeys].flatMap((k) => typeof options[k] === "string" ? [[k, options[k]]] : []));
   return { ...(name ? { modelName: name } : {}), ...(Object.keys(known).length ? { chat_options: known } : {}) };
 }
-export function chatPictures(state: ReturnType<Chat["snapshot"]>, chat: Chat): Picture[] {
+export function chatPictures(state: ReturnType<Chat["snapshot"]>, chat: Chat, evolution = false): Picture[] {
   let order = 0;
-  return chatImages(state).flatMap((p) => {
+  return chatImages(state,evolution).flatMap((p) => {
     const asset = chat.assets.assets.get(p.assetId);
     return asset ? [{ id: chatImageId(state.current.id, p.turn.id, p.version.id, p.assetId), entity_key: `sha256:${asset.id}`, lineage: asset.lineage ?? { via: "chat" as const },
-      scope: { kind: "chat", id: state.current.id, turn_id: p.turn.id, version_id: p.version.id, asset_id: asset.id }, label: p.label, aliases: p.aliases, createdAt: 0,
+      scope: { kind: "chat", id: state.current.id, turn_id: p.turn.id, version_id: p.version.id, asset_id: asset.id }, label: p.label, aliases: p.aliases, createdAt: p.version.completedAt ?? state.current.updatedAt,
       origins: [{ source: "chat" as const, label: p.label, order: ++order }],
-      params: { ...chatImageOrigin(state.current,p.turn,p.version,p.assetId), basePrompt: p.turn.prompt, ...turnParams(p.turn.settings, state.models), version: p.number + 1, image_index: p.index + 1, selected: p.selected },
+      params: { evolutionInput:JSON.parse(JSON.stringify(chatEvolutionInput(state.current,p.turn,p.version,p.assetId,asset))), ...chatImageOrigin(state.current,p.turn,p.version,p.assetId), basePrompt: p.turn.prompt, ...turnParams(p.turn.settings, state.models), version: p.number + 1, image_index: p.index + 1, selected: p.selected },
       size: { width: asset.width, height: asset.height }, blob: asset.blob }] : [];
   });
 }

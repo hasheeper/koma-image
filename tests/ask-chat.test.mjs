@@ -9,6 +9,10 @@ import { searchHistory } from '../src/ask/search-history.ts';
 import { DEFAULTS } from '../src/domain/drawing.ts';
 import { parseDraft, stateHash, validateDraft } from '../src/ask/draft/validate.ts';
 import { createTools } from '../src/ask/tools.ts';
+import { normalizeCatalog } from '../src/domain/catalog.ts';
+import { nativeCatalog, nativeMappedCatalog } from '../src/gateway/native-protocols.ts';
+import { profileFor } from '../src/gateway/profile.ts';
+import { SEEDREAM_LITE, SEEDREAM_55 } from '../src/domain/seedream.ts';
 function fixture(){
  const current=newConversation();
  for(let n=1;n<=3;n++){const {turn,version}=beginTurn(current,contextSnapshot(current),`prompt ${n}`,{});completeVersion(current,turn,version,[{type:'image',assetId:`image${n}`}],null,current.selectionRevision);}
@@ -23,20 +27,47 @@ test('ASK CHAT context: locked current branch, selected texts, image cap/drops, 
  const ctx=chatContext(s);assert.deepEqual(ctx.turns.map(t=>t.included),[true,false,true]);
  assert.equal(ctx.images.sent,2);assert.equal(ctx.images.dropped,1);assert.match(ctx.actual_text,/next input/);assert.doesNotMatch(ctx.actual_text,/prompt 2/);
 });
-test('ASK CHAT model: whitelisted size and quality options, display names only, unready catalog says so',()=>{
- const s=fixture(),gemini={id:'gemini-3-pro-image',upstreamId:'private-upstream',connection:'private-connection',name:'Gemini Image',maxImages:14,fields:{
+test('ASK CHAT model: declared family and whitelisted controls, no source identities or arbitrary settings',()=>{
+ const s=fixture(),gemini={id:'gemini-3-pro-image',upstreamId:'private-upstream',connection:'private-connection',name:'Gemini Image',family:'gemini',parameterSource:'declared',maxImages:14,fields:{
   aspect_ratio:{options:['1:1','16:9','9:16'],default:'1:1'},image_size:{options:['1K','2K','4K'],default:'1K'},output_format:{options:['png','jpeg'],default:'png'},seed:{options:['secret-field'],default:'secret-field'}}};
  s.current.settings={model:gemini.id,options:{aspect_ratio:'16:9',image_size:'8K',secret:'not outbound'}};
  const state={...s,ready:true,model:gemini,models:[gemini,{...gemini,id:'other',name:'Gemini Image'},{...gemini,id:'gpt',name:'GPT Image',fields:{}}]};
  const model=chatModelState(state);
- assert.deepEqual(model,{ready:true,name:'Gemini Image',max_images:14,read_only:{},writable:{aspect_ratio:{value:'16:9',options:['1:1','16:9','9:16']},image_size:{value:'1K',options:['1K','2K','4K']}}});
- const openai={...gemini,name:'GPT Image',maxImages:16,fields:{size:{options:['auto','1024x1024','1536x1024','1024x1536'],default:'auto'},quality:{options:['auto','low','medium','high'],default:'auto'}}};
+ assert.deepEqual(model,{ready:true,name:'Gemini Image',family:'gemini',parameter_source:'declared',native_markup:false,max_images:14,read_only:{output_format:{value:'png',options:['png','jpeg']}},writable:{aspect_ratio:{value:'16:9',options:['1:1','16:9','9:16']},image_size:{value:'1K',options:['1K','2K','4K']}}});
+ const openai={...gemini,name:'GPT Image',family:'gpt',maxImages:16,fields:{size:{options:['auto','1024x1024','1536x1024','1024x1536'],default:'auto'},quality:{options:['auto','low','medium','high'],default:'auto'}}};
  s.current.settings={model:'gpt',options:{size:'1536x1024',quality:'high'}};
- assert.deepEqual(chatModelState({...state,model:openai}),{ready:true,name:'GPT Image',max_images:16,writable:{size:{value:'1536x1024',options:['auto','1024x1024','1536x1024','1024x1536']}},read_only:{quality:{value:'high',options:['auto','low','medium','high']}}});
+ assert.deepEqual(chatModelState({...state,model:openai}),{ready:true,name:'GPT Image',family:'gpt',parameter_source:'declared',native_markup:false,max_images:16,writable:{size:{value:'1536x1024',options:['auto','1024x1024','1536x1024','1024x1536']}},read_only:{quality:{value:'high',options:['auto','low','medium','high']}}});
  const ctx=chatContext(state),text=JSON.stringify(ctx);
  assert.deepEqual(ctx.available_models,['Gemini Image','GPT Image']);
- for(const secret of ['private-upstream','private-connection','gemini-3-pro-image','not outbound','secret-field','png'])assert.doesNotMatch(text,new RegExp(secret));
+ for(const secret of ['private-upstream','private-connection','gemini-3-pro-image','not outbound','secret-field'])assert.doesNotMatch(text,new RegExp(secret));
+ assert.equal(chatModelState({...state,model:{...openai,family:undefined,parameterSource:undefined}}).family,null,'no family guessed from a display name');
  assert.deepEqual(chatModelState({...state,ready:false}),{ready:false});assert.deepEqual(chatContext({...state,ready:false}).available_models,[]);
+});
+test('ASK sees 2.6 and Seedream capabilities through renamed models and custom upstream IDs without widening drafts',()=>{
+ for(const [templateId,profileId,family,control,chosen] of [
+  ['gpt-image-2.6-sunburst','openai-images-v1','gpt','complexity','medium'],
+  [SEEDREAM_LITE,'seedream-v1','seedream','watermark','false'],
+  [SEEDREAM_55,'seedream-v1','seedream','watermark','false'],
+ ]){
+  const profile=profileFor(profileId),id='model-synthetic',connection='private-connection',upstream='private-upstream',config={version:1,
+   models:[{id,name:'我的创作模型',templateId,defaults:{}}],
+   connections:{[connection]:{id:connection,name:'private-name',profileId:profile.id,baseUrl:'https://private.example.test',credentialRef:'private-key',revision:'r1'}},
+   links:{[connection]:{[id]:{id:upstream,manual:true,on:true}}}};
+  const raw=nativeMappedCatalog(profile,nativeCatalog(profile,{data:[{id:upstream}]}),config,connection);
+  const model=normalizeCatalog(raw,config,connection,profile).models.find(m=>m.id===id);
+  assert.ok(model,templateId);
+  const state={...fixture(),ready:true,model,models:[model]};state.current.settings={model:id,options:{[control]:chosen,unknown:'private-option'}};
+  const projected=chatModelState(state);
+  assert.equal(projected.family,family);assert.equal(projected.parameter_source,'reference');
+  assert.equal(projected.read_only[control].value,chosen);assert.equal(projected.read_only.output_format.value,'png');
+  assert.equal(projected.native_markup,family==='gpt');assert.equal(projected.max_images,model.maxImages);
+  assert.deepEqual(Object.keys(projected.writable),['size']);
+  assert.deepEqual(chatDraftModel(state),{id,name:model.name,maxImages:model.maxImages,writable:projected.writable});
+  assert.doesNotMatch(JSON.stringify(projected),/private-|model-synthetic/);
+  const fields={...model.fields};delete fields[control];
+  assert.equal(chatModelState({...state,model:{...model,fields,markup:false}}).read_only[control],undefined,'removed source controls stay absent');
+  assert.equal(chatModelState({...state,model:{...model,markup:false}}).native_markup,false);
+ }
 });
 test('ASK CHAT branch: source locked, optional text/exclusions, stale context blocks every write and new source stays unsent',()=>{
  const s=fixture(),base={form:{...DEFAULTS},composer:s.current.prompt,conversationId:s.current.id,models:[],samplers:[],chat:chatSnapshot(s)};
@@ -46,7 +77,7 @@ test('ASK CHAT branch: source locked, optional text/exclusions, stale context bl
  s.current.keepIds.push('manual');const stale=validateDraft(d,{...base,chat:chatSnapshot(s)},{off:new Set()});assert.equal(stale.branch,undefined);assert.ok(stale.steps.every(s=>s.issue));
  assert.throws(()=>parseDraft({title:'x',base_hash:stateHash(base),steps:[{kind:'chat_distill_branch',source:'#c9.1',exclude:[],text:'x'}]},base,[]),/起点/);
 });
-test('ASK CHAT ids: every version and image is addressable, #cN.M aliases the first image, branch source stays in the selected version',()=>{
+test('ASK CHAT ids: every version and image is addressable, #cN.M aliases the first image, branch source uses the exact requested version',()=>{
  const s=fixture(),c=s.current,t2=c.turns[1],head=c.turns[2].id;
  const v=beginVersion(t2);completeVersion(c,t2,v,[{type:'image',assetId:'image2b'},{type:'text',text:'note'},{type:'image',assetId:'image2c'}],null,c.selectionRevision);
  const failed=beginVersion(t2);failed.status='error';t2.selectedVersion=1;c.headId=head;
@@ -73,7 +104,7 @@ test('ASK CHAT ids: every version and image is addressable, #cN.M aliases the fi
  const p=validateDraft(branch('#c2.2.2'),base,{off:new Set()});
  assert.equal(p.branch.after.headId,t2.id);assert.equal(p.branch.after.mainId,'image2c');assert.deepEqual(p.branch.after.skipTurnIds,[c.turns[2].id]);
  assert.equal(validateDraft(branch('#c2.2'),base,{off:new Set()}).branch.after.mainId,'image2b');
- assert.throws(()=>branch('#c2.1'),/选中的版本/);assert.throws(()=>branch('#c2.3'),/起点/);
+ assert.equal(validateDraft(branch('#c2.1'),base,{off:new Set()}).branch.after.mainId,'image2');assert.throws(()=>branch('#c2.3'),/起点/);
  assert.throws(()=>parseDraft({title:'x',base_hash:stateHash(base),steps:[{kind:'chat_distill_branch',source:'#c2.2',exclude:['#c9.1'],text:'x'}]},base,[]),/排除轮次/);
  // Drafts saved before multi-version IDs keep resolving the selected first image.
  const legacy={...base,chat:{...base.chat,sources:base.chat.sources.map(({versions,...rest})=>rest)}};
@@ -105,7 +136,8 @@ test('ASK CHAT handoff: one step, whitelisted size values, deduplicated images w
  assert.deepEqual(view.fields[0].steps.map(s=>[s.kind,s.kind==='ref'?s.label:s.kind==='param'?s.icon:'']),[['ref','#h1'],['ref','#c2.1'],['param','i-frame']]);
  assert.equal(view.fields[1].full,null);assert.deepEqual(view.fields[1].steps[0].hunks,[[{sign:'ins',text:'参考 #h1，改成横版\n保留红色外套'}]]);
  assert.deepEqual([view.added,view.removed],[4,1]);
- assert.throws(()=>draft({options:{quality:'high'}}),/quality 不能由草稿写入；需要时在回复中提醒用户手动调整/);
+ for(const [key,value] of Object.entries({quality:'high',complexity:'medium',watermark:'false',output_format:'png',native_markup:'true'}))
+  assert.throws(()=>draft({options:{[key]:value}}),/不能由草稿写入；需要时在回复中提醒用户手动调整/);
  assert.throws(()=>draft({options:{aspect_ratio:'16:9'}}),/没有 aspect_ratio/);
  assert.throws(()=>draft({options:{size:'4096x4096'}}),/size 只能取/);
  assert.throws(()=>draft({images:['#a1']}),/附件不能/);
