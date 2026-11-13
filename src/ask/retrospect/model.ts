@@ -1,9 +1,18 @@
 import { checkShape } from '../draft/schema-check.ts';
-import { recipeOf } from './recipe.ts';
+import { recipeOf, recipeWorkspace } from './recipe.ts';
 import type { Recipe, RecipeCluster } from './recipe.ts';
+import { preserveDeliveries, assertForest } from './workshops.ts';
 import type { PictureRefs } from '../edit-context.ts';
 
-export interface RetrospectNode {
+export interface StagedRecipe {
+  readonly base: import("../../domain/image-identity.ts").ImageTagBinding;
+  readonly baseRecipe: Recipe;
+  readonly form: import("../../domain/drawing.ts").DrawingForm;
+  readonly overrides: readonly ("seed" | "batchCount")[];
+  readonly signature: string;
+}
+interface NodeFields {
+  readonly delivery?: import('./workshops.ts').WorkshopDelivery;
   readonly id: string;
   readonly label: string;
   readonly description?: string;
@@ -13,8 +22,18 @@ export interface RetrospectNode {
   /** Absent only on older cards, whose samples were required to share one recipe. */
   readonly recipes?: Readonly<Record<string, Recipe>>;
 }
+export type RetrospectNode = NodeFields & (
+  | { readonly kind?: 'generated'; readonly staged?: never }
+  | { readonly kind: 'staged'; readonly staged: StagedRecipe }
+);
+export const isStaged = (node: RetrospectNode): node is RetrospectNode & { kind: 'staged'; staged: StagedRecipe } => node.kind === 'staged';
+export const versionCount = (value: Retrospect) => value.nodes.filter(n => !isStaged(n)).length;
+export const stagedCount = (value: Retrospect) => value.nodes.filter(isStaged).length;
+export const MAX_STAGED_BRANCHES = 16;
+export const MAX_STAGED_PER_TURN = 4;
 /** A version is a semantic stage; actions and Diff always use one concrete sample. */
 export function selectRetrospectSample(node: RetrospectNode, id = node.cover): RetrospectNode {
+  if (isStaged(node)) return node;
   if (!node.image_ids.includes(id)) throw new Error('图片不属于当前版本');
   const recipe = node.recipes ? node.recipes[id] : node.recipe;
   if (!recipe) throw new Error('该图片的配方未记录');
@@ -31,6 +50,7 @@ export interface Retrospect {
 export function selectRetrospectBaseline(value: Retrospect, b: RetrospectNode, id: string, preferred?: string): RetrospectNode | null {
   const node = value.nodes.find(n => n.id === id);
   if (!node) return null;
+  if (isStaged(b) && value.edges.some(e => e.from === id && e.to === b.id) && node.image_ids.includes(b.staged.base.tag) && !preferred) return selectRetrospectSample(node, b.staged.base.tag);
   if (preferred && node.image_ids.includes(preferred)) return selectRetrospectSample(node, preferred);
   if (value.edges.some(e => e.from === id && e.to === b.id)) {
     const seen = new Set<string>();
@@ -92,6 +112,8 @@ export function readRetrospect(value: unknown, clusters: readonly RecipeCluster[
       records.add(sample.id);
       return sample;
     });
+    if (samples.some(p => recipeWorkspace(p.recipe) !== 'image') && !previous?.value.nodes.some(n => n.delivery && n.id === node.id)) throw new Error('演进主干只整理 IMAGE；EDIT／CHAT 请在工坊中交付选定结果');
+    if (new Set(samples.map(p => recipeWorkspace(p.recipe))).size > 1) throw new Error('IMAGE、EDIT、CHAT 应分别归入阶段，跨工作区用连线表达交接');
     if (node.primary_id && !samples.some(p => p.id === byAlias.get(node.primary_id!)?.id)) throw new Error('代表图必须属于该版本');
     const ordered = samples.sort((a, b) => a.createdAt - b.createdAt || a.id.localeCompare(b.id));
     const cover = node.primary_id ? samples.find(p => p.id === byAlias.get(node.primary_id!)?.id)!.label : (ordered.filter(p => p.favorite).at(-1) ?? ordered.at(-1)!).label;
@@ -116,6 +138,30 @@ export function readRetrospect(value: unknown, clusters: readonly RecipeCluster[
     const parent=byAlias.get(id)?.recipe.input?.base?.id, label=parent?recordLabels.get(parent):undefined;
     return label&&label!==id?[[id,label]]:[];
   })));
-  return { ...(input.retrospect_id ? { target: { id: input.retrospect_id, revision: input.expected_revision! } } : {}), title: input.retrospect_title, nodes, edges: structuredClone(input.edges),
+  const result: Retrospect = { ...(input.retrospect_id ? { target: { id: input.retrospect_id, revision: input.expected_revision! } } : {}), title: input.retrospect_title, nodes, edges: structuredClone(input.edges),
     sampleBases:{...facts,...(previous?remapSampleBases(previous,nodes,id=>byAlias.get(id)?.id):{})} };
+  return previous ? preserveStaged(result, previous, Object.fromEntries([...byAlias].map(([tag,p]) => [tag, { ...previous.pictureRefs[tag], record_id: p.id }]))) : result;
+}
+
+/** Regroup only measured versions; keep each plan attached to its exact source record. */
+export function preserveStaged(value: Retrospect, previous: { value: Retrospect; pictureRefs: PictureRefs }, refs: PictureRefs): Retrospect {
+  value = preserveDeliveries(value, previous, { ...previous.pictureRefs, ...refs });
+  refs = { ...previous.pictureRefs, ...refs };
+  const nodes = [...value.nodes], edges = [...value.edges];
+  for (const old of previous.value.nodes.filter(isStaged)) {
+    const reused = nodes.find(n => n.id === old.id);
+    if (reused && (!isStaged(reused) || reused.staged.signature !== old.staged.signature)) throw new Error(`节点 ${old.id} 已由待生成预设占用`);
+    const parent = nodes.find(n => !isStaged(n) && n.image_ids.some(tag => refs[tag]?.record_id === old.staged.base.record_id));
+    if (!parent) throw new Error(`整理不能移除预设「${old.label}」的基底，请先删除该预设或保留来源样本`);
+    const tag = parent.image_ids.find(tag => refs[tag]?.record_id === old.staged.base.record_id)!;
+    const node = { ...old, staged: { ...old.staged, base: { ...old.staged.base, tag } } };
+    if (reused) nodes[nodes.indexOf(reused)] = node; else nodes.push(node);
+    const existing = edges.findIndex(e => e.to === old.id);
+    const edge = { from: parent.id, to: old.id, summary: previous.value.edges.find(e => e.to === old.id)?.summary ?? old.label };
+    if (existing >= 0) edges[existing] = edge; else edges.push(edge);
+  }
+  if (nodes.length > MAX_EVOLUTION_NODES) throw new Error('版本与预设合计最多 80 个节点');
+  const result = { ...value, nodes, edges };
+  assertForest(result);
+  return result;
 }

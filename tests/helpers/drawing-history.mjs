@@ -6,10 +6,8 @@ export async function seedHistory({drawing, home}, blob, size, params, quote = n
   const [thumbBlob, entity_key] = await Promise.all([makeThumb(blob), imageEntity(blob)]);
   const record = {id:crypto.randomUUID(), entity_key, lineage:{via:'image'}, createdAt:Date.now(),
     blob, thumbBlob, size, params, quote, ...(ms === undefined ? {} : {ms})};
-  const {history, form} = drawing.snapshot();
+  const {history} = drawing.snapshot();
   history.unshift(record);
-  const limit = form.historyLimit;
-  if (limit > 0) history.splice(limit);
   // Publish a new history-array reference through the existing removal notification.
   // No production fixture hook or external-image insertion API is retained.
   drawing.remove('');

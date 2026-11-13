@@ -1,11 +1,13 @@
 <script setup lang="ts">
+import { isStaged } from './model.ts';
 import type { Retrospect, RetrospectNode } from './model.ts';
 import type { ReviewPicture } from './view.ts';
-import { useId } from 'vue';
+import { computed, useId } from 'vue';
 import AppIcon from '../../shared/AppIcon.vue';
 import PopoverMenu from '../../shared/ui/PopoverMenu.vue';
 import CompareIdentity from './CompareIdentity.vue';
-defineProps<{ a: RetrospectNode | null; b: RetrospectNode; graph: Retrospect; pictures: Record<string, ReviewPicture>; automatic: boolean }>();
+const props = defineProps<{ a: RetrospectNode | null; b: RetrospectNode; graph: Retrospect; pictures: Record<string, ReviewPicture>; automatic: boolean }>();
+const preciseBase = computed(() => isStaged(props.b) || !!props.graph.sampleBases?.[props.b.cover]);
 defineEmits<{ baseline: [id: string | null]; swap: [] }>();
 const menuId = useId();
 </script>
@@ -16,23 +18,24 @@ const menuId = useId();
       <div v-if="$slots.controls" class="window-controls"><slot name="controls" /></div>
     </div>
     <div class="baseline-row">
-      <span class="baseline-label">对比</span>
+      <span class="baseline-label">{{ preciseBase && automatic ? '基于' : '对比' }}</span>
       <div class="baseline-group">
         <PopoverMenu :id="menuId" label="对比基准" side="left" compact>
           <template #trigger="{ open, toggle }">
-            <button class="baseline-select" type="button" aria-label="选择对比基准" :aria-description="a ? `${a.id} · 样本 ${pictures[a.id]?.id ?? '不可用'}` : undefined" :title="a ? `A · ${a.id} · ${pictures[a.id]?.id ?? '不可用'} · ${a.label}` : '选择对比基准'" aria-haspopup="menu" :aria-expanded="open" @click="toggle">
-              <CompareIdentity :node="a" :sample="a && pictures[a.id]" compact brief /><span class="baseline-caret"><AppIcon name="i-chevron" /></span>
+            <button class="baseline-select" type="button" aria-label="选择对比基准" :aria-description="a ? `${a.id} · 样本 ${isStaged(a) ? '待生成预设' : pictures[a.id]?.id ?? '不可用'}` : undefined" :title="a ? `A · ${a.id} · ${isStaged(a) ? '待生成预设' : pictures[a.id]?.id ?? '不可用'} · ${a.label}` : '选择对比基准'" aria-haspopup="menu" :aria-expanded="open" @click="toggle">
+              <CompareIdentity :node="a" :sample="a && pictures[a.id]" compact :brief="!preciseBase" /><span class="baseline-caret"><AppIcon name="i-chevron" /></span>
             </button>
           </template>
           <template #default="{ close }">
             <button class="menu-item" type="button" role="menuitemradio" :aria-checked="automatic" @click="$emit('baseline', null); close(true)"><AppIcon name="i-branch" /><span>跟随父版本</span><AppIcon v-if="automatic" name="i-check" /></button><hr />
-            <button v-for="node in graph.nodes.filter(n => n.id !== b.id)" :key="node.id" class="menu-item version-option" type="button" role="menuitemradio" :aria-checked="a?.id === node.id && !automatic" @click="$emit('baseline', node.id); close(true)"><img :src="pictures[node.id]?.url" alt="" /><span><b>{{ node.id }}</b> {{ node.label }}<small>{{ pictures[node.id]?.id }}</small></span><AppIcon v-if="a?.id === node.id && !automatic" name="i-check" /></button>
+            <button v-for="node in graph.nodes.filter(n => n.id !== b.id)" :key="node.id" class="menu-item version-option" type="button" role="menuitemradio" :aria-checked="a?.id === node.id && !automatic" @click="$emit('baseline', node.id); close(true)"><AppIcon v-if="isStaged(node)" name="i-plus" /><img v-else :src="pictures[node.id]?.url" alt="" /><span><b>{{ node.id }}</b> {{ node.label }}<small>{{ isStaged(node) ? '待生成' : pictures[node.id]?.id }}</small></span><AppIcon v-if="a?.id === node.id && !automatic" name="i-check" /></button>
           </template>
         </PopoverMenu>
         <button class="ibtn pair-swap" type="button" aria-label="交换对比方向" title="交换对比方向" :disabled="!a" @click="$emit('swap')"><AppIcon name="i-swap" /></button>
       </div>
       <div v-if="$slots.aside" class="comparison-status"><slot name="aside" /></div>
     </div>
+    <p v-if="isStaged(b)" class="preset-comparison">预设配方对照 · 尚未生成图像</p>
   </section>
 </template>
 <style scoped>
@@ -57,4 +60,5 @@ const menuId = useId();
 .version-option b { font: var(--fz-xs) var(--mono); margin-right: 4px; }
 .version-option small { margin-left: var(--sp-2); color: var(--fg-3); font: var(--fz-xs)/1.3 var(--mono); }
 .comparison-status { display: flex; align-items: center; gap: var(--sp-2); margin-left: auto; }
+.preset-comparison { margin-top: var(--sp-3); color: var(--fg-3); font-size: var(--fz-xs); }
 </style>

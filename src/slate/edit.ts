@@ -94,6 +94,7 @@ export function parseSlateEdit(raw: unknown, active: Slate | null, form: Drawing
     if (item.bind) {
       const bind = item.bind, image = library.find(p => p.aliases.includes(bind.source)), origin = image?.origins.find(o => o.label === bind.source);
       if (!image || !origin || origin.source !== "history" && origin.source !== "favorites" && origin.source !== "edit") throw new Error("绑图仅接受本轮 #h / #f / #e 图片");
+      if (image.thumbnailOnly) throw new Error(`${bind.source} 原图已释放，不能作为成果绑定`);
       const assetId = crypto.randomUUID(), params = imageParameters(image.params);
       const caption: Binding["caption"] = { source: bind.caption_source, mode: bind.caption_mode, ...(bind.character_id ? { characterId: bind.character_id } : {}) };
       if (caption.source === "character" && !caption.characterId) throw new Error("角色标注需要 character_id");

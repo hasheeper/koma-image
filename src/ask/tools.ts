@@ -1,4 +1,4 @@
-import { getRecipeClusters, showRetrospect, setRetrospectStatus } from './retrospect/tools.ts';
+import { getRecipeClusters, showRetrospect, setRetrospectStatus, stageEvolutionBranch } from './retrospect/tools.ts';
 import type { RecipeReader } from './retrospect/tools.ts';
 import type { Retrospect } from './retrospect/model.ts';
 import { annotationCrop } from '../domain/region-annotation.ts';
@@ -34,7 +34,7 @@ export interface ToolOutcome {
  * that writes. Drafts go through draft/apply.ts from a user click, not here.
  */
 export interface ToolContext {
-  readonly evolutionBase?: (recordId: string) => import("./retrospect/store.ts").EvolutionChange & { edit?: import("../domain/edit-draft.ts").EditDraftState };
+  readonly evolutionBase?: (recordId: string) => import("./retrospect/store.ts").EvolutionChange | { edit?: import("../domain/edit-draft.ts").EditDraftState };
   readonly signal: AbortSignal;
   /** Set by「仅发元数据重试」: visual tools answer with an error this turn. */
   readonly metadataOnly: boolean;
@@ -42,6 +42,8 @@ export interface ToolContext {
   readonly state: (scope: "initial" | "latest", boardId?: string, editBoardId?: string) => { readonly text: string; readonly images: number } | Promise<{ readonly text: string; readonly images: number }>;
   readonly library?: readonly Picture[];
   readonly recipes?: RecipeReader;
+  readonly refreshRecipeReviews?: () => void;
+  readonly stageEvolutionBranch?: (input: import('./retrospect/staged.ts').StagedInput) => Promise<{ value: Retrospect; receipt: unknown; reused?: boolean }>;
   readonly setRetrospectStatus?: (id: string, status: 'active' | 'ended') => unknown;
   readonly vision?: Vision;
   readonly visual?: VisionContext;
@@ -110,13 +112,13 @@ const reply = (value: unknown, stat: string, picks?: readonly string[]): ToolOut
   content: [{ type: "text", text: dataBlock(canonical(value)) }], stat, ...(picks ? { picks } : {}),
 });
 const schema = (properties: Record<string, unknown>, required: string[] = []) => ({ type: "object", properties, required, additionalProperties: false });
-const idField = { type: "string", description: "图片 ID，如 #h12、#f3、EDIT 完整码 #e2.3a（当前板可简写 #e3a）、当前 CHAT 分支的 #c2.1（多图 #c2.1b，兼容 #c2.1.2）、本对话附件 #a1" };
+const idField = { type: "string", description: "图片 ID，如 #h12、#f3、EDIT 参考图 #e2:r1、版本完整码 #e2.3a（当前板可简写 #e3a）、当前 CHAT 分支的 #c2.1（多图 #c2.1b，兼容 #c2.1.2）、本对话附件 #a1" };
 const readMeta: ToolEntry = {
   tool: { name: "get_meta", description: "读取图片完整参数，不发送图片。", schema: schema({ id: idField }, ["id"]) },
   verb: "读取", object: (input) => String(input.id ?? "图片参数"),
   run(input, context) {
     const item = picture(string(input, "id"), context);
-    return reply({ id: item.label, record_id:item.id,entity_key:item.entity_key, lineage:item.lineage, ...(item.attachment ?? metadata(item)) }, "参数");
+    return reply({ id: item.label, record_id:item.id,entity_key:item.entity_key, lineage:item.lineage, image_availability:item.thumbnailOnly ? "thumbnail_only" : "original", ...(item.attachment ?? metadata(item)) }, "参数");
   },
 };
 const diffMeta: ToolEntry = {
@@ -169,7 +171,7 @@ const viewImage: ToolEntry = {
       region = annotationCrop(item.annotations, input.annotation);
     }
     const result = await vision.image(item, spec, region, visual, input.reinspect === true);
-    return { content: [{ type: "text", text: dataBlock(canonical({ id: item.label, spec, ...(result.duplicate ? {already_viewed_this_turn:true} : {}), bytes: result.bytes, pixels: result.pixels })) }, ...(result.image ? [result.image] : [])], stat: result.duplicate ? "本轮已查看" : `${specLabel[spec]} · ${Math.ceil(result.bytes / 1024)} KB` };
+    return { content: [{ type: "text", text: dataBlock(canonical({ id: item.label, spec, image_availability:item.thumbnailOnly ? "thumbnail_only" : "original", ...(item.thumbnailOnly ? { note: "原图已释放；当前是缩略图概览，完整配方仍可读取与恢复，无法精细裁切或交接原图。" } : {}), ...(result.duplicate ? {already_viewed_this_turn:true} : {}), bytes: result.bytes, pixels: result.pixels })) }, ...(result.image ? [result.image] : [])], stat: result.duplicate ? "本轮已查看" : `${specLabel[spec]} · ${Math.ceil(result.bytes / 1024)} KB` };
   },
 };
 const viewSheet: ToolEntry = {
@@ -182,11 +184,11 @@ const viewSheet: ToolEntry = {
     const items = input.ids.map((id) => picture(id, context)), spec = input.spec ?? "look";
     if (spec !== "glance" && spec !== "look") throw new Error("拼图 spec 需为 glance 或 look");
     const result = await vision.sheet(items, spec, visual);
-    return { content: [{ type: "text", text: dataBlock(canonical({ ids: items.map((i) => i.label), spec: "sheet", ...(result.duplicate ? { already_viewed_this_turn: true } : {}), bytes: result.bytes, pixels: result.pixels })) }, ...(result.image ? [result.image] : [])], stat: result.duplicate ? "本轮已查看" : `${items.length} 张 · ${Math.ceil(result.bytes / 1024)} KB` };
+    return { content: [{ type: "text", text: dataBlock(canonical({ ids: items.map((i) => i.label), thumbnail_only:items.filter(i => i.thumbnailOnly).map(i => i.label), spec: "sheet", ...(result.duplicate ? { already_viewed_this_turn: true } : {}), bytes: result.bytes, pixels: result.pixels })) }, ...(result.image ? [result.image] : [])], stat: result.duplicate ? "本轮已查看" : `${items.length} 张 · ${Math.ceil(result.bytes / 1024)} KB` };
   },
 };
 const readChat: ToolEntry = {
-  tool: { name: "get_chat_context", description: "读取本轮锁定的当前 CHAT 分支：文字勾选、各轮版本与图片 ID、底图、图片数量限制、当前模型能力与可写／只读选项（chat_model）、已有额度与实际发送文字。不包含其他分支；不请求报价或发送。", schema: schema({}) },
+  tool: { name: "get_chat_context", description: "读取本轮锁定的当前 CHAT 分支：文字勾选、各轮版本与图片 ID、逐张底图／参考图及发送顺序（input_images）、图片数量限制、当前模型能力与可写／只读选项（chat_model）、已有额度与实际发送文字。不包含其他分支；不请求报价或发送。", schema: schema({}) },
   verb: "读取", object: () => "对话上下文",
   run(_input, context) {
     if (!context.chatContext) throw new Error("当前会话尚未就绪");
@@ -246,5 +248,5 @@ const readRef: ToolEntry = {
 };
 /** Read ports plus a staged review-status port; no generating or form-writing service. */
 export function createTools(): ToolRegistry {
-  return new Map([getState, searchHistory, readMeta, diffMeta, viewImage, viewSheet, searchTags, readChat, readModelManual, proposeDraft, readTurn, readRef, getRecipeClusters, showRetrospect, setRetrospectStatus].map((entry) => [entry.tool.name, entry]));
+  return new Map([getState, searchHistory, readMeta, diffMeta, viewImage, viewSheet, searchTags, readChat, readModelManual, proposeDraft, readTurn, readRef, getRecipeClusters, showRetrospect, setRetrospectStatus, stageEvolutionBranch].map((entry) => [entry.tool.name, entry]));
 }

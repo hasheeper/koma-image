@@ -21,7 +21,7 @@ test("ASK settings: free creation off by default, empty vocabulary and replaceme
     assert.equal(await page.getByRole("list", { name: "内置词条" }).count(), 0);
     assert.equal(await page.locator("#askImages").isChecked(), true);
     assert.equal(await page.getByRole("switch", { name: "发送图片给模型" }).isChecked(), true);
-    assert.equal(await page.locator(".set-nav button", { hasText: "ASK" }).locator("use").getAttribute("href"), "/assets/icons.svg#i-ask");
+    assert.equal(await page.locator(".set-nav button", { hasText: "ASK" }).locator("use").getAttribute("href"), "#i-ask");
 
     await page.locator("#askConnection").selectOption("claude");
     await page.waitForFunction(() => JSON.parse(localStorage.getItem("koma.ask.v1"))?.connectionId === "claude");
@@ -72,7 +72,7 @@ test("ASK settings: free creation off by default, empty vocabulary and replaceme
     await page.locator("#askPreference").fill("先说结论");
     await page.locator("#askPreference").blur();
     await page.waitForFunction(() => JSON.parse(localStorage.getItem("koma.ask.v1"))?.preference === "先说结论");
-    assert.deepEqual(await stored(page, "koma.ask.v1"), { version: 1, connectionId: "claude", model: "reasoning-a", models: { claude: ["reasoning-a", "Manual Model (Thinking)"] }, images: false, responseMode: "text", textAttachments: { chars: 50_000, totalChars: 100_000 }, compaction: { highWaterTokens: 220_000 }, preference: "先说结论", words: [], wordEncoding: "alias", replacements: [], alwaysCodec: false });
+    assert.deepEqual(await stored(page, "koma.ask.v1"), { version: 1, connectionId: "claude", model: "reasoning-a", autoNaming: false, models: { claude: ["reasoning-a", "Manual Model (Thinking)"] }, images: false, responseMode: "text", textAttachments: { chars: 50_000, totalChars: 100_000 }, compaction: { highWaterTokens: 220_000 }, preference: "先说结论", words: [], wordEncoding: "alias", replacements: [], alwaysCodec: false });
 
     await page.locator('label[for="askAdult"]').click();
     await page.waitForFunction(() => localStorage.getItem("koma.ask.adult.v1") === "true");
@@ -157,7 +157,7 @@ test("ASK compatibility: catalog and manual model IDs keep spaces/suffixes throu
         // Catalogs carry no family: headings and icons follow the ID, the hand-kept pick sits under 其他.
         await list.locator(`.lamp[aria-label="选用 ${id}"]`).waitFor();
         assert.deepEqual(await list.locator(".md-gtitle b").allTextContents(), ["Claude", "Gemini", "其他"]);
-        assert.deepEqual(await list.locator(".md-ghead .vtile use").evaluateAll((uses) => uses.map((u) => u.getAttribute("href"))), ["#v-claude-c", "#v-gemini-c", "/assets/icons.svg#i-model"]);
+        assert.deepEqual(await list.locator(".md-ghead .vtile use").evaluateAll((uses) => uses.map((u) => u.getAttribute("href"))), ["#v-claude-c", "#v-gemini-c", "#i-model"]);
       }
       if (modelIds.includes(id)) await list.locator(`.lamp[aria-label="选用 ${id}"]`).click();
       else {
@@ -192,7 +192,7 @@ test("ASK compatibility: catalog and manual model IDs keep spaces/suffixes throu
       for (const call of calls.slice(start)) {
         assert.equal(call.path, "/v1/chat/completions");
         assert.equal(call.body.model, id);
-        assert.equal(call.body.tools.length, 13);
+        assert.equal(call.body.tools.length, 16);
         assert.equal(/"uniqueItems"\s*:/.test(JSON.stringify(call.body.tools)), false);
       }
       assert.equal(calls.at(-1).body.messages.at(-1).role, "tool");

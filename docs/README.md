@@ -45,6 +45,8 @@ docs/
 
 子功能：[版本演进](workspaces/recipe-retrospect.md)统一维护候选配方组、ASK 推演／同树重整、演进图／大图、原始配方 Diff、图上批注、生成跟踪、回退草稿与定稿；与图片区域批注分开。
 
+[IMAGE 主干与工坊交付实施记录](archive/workspaces/2026-11-11-evolution-image-workshops-plan.md)保留 IW1–IW6、项目边界与本地模拟验收；旧三工作区游标问题稿已归档，现行规则统一维护在演进专题。
+
 [版本演进实施记录](archive/workspaces/2026-11-08-version-evolution-plan.md)保留 E1–E5 规划、用户拍板与本地验证证据；现行契约以上述专题为准。
 
 ## 协议与集成

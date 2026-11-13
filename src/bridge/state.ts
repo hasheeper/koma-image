@@ -11,7 +11,7 @@ import type { BridgeSnapshot, InboxReceipt } from "./protocol.ts";
 import type { RefIndex } from "../ask/reference-source.ts";
 
 export function pictureIndex(library: readonly Picture[], source: "history" | "favorites") {
-  return library.flatMap(p => p.origins.filter(o => o.source === source).map(o => ({ label: o.label, record_id:p.id, entity_key:p.entity_key, width: p.size.width, height: p.size.height,
+  return library.flatMap(p => p.origins.filter(o => o.source === source).map(o => ({ label: o.label, record_id:p.id, entity_key:p.entity_key, image_availability:p.thumbnailOnly ? "thumbnail_only" : "original", width: p.size.width, height: p.size.height,
     ...(typeof p.params.seed === "number" ? { seed: p.params.seed } : {}), prompt_excerpt: [...promptOf(p)].slice(0, 160).join("") })));
 }
 export function previewPictures(library: readonly Picture[], selectedId: string | null) {
@@ -26,7 +26,7 @@ export function liveState(snapshot: BridgeSnapshot, input: {
   refs?: RefIndex;
 }) {
   const { selected, recent } = previewPictures(snapshot.library, input.selectedId);
-  const project = (p: Picture) => ({ id: p.id, label: p.label, entity_key:p.entity_key, width: p.size.width, height: p.size.height,
+  const project = (p: Picture) => ({ id: p.id, label: p.label, entity_key:p.entity_key, image_availability:p.thumbnailOnly ? "thumbnail_only" : "original", width: p.size.width, height: p.size.height,
     params: imageParameters(p.params), preview: input.previews?.get(p.id) ?? null });
   const form = Object.fromEntries(Object.keys(DEFAULTS).map(k => [k, snapshot.base.form[k as keyof DrawingForm]]));
   return { schema: LIVE_SCHEMA, picture_ref_version:2, favorites_scope_id:snapshot.favoritesScope, updated_at: new Date().toISOString(), revision: input.revision,

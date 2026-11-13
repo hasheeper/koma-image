@@ -1,10 +1,12 @@
 <script setup lang="ts">
-import { computed, nextTick, onBeforeUnmount, onMounted, shallowRef, useTemplateRef, watch } from 'vue';
+import { computed, nextTick, onBeforeUnmount, onMounted, onUpdated, shallowRef, useTemplateRef, watch } from 'vue';
 import VersionNode from './VersionNode.vue';
+import WorkshopNode from './WorkshopNode.vue';
 import GraphTools from './GraphTools.vue';
 import AppIcon from '../../shared/AppIcon.vue';
 import { placeContinuation, graphEdges } from './continuation.ts';
-import { MAX_EVOLUTION_NODES } from './model.ts';
+import { placeStagedSibling } from './staged-layout.ts';
+import { MAX_EVOLUTION_NODES, isStaged } from './model.ts';
 import { nodeNoteKey, edgeNoteKey } from './annotations.ts';
 
 import type { Retrospect, RetrospectNode, RetrospectEdge } from './model.ts';
@@ -12,8 +14,8 @@ import type { GraphObject, GraphTool, SelectionMode, ReviewPicture, NoteTarget, 
 import type { ReviewNotes } from './annotations.ts';
 import type { EvolutionCursor } from './store.ts';
 import { NODE_META_ROOM, NODE_STACK_ROOM, NODE_FOOTER_ROOM, nodeChrome } from './node-chrome.ts';
-const props = defineProps<{ graph: Retrospect; nodeLayout?: NodeLayout; continuationAnchor?: ContinuationAnchor | null; graphCamera?: GraphCamera | null; newNodes?: ReadonlySet<string>; cursor?: EvolutionCursor; cursorPicture?: ReviewPicture; restoreDisabled?: boolean; finalNode?: string; finalPath?: ReadonlySet<string>; selected: string; baseline: string; pictures: Record<string, ReviewPicture>; backPictures: Record<string, readonly ReviewPicture[]>; active: boolean; notes: ReviewNotes; readonly: boolean }>();
-const emit = defineEmits<{ select: [node: RetrospectNode, shift: boolean]; open: [node: RetrospectNode]; sample: [node: RetrospectNode, id: string]; restore: [node: RetrospectNode]; continue: []; arrange: [positions: NodeLayout]; arrangeContinuation: [anchor: ContinuationAnchor]; rememberCamera: [camera: GraphCamera]; annotate: [target: NoteTarget]; camera: []; selection: [items: readonly GraphObject[]] }>();
+const props = defineProps<{ workshops?: readonly { id: string; target: string; name: string; parentId: string; available: boolean; ended: boolean }[]; graph: Retrospect; generatingNodes?: ReadonlySet<string>; nodeLayout?: NodeLayout; continuationAnchor?: ContinuationAnchor | null; graphCamera?: GraphCamera | null; newNodes?: ReadonlySet<string>; cursor?: EvolutionCursor; pending?: (EvolutionCursor & { key: string }) | null; cursorPicture?: ReviewPicture; restoreDisabled?: boolean; finalNode?: string; finalPath?: ReadonlySet<string>; selected: string; baseline: string; pictures: Record<string, ReviewPicture>; backPictures: Record<string, readonly ReviewPicture[]>; active: boolean; notes: ReviewNotes; readonly: boolean }>();
+const emit = defineEmits<{ openWorkshop: [id: string]; cancelWorkshop: [id: string]; select: [node: RetrospectNode, shift: boolean]; open: [node: RetrospectNode]; sample: [node: RetrospectNode, id: string]; restore: [node: RetrospectNode]; continue: []; arrange: [positions: NodeLayout]; arrangeContinuation: [anchor: ContinuationAnchor]; rememberCamera: [camera: GraphCamera]; annotate: [target: NoteTarget]; camera: []; selection: [items: readonly GraphObject[]] }>();
 const surface = useTemplateRef<HTMLElement>('surface'), viewport = useTemplateRef<HTMLElement>('viewport'), world = useTemplateRef<HTMLElement>('world'), marquee = useTemplateRef<HTMLElement>('marquee');
 const frameArea = useTemplateRef<HTMLElement>('frameArea');
 const percent = shallowRef(100), dragging = shallowRef(false), spacePan = shallowRef(false);
@@ -26,7 +28,17 @@ function fitSize(width: unknown, height: unknown) {
   const factor = Math.min(MAX_NODE_WIDTH / width, MAX_NODE_HEIGHT / height);
   return { width: width * factor, height: height * factor };
 }
+const ticketMap = computed(() => new Map((props.workshops ?? []).map(t => [t.id, t])));
+// Tickets join the disposable layout only; they never acquire a version or recipe in stored data.
+const sceneGraph = computed(() => ({ ...props.graph,
+  nodes: [...props.graph.nodes, ...(props.workshops ?? []).flatMap(t => {
+    const parent = props.graph.nodes.find(n => n.id === t.parentId);
+    return parent ? [{ id: t.id, label: t.name, image_ids: [], cover: '', recipe: parent.recipe }] : [];
+  })],
+  edges: [...props.graph.edges, ...(props.workshops ?? []).map(t => ({ from: t.parentId, to: t.id, summary: '待交付' }))],
+}));
 function nodeSize(node: RetrospectNode) {
+  if (ticketMap.value.has(node.id)) return { width: 240, height: NODE_META_ROOM + 44 + NODE_FOOTER_ROOM, imageWidth: 240, imageHeight: 44 };
   const picture = props.pictures[node.id];
   const recipe = (picture && node.recipes?.[picture.id]) ?? node.recipe;
   const image = fitSize(picture?.width, picture?.height) ?? fitSize(recipe.params.width, recipe.params.height) ?? fitSize(1, 1)!;
@@ -34,18 +46,18 @@ function nodeSize(node: RetrospectNode) {
 }
 // Positions are a disposable view of the existing forest, never editable history.
 const layout = computed(() => {
-  const byId = new Map(props.graph.nodes.map(node => [node.id, node]));
-  const children = new Map<string, string[]>(props.graph.nodes.map(node => [node.id, []]));
-  const childIds = new Set(props.graph.edges.map(edge => edge.to));
-  const intents = new Map(props.graph.edges.map(edge => [edge.to, edge.summary]));
-  props.graph.edges.forEach(edge => children.get(edge.from)?.push(edge.to));
+  const byId = new Map(sceneGraph.value.nodes.map(node => [node.id, node]));
+  const children = new Map<string, string[]>(sceneGraph.value.nodes.map(node => [node.id, []]));
+  const childIds = new Set(sceneGraph.value.edges.map(edge => edge.to));
+  const intents = new Map(sceneGraph.value.edges.map(edge => [edge.to, edge.summary]));
+  sceneGraph.value.edges.forEach(edge => children.get(edge.from)?.push(edge.to));
   const pending: { node: RetrospectNode; summary: string; depth: number; row: number; width: number; height: number; imageWidth: number; imageHeight: number }[] = [], visited = new Set<string>();
   const columnWidths: number[] = [], rowHeights: number[] = [];
   let nextRow = 0;
   function place(id: string, depth: number) {
     const node = byId.get(id); if (!node || visited.has(id)) return;
     visited.add(id);
-    const row = nextRow, branches = children.get(id) ?? [];
+    const row = nextRow, branches = (children.get(id) ?? []).filter(child => !isStaged(byId.get(child)!));
     const size = nodeSize(node);
     columnWidths[depth] = Math.max(columnWidths[depth] ?? 0, size.width);
     rowHeights[row] = Math.max(rowHeights[row] ?? 0, size.height);
@@ -53,7 +65,7 @@ const layout = computed(() => {
     if (branches.length) branches.forEach(child => place(child, depth + 1));
     else nextRow++;
   }
-  props.graph.nodes.filter(node => !childIds.has(node.id)).forEach(node => { place(node.id, 0); });
+  sceneGraph.value.nodes.filter(node => !isStaged(node) && !childIds.has(node.id)).forEach(node => { place(node.id, 0); });
   const columnStarts: number[] = [], rowStarts: number[] = [];
   columnWidths.forEach((_, i) => { columnStarts[i] = i ? columnStarts[i - 1] + columnWidths[i - 1] + COLUMN_GAP : 0; });
   rowHeights.forEach((_, i) => { rowStarts[i] = i ? rowStarts[i - 1] + rowHeights[i - 1] + ROW_GAP : 0; });
@@ -61,16 +73,21 @@ const layout = computed(() => {
     x: columnStarts[item.depth] + (columnWidths[item.depth] - item.width) / 2,
     y: rowStarts[item.row] + (rowHeights[item.row] - item.height) / 2,
   }));
-  if (Object.keys(props.nodeLayout ?? {}).length) {
-    const saved = props.nodeLayout!;
+  const staged = sceneGraph.value.nodes.filter(isStaged).map(node => ({ node, summary: intents.get(node.id) || node.label, depth: 0, row: 0, ...nodeSize(node), x: 0, y: 0 }));
+  nodes.push(...staged);
+  if (Object.keys(props.nodeLayout ?? {}).length || staged.length) {
+    const saved = props.nodeLayout ?? {};
     const placed = nodes.filter(n => saved[n.node.id]).map(n => ({ ...n,
       x: saved[n.node.id].x - (n.width - n.imageWidth) / 2,
       y: saved[n.node.id].cy - NODE_META_ROOM - n.imageHeight / 2,
     }));
     // Once arranged, preserve the old scene. New children use the same placement as the preview.
     for (const n of nodes.filter(n => !saved[n.node.id])) {
-      const parent = props.graph.edges.find(e => e.to === n.node.id)?.from;
-      const next = parent && placeContinuation(placed, props.graph.edges, parent, { width: n.imageWidth, height: n.imageHeight }, COLUMN_GAP, ROW_GAP);
+      const parent = sceneGraph.value.edges.find(e => e.to === n.node.id)?.from;
+      const anchor = props.continuationAnchor, cursorNode = anchor && byId.get(anchor.nodeId);
+      const blankSize = cursorNode && nodeSize(cursorNode);
+      const blank = anchor && blankSize ? { x: anchor.x, y: anchor.cy - blankSize.imageHeight / 2 - NODE_META_ROOM, width: blankSize.imageWidth, height: blankSize.height } : undefined;
+      const next = parent && (isStaged(n.node) ? placeStagedSibling(placed, parent, n, blank) : placeContinuation(placed, sceneGraph.value.edges, parent, { width: n.imageWidth, height: n.imageHeight }, COLUMN_GAP, ROW_GAP));
       let y = next ? next.y : n.y;
       const x = next ? next.x : n.x;
       let hit: typeof n | undefined;
@@ -80,14 +97,14 @@ const layout = computed(() => {
     }
     nodes = nodes.map(n => placed.find(p => p.node.id === n.node.id)!);
   }
-  const edges = graphEdges(nodes, props.graph.edges);
+  const edges = graphEdges(nodes, sceneGraph.value.edges);
   const left = Math.min(0, ...nodes.map(n => n.x)), top = Math.min(0, ...nodes.map(n => n.y));
   const right = Math.max(1, ...nodes.map(n => n.x + n.width)), bottom = Math.max(1, ...nodes.map(n => n.y + n.height));
   return { nodes, edges, left, top, right, bottom };
 });
 
 const continuation = computed(() => {
-  const cursor = props.cursor, node = props.graph.nodes.find(n => n.id === cursor?.nodeId);
+  const cursor = props.pending, node = props.graph.nodes.find(n => n.id === cursor?.nodeId);
   if (props.readonly || props.finalNode || !cursor || !node?.image_ids.includes(cursor.imageId)) return null;
   const recipe = node.recipes?.[cursor.imageId] ?? node.recipe;
   const image = fitSize(props.cursorPicture?.width, props.cursorPicture?.height) ?? fitSize(recipe.params.width, recipe.params.height) ?? fitSize(1, 1)!;
@@ -102,9 +119,9 @@ const sceneBounds = computed(() => {
 function anchors(nodes = layout.value.nodes): NodeLayout {
   return Object.fromEntries(nodes.map(n => [n.node.id, props.nodeLayout?.[n.node.id] ?? { x: n.x + (n.width - n.imageWidth) / 2, cy: n.y + NODE_META_ROOM + n.imageHeight / 2, z: 0 }]));
 }
-const atCapacity = computed(() => props.graph.nodes.length >= MAX_EVOLUTION_NODES);
+const atCapacity = computed(() => !props.pending && sceneGraph.value.nodes.length >= MAX_EVOLUTION_NODES);
 const continuationHint = computed(() => atCapacity.value ? '已达 80 个版本，请 ASK 合并归纳阶段后继续新增；续抽仍可归入原版本'
-  : `从 ${props.cursor?.nodeId} · ${props.cursor?.imageId} 继续\n返回画板修改配方后生成；未改配方续抽仍归入当前版本`);
+  : `从 ${props.pending?.nodeId} · ${props.pending?.imageId} 新建版本\n返回画板手动生成，结果将填入此占位；期间微调不另拆节点`);
 
 const objects = computed<GraphObject[]>(() => [
   ...props.graph.nodes.map(node => ({ kind: 'node' as const, node, key: nodeNoteKey(node.id), title: node.id })),
@@ -128,7 +145,7 @@ function worldBox(item: GraphObject) {
   if (item.kind === 'node') {
     const position = layout.value.nodes.find(n => n.node.id === item.node.id)!;
     const chrome = nodeChrome(scale), node = item.node;
-    const hasFooter = props.newNodes?.has(node.id) || node.id === props.selected || node.id === props.baseline || node.id === props.finalNode || node.image_ids.length > 1;
+    const hasFooter = props.newNodes?.has(node.id) || node.id === props.selected || node.id === props.baseline || node.id === props.finalNode || node.image_ids.length > 1 || isStaged(node) && (node.id === props.cursor?.nodeId || props.generatingNodes?.has(node.id));
     return { left: position.x, top: position.y + NODE_META_ROOM - chrome.height, right: position.x + position.width,
       bottom: position.y + NODE_META_ROOM + position.imageHeight + NODE_STACK_ROOM + (hasFooter ? chrome.footerHeight : 0) };
   }
@@ -167,8 +184,9 @@ function activateContinuation(event: MouseEvent | KeyboardEvent) {
     const next = new Set(picked.value); if (next.has(continuationKey)) next.delete(continuationKey); else next.add(continuationKey); selectKeys(next);
   } else selectKeys(picked.value.size === 1 && picked.value.has(continuationKey) ? [] : [continuationKey]);
 }
-function activateEdge(edge: RetrospectEdge, event: MouseEvent | KeyboardEvent) { activate(objects.value.find(o => o.key === edgeNoteKey(edge))!, event); }
-function openNode(node: RetrospectNode) { if (!suppressClick && performance.now() - lastNodeDrag > 400 && !spacePan.value && (tool.value === 'view' || tool.value === 'select' && selectionMode.value === 'single')) emit('open', node); }
+function activateEdge(edge: RetrospectEdge, event: MouseEvent | KeyboardEvent) {
+  if (ticketMap.value.has(edge.to)) return; activate(objects.value.find(o => o.key === edgeNoteKey(edge))!, event); }
+function openNode(node: RetrospectNode) { if (!isStaged(node) && !suppressClick && performance.now() - lastNodeDrag > 400 && !spacePan.value && (tool.value === 'view' || tool.value === 'select' && selectionMode.value === 'single')) emit('open', node); }
 
 let scale = props.graphCamera?.scale ?? 1, fitted = props.graphCamera?.fitted ?? 1, x = props.graphCamera?.x ?? 0, y = props.graphCamera?.y ?? 0;
 let initialized = !!props.graphCamera, manualCamera = !!props.graphCamera, overviewCamera = props.graphCamera?.overview ?? false;
@@ -208,11 +226,17 @@ function frame() {
   const host = frameArea.value; if (!host?.clientWidth || !host.clientHeight) return;
   fitted = Math.min(1, (host.clientWidth - 40) / sceneBounds.value.width, (host.clientHeight - 32) / sceneBounds.value.height);
   // The opening view favors readable images; fit-all remains an explicit overview.
-  scale = Math.max(.05, Math.min(2, fitted * (overviewCamera ? 1 : 1.45)));
-  const focus = layout.value.nodes.filter(item => item.node.id === props.selected || item.node.id === props.baseline);
+  scale = Math.max(.05, Math.min(2, fitted));
+  const selectedNode = props.graph.nodes.find(n => n.id === props.selected);
+  const presetParent = selectedNode && isStaged(selectedNode) ? props.graph.edges.find(e => e.to === selectedNode.id)?.from : undefined;
+  const siblings = presetParent ? props.graph.edges.filter(e => e.from === presetParent).map(e => e.to) : [];
+  const focus = layout.value.nodes.filter(item => item.node.id === props.selected || item.node.id === props.baseline || siblings.length <= 4 && siblings.includes(item.node.id));
   if (!overviewCamera && focus.length) {
     const left = Math.min(...focus.map(item => item.x)), right = Math.max(...focus.map(item => item.x + item.width));
     const top = Math.min(...focus.map(item => item.y)), bottom = Math.max(...focus.map(item => item.y + item.height));
+    scale = presetParent
+      ? Math.max(.05, Math.min(.85, (host.clientWidth - 64) / (right - left), (host.clientHeight - 112) / (bottom - top)))
+      : Math.max(.05, Math.min(2, fitted * 1.45));
     x = (host.clientWidth - (left + right) * scale) / 2;
     y = (host.clientHeight - (top + bottom) * scale) / 2;
   } else {
@@ -242,13 +266,50 @@ type SceneNode = (typeof layout.value.nodes)[number];
 let lastNodeDrag = -Infinity, dragFrame = 0;
 let nodeDrag: { pointer: number; start: Point; latest: Point; grip: Point; threshold: number; started: boolean;
   node: SceneNode | null; origin: { x: number; y: number; width: number; imageWidth: number; imageHeight: number };
-  next: Point; element: HTMLElement; nodes: SceneNode[]; ghost: typeof continuation.value } | null = null;
+  next: Point; element: HTMLElement } | null = null;
 function paintEdges(edges: ReturnType<typeof graphEdges>) {
   for (const edge of edges) {
     const host = world.value?.querySelector(`[data-edge-from="${edge.from}"][data-edge-to="${edge.to}"]`);
     host?.querySelectorAll('path').forEach(path => path.setAttribute('d', edge.path));
     const dot = host?.querySelector('circle'); dot?.setAttribute('cx', String(edge.x)); dot?.setAttribute('cy', String(edge.y));
   }
+}
+// One coordinate writer for nodes and their ports, after Vue patches and on every drag frame.
+// Generation progress refreshes picture metadata; it must not restore an old SVG path or placement.
+function paintScene() {
+  const host = world.value; if (!host) return;
+  const drag = nodeDrag?.started ? nodeDrag : null;
+  viewport.value?.classList.toggle('node-dragging', !!drag);
+  const nodes = layout.value.nodes.map(n => n.node.id === drag?.node?.node.id ? { ...n, ...drag.next } : n);
+  for (const node of nodes) {
+    const element = host.querySelector<HTMLElement>(`[data-node="${node.node.id}"]`);
+    if (element) {
+      element.style.left = `${node.x}px`; element.style.top = `${node.y}px`;
+      element.classList.toggle('node-drag-active', element === drag?.element);
+    }
+  }
+  paintEdges(graphEdges(nodes, sceneGraph.value.edges));
+  const ghost = continuation.value;
+  if (ghost && props.pending) {
+    const anchor = drag && !drag.node ? { x: drag.next.x, cy: drag.next.y + ghost.imageHeight / 2 }
+      : { x: ghost.left, cy: ghost.top + ghost.imageHeight / 2 };
+    const preview = placeContinuation(nodes, props.graph.edges, props.pending.nodeId,
+      { width: ghost.imageWidth, height: ghost.imageHeight }, COLUMN_GAP, ROW_GAP, anchor);
+    const element = host.querySelector<HTMLElement>('.continuation-frame');
+    if (preview && element) {
+      element.style.left = `${preview.left}px`; element.style.top = `${preview.top}px`;
+      element.classList.toggle('node-drag-active', element === drag?.element);
+      host.querySelector('.continuation-line')?.setAttribute('d', preview.path);
+    }
+  }
+}
+function dragOriginChanged() {
+  const drag = nodeDrag; if (!drag) return false;
+  if (!drag.node && drag.element.dataset.origin !== props.pending?.nodeId) return true;
+  const ghost = continuation.value;
+  const current = drag.node ? layout.value.nodes.find(n => n.node.id === drag.node!.node.id)
+    : ghost ? { x: ghost.left, y: ghost.top, width: ghost.imageWidth, imageWidth: ghost.imageWidth, imageHeight: ghost.imageHeight } : null;
+  return !current || (['x', 'y', 'width', 'imageWidth', 'imageHeight'] as const).some(key => current[key] !== drag.origin[key]);
 }
 function scheduleNodeDrag() { if (!dragFrame) dragFrame = requestAnimationFrame(drawNodeDrag); }
 function drawNodeDrag() {
@@ -261,19 +322,7 @@ function drawNodeDrag() {
   const dx = speed(drag.latest.x, rect.left, frame.right), dy = speed(drag.latest.y, rect.top, rect.bottom);
   if (dx || dy) { x += dx; y += dy; manualCamera = true; paint(); }
   drag.next = { x: (drag.latest.x - rect.left - x) / scale - drag.grip.x, y: (drag.latest.y - rect.top - y) / scale - drag.grip.y };
-  const offsetX = drag.next.x - drag.origin.x, offsetY = drag.next.y - drag.origin.y;
-  drag.element.style.transform = `translate(${offsetX}px, ${offsetY}px)`;
-  const nodeId = drag.node?.node.id;
-  const nodes = drag.nodes.map(n => n.node.id === nodeId ? { ...n, ...drag.next } : n);
-  if (nodeId) paintEdges(graphEdges(nodes, props.graph.edges).filter(e => e.from === nodeId || e.to === nodeId));
-  // Each frame is independently placed. Dragging either endpoint updates only the line.
-  if (drag.ghost && props.cursor && (!drag.node || props.cursor.nodeId === nodeId)) {
-    const anchor = drag.node ? { x: drag.ghost.left, cy: drag.ghost.top + drag.ghost.imageHeight / 2 }
-      : { x: drag.next.x, cy: drag.next.y + drag.ghost.imageHeight / 2 };
-    const ghost = placeContinuation(nodes, props.graph.edges, props.cursor.nodeId,
-      { width: drag.ghost.imageWidth, height: drag.ghost.imageHeight }, COLUMN_GAP, ROW_GAP, anchor);
-    if (ghost) world.value?.querySelector('.continuation-line')?.setAttribute('d', ghost.path);
-  }
+  paintScene();
   if (dx || dy) scheduleNodeDrag();
 }
 function finishNodeDrag(cancelled: boolean) {
@@ -282,22 +331,24 @@ function finishNodeDrag(cancelled: boolean) {
   if (drag.started && !cancelled) {
     // Flush the last pointer position even if pointerup arrived before the next frame.
     drawNodeDrag(); if (dragFrame) cancelAnimationFrame(dragFrame); dragFrame = 0;
-    const saved = { ...anchors(drag.nodes) }, z = Math.max(props.continuationAnchor?.z ?? 0, ...Object.values(saved).map(p => p.z)) + 1;
+    const saved = { ...anchors() }, z = Math.max(props.continuationAnchor?.z ?? 0, ...Object.values(saved).map(p => p.z)) + 1;
     if (drag.node) saved[drag.node.node.id] = { x: drag.next.x + (drag.node.width - drag.node.imageWidth) / 2,
       cy: drag.next.y + NODE_META_ROOM + drag.node.imageHeight / 2, z };
-    drag.element.style.left = `${drag.next.x}px`; drag.element.style.top = `${drag.next.y}px`;
     drag.element.style.zIndex = String(z);
+    nodeDrag = null;
     emit('arrange', saved);
-    if (!drag.node && props.cursor) emit('arrangeContinuation', { nodeId: props.cursor.nodeId, x: drag.next.x, cy: drag.next.y + drag.origin.imageHeight / 2, z });
-  } else if (drag.started) {
-    paintEdges(layout.value.edges);
-    drag.element.style.zIndex = String(drag.node ? props.nodeLayout?.[drag.node.node.id]?.z ?? 0 : props.continuationAnchor?.z ?? 0);
-    if (continuation.value) world.value?.querySelector('.continuation-line')?.setAttribute('d', continuation.value.path);
+    if (!drag.node && props.pending) emit('arrangeContinuation', { nodeId: props.pending.nodeId, x: drag.next.x, cy: drag.next.y + drag.origin.imageHeight / 2, z });
+    void nextTick(paintScene);
+  } else {
+    nodeDrag = null;
+    if (drag.started) {
+      drag.element.style.zIndex = String(drag.node ? props.nodeLayout?.[drag.node.node.id]?.z ?? 0 : props.continuationAnchor?.z ?? 0);
+      paintScene();
+    }
   }
-  drag.element.style.transform = ''; drag.element.classList.remove('node-drag-active');
+  drag.element.classList.remove('node-drag-active');
   viewport.value?.classList.remove('node-dragging');
   if (drag.started) { suppressClick = true; lastNodeDrag = performance.now(); }
-  nodeDrag = null;
   if (viewport.value?.hasPointerCapture(drag.pointer)) viewport.value.releasePointerCapture(drag.pointer);
 }
 function down(event: PointerEvent) {
@@ -317,7 +368,7 @@ function down(event: PointerEvent) {
     const start = { x: event.clientX, y: event.clientY }, local = localPoint(event);
     nodeDrag = { pointer: event.pointerId, start, latest: start, threshold: event.pointerType === 'mouse' ? 4 : 8,
       grip: { x: (local.x - x) / scale - origin.x, y: (local.y - y) / scale - origin.y },
-      started: false, node, origin, next: { x: origin.x, y: origin.y }, element, nodes: layout.value.nodes, ghost: continuation.value };
+      started: false, node, origin, next: { x: origin.x, y: origin.y }, element };
     return;
   }
   if (onObject && !pan) return;
@@ -437,21 +488,22 @@ async function visibility() {
 watch(() => props.active, visibility);
 watch(() => props.readonly, readonly => { if (readonly && tool.value === 'annotate') setMode('single'); });
 watch([layout, continuation], () => {
-  if (nodeDrag) finishNodeDrag(true);
+  if (dragOriginChanged()) finishNodeDrag(true);
   const allowed = new Set([...objects.value.map(o => o.key), ...(continuation.value ? [continuationKey] : [])]); selectKeys([...picked.value].filter(id => allowed.has(id)));
   // Browsing samples, pinning and successful generation must not steal the camera.
   if (props.active) nextTick(() => { if (!initialized) frame(); else paint(); });
-  if (Object.keys(props.nodeLayout ?? {}).length && layout.value.nodes.some(n => !props.nodeLayout?.[n.node.id])) emit('arrange', anchors());
-  if (continuation.value && props.cursor && props.continuationAnchor?.nodeId !== props.cursor.nodeId) {
+  if (layout.value.nodes.some(n => !props.nodeLayout?.[n.node.id])) emit('arrange', anchors());
+  if (continuation.value && props.pending && props.continuationAnchor?.nodeId !== props.pending.nodeId) {
     emit('arrange', anchors());
-    emit('arrangeContinuation', { nodeId: props.cursor.nodeId, x: continuation.value.left, cy: continuation.value.top + continuation.value.imageHeight / 2, z: 0 });
+    emit('arrangeContinuation', { nodeId: props.pending.nodeId, x: continuation.value.left, cy: continuation.value.top + continuation.value.imageHeight / 2, z: 0 });
   }
 }, { immediate: true });
-watch(() => props.cursor?.nodeId, () => { if (picked.value.has(continuationKey)) selectKeys([...picked.value].filter(key => key !== continuationKey)); });
+watch(() => props.pending?.key, () => { if (picked.value.has(continuationKey)) selectKeys([...picked.value].filter(key => key !== continuationKey)); });
 onMounted(() => {
   observer = new ResizeObserver(() => { if (!props.active) return; if (!initialized || !manualCamera) frame(); else paint(); });
-  visibility(); window.addEventListener('blur', releaseGesture);
+  paintScene(); visibility(); window.addEventListener('blur', releaseGesture);
 });
+onUpdated(paintScene);
 onBeforeUnmount(() => { observer?.disconnect(); releaseGesture(); rememberCamera(); window.removeEventListener('blur', releaseGesture); });
 </script>
 <template>
@@ -461,16 +513,17 @@ onBeforeUnmount(() => { observer?.disconnect(); releaseGesture(); rememberCamera
     <div ref="viewport" class="graph-viewport" :class="{ dragging, panning: tool === 'pan' || spacePan, annotating: tool === 'annotate' && !spacePan, boxing: tool === 'select' && selectionMode === 'box' && !spacePan }" tabindex="0" :aria-label="`版本关系画布，当前${modeLabel}，已选择 ${picked.size} 项`" @pointerdown="down" @pointermove="move" @pointerup="up" @pointercancel="up" @lostpointercapture="up" @wheel.prevent="wheel" @blur="spacePan = false">
       <div ref="world" class="graph-world" :style="{ width: `${sceneBounds.width}px`, height: `${sceneBounds.height}px` }">
         <svg class="graph-edges" :width="sceneBounds.width" :height="sceneBounds.height">
-          <path v-if="continuation" class="continuation-line" :d="continuation.path" aria-hidden="true" />
-          <g v-for="edge in layout.edges" :key="edgeNoteKey(edge)" class="graph-edge" :data-edge-from="edge.from" :data-edge-to="edge.to" role="button" tabindex="0" :aria-label="`${edge.from} 到 ${edge.to} 连线${notes?.[edgeNoteKey(edge)] ? '，有批注' : ''}`" :aria-pressed="picked.has(edgeNoteKey(edge))" :class="{ active: edge.to === selected, picked: picked.has(edgeNoteKey(edge)), 'final-path': finalPath?.has(edge.from) && finalPath?.has(edge.to) }" @click.stop="activateEdge(edge, $event)" @keydown.enter.prevent.stop="activateEdge(edge, $event)" @keydown.space.prevent.stop="activateEdge(edge, $event)" @dblclick.stop>
+          <path v-if="continuation" class="continuation-line" aria-hidden="true" />
+          <g v-for="edge in layout.edges" :key="edgeNoteKey(edge)" class="graph-edge" :data-edge-from="edge.from" :data-edge-to="edge.to" role="button" tabindex="0" :aria-label="`${edge.from} 到 ${edge.to} 连线${notes?.[edgeNoteKey(edge)] ? '，有批注' : ''}`" :aria-pressed="picked.has(edgeNoteKey(edge))" :class="{ staged: graph.nodes.some(n => n.id === edge.to && isStaged(n)), active: edge.to === selected, picked: picked.has(edgeNoteKey(edge)), 'final-path': finalPath?.has(edge.from) && finalPath?.has(edge.to) }" @click.stop="activateEdge(edge, $event)" @keydown.enter.prevent.stop="activateEdge(edge, $event)" @keydown.space.prevent.stop="activateEdge(edge, $event)" @dblclick.stop>
             <title>{{ `${edge.from} → ${edge.to} · ${notes?.[edgeNoteKey(edge)] || edge.summary}` }}</title>
-            <path class="edge-hit" :d="edge.path" />
-            <path class="edge-line" :d="edge.path" />
-            <circle v-if="picked.has(edgeNoteKey(edge)) || notes?.[edgeNoteKey(edge)]" class="edge-dot" :cx="edge.x" :cy="edge.y" r="3" />
+            <path class="edge-hit" />
+            <path class="edge-line" />
+            <circle v-if="picked.has(edgeNoteKey(edge)) || notes?.[edgeNoteKey(edge)]" class="edge-dot" r="3" />
           </g>
         </svg>
-        <VersionNode v-for="item in layout.nodes" :key="item.node.id" :node="item.node" :fresh="newNodes?.has(item.node.id)" :cursor="item.node.id === cursor?.nodeId && pictures[item.node.id]?.id === cursor.imageId" :restore-disabled="restoreDisabled || !pictures[item.node.id]?.url || pictures[item.node.id]?.parametersUnavailable" :final="item.node.id === finalNode" :on-final-path="!!finalPath?.has(item.node.id)" :picture="pictures[item.node.id]" :backs="backPictures[item.node.id]" :summary="item.summary" :note="notes?.[nodeNoteKey(item.node.id)]" :selected="item.node.id === selected" :baseline="item.node.id === baseline" :picked="picked.has(nodeNoteKey(item.node.id))" :tool="tool" :selection-mode="selectionMode" :style="{ left: `${item.x}px`, top: `${item.y}px`, zIndex: nodeLayout?.[item.node.id]?.z ?? 0, '--node-width': `${item.width}px`, '--node-height': `${item.height}px`, '--image-width': `${item.imageWidth}px`, '--image-height': `${item.imageHeight}px`, '--image-min': `${Math.min(item.imageWidth, item.imageHeight)}px`, '--node-meta-room': `${NODE_META_ROOM}px`, '--node-stack-room': `${NODE_STACK_ROOM}px` }" @select="activateNode(item.node, $event)" @open="openNode(item.node)" @sample="emit('sample', item.node, $event)" @restore="emit('restore', item.node)" />
-        <div v-if="continuation" :key="cursor?.nodeId" class="continuation-frame" role="group" :aria-label="`新版本占位，可拖动${picked.has(continuationKey) ? '，已选中' : ''}`" tabindex="0" :class="{ selected: picked.has(continuationKey) }" @click.stop="activateContinuation" @keydown.enter.prevent.stop="activateContinuation" @keydown.space.prevent.stop="activateContinuation" @dblclick.stop :data-origin="cursor?.nodeId" :data-origin-sample="cursor?.imageId" :style="{ left: `${continuation.left}px`, top: `${continuation.top}px`, width: `${continuation.imageWidth}px`, height: `${continuation.imageHeight}px`, '--frame-min': `${Math.min(continuation.imageWidth, continuation.imageHeight)}px`, zIndex: continuationAnchor?.z ?? 0 }">
+        <VersionNode v-for="item in layout.nodes.filter(item => !ticketMap.has(item.node.id))" :key="item.node.id" :node="item.node" :fresh="newNodes?.has(item.node.id)" :generating="generatingNodes?.has(item.node.id)" :cursor="item.node.id === cursor?.nodeId && pictures[item.node.id]?.id === cursor.imageId" :restore-disabled="restoreDisabled || generatingNodes?.has(item.node.id) || (isStaged(item.node) ? readonly : !pictures[item.node.id]?.url || pictures[item.node.id]?.parametersUnavailable)" :final="item.node.id === finalNode" :on-final-path="!!finalPath?.has(item.node.id)" :picture="pictures[item.node.id]" :backs="backPictures[item.node.id]" :summary="item.summary" :note="notes?.[nodeNoteKey(item.node.id)]" :selected="item.node.id === selected" :baseline="item.node.id === baseline" :picked="picked.has(nodeNoteKey(item.node.id))" :tool="tool" :selection-mode="selectionMode" :style="{ zIndex: nodeLayout?.[item.node.id]?.z ?? 0, '--node-width': `${item.width}px`, '--node-height': `${item.height}px`, '--image-width': `${item.imageWidth}px`, '--image-height': `${item.imageHeight}px`, '--image-min': `${Math.min(item.imageWidth, item.imageHeight)}px`, '--node-meta-room': `${NODE_META_ROOM}px`, '--node-stack-room': `${NODE_STACK_ROOM}px` }" @select="activateNode(item.node, $event)" @open="openNode(item.node)" @sample="emit('sample', item.node, $event)" @restore="emit('restore', item.node)" />
+        <WorkshopNode v-for="item in layout.nodes.filter(item => ticketMap.has(item.node.id))" :key="item.node.id" :ticket="ticketMap.get(item.node.id)!" :disabled="readonly || restoreDisabled" :style="{ zIndex: nodeLayout?.[item.node.id]?.z ?? 0, width: `${item.width}px`, height: `${item.height}px`, '--node-meta-room': `${NODE_META_ROOM}px` }" @open="emit('openWorkshop', item.node.id)" @cancel="emit('cancelWorkshop', item.node.id)" />
+        <div v-if="continuation" :key="pending?.key" class="continuation-frame" role="group" :aria-label="`新版本占位，可拖动${picked.has(continuationKey) ? '，已选中' : ''}`" tabindex="0" :class="{ selected: picked.has(continuationKey) }" @click.stop="activateContinuation" @keydown.enter.prevent.stop="activateContinuation" @keydown.space.prevent.stop="activateContinuation" @dblclick.stop :data-origin="pending?.nodeId" :data-origin-sample="pending?.imageId" :style="{ width: `${continuation.imageWidth}px`, height: `${continuation.imageHeight}px`, '--frame-min': `${Math.min(continuation.imageWidth, continuation.imageHeight)}px`, zIndex: continuationAnchor?.z ?? 0 }">
           <button class="ibtn continuation-add" type="button" data-node-control :disabled="atCapacity" aria-label="返回画板继续演进" :title="continuationHint" @pointerdown.stop @click.stop="emit('continue')" @dblclick.stop><AppIcon name="i-plus" /></button>
         </div>
       </div>
@@ -502,7 +555,8 @@ onBeforeUnmount(() => { observer?.disconnect(); releaseGesture(); rememberCamera
 .graph-edges { position: absolute; inset: 0; overflow: visible; pointer-events: none; }
 .graph-edges path { fill: none; vector-effect: non-scaling-stroke; }
 .graph-edge { outline: none; }
-.edge-line { stroke: color-mix(in srgb, var(--fg-3) 45%, transparent); stroke-width: var(--ico-stroke); pointer-events: none; }
+.staged .edge-line, .continuation-line { stroke-dasharray: 4 4; }
+.edge-line, .continuation-line { stroke: color-mix(in srgb, var(--fg-3) 45%, transparent); stroke-width: var(--ico-stroke); pointer-events: none; }
 .final-path .edge-line { stroke: var(--a); stroke-width: var(--ico-stroke-strong); }
 .active .edge-line { stroke: color-mix(in srgb, var(--a) 65%, var(--fg-3)); }
 .graph-edge:is(:hover, :focus-visible) .edge-line { stroke: var(--fg-2); }
@@ -510,8 +564,7 @@ onBeforeUnmount(() => { observer?.disconnect(); releaseGesture(); rememberCamera
 /* stylelint-disable-next-line declaration-property-value-allowed-list -- Invisible hit region for selecting graph edges, not an icon stroke. */
 .edge-hit { stroke: transparent; stroke-width: 16px; pointer-events: stroke; cursor: pointer; }
 .edge-dot { fill: var(--fg-2); pointer-events: none; }
-.continuation-line { stroke: var(--fg-4); stroke-width: var(--ico-stroke); stroke-dasharray: 4 4; pointer-events: none; opacity: .65; }
-.continuation-frame { position: absolute; border: calc(1px / var(--graph-scale, 1)) dashed var(--fg-4); border-radius: min(calc(14px * var(--node-ui-scale, 1)), calc(var(--frame-min) * .1)); background: transparent; opacity: .6; pointer-events: auto; cursor: move; }
+.continuation-frame { position: absolute; transition: none; border: calc(1px / var(--graph-scale, 1)) dashed var(--fg-4); border-radius: min(calc(14px * var(--node-ui-scale, 1)), calc(var(--frame-min) * .1)); background: transparent; opacity: .6; pointer-events: auto; cursor: move; }
 .continuation-frame:has(.continuation-add:is(:hover, :focus-visible)) { opacity: 1; }
 .continuation-frame.selected { opacity: 1; border-color: var(--a); border-style: solid; box-shadow: 0 0 0 calc(.5px / var(--graph-scale, 1)) var(--a); }
 .continuation-add { position: absolute; top: 50%; left: 50%; width: 28px; height: 28px; border-radius: var(--r2); transform: translate(-50%, -50%) scale(var(--node-ui-scale, 1)); color: var(--fg-3); pointer-events: auto; --ico: var(--ico-sm); }
@@ -521,6 +574,6 @@ onBeforeUnmount(() => { observer?.disconnect(); releaseGesture(); rememberCamera
 [data-detail-level="compact"] .continuation-add { width: 22px; height: 22px; }
 [data-detail-level="overview"] .continuation-add { display: none; }
 [data-detail-level="overview"] .continuation-frame { border-style: solid; }
-[data-detail-level="overview"] .continuation-line { stroke-dasharray: none; opacity: .4; }
+[data-detail-level="overview"] .staged .edge-line, [data-detail-level="overview"] .continuation-line { stroke-dasharray: none; }
 .graph-marquee { display: none; position: absolute; top: 0; left: 0; border: 1px solid color-mix(in srgb, var(--fg) 30%, transparent); border-radius: var(--r1); background: color-mix(in srgb, var(--fg) 5%, transparent); pointer-events: none; }
 </style>

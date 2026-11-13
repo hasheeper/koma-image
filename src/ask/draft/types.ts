@@ -42,12 +42,15 @@ export interface BranchStep {
 export interface HandoffImage {
   readonly binding?: import("../../domain/image-identity.ts").ImageTagBinding;
   readonly label: string;
-  readonly source: "history" | "favorites" | "chat" | "edit" | "project";
-  /** Drawing record ID for `#h`/`#f`, CHAT asset ID for `#c`. */
+  readonly source: "history" | "favorites" | "chat" | "edit" | "project" | "attachment";
+  /** Workspace record ID, CHAT asset ID, or scoped ASK attachment ref. */
   readonly ref: string;
 }
 export interface HandoffStep {
   readonly kind: "chat_handoff";
+  /** Image ref, frozen independently of its position; absent on text-only or older drafts. */
+  readonly baseImage?: string;
+  readonly destination?: "new" | "current";
   readonly images: readonly HandoffImage[];
   readonly options: Readonly<Record<string, string>>;
   readonly text: string;
@@ -92,6 +95,7 @@ export interface DraftState {
   readonly samplers: string[];
   readonly samplersByModel?: Readonly<Record<string, readonly string[]>>;
 }
+export interface EditReferencesStep { readonly kind:'edit_references'; readonly items: readonly {image:HandoffImage;reference:import('../../domain/edit-references.ts').EditReference}[] }
 export interface EditConfigStep {readonly kind:"edit_config";readonly params:Readonly<Record<string,unknown>>}
 export interface DirectorStep {readonly kind:"director_patch";readonly tool:string;readonly emotion?:string;readonly defry?:number;readonly prompt?:string}
 export interface EditHandoff { readonly image:HandoffImage; readonly target:EditDraftState; readonly created:boolean; readonly proposal:Draft; readonly params:Readonly<Fields>; readonly origin:"image"|"chat"|"edit" }
@@ -103,7 +107,6 @@ export interface RollbackBase {
   readonly evolution: import('../retrospect/store.ts').EvolutionChange;
 }
 export interface EditRollback {
-  readonly evolution: import('../retrospect/store.ts').EvolutionChange;
   readonly before: EditDraftState;
   readonly after: EditDraftState;
   readonly label: string;
@@ -121,7 +124,7 @@ export interface Draft {
   readonly baseHash: string;
   /** Original request, reused by the explicit “重新提议” action. */
   readonly question: string;
-  readonly steps: readonly (EditConfigStep | DirectorStep | FileStep | SlateStep | ParameterStep | TextStep | RestoreStep | BranchStep | CharacterStep | HandoffStep)[];
+  readonly steps: readonly (EditReferencesStep | EditConfigStep | DirectorStep | FileStep | SlateStep | ParameterStep | TextStep | RestoreStep | BranchStep | CharacterStep | HandoffStep)[];
   readonly base: DraftState;
 }
 export type Field = "composer" | keyof DrawingForm;
@@ -151,10 +154,16 @@ export interface CheckedStep {
   readonly suffix?: string;
 }
 export interface DraftPlan {
+  readonly treeChange?: import('../retrospect/store.ts').EvolutionTreeChange;
+  /** Ordinary ASK edits reserve their next version in the same write/undo transaction. */
+  readonly evolution?: import('../retrospect/store.ts').EvolutionChange;
+  /** Explicit panel load; shares the ordinary writer and undo stack. */
+  readonly stagedLoad?: { readonly evolution: import('../retrospect/store.ts').EvolutionChange; readonly signature: string; readonly source: import('../../domain/image-identity.ts').ImageTagBinding; readonly model: string; readonly references: DrawingForm['naiReferences'] };
   readonly editRollback?: EditRollback;
   readonly rollbackBase?: RollbackBase;
   readonly editSourceTag?:string;
   readonly editHandoff?: EditHandoff;
+  readonly editReferences?: EditReferencesStep['items'];
   readonly edit?: {id:string;before:EditConfiguration;after:EditConfiguration;baseId:number;maskRevision:number;sourceKey?:string};
   readonly files?: readonly DraftFile[];
   readonly slate?: SlateChange;
@@ -163,8 +172,8 @@ export interface DraftPlan {
   readonly newBoardName?: string;
   readonly createdBoard?: DrawingBoard;
   readonly branch?: { readonly before: ChatSelection; readonly after: ChatSelection; readonly key: string };
-  /** Enabled handoff content; writing always opens a new CHAT conversation. */
-  readonly handoff?: { readonly model: string; readonly options: Readonly<Record<string, string>>; readonly text: string; readonly images: readonly HandoffImage[] };
+  /** Confirmed image set and text; current binds updates to one frozen CHAT context. */
+  readonly handoff?: { readonly current?: { readonly id: string; readonly key: string }; readonly model: string; readonly options: Readonly<Record<string, string>>; readonly text: string; readonly images: readonly HandoffImage[] };
   readonly title: string;
   readonly workspace: "image" | "chat" | "edit";
   readonly conversationId: string;
@@ -181,4 +190,6 @@ export interface ValidateOptions {
   readonly off: ReadonlySet<string>;
   /** Live availability of a handoff image; unknown counts as available. */
   readonly has?: (image: HandoffImage) => boolean;
+  /** Recipe restoration only needs the surviving record, not original pixels. */
+  readonly hasRecord?: (image: HandoffImage) => boolean;
 }

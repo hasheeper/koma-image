@@ -28,5 +28,5 @@ export function imageEditContext(s:EditorSession, annotation?:AnnotationSnapshot
   const base=s.versions.find(v=>v.id===s.baseId);
   return structuredClone({ settings:s.imageEdit, comparison:comparison??null,
     annotations:annotation&&base&&annotation.image.record_id===base.recordId&&annotation.image.entity_key===base.entity_key
-      ? {image:qualifiedEditLabel(s,base),width:annotation.width,height:annotation.height,regions:annotationSummary(annotation.regions)} : null });
+      ? {image:qualifiedEditLabel(s,base),width:annotation.width,height:annotation.height,regions:annotationSummary(annotation.regions),references:annotation.references?.map(r=>({...r,image:`#e${s.boardSeq}:${r.label.toLowerCase()}`}))} : null });
 }

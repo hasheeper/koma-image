@@ -184,8 +184,11 @@ function validateChatAnnotation(value: unknown) {
   if(value===undefined)return;
   const a=object(value);
   if(!id(a.sourceAssetId)||!id(a.inputAssetId)||!id(a.guideAssetId)||typeof a.text!=="string"||a.text.length>24000||a.singleImage!==undefined&&typeof a.singleImage!=="boolean")throw bad();
+  if (a.referenceAssets !== undefined && (!Array.isArray(a.referenceAssets) || a.referenceAssets.length > 16 || a.referenceAssets.some(r=>!id(object(r).id)||!id(object(r).assetId)))) throw bad();
   if (a.markup !== undefined && (a.singleImage === true || !id(object(a.markup).inputAssetId) || !id(object(a.markup).overlayAssetId))) throw bad();
   try{validateAnnotationSnapshot(a.snapshot as unknown as AnnotationSnapshot);}catch{throw bad();}
+  const refs=(a.snapshot as unknown as AnnotationSnapshot).references??[], mapping=(a.referenceAssets??[]) as {id:string;assetId:string}[];
+  if(new Set(mapping.map(r=>r.id)).size!==mapping.length||mapping.length!==refs.length||refs.some(r=>!mapping.some(m=>m.id===r.id)))throw bad();
 }
 export function validateConversation(value: unknown): ConversationRecord {
   const c = object(value);

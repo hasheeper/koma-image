@@ -6,7 +6,7 @@ import AppIcon from '../AppIcon.vue';
 import { usePopover } from '../ui/use-popover.ts';
 import ValueSelect from '../nai/NaiSelect.vue';
 
-const props = defineProps<{ regions: readonly RegionAnnotation[]; preview?: string; sent?: boolean; dim?: boolean; disabled?: boolean; inline?: boolean; singleImage?: boolean; returnEdit?: boolean; markup?: boolean; markupEligible?: boolean }>();
+const props = defineProps<{ regions: readonly RegionAnnotation[]; references?: readonly import('../../domain/edit-references.ts').EditReference[]; preview?: string; sent?: boolean; dim?: boolean; disabled?: boolean; inline?: boolean; singleImage?: boolean; returnEdit?: boolean; markup?: boolean; markupEligible?: boolean }>();
 const emit = defineEmits<{ comment: [key: string, text: string]; remove: []; mode: [single: boolean]; markup: []; edit: [] }>();
 const open = shallowRef(false), host = shallowRef<HTMLElement>(), panel = shallowRef<HTMLElement>(), id = useId();
 const mode = computed(() => props.markup ? 'native' : props.singleImage ? 'text' : 'dual');
@@ -55,6 +55,7 @@ function key(event: KeyboardEvent, r: RegionAnnotation) {
           <span class="annotation-card-number">{{ i + 1 }}</span>
           <span v-if="sent" class="annotation-card-text">{{ r.comment || '（无文字）' }}</span>
           <textarea v-else :value="r.comment" :aria-label="`批注 ${i + 1}`" :disabled="disabled" rows="1" maxlength="2000" placeholder="添加批注…" @change="commit($event, r)" @keydown="key($event, r)" />
+          <small v-if="r.referenceIds?.length" class="annotation-card-refs">{{r.referenceIds.map(id=>references?.find(ref=>ref.id===id)?.label ?? '参考失效').join(' · ')}}</small>
           <AppIcon :name="shapes[r.shape][0]" :title="shapes[r.shape][1]" class="annotation-card-shape" />
         </div>
       </div>
@@ -87,6 +88,7 @@ function key(event: KeyboardEvent, r: RegionAnnotation) {
 .annotation-card-row textarea, .annotation-card-text { flex: 1; min-width: 0; padding: 0; margin: 0; border: 0; border-radius: 0; background: none; box-shadow: none; color: var(--fg); font: var(--fz-sm)/20px var(--sans); overflow-wrap: anywhere; white-space: pre-wrap; }
 .annotation-card-row textarea { field-sizing: content; min-height: 20px; max-height: 100px; resize: none; }
 .annotation-card-row textarea:focus { outline: none; box-shadow: 0 1px var(--a-line); }
+.annotation-card-refs { color: var(--a); font: var(--fz-2xs)/20px var(--mono); }
 .annotation-card-shape { flex: none; margin-top: 2px; --ico: var(--ico-sm); color: var(--fg-3); }
 .annotation-card-return { margin-top: 4px; padding: 5px 8px; font-size: var(--fz-xs); --ico: var(--ico-sm); }
 </style>

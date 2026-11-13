@@ -38,15 +38,16 @@ export function prepareRecipe(recipe: Recipe, state: { form: Readonly<DrawingFor
   return { changes, form };
 }
 /** Explicit UI restore; associated cursor commits only after the leased write succeeds. */
-export async function restoreRecipe(recipe: Recipe, drawing: Drawing, references: ApplicationServices['references'], available: () => boolean, commit?: () => void) {
-  const snapshot = drawing.snapshot(), boardId = snapshot.activeBoardId, board = snapshot.boards.find(b => b.id === boardId);
+export async function restoreRecipe(recipe: Recipe, drawing: Drawing, references: ApplicationServices['references'], available: () => boolean, commit?: () => void, targetBoardId?: string) {
+  if (recipe.input) throw new Error('此配方应恢复到其来源工作区');
+  const snapshot = drawing.snapshot(), boardId = targetBoardId ?? snapshot.activeBoardId, board = snapshot.boards.find(b => b.id === boardId);
   if (!board) throw new Error('目标画板已删除');
-  const expected = structuredClone(Object.fromEntries(boardKeys.map(k => [k, snapshot.form[k]])));
-  const { changes, form } = prepareRecipe(recipe, { form: snapshot.form, nextCharacterId: board.nextCharacterId, models: snapshot.models, samplersFor: drawing.samplersFor });
+  const expected = structuredClone(Object.fromEntries(boardKeys.map(k => [k, board.form[k]])));
+  const { changes, form } = prepareRecipe(recipe, { form: { ...snapshot.form, ...board.form }, nextCharacterId: board.nextCharacterId, models: snapshot.models, samplersFor: drawing.samplersFor });
   await references.ready();
   if (activeReferences(form.naiReferences).length && (!referenceOperation(form.model, form.naiReferences.active!) || references.cachedCost(form.naiReferences, form.model) === undefined)) throw new Error('配方参考图或编码已不可用');
   if (!available()) throw new Error('原记录已失效，无法恢复配方');
-  if (drawing.snapshot().activeBoardId !== boardId) throw new Error('活动画板已切换，请重新恢复');
+  if (drawing.snapshot().activeBoardId !== snapshot.activeBoardId) throw new Error('活动画板已切换，请重新恢复');
   await drawing.writeDraft(changes, expected, boardId);
   try { commit?.(); } catch (error) {
     await drawing.writeDraft(Object.fromEntries(Object.keys(changes).map(k => [k, expected[k]])), changes, boardId);

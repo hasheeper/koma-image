@@ -17,6 +17,6 @@ export async function editorEvolutionInput(s: EditorSession, parent: EditorVersi
   if (!generic && operation !== 'upscale' && operation !== 'photopea') { effective.placement = s.placement; effective.naiReferences = structuredClone(s.naiReferences); }
   return { workspace: 'edit', operation, prompt, negative, characters, params: { ...(model ? { model } : {}), ...effective,
     ...(mask && operation !== 'photopea' ? { ...s.imageEdit.edges } : {}), ...(params.inpaintFocus ? { focus: params.inpaintFocus } : {}) },
-    base: { id: parent.recordId, label: qualifiedEditLabel(s, parent) }, mask: await evolutionMask(mask ?? null),
+    base: { id: parent.recordId, label: qualifiedEditLabel(s, parent) }, ...(generic ? { references: (s.references ?? []).map(r => ({ id: r.id, label: `${r.label}${r.usage ? ` · ${r.usage}` : ''}` })) } : {}), mask: await evolutionMask(mask ?? null),
     ...(annotations ? { annotations: JSON.stringify(annotationSummary(annotations.regions)) } : {}) };
 }

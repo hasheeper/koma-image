@@ -1,3 +1,4 @@
+import { readEvolutionInput } from '../domain/evolution-input.ts';
 import { chatEvolutionInput, evolutionTurns } from '../domain/chat-evolution.ts';
 import { chatImageId, chatImageOrigin } from "../domain/image-origin.ts";
 import { ancestry, chatDraftKey, chatSelection, contextSnapshot } from "../domain/conversation.ts";
@@ -10,6 +11,7 @@ import { object } from "../domain/value.ts";
 import type { Chat } from "../services/chat.ts";
 import type { Picture } from "./library.ts";
 import type { ChatModelDraft } from "./draft/types.ts";
+import type { ChatPictureIds } from './chat-identity.ts';
 
 export interface ChatSource {
   /** `#cN.M` of the selected version. */
@@ -20,23 +22,33 @@ export interface ChatSource {
   readonly prompt: string;
   /** Finished images of every version; absent in drafts saved before `#cN.M.K`. */
   readonly versions?: readonly (readonly string[])[];
+  readonly imageLabels?: readonly (readonly string[])[];
 }
 export interface ChatDraftSnapshot {
+  readonly annotated?: boolean;
   readonly key: string;
   readonly selection: ChatSelection;
   readonly sources: readonly ChatSource[];
 }
 const finished = (v: ConversationVersion | undefined) => v?.status === "done" ? v.blocks.flatMap((b) => b.type === "image" ? [v.composites?.[b.assetId] ?? b.assetId] : []) : [];
-export function chatSnapshot(state: ReturnType<Chat["snapshot"]>, evolution = false): ChatDraftSnapshot {
+export function chatSnapshot(state: ReturnType<Chat["snapshot"]>, evolution = false, ids?: ChatPictureIds): ChatDraftSnapshot {
   const c = state.current;
-  return { key: chatDraftKey(c), selection: chatSelection(c), sources: (evolution?evolutionTurns(c):ancestry(c)).map((t, i) => ({
+  return { ...(c.pendingAnnotation ? { annotated: true } : {}), key: chatDraftKey(c), selection: chatSelection(c), sources: (evolution?evolutionTurns(c):ancestry(c)).map((t, i) => ({
     label: `#c${i + 1}.${t.selectedVersion + 1}`, turnId: t.id, prompt: t.prompt,
     assetId: finished(t.versions[t.selectedVersion])[0] ?? null, versions: t.versions.map(v=>{const ids=finished(v);return evolution?[...ids,...v.blocks.flatMap(b=>v.status==='done'&&b.type==='image'&&!ids.includes(b.assetId)?[b.assetId]:[])]:ids;}),
+    ...(ids ? { imageLabels: t.versions.map(v => { const assets = finished(v); return (evolution ? [...assets, ...v.blocks.flatMap(b => v.status === 'done' && b.type === 'image' && !assets.includes(b.assetId) ? [b.assetId] : [])] : assets).map(asset => ids.label(c.id, t.id, v.id, asset)); }) } : {}),
   })) };
 }
 const chatId = /^#c([1-9]\d*)\.([1-9]\d*)(?:([a-z])|\.([1-9]\d*))?$/;
 /** `#cN.M[a-z]`: branch turn N, version M, image letter; also reads legacy numeric `.K`. */
 export function chatImage(snapshot: Pick<ChatDraftSnapshot, "sources">, label: string) {
+  if (label.includes(':')) {
+    for (const source of snapshot.sources) for (const [version, labels] of source.imageLabels?.entries() ?? []) {
+      const index = labels.indexOf(label), assetId = index < 0 ? undefined : source.versions?.[version]?.[index];
+      if (assetId) return { source, version, index, assetId, selected: source.label.endsWith(`.${version + 1}`) };
+    }
+    return null;
+  }
   const m = chatId.exec(label), source = m ? snapshot.sources[Number(m[1]) - 1] : undefined;
   if (!m || !source) return null;
   const version = Number(m[2]) - 1, index = m[3] ? m[3].charCodeAt(0) - 97 : Number(m[4] ?? 1) - 1, selected = source.label === `#c${m[1]}.${m[2]}`,
@@ -45,7 +57,7 @@ export function chatImage(snapshot: Pick<ChatDraftSnapshot, "sources">, label: s
 }
 /** Any `#cN.*` names turn N, whichever version or image follows. */
 export const chatTurn = (snapshot: Pick<ChatDraftSnapshot, "sources">, label: string) =>
-  chatId.test(label) ? snapshot.sources[Number(chatId.exec(label)![1]) - 1] ?? null : null;
+  label.includes(':') ? snapshot.sources.find(s => s.imageLabels?.some(labels => labels.includes(label))) ?? null : chatId.test(label) ? snapshot.sources[Number(chatId.exec(label)![1]) - 1] ?? null : null;
 /** Every finished image on the current branch; `#cN.M` stays the label of single-image versions. */
 export function chatImages(state: ReturnType<Chat["snapshot"]>, evolution = false) {
   const c = state.current;
@@ -79,14 +91,16 @@ export function chatDraftModel(state: ReturnType<Chat["snapshot"]>): ChatModelDr
   const s = chatModelState(state);
   return s.ready ? { id: state.model!.id, name: s.name, maxImages: s.max_images, writable: s.writable } : null;
 }
-export function chatContext(state: ReturnType<Chat["snapshot"]>) {
+export function chatContext(state: ReturnType<Chat["snapshot"]>, library: readonly Picture[] = []) {
   const c = state.current, snapshot = contextSnapshot(c, c.prompt, state.model?.maxImages ?? Infinity), sources = chatSnapshot(state).sources, images = chatImages(state);
+  const label = (asset: string | null) => !asset ? null : library.find(p => p.scope?.kind === 'chat' && p.scope.id === c.id && p.scope.asset_id === asset)?.label ?? images.find(p => p.assetId === asset)?.label ?? '用户参考图';
   return {
     scope: "当前会话的当前分支；其他分支不自动发送", title: c.title,
     turns: sources.map((s, i) => ({ id: s.label, text: s.prompt, included: snapshot.turnIds.includes(s.turnId), has_image: !!s.assetId,
       versions: ancestry(c)[i].versions.map((v, j) => ({ id: `#c${i + 1}.${j + 1}`, status: v.status, selected: s.label === `#c${i + 1}.${j + 1}`,
         images: images.filter((p) => p.version === v).map((p) => p.label) })) })),
-    base: images.find((p) => p.assetId === snapshot.base)?.label ?? (snapshot.base ? "用户参考图" : null),
+    base: label(snapshot.base),
+    input_images: [...snapshot.imageIds, ...snapshot.dropped].map((asset, i) => ({ id: label(asset), role: i === 0 ? 'base' : 'reference', order: i + 1, included: i < snapshot.imageIds.length })),
     base_follows: c.baseFollows, images: { sent: snapshot.imageIds.length, refs: snapshot.refs.length, dropped: snapshot.dropped.length, limit: state.model?.maxImages ?? null },
     quota: state.quota ? { images: state.quota.image ? { remaining: state.quota.image.remaining, limit: state.quota.image.limit } : null, temporary: state.quota.temporary } : null, actual_text: snapshot.text, composer: c.prompt,
     chat_model: chatModelState(state), available_models: state.ready ? [...new Set(state.models.map((m) => m.name))] : [],
@@ -98,14 +112,41 @@ function turnParams(settings: Fields, models: readonly CatalogModel[]) {
   const known = Object.fromEntries([...chatSizeKeys, ...chatReadOnlyKeys].flatMap((k) => typeof options[k] === "string" ? [[k, options[k]]] : []));
   return { ...(name ? { modelName: name } : {}), ...(Object.keys(known).length ? { chat_options: known } : {}) };
 }
-export function chatPictures(state: ReturnType<Chat["snapshot"]>, chat: Chat, evolution = false): Picture[] {
+export function chatPictures(state: ReturnType<Chat["snapshot"]>, chat: Chat, evolution = false, ids?: ChatPictureIds): Picture[] {
   let order = 0;
-  return chatImages(state,evolution).flatMap((p) => {
+  const pictures: Picture[] = chatImages(state,evolution).flatMap((p) => {
     const asset = chat.assets.assets.get(p.assetId);
+    const qualified = ids?.label(state.current.id, p.turn.id, p.version.id, p.assetId);
+    const label = evolution && qualified ? qualified : p.label;
     return asset ? [{ id: chatImageId(state.current.id, p.turn.id, p.version.id, p.assetId), entity_key: `sha256:${asset.id}`, lineage: asset.lineage ?? { via: "chat" as const },
-      scope: { kind: "chat", id: state.current.id, turn_id: p.turn.id, version_id: p.version.id, asset_id: asset.id }, label: p.label, aliases: p.aliases, createdAt: p.version.completedAt ?? state.current.updatedAt,
-      origins: [{ source: "chat" as const, label: p.label, order: ++order }],
+      scope: { kind: "chat" as const, id: state.current.id, turn_id: p.turn.id, version_id: p.version.id, asset_id: asset.id }, label, aliases: [...new Set([...p.aliases, ...(qualified ? [qualified] : [])])], createdAt: p.version.completedAt ?? state.current.updatedAt,
+      origins: [{ source: "chat" as const, label, order: ++order }, ...(qualified && qualified !== label ? [{ source: "chat" as const, label: qualified, order }] : [])],
       params: { evolutionInput:JSON.parse(JSON.stringify(chatEvolutionInput(state.current,p.turn,p.version,p.assetId,asset))), ...chatImageOrigin(state.current,p.turn,p.version,p.assetId), basePrompt: p.turn.prompt, ...turnParams(p.turn.settings, state.models), version: p.number + 1, image_index: p.index + 1, selected: p.selected },
       size: { width: asset.width, height: asset.height }, blob: asset.blob }] : [];
+  });
+  if (ids) {
+    const c = state.current, outputs = new Set(c.turns.flatMap(t => t.versions.flatMap(v => [...v.blocks.flatMap(b => b.type === 'image' ? [b.assetId] : []), ...Object.values(v.composites ?? {})])));
+    const inputs = [...new Set([...contextSnapshot(c).imageIds, ...c.turns.flatMap(t => t.snapshot.imageIds)])];
+    for (const assetId of inputs) {
+      const asset = chat.assets.assets.get(assetId);
+      if (!asset || outputs.has(assetId)) continue;
+      const label = ids.input(c.id, assetId);
+      pictures.push({ id: `chat-input:${c.id}:${assetId}`, entity_key: `sha256:${asset.id}`, lineage: asset.lineage ?? { via: 'upload' },
+        scope: { kind: 'chat', id: c.id, asset_id: assetId }, label, aliases: [label], createdAt: 0,
+        origins: [{ source: 'chat', label, order: ++order }], params: { tool: 'chat', chatInput: true, sourceWorkspace: 'chat', chatConversationId: c.id, chatAssetId: assetId },
+        size: { width: asset.width, height: asset.height }, blob: asset.blob });
+    }
+  }
+  return pictures.map(p => {
+    const input = readEvolutionInput(p.params.evolutionInput);
+    if (!input) return p;
+    const qualify = (ref: { id: string; label?: string }) => {
+      const match = pictures.find(p => p.id === ref.id);
+      return match ? { ...ref, label: match.aliases.find(id => id.includes(':')) ?? match.label } : ref;
+    };
+    return { ...p, params: { ...p.params, evolutionInput: JSON.parse(JSON.stringify({ ...input,
+      base: input.base ? qualify(input.base) : input.base,
+      references: input.references?.map(qualify),
+    })) } };
   });
 }

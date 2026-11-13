@@ -46,6 +46,7 @@ export interface DigestForm {
   readonly batchCount: number;
 }
 export interface DigestChat {
+  readonly input_images?: readonly { id: string | null; role: string; order: number; included: boolean }[];
   readonly title: string;
   readonly turns: number;
   readonly head: string | null;

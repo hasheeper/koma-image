@@ -1,12 +1,12 @@
 # ASK 感知与操作 EDIT 工作区
 
-更新：2026-11-09。EA1–EA3 及通用图像编辑的基础感知／参数草稿已接入，依赖 [NAI 基础感知](nai-awareness.md)与[统一图片身份](../engineering/image-identity.md)。本文维护编辑现场、草稿与交接；获批[实施方案](../archive/ask/2026-10-29-ask-edit-plan.md)和[本地验收](../archive/ask/2026-10-29-ask-edit-verification.md)已单独归档。
+更新：2026-11-13。EA1–EA3 及通用图像编辑的基础感知／参数草稿已接入，依赖 [NAI 基础感知](nai-awareness.md)与[统一图片身份](../engineering/image-identity.md)。本文维护编辑现场、草稿与交接；获批[实施方案](../archive/ask/2026-10-29-ask-edit-plan.md)和[本地验收](../archive/ask/2026-10-29-ask-edit-verification.md)已单独归档。
 
 ## 入口与权限
 
 EDIT 顶栏可打开同一 ASK，桌面为浮窗、860px 及以下为全屏，⌘J／Ctrl+J 与其他车间一致。ASK 只读取状态、查看图片和准备待确认配置；用户应用后仍须自己执行生成、放大或 Director Tools。
 
-Photopea 打开时 ASK 收起并让出键盘，不中断正在进行的推理；高级编辑回传尚未处理、生成准备或蒙版笔画未结束时，EDIT 草稿保持待审。ASK 不修改蒙版、不裁切图片，也不重建 Photopea 文档。普通配置草稿不换底图；活动版本演进可用内置 `base_image_id` 显式提议回退，用户确认后才切换同板具体底图并应用记录配置，保留当前蒙版，详见[演进契约](../workspaces/recipe-retrospect.md#内置-ask-回退草稿)。
+Photopea 打开时 ASK 收起并让出键盘，不中断正在进行的推理；高级编辑回传尚未处理、生成准备或蒙版笔画未结束时，EDIT 草稿保持待审。ASK 不修改蒙版、不裁切图片，也不重建 Photopea 文档。普通配置草稿不换底图；内置 `base_image_id` 可独立于演进显式提议回退，用户确认后才切换同板具体底图并应用记录配置，保留当前蒙版，详见[演进契约](../workspaces/recipe-retrospect.md#内置-ask-回退草稿)。
 
 ## 编辑状态
 
@@ -22,6 +22,7 @@ Photopea 打开时 ASK 收起并让出键盘，不中断正在进行的推理；
 选择 GPT Image／Gemini／Seedream 等通用编辑模型时，`editing` 为 `image-generation-comparison`，`input_budget` 为 `not_applicable`，不把休眠的 NAI 参数或预算当成生效值：
 
 - `source` 提供连接身份／显示名、上游 ID、协议与参数声明来源，不含地址或凭据。`capabilities` 提供 `family`、`max_images`、`native_markup` 与当前来源字段 `parameters`；`available_models` 提供可切换通用型号及各自相同能力信息。家族由已配置模板或来源声明提供，不按显示名猜测；参数参考不代表真实调用已验证。
+- `form.references` 提供当前参考的 `#e板号:rN`、R 编号、名称及用途；可用现有视觉工具按需看图。`image_edit.annotations` 同时提供各批注的参考关联。
 - `form.image_options` 保留保存值；`effective.image_options` 复用请求侧 `normalizeOptions` 补齐默认值，空串表示不发送。
 - `image_edit.settings` 是当前外扩／羽化及单图文字回退设置；`annotations` 提供底图 ID、批注编号、形状、三位小数的归一化坐标和评论，不展开多边形顶点，点只有 x/y。普通读取不附图片；「问 ASK」准备配对附件卡片，发送时追加 XML v2。`view_image({id,spec:"crop",annotation:n})` 按冻结几何换算坐标，仍须先看同一原图全图；未附图的底图先 `look`，ID 取 `annotations.image` 而非可能不同的 `viewing_version.id`。详见[批注专题](../workspaces/annotations.md#ask原图指示图与坐标)。
 - `image_edit.comparison` 提供冻结原图／直出／已应用合成的引用、冻结蒙版摘要和边缘设置、比例兼容、人工应用状态与正在查看的比较项；临时合成预览没有独立图片引用。冻结配置和当前设置分别表达，蒙版像素不发送。
@@ -50,6 +51,7 @@ EDIT 中默认目标为本轮活动编辑画板；显式 `image.*` 可以改 IMA
 | `character_edit` | 沿用共享稳定角色 ID、增删／排序、启停与定位；不写参考资产 |
 | `restore_partial` | 从本轮有效图片恢复允许字段；不恢复 EDIT 尺寸和批次，CHAT 文本不伪装为 NAI 配方 |
 | `params_patch` | NAI 安全生成／编辑参数；通用图像编辑使用 model、editMode 与 image_options |
+| `edit_references` | 通用图像模型的完整参考列表 `references:[{image,usage?}]`，按顺序写入；空数组清空，不改变底图 |
 | `director_patch` | 六项工具、适用的 emotion／defry／prompt；仅填配置并展开既有工具面板 |
 | `slate_edit/save_ref` | 可与页内修改组合确认，沿用任务／文件预检、补偿与撤销 |
 
@@ -63,6 +65,8 @@ Medium 不接受新的步数、采样器、负向与 Rescale 修改；切入 Med
 
 来源参数在既有 Diff 中逐项展示，沿用整稿确认、配置冲突检查和撤销；拒绝 NAI 采样器、强度、负向、角色与聚焦参数变更。外扩／羽化与单图回退本轮只读，蒙版和生成继续由用户操作。
 
+`edit_references` 可与通用 EDIT 改词／参数同稿，接受本轮已读取的历史、收藏、CHAT、EDIT、`#aN` 原图以及企划相对图片路径；同稿只接受一份完整列表。已有参考保留 R 编号，新参考继续递增；新写入词文中的已知图片短码转换为对应 R（底图短码转换为「底图」），审阅 Diff 展示实际写入文本，锚点仍对照原文。确认时重检原件、板身份、配置与模型容量，写入由 EDIT 资源池持有，撤销／重做保留前后参考原件；不写蒙版、不触发生成。NAI 和放大不接受普通参考写入。
+
 聚焦框使用 `{x,y,w,h}` 的 0–1 坐标，换算源像素并规整到 8px。必须完整包含最新蒙版，系统不自动扩框；无蒙版时可准备框并提示用户涂抹。草稿后新增的蒙版超出框、比例或尺寸不合法都会阻止应用。
 
 DraftCard 复用紧凑 Diff，显示编辑画板名称与已知底图完整编号；模式、强度、聚焦框和 Director 预设按参数行展示，整份配置共同确认。确认写入器在写入前重检目标存在、底图、配置、当前能力及蒙版，直接写服务字段，不调用用户切模式的快捷路径。
@@ -71,7 +75,7 @@ DraftCard 复用紧凑 Diff，显示编辑画板名称与已知底图完整编�
 
 ## 送入 EDIT
 
-`edit_handoff` 接受本轮的 `#h/#f/#c/#e`，以及企划根相对图片路径和可信企划附件 `#a`；普通上传 `#a` 仍不接受。企划图片在提议时冻结，目录变化不替换待审原件，详见[企划图片交接](../integrations/bridge.md#企划图片交接)。可指定模式、重绘类型、词文、参数、聚焦框或 Director 预设；每稿只允许一个画面交接，可组合 `slate_edit`。
+`edit_handoff` 接受本轮的 `#h/#f/#c/#e`，普通图片附件 `#aN`（上传／粘贴／企划读取）及企划根相对图片路径。附件取原件，按所属 ASK 作用域绑定，保留原尺寸；不使用识图缩图，也不将其当作 `restore_partial` 来源。企划图片在提议时冻结，目录变化不替换待审原件，详见[企划图片交接](../integrations/bridge.md#企划图片交接)。`edit_handoff.references` 可携带同一结构的多张参考及用途，与 `image` 指定的底图分开保存；省略时保留目标已有参考，空数组清空。可指定模式、重绘类型、词文、参数、聚焦框或 Director 预设；每稿只允许一个画面交接，可组合 `slate_edit`。
 
 - 按真实来源记录定位已有板；已有板按其当前配置显示 Diff，保留其实际底图。没有则在确认时创建，继承实际存在的 NAI 来源配方、角色与参考。CHAT 没有 NAI 配方时使用默认配置，不伪造原生成参数。
 - 企划来源创建独立编辑板，使用冻结原图与可用图片元数据，记录来源企划／路径／版本；收藏待确认草稿恢复及页面撤销继续持有原件。
@@ -89,6 +93,6 @@ DraftCard 复用紧凑 Diff，显示编辑画板名称与已知底图完整编�
 
 ## 外部协同与未开放范围
 
-Bridge 仍只接受 IMAGE 写入。外部 `edit.*`、`director_patch`、`edit_handoff`／内部 `edit_config` 返回 invalid；只读 `#e` 索引、元数据引用和 Slate 成果绑定继续可用。公开技能与生成的 PROTOCOL 同步这一边界。
+Bridge 仍只接受 IMAGE 写入。外部 `edit.*`、`director_patch`、`edit_handoff`、`edit_references`／内部 `edit_config` 返回 invalid；只读 `#e` 索引、元数据引用和 Slate 成果绑定继续可用。公开技能与生成的 PROTOCOL 同步这一边界。
 
 本轮未增加：ASK 自动生成／改蒙版、任意换底、裁图、自动执行或图像生成自动重试、蒙版叠加视觉工具、外部 EDIT 草稿、EDIT 跨刷新恢复与 PSD 持久化。真实供应商图像质量与实际费用另行验证。

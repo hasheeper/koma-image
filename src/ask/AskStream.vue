@@ -11,10 +11,12 @@ import AskCheckpoint from "./AskCheckpoint.vue";
 import AskEdit from "./AskEdit.vue";
 import AskAttachments from "./AskAttachments.vue";
 import AskMemory from "./AskMemory.vue";
+import AskTimeline from "./AskTimeline.vue";
 import RetrospectCard from "./retrospect/RetrospectCard.vue";
 import type { AskEntry, AskTurnView, RetryMode } from "./service.ts";
 
 const ask = useAsk(), ui = useUi();
+const props = defineProps<{ active: boolean }>();
 const emit = defineEmits<{ start: [text: string]; focus: [] }>();
 // The live turn keeps its id when it settles, so its nodes stay put.
 const all = computed<readonly AskEntry[]>(() => {
@@ -22,6 +24,9 @@ const all = computed<readonly AskEntry[]>(() => {
   return live ? [...ask.entries.value, { type: "turn", id: live.id, turn: live }] : ask.entries.value;
 });
 const scroller = shallowRef<HTMLElement | null>(null);
+const content = shallowRef<HTMLElement | null>(null);
+const turns = computed(() => all.value.flatMap(entry => entry.type === "turn" ? [entry.turn] : []));
+const currentTurn = shallowRef<number | null>(null), away = shallowRef(false);
 const editing = shallowRef<number | null>(null);
 function edit(id: number) {
   if (!ask.canManage.value) return;
@@ -84,12 +89,35 @@ function retries(turn: AskTurnView): { mode: RetryMode; label: string }[] {
 let follow = true,
   frame = 0,
   placed = 0;
+let dirty = true;
+let positions: { id: number; top: number }[] = [];
 const reduced = window.matchMedia("(prefers-reduced-motion: reduce)");
 const atBottom = (el: HTMLElement) => el.scrollHeight - el.scrollTop - el.clientHeight < 4;
+function locate(el: HTMLElement) {
+  if (dirty) {
+    positions = [...(content.value?.querySelectorAll<HTMLElement>("[data-turn-id]") ?? [])]
+      .map(node => ({ id: Number(node.dataset.turnId), top: node.offsetTop }));
+    dirty = false;
+  }
+  away.value = !atBottom(el);
+  let index = positions.length - 1;
+  if (away.value) {
+    // The turn crossing the reading line remains current, even inside a long answer.
+    const line = el.scrollTop + Math.min(48, el.clientHeight / 4);
+    let low = 0, high = positions.length - 1;
+    while (low < high) {
+      const mid = Math.ceil((low + high) / 2);
+      if (positions[mid].top <= line) low = mid;
+      else high = mid - 1;
+    }
+    index = low;
+  }
+  currentTurn.value = positions[index]?.id ?? null;
+}
 function step() {
   const el = scroller.value;
   frame = 0;
-  if (!el) return;
+  if (!el || !props.active) return;
   if (follow && editing.value === null) {
     const target = el.scrollHeight - el.clientHeight,
       gap = target - el.scrollTop;
@@ -97,10 +125,29 @@ function step() {
     else el.scrollTop += gap * 0.18;
     placed = el.scrollTop;
   }
-  if (ask.running.value || (follow && editing.value === null && !atBottom(el))) frame = requestAnimationFrame(step);
+  locate(el);
+  if (follow && editing.value === null && !atBottom(el)) frame = requestAnimationFrame(step);
 }
 function wake() {
-  if (!frame) frame = requestAnimationFrame(step);
+  if (props.active && !frame) frame = requestAnimationFrame(step);
+}
+function changed() { dirty = true; wake(); }
+function latest(instant = false) {
+  follow = true;
+  const el = scroller.value;
+  if (el && (instant || editing.value !== null)) placed = el.scrollTop = el.scrollHeight;
+  wake();
+}
+function returnToLatest() {
+  if (document.activeElement?.closest(".ask-latest")) scroller.value?.focus({ preventScroll: true });
+  latest();
+}
+function jump(id: number) {
+  const el = scroller.value, node = content.value?.querySelector<HTMLElement>(`[data-turn-id="${id}"]`);
+  if (!el || !node) return;
+  follow = false;
+  placed = el.scrollTop = Math.max(0, node.offsetTop - 8);
+  locate(el);
 }
 function wheel(event: WheelEvent) {
   if (event.deltaY < 0) follow = false;
@@ -108,9 +155,11 @@ function wheel(event: WheelEvent) {
 }
 function scrolled() {
   const el = scroller.value;
-  if (!el) return;
+  if (!el || !props.active) return;
   if (editing.value === null && atBottom(el)) follow = true;
   else if (el.scrollTop < placed - 2) follow = false;
+  placed = el.scrollTop;
+  wake();
 }
 watch(ask.running, (on) => {
   if (on) {
@@ -120,26 +169,40 @@ watch(ask.running, (on) => {
   wake();
 });
 watch(ask.live, value => { if (value) editing.value = null; });
-watch([ask.live, ask.entries, ask.memory, ask.compacting], wake, { flush: "post" });
+watch([ask.live, ask.entries, ask.memory, ask.compacting], changed, { flush: "post" });
 // Another conversation opens at its end, without the follow animation.
 watch(ask.conversationId, () => {
   editing.value = null;
-  const el = scroller.value;
-  follow = true;
-  if (el) placed = el.scrollTop = el.scrollHeight;
+  dirty = true;
+  latest(true);
 }, { flush: "post" });
-// A draft card opening below shrinks the stream; keep the tail in view.
-const resized = new ResizeObserver(() => { if (follow) wake(); });
-onMounted(() => { if (scroller.value) resized.observe(scroller.value); });
+// Observe both viewport and content: attachments and expanded tools can grow later.
+const resized = new ResizeObserver(changed);
+function activate() {
+  resized.disconnect();
+  cancelAnimationFrame(frame); frame = 0;
+  if (!props.active) return;
+  if (scroller.value) resized.observe(scroller.value);
+  if (content.value) resized.observe(content.value);
+  dirty = true;
+  latest(true);
+}
+watch(() => props.active, activate, { flush: "post" });
+onMounted(activate);
 onBeforeUnmount(() => { resized.disconnect(); cancelAnimationFrame(frame); clearTimeout(copiedTimer); });
 </script>
 <template>
+  <div class="ask-stream-area">
   <div
     ref="scroller"
     class="ask-stream"
+    tabindex="-1"
+    role="region"
+    aria-label="ASK 对话消息"
     @wheel.passive="wheel"
     @scroll.passive="scrolled"
   >
+    <div ref="content" class="ask-stream-content">
     <p v-if="ask.ready.value === 'local'" class="ask-empty">本地模式暂不支持 ASK</p>
     <div
       v-else-if="ask.ready.value !== 'ok' && !ask.entries.value.length"
@@ -175,6 +238,7 @@ onBeforeUnmount(() => { resized.disconnect(); cancelAnimationFrame(frame); clear
         class="ask-turn"
         :class="{ revealed: revealed === entry.id }"
         :data-status="entry.turn.status"
+        :data-turn-id="entry.id"
         :aria-busy="entry.turn === ask.live.value || undefined"
       >
         <template v-if="editing === entry.id">
@@ -242,10 +306,23 @@ onBeforeUnmount(() => { resized.disconnect(); cancelAnimationFrame(frame); clear
       <AskMemory v-if="entry.type === 'turn' && entry.turn.turnId === ask.memory.value?.after" :key="`${ask.conversationId.value}-${ask.memory.value.through}`" />
     </template>
     <div v-if="ask.compacting.value" class="ask-organizing ask-compaction-line" role="status"><AppIcon name="i-layers" /><span class="ask-compaction-label">正在压缩上下文</span><span class="ask-compaction-rule" aria-hidden="true"></span></div>
+    </div>
+  </div>
+  <AskTimeline v-if="active && turns.length >= 3" :key="ask.conversationId.value" :turns="turns" :current="currentTurn" @select="jump" />
+  <button v-if="active && turns.length && away" class="ask-latest" type="button" aria-label="回到最近" title="回到最近" @click="returnToLatest"><AppIcon name="i-down" /></button>
   </div>
 </template>
 <style scoped>
-.ask-stream { flex: 1; min-height: 0; overflow: auto; overscroll-behavior: contain; padding: 2px 16px 16px; scrollbar-width: none; color: color-mix(in srgb, var(--fg) 78%, var(--fg-2)); font: var(--fw-regular) 13px/1.72 var(--sans); }
+.ask-stream-area { position: relative; display: flex; flex: 1; min-height: 0; }
+.ask-stream { flex: 1; min-width: 0; min-height: 0; overflow: auto; overscroll-behavior: contain; padding: 2px var(--ask-reading-inset, 16px) 16px; scrollbar-width: none; color: color-mix(in srgb, var(--fg) 78%, var(--fg-2)); font: var(--fw-regular) 13px/1.72 var(--sans); outline: none; }
+.ask-stream-content { position: relative; display: flow-root; min-height: 100%; }
+.ask-stream-content:has(> .ask-empty, > .ask-start) { display: flex; flex-direction: column; }
+.ask-stream-content > :is(.ask-empty, .ask-start) { flex: 1; }
+.ask-latest { position: absolute; z-index: 2; bottom: 10px; left: 50%; display: grid; place-items: center; width: 34px; height: 34px; color: var(--fg-2); background: var(--ask-glass, var(--glass-bg)); border: 1px solid var(--line-2); border-radius: 50%; box-shadow: var(--sh-1); backdrop-filter: blur(16px); transform: translateX(-50%); }
+.ask-latest .ico { --ico: var(--ico-md); }
+.ask-latest:hover { color: var(--fg); background: var(--ask-hover, var(--hover)); }
+.ask-latest:focus-visible { outline: 2px solid var(--a); outline-offset: 2px; }
+@media (pointer: coarse) { .ask-latest { width: 40px; height: 40px; } }
 .ask-stream::-webkit-scrollbar { display: none; }
 .ask-empty { display: flex; flex-direction: column; align-items: center; justify-content: center; gap: var(--sp-3); min-height: 100%; color: var(--fg-4); font-size: var(--fz-sm); text-align: center; }
 /* Empty conversation: the site's lockup (mark + Fredoka wordmark) above three starters. */
@@ -293,7 +370,7 @@ onBeforeUnmount(() => { resized.disconnect(); cancelAnimationFrame(frame); clear
 .ask-external { display: flex; align-items: center; gap: 8px; margin: 10px 0; color: var(--fg-3); font-size: 12px; }
 .ask-external > span { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .ask-external > button { flex: none; }
-.ask-stream > .ask-checkpoint { margin: 10px 0; }
+.ask-stream-content > .ask-checkpoint { margin: 10px 0; }
 .ask-note { margin: 30px 0 16px; color: var(--fg-4); font-size: var(--fz-sm); }
 .ask-note button { margin-left: 6px; }
 .ask-organizing, .ask-compaction-failure { margin: 20px 0; }

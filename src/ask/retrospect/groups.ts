@@ -1,9 +1,12 @@
 import type { RetrospectNode } from './model.ts';
 export type TextField = ReturnType<typeof recipeDiff>['texts'][number];
 export type ParameterChange = ReturnType<typeof recipeDiff>['parameters'][number];
-export type RecipeGroup = ReturnType<typeof groupsOf>[number];
+export interface RecipeGroup {
+  id: string; label: string; texts: readonly TextField[]; parameters: readonly ParameterChange[];
+  state: string; position: PositionChange | null; unknown: boolean; changed: boolean; standalone?: boolean;
+}
 import { recipeDiff } from './diff.ts';
-import { comparisonRecipe } from './recipe.ts';
+import { comparisonRecipe, recipeWorkspace } from './recipe.ts';
 import type { Center } from '../../domain/characters.ts';
 import { sameValue } from '../../domain/characters.ts';
 
@@ -14,7 +17,11 @@ export interface PositionChange {
 }
 
 // Use the same comparison projection for fields, group counts and added/deleted states.
-export function groupsOf(a: RetrospectNode | null, b: RetrospectNode) {
+export function groupsOf(a: RetrospectNode | null, b: RetrospectNode): RecipeGroup[] {
+  if (a && (recipeWorkspace(a.recipe) !== 'image' || recipeWorkspace(b.recipe) !== 'image')) {
+    return [a, b].flatMap((node, side) => groupsOf(null, node).map(group => ({ ...group,
+      id: `${side}:${group.id}`, label: `${side ? 'B' : 'A'} · ${recipeWorkspace(node.recipe).toUpperCase()} · ${group.label}`, standalone: true })));
+  }
   a = a && { ...a, recipe: comparisonRecipe(a.recipe) }; b = { ...b, recipe: comparisonRecipe(b.recipe) };
   const diff = recipeDiff(a?.recipe ?? null, b.recipe);
   const left = a ? recipeDiff(null, a.recipe).parameters : [];

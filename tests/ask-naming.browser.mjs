@@ -10,6 +10,8 @@ test("AI naming: independent model settings, manual IDs", async () => {
   try {
 
     const section=page.getByRole('group',{name:'命名模型',exact:true});
+    assert.equal(await page.getByRole('switch',{name:'自动命名',exact:true}).isChecked(),false);
+    await page.locator('label[for=askAutoNaming]').click();
     // Following ASK needs no second value: the model sits right above.
     assert.equal(await page.locator('#askNamingConnection').inputValue(),'');
     assert.equal(await section.getByRole('button').count(),0);
@@ -29,6 +31,9 @@ test("AI naming: independent model settings, manual IDs", async () => {
       await page.setViewportSize({width,height:900});await section.scrollIntoViewIfNeeded();
     }
     await page.reload();await page.waitForSelector('#settingsPanel[open]');
+    assert.equal(await page.getByRole('switch',{name:'自动命名',exact:true}).isChecked(),true);
+    await page.locator('label[for=askAutoNaming]').click();
+    await page.waitForFunction(()=>JSON.parse(localStorage.getItem('koma.ask.v1')).autoNaming===false);
     assert.equal(await page.locator('#askNamingConnection').inputValue(),'claude');assert.match(await section.textContent(),/reasoning-b/);
     await page.locator('#askNamingConnection').selectOption('');
     await page.waitForFunction(()=>!JSON.parse(localStorage.getItem('koma.ask.v1')).naming);
@@ -65,14 +70,14 @@ for(const protocol of ['chat','claude']) test(`AI naming: ${protocol} scoped req
     await page.getByRole('button',{name:'AI 命名对话',exact:true}).click();
     await page.waitForFunction(()=>!ask.naming.value&&ask.heading.value.title==='雨夜车站构思');
     assert.match(calls[1].raw,/绘制雨夜/);assert.doesNotMatch(calls[1].raw,/rainy station|workspace_state|negative-secret|propose_draft/);
-    const logs=await page.evaluate(()=>ask.debug.value.calls.filter(c=>c.promptVersion==='naming-1').map(c=>({raw:ask.debugCall(c.id).body,cache:c.cache,status:c.status})));
+    const logs=await page.evaluate(()=>ask.debug.value.calls.filter(c=>c.promptVersion==='naming-2').map(c=>({raw:ask.debugCall(c.id).body,cache:c.cache,status:c.status})));
     assert.deepEqual(logs.map(c=>c.raw),calls.map(c=>c.raw));assert.ok(logs.every(c=>c.status==='done'&&c.cache.read>0));
     await openDebug(page);const debug=page.locator('#askDebug');
     await debug.locator('#askDebugCall').click();
     const boardItem=debug.locator('#askDebugCalls [role="menuitemradio"]').filter({hasText:'AI 命名 · 画板'});assert.equal(await boardItem.count(),1);
     await boardItem.click();
     assert.equal(await debug.locator('.debug-q').textContent(),'AI 命名 · 画板');
-    assert.match(await debug.locator('.debug-facts').textContent(),/naming-1/);
+    assert.match(await debug.locator('.debug-facts').textContent(),/naming-2/);
     await debug.getByRole('button',{name:'关闭调用上下文'}).click();
     await openConversations(page);await page.getByRole('menuitem',{name:'重命名',exact:true}).click();await page.getByRole('textbox',{name:'对话名称',exact:true}).fill('手动命名的雨夜车站');await page.locator('#askConvMenu').getByRole('button',{name:'保存',exact:true}).click();
     assert.equal(await page.evaluate(()=>ask.heading.value.title),'手动命名的雨夜车站');

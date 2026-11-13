@@ -10,6 +10,7 @@ const emit = defineEmits<{
 <template>
   <div class="chat-result-tools" role="toolbar" aria-label="图片操作">
     <div class="chat-result-tool-group">
+      <slot />
       <button
         class="ibtn"
         type="button"

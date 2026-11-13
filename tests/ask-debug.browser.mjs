@@ -67,7 +67,7 @@ test("ASK failed response shows the original finish code and response facts with
   } finally {await context.close();}
 });
 
-test("ASK call debug: every model request, exact payload copy/export, images, cache unknowns", async () => {
+test("ASK call debug: compact export, exact payload copy/full export, images, cache unknowns", async () => {
   const {page, context, requests, errors, llm, calls} = await open('/#/image', {ready: '.switcher', ask: askSettings()});
   try {
     await bind(page);
@@ -108,9 +108,19 @@ test("ASK call debug: every model request, exact payload copy/export, images, ca
     const file = await downloaded;
     const exportedText = await readFile(await file.path(),'utf8'), exported = JSON.parse(exportedText);
     assert.equal(exported.calls.length,2);
-    assert.equal(exported.calls[1].body,calls[1].raw);
+    assert.equal(exported.version,2);assert.equal(exported.format,'compact');
+    assert.equal(exported.calls[1].body.messages.length,calls[1].body.messages.length);
+    assert.equal(Object.keys(exported.images).length,1);assert.ok(Object.keys(exported.blocks).length);
+    assert.equal(exportedText.includes('data:image/'),false);
     assert.equal(exportedText.includes('synthetic-chat'),false);
     assert.equal(exportedText.includes('Authorization'),false);
+    const fullDownload=page.waitForEvent('download');
+    await debug.getByRole('button',{name:'更多',exact:true}).click();
+    await debug.getByRole('menuitem',{name:/^完整导出全部/}).click();
+    const fullFile=await fullDownload, full=JSON.parse(await readFile(await fullFile.path(),'utf8'));
+    assert.equal(full.version,1);assert.equal(full.calls[1].body,calls[1].raw);
+    assert.match(fullFile.suggestedFilename(),/-full\.json$/);
+    assert.equal(calls.length,2,'neither export sends a model request');
 
     {
       const [width,height] = [1440, 900];

@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import { versionCount, stagedCount } from './model.ts';
 import AppIcon from '../../shared/AppIcon.vue';
 import RetrospectActions from './RetrospectActions.vue';
 import { useRetrospects } from './use-retrospects.ts';
@@ -6,7 +7,7 @@ const { active, open } = useRetrospects();
 </script>
 <template>
   <div v-if="active" class="ask-retrospect-bar" aria-label="当前演进">
-    <button class="retrospect-entry" type="button" aria-label="打开当前演进" :title="active.value.title" @click="open(active.id)"><AppIcon name="i-branch" /><b>演进</b><span class="retrospect-current">{{ active.value.title }}</span><small>{{ active.value.nodes.length }} 版</small></button>
+    <button class="retrospect-entry" type="button" aria-label="打开当前演进" :title="active.value.title" @click="open(active.id)"><AppIcon name="i-branch" /><b>演进</b><span class="retrospect-current">{{ active.value.title }}</span><small>{{ versionCount(active.value) }} 版<span v-if="stagedCount(active.value)"> · {{ stagedCount(active.value) }} 待生成</span></small></button>
     <RetrospectActions :record-id="active.id" />
   </div>
 </template>

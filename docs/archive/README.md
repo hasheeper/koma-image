@@ -70,6 +70,9 @@
 
 ## HOME 与独立 EDIT
 
+- [IMAGE 主干与工坊交付实施记录](workspaces/2026-11-11-evolution-image-workshops-plan.md)：IW1–IW6、单图提拔、工坊续交／接力、原生定位、重整保护与本地验证。
+- [演进参数与多工作区问题稿](workspaces/2026-11-11-evolution-parameters-workspaces-review.md)：实施前职责混用与三游标问题证据；其目标方案已被 IMAGE 主干和工坊交付替代。
+- [版本演进并行预设分支规划](workspaces/2026-11-11-evolution-staged-branches-plan.md)：2026-11-11 需求核对、PB1–PB6 实施与本地模拟验收；逐次提交、4／16／80 容量、完整候选配方、可撤销载入与原地转实。
 - [ASK 版本演进提示词提取稿](ask/2026-11-09-evolution-prompt-extract.md)：2026-11-09 当前代码原文审阅快照，包含系统段落、工具说明与 Schema、回退草稿和入口模板；不参与运行时加载。
 - [版本演进需求与实施规划](workspaces/2026-11-08-version-evolution-plan.md)：E1–E5 本地实施与模拟验证；活动树、自动归组、回退基底草稿、同树重整、显式定稿、NEW 与停止跟踪边界。
 - [单图演进复盘概念记录](workspaces/2026-11-07-recipe-retrospect.md)：实施前的职责收敛；平时零侵入、程序按需折叠配方、ASK 语义推演，现行规则见[版本演进专题](../workspaces/recipe-retrospect.md)。

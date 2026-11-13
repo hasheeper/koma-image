@@ -3,6 +3,6 @@ import { useAsk } from '../../app/ask.ts';
 import type { ReviewRecord } from './store.ts';
 export function useRetrospects() {
   const ask=useAsk(),registry=ask.retrospects;
-  return {registry,active:computed(()=>registry.activeForBoard(ask.evolutionTarget.value)),
+  return {registry,active:computed(()=>registry.activeForBoard(ask.evolutionTarget.value) ?? registry.records.value.find(r => r.status === 'active' && registry.relatedTo(r, ask.evolutionTarget.value)) ?? null),
     boardName:(record:ReviewRecord)=>ask.evolutionName(record.boardId),open:registry.open};
 }

@@ -3,6 +3,7 @@ import type { TurnId } from "./ledger.ts";
 import { estimateRequest } from "../session.ts";
 
 export const DEFAULT_HIGH_WATER = 220_000;
+const MAX_RETAINED_TOKENS = 20_000;
 export const highWater = (value?: unknown) => typeof value === "number" && Number.isSafeInteger(value) && value > 0 ? value : DEFAULT_HIGH_WATER;
 /** Normalized input already includes Anthropic cache read/creation counts. */
 export const validInputTokens = (usage: AskUsage | null) => usage && Number.isFinite(usage.input) && usage.input > 0 ? usage.input : null;
@@ -10,8 +11,9 @@ type SizedTurn = { readonly turnId: TurnId; readonly messages: readonly AskMessa
 /** A contiguous prefix only: a pending draft protects its entire suffix. */
 export function archiveCount(turns: readonly SizedTurn[], threshold = DEFAULT_HIGH_WATER, pending: readonly TurnId[] = []) {
   let keep = Math.min(3, turns.length);
+  const budget = Math.min(MAX_RETAINED_TOKENS, highWater(threshold) * .4);
   const estimate = (n: number) => estimateRequest({ tools: [], system: ["", ""], messages: turns.slice(-n).flatMap(t => t.messages) });
-  while (keep > 1 && estimate(keep) > highWater(threshold) * .4) keep--;
+  while (keep > 1 && estimate(keep) > budget) keep--;
   let boundary = Math.max(0, turns.length - keep);
   turns.forEach((t, i) => { if (pending.includes(t.turnId)) boundary = Math.min(boundary, i); });
   return boundary;

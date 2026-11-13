@@ -1,3 +1,4 @@
+import { validateEditReferences, editReferenceCapacity } from '../../domain/edit-references.ts';
 import { canonical } from '../canonical.ts';
 import { parameterIssue } from './parameters.ts';
 import type { ParameterKey } from './parameters.ts';
@@ -18,6 +19,13 @@ export function checkEditConfiguration(s:EditDraftState, after:EditConfiguration
   if(!model)return '目标型号已不再支持此编辑模式';
   const optionIssue=checkEditOptions(s,after,model);if(optionIssue)return optionIssue;
   if(after.directorOpen&&!s.models.some(m=>m.profileId==='nai-official-v1'&&m.tools.includes('director')))return 'Director Tools 没有可用来源';
+  if (canonical(after.references ?? []) !== canonical(s.config.references ?? [])) {
+    try { validateEditReferences(after.references ?? []); } catch(e) { return e instanceof Error ? e.message : '参考图无效'; }
+    if (mode==='upscale' || !isGenerativeEditorModel(model)) return '普通参考图仅用于通用图像模型，NAI 请使用专用参考';
+    const guide=!!s.imageEditing?.annotations?.regions.length || after.mode==='inpaint'&&s.mask.has_mask;
+    const limit=editReferenceCapacity(model.maxImages,guide,s.imageEditing?.settings.markup,s.imageEditing?.settings.textOnly);
+    if ((after.references?.length ?? 0) > limit) return `底图与标注占位后，最多可用 ${limit} 张参考图`;
+  }
   if(mode==='upscale')return '';
   if(isGenerativeEditorModel(model)) {
     const withoutPrompt = (c: EditConfiguration) => ({ fields: { ...c.fields, prompt: '' }, characters: c.characters, placement: c.placement, naiReferences: c.naiReferences, strength: c.strength, noise: c.noise, enhance: c.enhance, focus: c.focus });

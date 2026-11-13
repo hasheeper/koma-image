@@ -291,6 +291,10 @@ test("[core] M4 complete draw, original controls, strict native wire, favorite p
     await patch(t, { historyLimit: 1 });
     await run(t);
     assert.equal(await p.locator(".tile[data-id]").count(), 1);
+    assert.deepEqual(await p.evaluate(() => drawing.snapshot().history.map(r => !!r.blob)), [true, true], 'favorite history keeps its original beyond the recent cap');
+    await p.locator('.history-older').click();
+    assert.equal(await p.locator('.tile[data-id]').count(), 2);
+    await p.locator('.history-older').click();
     assert.equal(await p.locator("#favoritesTab b").textContent(), "1");
     await p.locator("#favoritesTab").click();
     await p.locator(".tile[data-id]").click();

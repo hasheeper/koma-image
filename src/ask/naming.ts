@@ -1,7 +1,7 @@
 import type { AskRequest } from "./messages.ts";
 import { namingPrompt } from "./prompts/naming.ts";
 
-export type NamingTarget = { kind: "conversation" | "board"; id: string };
+export type NamingTarget = { kind: "conversation" | "chat" | "board"; id: string };
 export type NamingTurn = { question: string; reply: string };
 export type NamingContent =
   | { kind: "conversation"; content: NamingTurn[] }

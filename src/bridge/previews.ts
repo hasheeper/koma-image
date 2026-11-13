@@ -2,7 +2,7 @@ import type { Picture } from "../ask/library.ts";
 import type { fileDriver } from "./fs-driver.ts";
 /** Cache belongs to one mounted directory; no work when it is not mounted. */
 export function previewCache() {
-  const cached = new Map<string, { source: Blob; path: string }>();
+  const cached = new Map<string, { source: WeakRef<Blob>; path: string }>();
   let owned = new Set<string>();
   return {
     adopt(paths: readonly string[]) { for (const path of paths) if (/^live\/[a-f0-9-]{36}\.webp$/.test(path)) owned.add(path); },
@@ -11,7 +11,7 @@ export function previewCache() {
       for (const picture of pictures) {
         signal.throwIfAborted();
         let item = cached.get(picture.id);
-        if (!item || item.source !== picture.blob) {
+        if (!item || item.source.deref() !== picture.blob) {
           const bitmap = await createImageBitmap(picture.blob);
           let blob: Blob;
           try {
@@ -29,7 +29,7 @@ export function previewCache() {
           // Persist ownership before creating files; never trust paths in external JSON for deletion.
           owned.add(path); await saveOwned([...owned]);
           await driver.write(path, blob, signal);
-          item = { source: picture.blob, path }; cached.set(picture.id, item);
+          item = { source: new WeakRef(picture.blob), path }; cached.set(picture.id, item);
         }
         paths.set(picture.id, item.path);
       }

@@ -32,7 +32,7 @@ test("debug log retains exact dispatch JSON, bounded memory and per-call outcome
   assert.equal(view.dropped, 1);
   log.fail(third, true);
   assert.equal(log.get(third).status, "stopped");
-  assert.equal(JSON.parse(log.export(second)).calls[0].body, body);
+  assert.equal(JSON.parse(log.export(second, "raw")).calls[0].body, body);
   assert.equal(JSON.parse(log.export()).calls.length, 2);
   const oversized = log.start({ ...info, model: "other" }, JSON.stringify({ text: "x".repeat(1200) }));
   assert.equal(view.calls.length, 1);
@@ -81,7 +81,7 @@ test("inspector shows exact protocol context, folds only image pixels and locate
     if (profile === anthropicMessagesProfile) assert.ok(preview.breakpoints.includes("messages[2].content[0].cache_control"));
     assert.deepEqual(preview.parts.flatMap(p => p.breakpoints), preview.breakpoints);
     assert.equal(log.get(second).body, raw);
-    assert.equal(JSON.parse(log.export(second)).calls[0].body, raw);
+    assert.equal(JSON.parse(log.export(second, "raw")).calls[0].body, raw);
   }
 });
 

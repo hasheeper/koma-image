@@ -19,6 +19,7 @@ export interface TurnDraft {
   };
 }
 export interface CommittedTurn {
+  /** Full frozen bindings stay local; get_turn can recall them for a specific turn. */
   readonly pictureRefs?: PictureRefs;
   readonly turnId: TurnId;
   readonly messages: readonly AskMessage[];
@@ -31,8 +32,8 @@ export interface CommittedTurn {
   /** The final completed request's normalized input, not the turn's billed sum. */
   readonly inputTokens?: number | null;
 }
+/** Lightweight index sent in memory; full image bindings belong to CommittedTurn. */
 export interface LedgerEntry {
-  readonly pictureRefs?: PictureRefs;
   readonly turnId: TurnId;
   readonly targets: readonly string[];
   readonly boards: readonly string[];
@@ -75,7 +76,7 @@ export function changeDraft(draft: TurnDraft, status: DraftStatus, plan?: DraftP
 /** Exactly one deterministic entry per committed turn, without a classifier. */
 export function ledgerEntry(turn: CommittedTurn): LedgerEntry {
   const draft = turn.draft, effective = draft?.applied ?? draft;
-  return { turnId: turn.turnId, ...(turn.pictureRefs ? {pictureRefs:turn.pictureRefs} : {}), targets: [...new Set(turn.targets)], boards: [...new Set([...turn.boards, ...(draft?.applied?.boardId ? [draft.applied.boardId] : [])])],
+  return { turnId: turn.turnId, targets: [...new Set(turn.targets)], boards: [...new Set([...turn.boards, ...(draft?.applied?.boardId ? [draft.applied.boardId] : [])])],
     ask: excerpt(turn.question), reply: draft ? "" : firstSentence(replyText(turn)), attachments: [...new Set(turn.attachments)],
     ...(draft && effective ? { draft: { title: draft.proposal.title, scope: effective.scope, delta: effective.delta,
       status: draft.status, ...(draft.applied?.boardId ? { applied_to: draft.applied.boardId } : {}) } } : {}) };

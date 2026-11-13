@@ -2,6 +2,7 @@
 import { computed, ref, watch } from "vue";
 import AppIcon from "../shared/AppIcon.vue";
 import ModelLogos from "../shared/ModelLogos.vue";
+import IconSymbols from "../shared/IconSymbols.vue";
 import BoardMenu from "../shared/boards/BoardMenu.vue";
 import PopoverMenu from "../shared/ui/PopoverMenu.vue";
 import NaiSelect from "../shared/nai/NaiSelect.vue";
@@ -32,6 +33,7 @@ const balances = { demo: { credits: { remaining: 120 }, images: { openai: { rema
 </script>
 <template>
   <main class="ui-preview">
+    <IconSymbols />
     <ModelLogos />
     <header class="preview-head"><h1>Koma UI</h1><p>开发预览 · 使用现有组件与样式，数据仅保留在此页内存。</p></header>
     <div class="preview-controls">

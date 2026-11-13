@@ -2,7 +2,7 @@
 import { computed, shallowRef, nextTick, watch } from "vue";
 import { useShell } from "../../app/shell";
 import { useDrawing } from "../../app/drawing";
-import type { ImageRecord } from "../../domain/drawing";
+import type { HistoryRecord } from "../../domain/drawing";
 import { imageFileName } from "../../domain/drawing";
 import { names } from "../../storage/names";
 import HistoryRetrospectMenu from "../../ask/retrospect/HistoryRetrospectMenu.vue";
@@ -13,10 +13,16 @@ import { useAsk } from "../../app/ask";
 const ask = useAsk(), comparing = shallowRef(false), selected = shallowRef<readonly string[]>([]);
 const { image, narrow } = useShell(),
   { drawing, view } = useDrawing();
-const tabs = ["history", "favorites"] as const,
-  items = computed(() =>
-    image.library === "favorites" ? view.value.favorites : view.value.history,
-  );
+const tabs = ["history", "favorites"] as const;
+const olderOpen = shallowRef(false), olderCount = shallowRef(60);
+const recentCount = computed(() => view.value.form.historyLimit || view.value.history.length);
+const older = computed(() => view.value.history.slice(recentCount.value));
+const groups = computed(() => image.library === 'favorites' ? [{ key: 'favorites', items: view.value.favorites, offset: 0 }] : [
+  { key: 'recent', items: view.value.history.slice(0, recentCount.value), offset: 0 },
+  ...(older.value.length ? [{ key: 'older', items: olderOpen.value ? older.value.slice(0, olderCount.value) : [], offset: recentCount.value }] : []),
+]);
+const items = computed(() => groups.value.flatMap(g => g.items));
+const olderOriginals = computed(() => older.value.filter(r => r.blob).length);
 const pending = computed(() =>
   image.library === "history" ? view.value.pending : null,
 );
@@ -59,6 +65,7 @@ function askDiff() {
 watch(() => [view.value.history, view.value.favorites], () => {
   const alive = new Set([...view.value.history, ...view.value.favorites].map((r) => r.id));
   selected.value = selected.value.filter((id) => alive.has(id));
+  if (peek.value) peek.value = [...view.value.history, ...view.value.favorites].find(r => r.id === peek.value?.id) ?? null;
 });
 const focus = computed(() =>
   waiting.value && !view.value.browsing
@@ -96,7 +103,11 @@ const tail = computed(() =>
     return { "--bar": `${bar.length * 0.8}%` };
   }),
 );
-const peek = shallowRef<ImageRecord | null>(null),
+watch(() => view.value.current?.id, id => {
+  const at = older.value.findIndex(r => r.id === id);
+  if (at >= 0) { olderOpen.value = true; olderCount.value = Math.max(olderCount.value, at + 1); }
+});
+const peek = shallowRef<HistoryRecord | null>(null),
   peekNode = shallowRef<HTMLElement | null>(null),
   gallery = shallowRef<HTMLElement | null>(null);
 const has = (id: string) => view.value.favorites.some((r) => r.id === id),
@@ -146,7 +157,7 @@ function tileKey(e: KeyboardEvent) {
     buttons[next].focus();
   }
 }
-function drag(e: DragEvent, item: ImageRecord) {
+function drag(e: DragEvent, item: HistoryRecord) {
   if (item.params.tool === "upscale") {
     e.preventDefault();
     return;
@@ -154,7 +165,7 @@ function drag(e: DragEvent, item: ImageRecord) {
   e.dataTransfer?.setData(names.historyDragType, item.id);
   if (e.dataTransfer) e.dataTransfer.effectAllowed = "copy";
 }
-async function preview(item: ImageRecord, e: Event) {
+async function preview(item: HistoryRecord, e: Event) {
   if (image.historyOpen || narrow.value) return;
   // currentTarget is cleared when the event handler yields.
   const target = e.currentTarget as HTMLElement;
@@ -229,7 +240,12 @@ async function preview(item: ImageRecord, e: Event) {
       >
         <WaveHost small style="position: absolute; inset: 0" />
       </button>
-      <div v-for="(item, index) in items" :key="item.id" class="library-item">
+      <template v-for="group in groups" :key="group.key">
+      <button v-if="group.key === 'older'" class="history-section history-older" type="button" :aria-expanded="olderOpen" :title="`更早历史 ${older.length} 张 · ${olderOriginals} 张保留原图`" @click="olderOpen = !olderOpen">
+        <AppIcon name="i-history" /><span>更早历史</span><small>{{ older.length }}</small>
+      </button>
+      <div v-else-if="group.key === 'recent' && older.length && (image.historyOpen || narrow)" class="history-section"><span>最近历史</span><small>{{ group.items.length }}</small></div>
+      <div v-for="(item, index) in group.items" :key="item.id" class="library-item">
       <button
         class="tile"
         type="button"
@@ -242,7 +258,7 @@ async function preview(item: ImageRecord, e: Event) {
         :style="{
           '--thumb': `url('${drawing.url(item, true)}')`,
           '--image-ratio': item.size.width / item.size.height,
-          ...bars[index],
+          ...bars[index + group.offset],
         }"
         :draggable="item.params.tool !== 'upscale'"
         @dragstart="drag($event, item)"
@@ -253,7 +269,7 @@ async function preview(item: ImageRecord, e: Event) {
         @pointerenter="preview(item, $event)"
         @focus="preview(item, $event)"
       >
-        <span v-if="image.historyOpen || narrow" class="library-ask-id"><i v-if="item.params.boardColor" class="library-board-dot" :style="{ background: String(item.params.boardColor) }" :title="String(item.params.boardName || '画板')"></i>{{ askLabel(item.id) }}</span>
+        <span v-if="image.historyOpen || narrow" class="library-ask-id"><i v-if="item.params.boardColor" class="library-board-dot" :style="{ background: String(item.params.boardColor) }" :title="String(item.params.boardName || '画板')"></i>{{ askLabel(item.id) }}<small v-if="!item.blob">缩略图</small><small v-else-if="group.key === 'older'">原图</small></span>
         <img :src="drawing.url(item, true)" alt="" decoding="async" /><span
           v-if="image.library === 'history' && has(item.id)"
           class="tile-favorite"
@@ -273,6 +289,8 @@ async function preview(item: ImageRecord, e: Event) {
         <span>{{ selected.includes(item.id) ? selected.indexOf(item.id) + 1 : '' }}</span>
       </button>
       </div>
+      <button v-if="group.key === 'older' && olderOpen && olderCount < older.length" class="history-section history-more" type="button" @click="olderCount += 60">更多历史 · {{ older.length - olderCount }}</button>
+      </template>
       <div
         v-if="!image.historyOpen && !narrow && (items.length || pending)"
         class="library-tail"
@@ -379,6 +397,11 @@ async function preview(item: ImageRecord, e: Event) {
   </aside>
 </template>
 <style scoped>
+.history-section { display: flex; flex: none; grid-column: 1 / -1; align-items: center; justify-content: space-between; gap: 6px; padding: 10px 4px 6px; color: var(--fg-3); font-size: var(--fz-2xs); }
+.history-section small { margin-left: auto; font-variant-numeric: tabular-nums; }
+.history-section .ico { flex: none; }
+.history-older:hover, .history-more:hover { color: var(--a); }
+.library-ask-id small { color: var(--fg-3); font-size: inherit; }
 .library-item { position: relative; flex: none; min-width: 0; }
 .library-item > .tile { display: block; }
 /* The favourite star's chip, on the same bottom row; the top of a portrait stays clear. */
@@ -408,6 +431,7 @@ async function preview(item: ImageRecord, e: Event) {
 .library-foot:has(.library-compare) .library-fold { margin-right: auto; }
 .library-foot .library-compare[aria-pressed="true"] { color: var(--a); }
 @media (min-width: 861px) {
+  :global(body[data-hist="off"]) .history-section > span { display: none; }
   :global(body[data-hist="off"]) .library-item { display: contents; }
 }
 @media (max-width: 860px) {

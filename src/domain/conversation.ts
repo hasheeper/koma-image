@@ -130,6 +130,13 @@ export function attachUpload(conversation: ConversationRecord, assetId: string):
     conversation.attachments.push(assetId);
 }
 export function forgetImage(conversation: ConversationRecord, assetId: string): void {
+  const annotation = conversation.pendingAnnotation;
+  if (annotation?.referenceAssets?.some(r => r.assetId === assetId)) {
+    const removed = new Set(annotation.referenceAssets.filter(r=>r.assetId===assetId).map(r=>r.id));
+    annotation.referenceAssets = annotation.referenceAssets.filter(r=>r.assetId!==assetId);
+    annotation.snapshot.references = annotation.snapshot.references?.filter(r=>!removed.has(r.id));
+    annotation.snapshot.regions = annotation.snapshot.regions.map(r=>({...r,referenceIds:r.referenceIds?.filter(id=>!removed.has(id))}));
+  }
   if(conversation.pendingAnnotation && [conversation.pendingAnnotation.inputAssetId,conversation.pendingAnnotation.guideAssetId].includes(assetId)) clearPendingAnnotation(conversation);
   // A held base is held to this picture; once it leaves, nothing is held.
   if (conversation.mainId === assetId)
@@ -206,7 +213,7 @@ export function reviveConversation(
 ): ConversationRecord {
   const conversation = { ...newConversation(record.settings), ...record };
   const pending = conversation.pendingAnnotation;
-  if(pending && [pending.sourceAssetId, pending.inputAssetId, pending.guideAssetId, ...(pending.markup ? [pending.markup.inputAssetId, pending.markup.overlayAssetId] : [])].some(id=>!hasAsset(id))) clearPendingAnnotation(conversation);
+  if(pending && [pending.sourceAssetId, pending.inputAssetId, pending.guideAssetId, ...pending.referenceAssets?.map(r=>r.assetId)??[], ...(pending.markup ? [pending.markup.inputAssetId, pending.markup.overlayAssetId] : [])].some(id=>!hasAsset(id))) clearPendingAnnotation(conversation);
   for (const turn of conversation.turns)
     for (const version of turn.versions) {
       if (version.status === "pending")
@@ -265,7 +272,7 @@ export function contextSnapshot(
   // not silently evict the original everything is being edited from.
   const refs = [
     ...new Set(
-      [...(annotation && !annotation.singleImage && !annotation.markup ? [annotation.guideAssetId] : []), ...conversation.keepIds, ...conversation.attachments].filter(
+      [...(annotation && !annotation.singleImage && !annotation.markup ? [annotation.guideAssetId] : []), ...annotation?.referenceAssets?.map(r=>r.assetId)??[], ...conversation.keepIds, ...conversation.attachments].filter(
         (assetId) => assetId && assetId !== base && (!annotation || assetId !== annotation.inputAssetId && (!(annotation.singleImage || annotation.markup) || assetId !== annotation.guideAssetId)),
       ),
     ),
@@ -273,7 +280,7 @@ export function contextSnapshot(
   const wanted = [...(base ? [base] : []), ...refs];
   const imageIds = wanted.slice(0, Math.max(0, limit));
   const dropped = wanted.slice(imageIds.length);
-  const instruction = annotation ? annotationPrompt(annotation.snapshot.regions, annotation.markup ? 'markup' : !annotation.singleImage, annotation.text ? prompt.replace(annotation.text, "").trim() : prompt) : prompt;
+  const instruction = annotation ? annotationPrompt(annotation.snapshot.regions, annotation.markup ? 'markup' : !annotation.singleImage, annotation.text ? prompt.replace(annotation.text, "").trim() : prompt, undefined, annotation.snapshot.references ?? [], undefined, annotation.snapshot.references?.map(r => imageIds.indexOf(annotation.referenceAssets?.find(a=>a.id===r.id)?.assetId ?? "")+1)) : prompt;
   const text = turns.length
     ? [
         "此前的绘图要求（按顺序）：",

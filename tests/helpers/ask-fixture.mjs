@@ -98,16 +98,16 @@ async function bind(page) {
   });
 }
 
-async function addImage(page, prompt) {
-  return page.evaluate(async (prompt) => {
+async function addImage(page, prompt, color = "#7b3446") {
+  return page.evaluate(async ({ prompt, color }) => {
     const canvas = new OffscreenCanvas(256, 384);
     const g = canvas.getContext("2d");
-    g.fillStyle = "#7b3446";
+    g.fillStyle = color;
     g.fillRect(0, 0, 256, 384);
     const blob = await canvas.convertToBlob({ type: "image/png" });
     const record = await (await import('/tests/helpers/drawing-history.mjs')).seedHistory({drawing, home:window.home}, blob, { width: 256, height: 384 }, { boardId: drawing.snapshot().activeBoardId, prompt, basePrompt: prompt, model: "gpt-image-1.5", modelName: "GPT Image", seed: 7 }, null);
     return record.id;
-  }, prompt);
+  }, { prompt, color });
 }
 
 const drawer = (page) => page.locator("#askDrawer");

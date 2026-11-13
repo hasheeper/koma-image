@@ -185,16 +185,38 @@ test('CP1 triggers: real normalized input, fixed threshold and the archive-rebui
   assert.equal(shouldCompact({ ...normal, archiveCount: 0, archiveRebuild: { estimatedTokens } }), false);
 });
 
-test('CP1 retention: complete suffix shrinks 3→2→1 and pending drafts protect their entire suffix', () => {
+test('CP1 retention: a 20K ceiling bounds complete recent turns independently of a large threshold', () => {
   const sized = values => values.map((n, i) => ({ turnId: `T${i + 1}`, messages: [message('字'.repeat(n))] }));
   assert.equal(archiveCount(sized([1, 1, 1, 1, 1, 1])), 3);
-  assert.equal(archiveCount(sized([1, 1, 1, 10_000, 10_000, 10_000])), 3);
-  assert.equal(archiveCount(sized([1, 1, 1, 10_000, 10_000, 10_000]), 64_000), 4);
-  assert.equal(archiveCount(sized([1, 1, 1, 1, 20_000, 20_000]), 64_000), 5);
+  assert.equal(archiveCount(sized([1, 1, 1, 6_000, 6_000, 6_000])), 3);
+  for (const threshold of [64_000, 200_000, 1_000_000]) {
+    assert.equal(archiveCount(sized([1, 1, 1, 9_000, 9_000, 9_000]), threshold), 4);
+    assert.equal(archiveCount(sized([1, 1, 1, 15_000, 15_000, 15_000]), threshold), 5);
+  }
+  assert.equal(archiveCount(sized([1, 1, 1, 3_000, 3_000, 3_000]), 20_000), 4, 'small thresholds keep the stricter 40% budget');
   assert.equal(archiveCount(sized([1, 1, 1, 1, 20_000, 20_000]), 64_000, ['T2']), 1);
   assert.equal(archiveCount(sized([1, 1, 1, 1]), 64_000, ['T1']), 0);
+  assert.equal(archiveCount(sized([1, 1, 1, 90_000])), 3, 'one oversized final turn remains whole');
   assert.equal(archiveCount(sized([90_000])), 0);
   assert.equal(archiveCount([]), 0);
+});
+
+test('CP1 retention counts full tool payloads and keeps call/result pairs intact', () => {
+  const s = createSession();
+  for (let i = 1; i <= 6; i++) {
+    const turn = s.begin(message(`短问题 ${i}`));
+    turn.push({ role: 'assistant', content: [{ type: 'call', id: `read-${i}`, name: 'get_recipe_clusters', input: {} }] });
+    turn.push({ role: 'user', content: [{ type: 'result', id: `read-${i}`, content: [text('词'.repeat(12_000))] }] });
+    turn.push({ role: 'assistant', content: [text('已读取。')] });
+    turn.commit();
+  }
+  const count = archiveCount(s.retained, 200_000);
+  assert.equal(count, 5, 'large tool results count even when visible questions and replies are short');
+  const tx = s.beginCompaction(), candidate = tx.candidate(count, '已归纳早期配方。', noAttachment);
+  tx.commit(candidate);
+  assert.deepEqual(s.retained.map(t => t.turnId), ['T6']);
+  assert.equal(s.retained[0].messages[1].content[0].id, s.retained[0].messages[2].content[0].id);
+  assert.equal(s.recall({ turns: ['T1'], include: 'full' }, noAttachment).turns[0].messages[2].content[0].content[0].text.length, 12_000);
 });
 
 test('CP1 memo: completed non-length memo required; scope instruction stays outside the ordinary System', () => {

@@ -1,13 +1,14 @@
 import test from 'node:test';
+import { createChatPictureIds } from '../src/ask/chat-identity.ts';
 import assert from 'node:assert/strict';
 import { newConversation, beginTurn, beginVersion, completeVersion, contextSnapshot, chatDraftKey } from '../src/domain/conversation.ts';
-import { chatSnapshot, chatContext, chatDraftModel, chatModelState, chatPictures } from '../src/ask/chat-context.ts';
+import { chatImage, chatTurn, chatSnapshot, chatContext, chatDraftModel, chatModelState, chatPictures } from '../src/ask/chat-context.ts';
 import { draftView } from '../src/ask/draft/view.ts';
 import { summarizePlan } from '../src/ask/compact/ledger.ts';
 import { idPattern } from '../src/ask/ids.ts';
 import { searchHistory } from '../src/ask/search-history.ts';
 import { DEFAULTS } from '../src/domain/drawing.ts';
-import { parseDraft, stateHash, validateDraft } from '../src/ask/draft/validate.ts';
+import { handoffImage, parseDraft, stateHash, validateDraft } from '../src/ask/draft/validate.ts';
 import { createTools } from '../src/ask/tools.ts';
 import { normalizeCatalog } from '../src/domain/catalog.ts';
 import { nativeCatalog, nativeMappedCatalog } from '../src/gateway/native-protocols.ts';
@@ -125,8 +126,8 @@ test('ASK CHAT handoff: one step, whitelisted size values, deduplicated images w
  const d=draft({images:['#h1','#f1','#c2.1'],options:{size:'1536x1024'}});
  assert.deepEqual(d.steps[0].images,[{label:'#h1',source:'history',ref:'record-1'},{label:'#c2.1',source:'chat',ref:'image2'}]);
  const p=validateDraft(d,base,{off:new Set()});
- assert.deepEqual(p.handoff,{model:'gpt',options:{size:'1536x1024'},text:'close-up',images:d.steps[0].images});
- assert.deepEqual(p.changes,[{field:'composer',before:'',after:'close-up'}]);assert.equal(p.workspace,'chat');
+ assert.deepEqual(p.handoff,{model:'gpt',options:{size:'1536x1024'},text:d.steps[0].text,images:d.steps[0].images});
+ assert.deepEqual(p.changes,[{field:'composer',before:'',after:d.steps[0].text}]);assert.equal(p.workspace,'chat');
  assert.deepEqual(p.steps.map(s=>s.id),['0:new','0:image:0','0:image:1','0:option:size','0:text']);
  assert.ok(p.steps[0].locked);assert.equal(p.steps[3].displayBefore,'自动');assert.equal(p.steps[3].displayAfter,'横向');
  assert.deepEqual(draftView(p).fields.map(f=>f.key),['handoff','composer']);assert.match(summarizePlan(p).delta,/handoff/);
@@ -134,8 +135,8 @@ test('ASK CHAT handoff: one step, whitelisted size values, deduplicated images w
  const view=draftView(validateDraft(draft({images:['#h1','#c2.1'],options:{size:'1536x1024'},text:'参考 #h1，改成横版\n保留红色外套'}),base,{off:new Set()}));
  assert.deepEqual(view.destination,{label:'新对话',name:'GPT Image'});
  assert.deepEqual(view.fields[0].steps.map(s=>[s.kind,s.kind==='ref'?s.label:s.kind==='param'?s.icon:'']),[['ref','#h1'],['ref','#c2.1'],['param','i-frame']]);
- assert.equal(view.fields[1].full,null);assert.deepEqual(view.fields[1].steps[0].hunks,[[{sign:'ins',text:'参考 #h1，改成横版\n保留红色外套'}]]);
- assert.deepEqual([view.added,view.removed],[4,1]);
+ assert.equal(view.fields[1].full,null);assert.match(view.fields[1].steps[0].hunks[0][0].text,/参考 第 1 张图，改成横版\n保留红色外套/);
+ assert.deepEqual(p.steps.filter(s=>s.id.startsWith('0:image:')).map(s=>[s.label,s.locked]),[['底图',true],['参考图 1',true]]);
  for(const [key,value] of Object.entries({quality:'high',complexity:'medium',watermark:'false',output_format:'png',native_markup:'true'}))
   assert.throws(()=>draft({options:{[key]:value}}),/不能由草稿写入；需要时在回复中提醒用户手动调整/);
  assert.throws(()=>draft({options:{aspect_ratio:'16:9'}}),/没有 aspect_ratio/);
@@ -153,17 +154,66 @@ test('ASK CHAT handoff: one step, whitelisted size values, deduplicated images w
  const inChat={...base,workspace:'chat'};
  for(const step of [patch,branch])assert.equal(parseDraft({title:'x',base_hash:stateHash(inChat),steps:[step]},inChat,[]).steps.length,1);
  const removed=validateDraft(d,base,{off:new Set(),has:i=>i.source==='chat'});
- assert.equal(removed.steps[1].issue,'图片已移除');assert.deepEqual(removed.handoff.images.map(i=>i.label),['#c2.1']);assert.notEqual(removed.fingerprint,p.fingerprint);
+ assert.match(removed.steps[1].issue,/图片已移除/);assert.equal(removed.handoff,undefined);assert.notEqual(removed.fingerprint,p.fingerprint);
  const switched=validateDraft(d,{...base,chatModel:{...base.chatModel,id:'other'}},{off:new Set()});
  assert.ok(switched.steps.every(s=>s.issue==='对话模型已变化，请重新提议'));assert.equal(switched.handoff,undefined);assert.deepEqual(switched.changes,[]);
  assert.equal(validateDraft(d,{...base,chatModel:null},{off:new Set()}).handoff,undefined);
  const narrowed=validateDraft(d,{...base,chatModel:{...base.chatModel,writable:{size:{value:'auto',options:['auto']}}}},{off:new Set()});
  assert.equal(narrowed.steps[3].issue,'当前模型不支持此值');assert.deepEqual(narrowed.handoff.options,{});
  const off=validateDraft(d,base,{off:new Set(['0:text','0:image:0'])});
- assert.equal(off.handoff.text,'');assert.deepEqual(off.changes,[]);assert.deepEqual(off.handoff.images.map(i=>i.label),['#c2.1']);
+ assert.equal(off.handoff,undefined);assert.deepEqual(off.changes,[]);assert.match(off.steps[0].issue,/整体应用/);
  assert.equal(validateDraft(d,base,{off:new Set(['0:text','0:image:0','0:image:1'])}).handoff,undefined);
 });
 test('ASK CHAT conflict fingerprint covers versions, generation and context, preserves cosmetic title edits',()=>{
  const s=fixture(),key=chatDraftKey(s.current);s.current.title='rename';assert.equal(chatDraftKey(s.current),key);
  s.current.turns[0].selectedVersion=1;assert.notEqual(chatDraftKey(s.current),key);
+});
+
+test('qualified CHAT IDs distinguish conversations and survive branching and local composition',()=>{
+ const ids=createChatPictureIds(), a=fixture(), b=fixture();
+ const assets=new Map(['image1','image2','image3','merged'].map(id=>[id,{id,width:64,height:48,blob:new Blob()}]));
+ const chat={assets:{assets}}, state=s=>({...s,models:[]});
+ const before=chatPictures(state(a),chat,true,ids), other=chatPictures(state(b),chat,true,ids);
+ assert.equal(before[0].label,'#c1:1.1');assert.equal(other[0].label,'#c2:1.1');
+ assert.deepEqual('#c1:1.1、#c2:1.1b、#c2:1.1.27。'.match(idPattern),['#c1:1.1','#c2:1.1b','#c2:1.1.27']);
+ a.current.headId=a.current.turns[0].id;
+ a.current.turns[0].versions[0].composites={image1:'merged'};
+ const after=chatPictures(state(a),chat,true,ids);
+ for(const p of before)assert.equal(after.find(x=>x.id===p.id).label,p.label,'raw sample keeps its code');
+ const merged=after.find(p=>p.scope.asset_id==='merged');assert.notEqual(merged.label,before[0].label);
+ const snapshot=chatSnapshot(state(a),true,ids);
+ assert.equal(chatImage(snapshot,before[0].label).assetId,'image1');
+ assert.equal(chatImage(snapshot,merged.label).assetId,'merged');
+ assert.equal(chatTurn(snapshot,before[2].label).turnId,a.current.turns[2].id);
+ assert.equal(chatImage(snapshot,other[0].label),null,'foreign conversation cannot be used as a local branch');
+ assert.equal(handoffImage(other[0].label,{chat:snapshot},other).ref,'image1','qualified foreign images can be handed off after reading');
+ const base={workspace:'chat',form:{...DEFAULTS},composer:a.current.prompt,conversationId:a.current.id,models:[],samplers:[],chat:snapshot};
+ const draft=parseDraft({title:'回退原图',base_hash:stateHash(base),steps:[{kind:'chat_distill_branch',source:before[0].label,exclude:[],text:'new direction'}]},base,after);
+ assert.equal(validateDraft(draft,base,{off:new Set()}).branch.after.mainId,'image1');
+});
+
+test('CHAT input codes expose exact base/reference roles and can be handed off without pretending to be generated versions', () => {
+ const s={...fixture(),models:[]},ids=createChatPictureIds(),blob=new Blob(['original']);
+ const chat={assets:{assets:new Map(['image1','image2','image3','reference1','reference2'].map(id=>[id,{id,width:64,height:48,blob}]))}};
+ const library=chatPictures(s,chat,false,ids),ctx=chatContext(s,library);
+ assert.deepEqual(ctx.input_images.map(p=>[p.id,p.role,p.included]),[['#c3.1','base',true],['#c1:r1','reference',true],['#c1:r2','reference',false]]);
+ assert.deepEqual([...('#c1:r1 和 #c1:r2。').matchAll(idPattern)].map(m=>m[0]),['#c1:r1','#c1:r2']);
+ const ref=library.find(p=>p.label==='#c1:r1');assert.equal(ref.blob,blob);assert.equal(handoffImage(ref.label,{},library).ref,'reference1');
+ assert.equal(chatImage(chatSnapshot(s,false,ids),ref.label),null,'an uploaded reference is not a rollback version');
+ s.current.keepIds.reverse();assert.equal(chatPictures(s,chat,false,ids).find(p=>p.scope.asset_id==='reference1').label,ref.label,'reordering does not rename uploaded images');
+ const other={...s,current:{...s.current,id:'another'}};assert.notEqual(chatPictures(other,chat,false,ids).find(p=>p.scope.asset_id==='reference1').label,ref.label);
+});
+
+test('current CHAT image drafts freeze context and keep images plus text together', () => {
+ const s={...fixture(),models:[]},ids=createChatPictureIds(),chat={assets:{assets:new Map(['image1','image2','image3','reference1','reference2'].map(id=>[id,{id,width:64,height:48,blob:new Blob(['x'])}]))}};
+ const base={form:{...DEFAULTS},composer:'old text',conversationId:s.current.id,workspace:'chat',models:[],samplers:[],chat:chatSnapshot(s,false,ids),chatModel:{id:'gpt',name:'GPT',maxImages:3,writable:{}}};
+ const library=chatPictures(s,chat,false,ids),step={kind:'chat_handoff',destination:'current',images:['#c3.1','#c1:r1'],base_image:'#c1:r1',options:{},text:'修正 #c1:r1，光线参考 #c3.1'};
+ const draft=parseDraft({base_hash:stateHash(base),draft_title:'准备底图',steps:[step]},base,library),plan=validateDraft(draft,base,{off:new Set()});
+ assert.deepEqual(plan.handoff.current,{id:base.conversationId,key:base.chat.key});assert.equal(plan.handoff.images[0].ref,'reference1');assert.match(plan.handoff.text,/修正 第 1 张图，光线参考 第 2 张图/);
+ assert.equal(draftView(plan).destination.label,'当前对话');assert.equal(plan.changes[0].before,'old text');
+ assert.equal(validateDraft(draft,{...base,chat:{...base.chat,key:'changed'}},{off:new Set()}).handoff,undefined);
+ assert.equal(validateDraft(draft,base,{off:new Set(['0:image:0'])}).handoff,undefined);
+ assert.equal(validateDraft(draft,{...base,chatModel:{...base.chatModel,maxImages:1}},{off:new Set()}).handoff,undefined);
+ assert.throws(()=>parseDraft({base_hash:stateHash(base),draft_title:'x',steps:[step]},{...base,workspace:'image'},library),/新开会话/);
+ assert.throws(()=>parseDraft({base_hash:stateHash(base),draft_title:'x',steps:[step]},{...base,chat:{...base.chat,annotated:true}},library),/批注/);
 });

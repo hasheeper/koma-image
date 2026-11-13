@@ -4,18 +4,19 @@ import { useAsk } from "../app/ask";
 import type { NamingTarget } from "../ask/naming.ts";
 import AppIcon from "./AppIcon.vue";
 
-const props = defineProps<NamingTarget & { disabled?: boolean }>();
+const props = defineProps<NamingTarget & { disabled?: boolean; menu?: boolean }>();
 const ask = useAsk();
 const busy = computed(() => ask.naming.value?.kind === props.kind && ask.naming.value.id === props.id);
 const label = computed(() => busy.value ? "取消命名" : `AI 命名${props.kind === "board" ? "画板" : "对话"}`);
 </script>
 <template>
-  <button class="ai-name" type="button" :class="{ busy }" :title="label" :aria-label="label" :aria-busy="busy" :disabled="!busy && (disabled || !!ask.naming.value)" @click="ask.generateName({ kind, id })">
+  <button class="ai-name" type="button" :class="{ busy, 'menu-item': menu }" :role="menu ? 'menuitem' : undefined" :title="label" :aria-label="menu ? (busy ? '取消命名' : 'AI 命名') : label" :aria-busy="busy" :disabled="!busy && (disabled || !!ask.naming.value)" @click="ask.generateName({ kind, id })">
     <AppIcon :name="busy ? 'i-stop' : 'i-generate'" />
+    <span v-if="menu">{{ busy ? '取消命名' : 'AI 命名' }}</span>
   </button>
 </template>
 <style scoped>
-.ai-name { display: grid; place-items: center; flex: none; width: 30px; height: 30px; padding: 0; color: var(--fg-3); border-radius: 8px; transition: color var(--t1) var(--e), background var(--t1) var(--e); }
+.ai-name:not(.menu-item) { display: grid; place-items: center; flex: none; width: 30px; height: 30px; padding: 0; color: var(--fg-3); border-radius: 8px; transition: color var(--t1) var(--e), background var(--t1) var(--e); }
 .ai-name .ico { --ico: var(--ico-md); }
 .ai-name:hover:not(:disabled) { color: var(--a); background: var(--hover); }
 .ai-name:disabled { opacity: 0.35; cursor: default; }

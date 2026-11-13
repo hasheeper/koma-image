@@ -98,7 +98,7 @@ export function createSlates(services: ApplicationServices, drawing: Drawing, ed
         const known = await asset(request.assetId);
         if (known) { prepared.push(known); continue; }
         const record = records.find(r => r.id === request.ref);
-        if (!record || request.entity_key && record.entity_key!==request.entity_key) throw new Error(`${request.label} 已移除，组合未应用`);
+        if (!record?.blob || request.entity_key && record.entity_key!==request.entity_key) throw new Error(`${request.label} 已移除，组合未应用`);
         const params = imageParameters(record.params);
         if (canonical({ params, size: record.size, type: record.blob.type, bytes: record.blob.size }) !== request.metadata) throw new Error(`${request.label} 参数已变化`);
         const blob = record.blob.slice(0, record.blob.size, record.blob.type);

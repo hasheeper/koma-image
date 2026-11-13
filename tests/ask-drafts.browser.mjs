@@ -404,22 +404,23 @@ test('ASK H3: CHAT handoff reuses the blank conversation, references #c2.1.2 wit
   }finally{await context.close();}
 });
 
-test("ASK H4: handoff card names the new conversation, shows reference rows and verbatim input at; a removed image marks only its row",{timeout:60000},async()=>{
+test("ASK H4: handoff card labels the base and references, previews outgoing text and blocks incomplete image sets",{timeout:60000},async()=>{
   const {page,context,llm,errors}=await open('/#/image',{ready:'.switcher',ask:askSettings(),standard:true,chatModel:true});
   try {
     await bind(page);await page.waitForFunction(()=>drawing.snapshot().models.length===2);
-    const first=await addImage(page,'adult woman, red coat');await addImage(page,'two adult women, cheek to cheek');
+    const first=await addImage(page,'adult woman, red coat');await addImage(page,'two adult women, cheek to cheek','#346e7b');
     const text='参考 #h1 的人物和 #h2 的构图，改成横版特写\n保持红色外套';
     await askDraft(page,llm,[handoffStep(['#h1','#h2'],text)],'把两张交给对话','交给对话改横版');
     const card=page.locator('#askFullDraft .ask-draft'),model=await page.evaluate(()=>chat.snapshot().model.name);
     assert.equal(await card.locator('.draft-destination').textContent(),`新对话·${model}`);
     assert.equal(await card.locator('.ask-draft-apply').textContent(),'切到对话并新开');
-    assert.match(await card.locator('.ask-draft-apply').getAttribute('title'),/^新开对话写入参考图、画幅和输入框，不会发送 · Tab$/);
+    assert.match(await card.locator('.ask-draft-apply').getAttribute('title'),/^新开对话写入底图、参考图、画幅和输入框，不会发送 · Tab$/);
     assert.equal(await card.locator('[data-step="0:new"]').count(),0);
     assert.deepEqual(await card.locator('.draft-ref .ask-id').allTextContents(),['#h1','#h2']);
     await page.waitForFunction(()=>{const images=[...document.querySelectorAll('#askFullDraft .draft-thumb img')];return images.length===2&&images.every(i=>i.complete&&i.naturalWidth>0);});
     assert.deepEqual(await card.locator('.draft-ref .draft-dim').allTextContents(),['256×384','256×384']);
-    assert.equal(await card.locator('[data-field="composer"] .draft-text').textContent(),text);
+    assert.match(await card.locator('[data-field="composer"] .draft-text').textContent(),/第 1 张为底图，其余为参考图/);
+    assert.ok((await card.locator('[data-field="composer"] .draft-text').textContent()).endsWith(text.replace('#h1','第 1 张图').replace('#h2','第 2 张图')));
     assert.equal(await card.locator('[data-field="composer"] .draft-seg').count(),0);
     assert.match(await card.locator('[data-step="0:option:size"] .draft-value').textContent(),/横向$/);
     {
@@ -435,10 +436,9 @@ test("ASK H4: handoff card names the new conversation, shows reference rows and 
     await page.setViewportSize({width:1440,height:900});
     await page.evaluate(id=>drawing.remove(id),first);
     await page.locator('#askFullDraft [data-step="0:image:0"] .draft-thumb.gone').waitFor();
-    assert.equal(await card.locator('[data-step="0:image:0"] .draft-issue').textContent(),'图片已移除');
+    assert.match(await card.locator('[data-step="0:image:0"] .draft-issue').textContent(),/图片已移除/);
     assert.ok(await card.locator('[data-step="0:image:0"] .ask-id').isDisabled());
-    assert.equal(await card.locator('[data-step="0:image:1"] .draft-issue').count(),0);
-    assert.equal(await card.locator('.ask-draft-apply').isEnabled(),true);
+    assert.equal(await card.locator('.ask-draft-apply').isEnabled(),false,'a missing base cannot silently promote a reference');
     assert.deepEqual(errors,[]);
   }finally{await context.close();}
 });

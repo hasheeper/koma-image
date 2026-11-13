@@ -378,3 +378,108 @@ test('EA2 composite EDIT and Slate failures roll back configuration and remain r
  assert.deepEqual(f.requests.slice(start).filter(u=>!u.includes('/chat/completions')),[]);
  assert.deepEqual(f.errors,[]);
 });
+
+test('ASK attachment handoff restores pending multi-image drafts, pins the chosen base and preserves original bytes', {timeout:90000},async t=>{
+ const f=await setup(t),{page}=f;
+ const expected=await page.evaluate(async()=>{
+   await chat.start();await ask.setImages(false);app_shell.router.switchWorkspace('image');
+   const red=await makeImage('#bb3344',1800,1200),green=await makeImage('#228855',512,768);
+   await ask.addFiles([new File([red],'red.png',{type:'image/png'}),new File([green],'green.png',{type:'image/png'})]);
+   const {imageEntity}=await import('/src/domain/image-identity.ts');return [await imageEntity(green),await imageEntity(red)];
+ });
+ await page.waitForFunction(()=>chat.snapshot().model);
+ const before=await page.evaluate(()=>JSON.stringify(chat.snapshot().current));
+ await askDraft(f,[{kind:'chat_handoff',images:['#a1','#a2'],base_image:'#a2',options:{},text:'修改 #a2，颜色参考 #a1'}]);
+ assert.equal(await page.evaluate(()=>JSON.stringify(chat.snapshot().current)),before,'proposing never mutates CHAT');
+ assert.deepEqual(await page.evaluate(()=>ask.draftPlan.value.steps.filter(s=>s.id.startsWith('0:image:')).map(s=>[s.label,s.after,s.locked])),[['底图','#a2',true],['参考图 1','#a1',true]]);
+ await page.locator('.draft-toggle[aria-expanded="false"]').click();
+ await page.locator('[data-step="0:image:0"] .draft-key').filter({hasText:'底图'}).waitFor();
+ assert.equal(f.calls.flatMap(c=>c.messages).some(m=>Array.isArray(m.content)&&m.content.some(b=>b.type==='image_url')),false);
+ await page.evaluate(async()=>{await ask.toggleFavorite();await ask.flushFavorites();});
+ await page.reload();await page.waitForSelector('#prompt');
+ await page.evaluate(async()=>{const p=document.body.__vue_app__._instance.provides;for(const n of ['ask','drawing','editor','chat','app-shell'])window[n.replaceAll('-','_')]=p[Object.getOwnPropertySymbols(p).find(k=>k.description===n)];await ask.restored;await chat.start();});
+ await page.waitForFunction(()=>ask.draftPlan.value?.handoff);
+ assert.deepEqual(await page.evaluate(()=>ask.draftPlan.value.steps.filter(s=>s.issue).map(s=>s.issue)),[]);
+ await page.evaluate(()=>ask.applyDraft(ask.draftPlan.value.fingerprint));
+ const check=()=>page.evaluate(async()=>{const s=chat.snapshot(),{imageEntity}=await import('/src/domain/image-identity.ts');return {id:s.current.id,main:s.current.mainId,images:s.context.imageIds,hashes:await Promise.all(s.context.imageIds.map(id=>imageEntity(chat.assets.get(id).blob))),sizes:s.context.imageIds.map(id=>{const a=chat.assets.get(id);return[a.width,a.height]}),turns:s.current.turns.length,text:s.current.prompt};});
+ let applied=await check();assert.deepEqual(applied.hashes,expected);assert.deepEqual(applied.sizes,[[512,768],[1800,1200]]);assert.equal(applied.main,applied.images[0]);assert.equal(applied.turns,0);assert.match(applied.text,/修改 第 1 张图，颜色参考 第 2 张图/);
+ await page.evaluate(()=>ask.undoDraft());await page.evaluate(()=>ask.restoreDraft(ask.redoId.value));assert.deepEqual((await check()).hashes,expected);
+ await page.evaluate(()=>ask.deleteConversation(ask.conversationId.value));assert.deepEqual((await check()).hashes,expected,'CHAT owns imported bytes after deleting ASK');
+ assert.equal(f.requests.some(url=>/\/images\/(generations|edits)|\/ai\/generate|:generateContent/.test(url)),false);assert.deepEqual(f.errors,[]);
+});
+
+test('ASK current CHAT drafts add references, change the base, guard stale context and undo consecutive changes', {timeout:90000},async t=>{
+ const f=await setup(t),{page}=f;
+ await page.evaluate(async()=>{await chat.start();await ask.setImages(false);app_shell.router.switchWorkspace('image');await ask.addFiles([new File([await makeImage('#aa2244')],'first.png',{type:'image/png'})]);});
+ await page.waitForFunction(()=>chat.snapshot().model);
+ await askDraft(f,[{kind:'chat_handoff',images:['#a1'],options:{},text:'first draft'}]);await page.evaluate(()=>ask.applyDraft(ask.draftPlan.value.fingerprint));
+ const original=await page.evaluate(()=>({id:chat.snapshot().current.id,asset:chat.snapshot().current.mainId,count:chat.snapshot().conversations.length,checkpoint:ask.undoId.value}));
+ await page.evaluate(async()=>{await ask.addFiles([new File([await makeImage('#3377bb')],'second.png',{type:'image/png'})]);});
+ f.queue.push(body=>{
+   const state=wireState(body),base=state.chat.input_images.find(i=>i.role==='base').id;
+   assert.match(base,/^#c\d+:r\d+$/);
+   return response(body,[{kind:'chat_handoff',destination:'current',images:[base,'#a2'],base_image:'#a2',options:{},text:`修改 #a2，参考 ${base}`}]);
+ });
+ await page.evaluate(()=>{ask.input.value='保持当前对话，加入新参考并切换底图';return ask.send();});await page.waitForFunction(()=>!ask.running.value&&ask.draftPlan.value?.handoff?.current);
+ assert.equal(await page.evaluate(()=>chat.snapshot().current.mainId),original.asset);
+ await page.evaluate(()=>ask.applyDraft(ask.draftPlan.value.fingerprint));
+ assert.deepEqual(await page.evaluate(()=>[chat.snapshot().current.id,chat.snapshot().conversations.length,chat.snapshot().context.imageIds.length,chat.snapshot().current.turns.length]),[original.id,original.count,2,0]);
+ const next=await page.evaluate(()=>({base:chat.snapshot().current.mainId,text:chat.snapshot().current.prompt}));assert.notEqual(next.base,original.asset);
+ await askDraft(f,[{kind:'chat_handoff',destination:'current',images:['#a2'],options:{},text:'only the second image'}]);
+ await page.evaluate(()=>ask.applyDraft(ask.draftPlan.value.fingerprint));
+ assert.deepEqual(await page.evaluate(()=>chat.snapshot().context.imageIds),[next.base]);
+ assert.equal(await page.evaluate(id=>chat.assets.assets.has(id),original.asset),true,'the discarded reference remains available for undo');
+ await page.evaluate(()=>ask.undoDraft());
+ assert.equal(await page.evaluate(()=>chat.snapshot().context.imageIds.length),2);
+ await page.evaluate(()=>ask.undoDraft());assert.deepEqual(await page.evaluate(()=>[chat.snapshot().current.mainId,chat.snapshot().current.prompt]),[original.asset,'first draft']);
+ await page.evaluate(()=>ask.restoreDraft(ask.redoId.value));assert.deepEqual(await page.evaluate(()=>[chat.snapshot().current.mainId,chat.snapshot().current.prompt]),[next.base,next.text]);
+ await page.evaluate(()=>ask.undoDraft());assert.equal(await page.evaluate(()=>ask.undoId.value),original.checkpoint);await page.evaluate(()=>ask.undoDraft());
+ assert.equal(await page.evaluate(()=>chat.snapshot().current.prompt),'');
+ await page.evaluate(()=>ask.restoreDraft(ask.redoId.value));
+ await askDraft(f,[{kind:'chat_handoff',destination:'current',images:['#a2'],options:{},text:'replace the input set'}]);
+ const fingerprint=await page.evaluate(()=>ask.draftPlan.value.fingerprint);
+ await page.evaluate(()=>chat.setPrompt('manual edit after proposal'));
+ await page.evaluate(fingerprint=>ask.applyDraft(fingerprint),fingerprint);
+ assert.deepEqual(await page.evaluate(()=>[chat.snapshot().current.mainId,chat.snapshot().current.prompt]),[original.asset,'manual edit after proposal'],'stale drafts preserve manual changes');
+ await askDraft(f,[{kind:'chat_handoff',destination:'current',images:['#a2'],options:{},text:'confirmed replacement'}]);
+ await page.evaluate(()=>ask.applyDraft(ask.draftPlan.value.fingerprint));
+ assert.equal(await page.evaluate(id=>chat.assets.assets.has(id),original.asset),true);
+ await page.evaluate(()=>ask.deleteConversation(ask.conversationId.value));
+ assert.deepEqual(await page.evaluate(id=>[chat.assets.assets.has(id),chat.snapshot().current.mainId,chat.assets.assets.has(chat.snapshot().current.mainId)],original.asset),[false,next.base,true],'forgetting undo releases old inputs but preserves the official CHAT image');
+ assert.equal(f.requests.some(url=>/\/images\/(generations|edits)|\/ai\/generate|:generateContent/.test(url)),false);assert.deepEqual(f.errors,[]);
+});
+
+test('ASK attachments go to EDIT after favorite reload with original geometry and isolated same-number attachments', {timeout:90000},async t=>{
+ const f=await setup(t),{page}=f;
+ const prepare=async color=>page.evaluate(async color=>{
+   await ask.setImages(false);app_shell.router.switchWorkspace('image');
+   const blob=await makeImage(color,1800,1200);await ask.addFiles([new File([blob],'original.png',{type:'image/png'})]);
+   return (await import('/src/domain/image-identity.ts')).imageEntity(blob);
+ },color);
+ const red=await prepare('#bb2244');
+ await askDraft(f,[{kind:'edit_handoff',image:'#a1',mode:'img2img',prompt:'repair red',params:{model:'gpt-image-1.5'}}]);
+ const first=await page.evaluate(()=>ask.draftPlan.value.edit.id);assert.equal(await page.evaluate(id=>!!editor.askSnapshot(id),first),false);
+ await page.evaluate(async()=>{await ask.toggleFavorite();await ask.flushFavorites();});
+ await page.reload();await page.waitForSelector('#prompt');
+ await page.evaluate(async()=>{
+   const p=document.body.__vue_app__._instance.provides;
+   for(const n of ['ask','drawing','editor','chat','app-shell'])window[n.replaceAll('-','_')]=p[Object.getOwnPropertySymbols(p).find(k=>k.description===n)];
+   await ask.restored;await chat.start();
+   window.makeImage=async(color,w,h)=>{const c=new OffscreenCanvas(w,h),x=c.getContext('2d');x.fillStyle=color;x.fillRect(0,0,w,h);return c.convertToBlob({type:'image/png'});};
+ });
+ await page.waitForFunction(id=>ask.draftPlan.value?.edit?.id===id,first);
+ assert.deepEqual(await page.evaluate(()=>ask.draftPlan.value.steps.filter(s=>s.issue).map(s=>s.issue)),[]);
+ await page.evaluate(()=>ask.applyDraft(ask.draftPlan.value.fingerprint));assert.match(page.url(),/#\/image$/);
+ assert.equal(await page.evaluate(id=>!!editor.askSnapshot(id),first),true,JSON.stringify(await page.evaluate(()=>({notice:ask.notice.value,issues:ask.draftPlan.value?.steps.filter(s=>s.issue).map(s=>s.issue)}))));
+ const read=id=>page.evaluate(id=>{const s=editor.askSnapshot(id),r=editor.record(s.source.recordId);return [s.source.width,s.source.height,r.entity_key,r.params.projectSource??null,s.config.fields.prompt]},id);
+ assert.deepEqual(await read(first),[1800,1200,red,null,'repair red']);
+ await page.evaluate(()=>ask.undoDraft());assert.equal(await page.evaluate(id=>!!editor.askSnapshot(id),first),false);
+ await page.evaluate(()=>ask.restoreDraft(ask.redoId.value));assert.deepEqual(await read(first),[1800,1200,red,null,'repair red']);
+ await page.evaluate(()=>ask.newConversation());const blue=await prepare('#2255bb');
+ assert.equal(await page.evaluate(()=>ask.tray.value[0].id),'#a1');
+ await askDraft(f,[{kind:'edit_handoff',image:'#a1',mode:'img2img',prompt:'repair blue',params:{model:'gpt-image-1.5'}}]);
+ const second=await page.evaluate(()=>ask.draftPlan.value.edit.id);assert.notEqual(second,first);
+ await page.evaluate(()=>ask.applyDraft(ask.draftPlan.value.fingerprint));assert.deepEqual(await read(second),[1800,1200,blue,null,'repair blue']);assert.deepEqual(await read(first),[1800,1200,red,null,'repair red']);
+ await page.evaluate(()=>ask.deleteConversation(ask.conversationId.value));assert.deepEqual(await read(second),[1800,1200,blue,null,'repair blue']);
+ assert.equal(f.requests.some(url=>/\/images\/(generations|edits)|\/ai\/generate|:generateContent/.test(url)),false);assert.deepEqual(f.errors,[]);
+});

@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import { versionCount, stagedCount } from './model.ts';
 import { computed, nextTick, shallowRef } from 'vue';
 import { useDrawing } from '../../app/drawing.ts';
 import { useSlates } from '../../app/slate.ts';
@@ -24,7 +25,7 @@ async function open(record: ReviewRecord) { slates.visible.value = false; await 
       <div class="retrospect-row" :aria-label="`${record.value.title} · ${record.status === 'active' ? '进行中' : record.final ? '已定稿' : '已解除'}`">
         <button class="retrospect-item" type="button" :aria-label="`查看演进 ${record.value.title}`" @click="open(record)">
           <RetrospectCovers :value="record.value" :picture-refs="record.pictureRefs" />
-          <span class="retrospect-identity"><b>{{ record.value.title }}</b><small>{{ boardName(record) }} · {{ record.value.nodes.length }} 版 · {{ count(record) }} 张</small></span>
+          <span class="retrospect-identity"><b>{{ record.value.title }}</b><small>{{ boardName(record) }} · {{ versionCount(record.value) }} 版<span v-if="stagedCount(record.value)"> · {{ stagedCount(record.value) }} 待生成</span> · {{ count(record) }} 张</small></span>
           <i v-if="record.status === 'active'" class="active-dot" title="进行中"></i><AppIcon v-else name="i-chevron" />
         </button>
         <RetrospectActions :record-id="record.id" />

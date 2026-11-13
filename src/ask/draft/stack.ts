@@ -3,6 +3,7 @@ import type { createDraftWriter } from "./apply.ts";
 
 export const UNDO_LIMIT = 50;
 export interface DraftRecord {
+  readonly origin?: { kind: 'evolution'; retrospectId: string; nodeId: string };
   readonly id: number;
   readonly conversationId: string;
   readonly turnId: number;
@@ -22,16 +23,22 @@ function sameChatState(a: string, b: string) {
   return JSON.stringify(left) === JSON.stringify(right);
 }
 
-function rebase(stack: readonly DraftRecord[], record: DraftRecord, receipt: string | null) {
-  if (record.beforeReceipt && receipt && sameChatState(record.beforeReceipt, receipt))
+function rebase(stack: readonly DraftRecord[], record: DraftRecord, receipt: string | null, onRebase?: (before: string, after: string) => void) {
+  if (record.beforeReceipt && receipt && sameChatState(record.beforeReceipt, receipt)) {
+    let changed = false;
     for (const earlier of stack)
-      if (earlier.receipt === record.beforeReceipt) earlier.receipt = receipt;
+      if (earlier.receipt === record.beforeReceipt) { earlier.receipt = receipt; changed = true; }
+    if (changed) onRebase?.(record.beforeReceipt, receipt);
+  }
 }
 
 /** Page-level history. Only the stack and one redo retain full draft snapshots. */
 export function createDraftStack(writer: ReturnType<typeof createDraftWriter>) {
   let sequence = 0, undoStack: DraftRecord[] = [], redo: DraftRecord | null = null;
-  const retain = () => writer.retain?.([...undoStack, ...(redo ? [redo] : [])].flatMap(r => r.plan ? [r.plan] : []));
+  const retain = () => {
+    const records = [...undoStack, ...(redo ? [redo] : [])];
+    writer.retain?.(records.flatMap(r => r.plan ? [r.plan] : []), records.flatMap(r => r.plan?.handoff && r.status === 'applied' && r.receipt ? [r.receipt] : []));
+  };
   function push(record: DraftRecord) {
     undoStack.push(record);
     if (undoStack.length > UNDO_LIMIT) undoStack.shift();
@@ -41,8 +48,8 @@ export function createDraftStack(writer: ReturnType<typeof createDraftWriter>) {
     get top() { return undoStack.at(-1) ?? null; },
     get redo() { return redo; },
     get records(): readonly DraftRecord[] { return [...undoStack]; },
-    create(draft: Draft, conversationId: string, turnId: number): DraftRecord {
-      return { id: ++sequence, conversationId, turnId, draft, off: new Set(), status: "pending", plan: null, beforeReceipt: null, receipt: null };
+    create(draft: Draft, conversationId: string, turnId: number, origin?: DraftRecord['origin']): DraftRecord {
+      return { id: ++sequence, conversationId, turnId, draft, ...(origin ? { origin } : {}), off: new Set(), status: "pending", plan: null, beforeReceipt: null, receipt: null };
     },
     async apply(record: DraftRecord, plan: DraftPlan) {
       if (record.status !== "pending") throw new Error("草稿已处理");
@@ -58,7 +65,7 @@ export function createDraftStack(writer: ReturnType<typeof createDraftWriter>) {
       undoStack.pop();
       // An ASK branch undo advances selectionRevision. Reconnect only the exact
       // old boundary, with every other part unchanged; external edits stay stale.
-      rebase(undoStack, record, receipt);
+      rebase(undoStack, record, receipt, writer.rebaseReceipt);
       record.status = "reverted";
       record.receipt = receipt;
       redo = record; retain();
@@ -80,10 +87,10 @@ export function createDraftStack(writer: ReturnType<typeof createDraftWriter>) {
       if (ids.some(id => !undoStack.some(r => r.id === id))) throw new Error("草稿已超出撤销保留范围");
       const suffix = undoStack.slice(-selected.size);
       if (suffix.some(r => !selected.has(r.id))) throw new Error("先回退较新的草稿");
-      const simulated = undoStack.map(r => ({ ...r })), state = writer.simulate(), order: number[] = [];
+      const simulated = undoStack.map(r => ({ ...r, originalReceipt: r.receipt })), state = writer.simulate(), order: number[] = [];
       for (let i = 0; i < suffix.length; i++) {
         const record = simulated.pop()!;
-        const receipt = state.undo(record.plan!, record.receipt);
+        const receipt = state.undo(record.plan!, record.receipt, record.originalReceipt);
         rebase(simulated, record, receipt);
         order.push(record.id);
       }

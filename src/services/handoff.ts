@@ -34,7 +34,7 @@ export async function fitReference(blob: Blob, name: string) {
 }
 export function createHandoff(services: ApplicationServices) {
   return {
-    queue(blob: Blob, name = "图片") {
+    queue(blob: Blob, name = "图片", source?: { recordId: string; entityKey?: string }) {
       return services.data.write(async () => {
         const fitted = await fitReference(blob, name),
           ticket = crypto.randomUUID();
@@ -53,7 +53,7 @@ export function createHandoff(services: ApplicationServices) {
             c.delete();
           c.continue();
         };
-        store.put({ ...fitted, at: Date.now() }, ticket);
+        store.put({ ...fitted, at: Date.now(), ...(source ? { source } : {}) }, ticket);
         await done;
         return ticket;
       });

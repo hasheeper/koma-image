@@ -61,6 +61,8 @@ test('mixed stage samples drive both sides of Diff, exact restore and ASK; a mis
     await roleDiff.locator('.same-fields summary').click();
     assert.equal(await roleDiff.locator('[data-field="c0:negative"]').textContent(), 'Negative空');
     assert.equal(await panel.locator('.version-node').count(), 2);
+    assert.equal(await panel.locator('.continuation-frame').count(),0);
+    await page.evaluate(() => { const r=ask.retrospects.get(ask.retrospects.opened.value.id); ask.retrospects.commitMove(ask.retrospects.prepareNext(r.boardId, 'ask')); });
     const continuation = panel.locator('.continuation-frame');
     assert.equal(await continuation.getAttribute('data-origin'), 'v2');
     assert.equal(await continuation.getAttribute('data-origin-sample'), '#h5');
@@ -72,6 +74,8 @@ test('mixed stage samples drive both sides of Diff, exact restore and ASK; a mis
     await panel.locator('[data-node="v1"]').hover();
     await pin.click();
     await page.waitForFunction(() => ask.retrospects.records.value[0].cursor.imageId === '#h3');
+    assert.equal(await continuation.count(),0);
+    await page.evaluate(() => { const r=ask.retrospects.get(ask.retrospects.opened.value.id); ask.retrospects.commitMove(ask.retrospects.prepareNext(r.boardId, 'ask')); });
     assert.equal(await continuation.getAttribute('data-origin'), 'v1');
     assert.equal(await continuation.getAttribute('data-origin-sample'), '#h3');
     assert.equal((await form(page)).prompt, 'blue dress, soft light, {rim light}');
@@ -83,6 +87,7 @@ test('mixed stage samples drive both sides of Diff, exact restore and ASK; a mis
     assert.equal(await pin.getAttribute('aria-pressed'), 'false', 'origin state belongs to one concrete sample');
     await pin.click();
     await page.waitForFunction(() => ask.retrospects.records.value[0].cursor.imageId === '#h2');
+    await page.evaluate(() => { const r=ask.retrospects.get(ask.retrospects.opened.value.id); ask.retrospects.commitMove(ask.retrospects.prepareNext(r.boardId, 'ask')); });
     assert.equal(await continuation.getAttribute('data-origin-sample'), '#h2');
     assert.equal((await form(page)).prompt, 'blue dress, soft light');
     assert.equal((await form(page)).steps, 25);
@@ -94,20 +99,21 @@ test('mixed stage samples drive both sides of Diff, exact restore and ASK; a mis
     await panel.getByRole('button', { name: 'v2 上一张样本', exact: true }).click();
     assert.match(await panel.locator('[data-field="prompt"] .ins .text').textContent(), /dark/);
     await panel.getByRole('button', { name: '恢复到画板', exact: true }).click();
-    await panel.getByRole('status').filter({ hasText: /从 v\d+ 继续/ }).waitFor();
+    await panel.getByRole('status').filter({ hasText: /已恢复 IMAGE 配方/ }).waitFor();
     let restored = await form(page);
     assert.equal(restored.prompt, 'blue dress, dark light'); assert.equal(restored.steps, 30);
     assert.deepEqual([restored.width, restored.height], [384, 192], 'landscape sample restores its own dimensions');
+    await panel.getByRole('button', { name: '关系图适应全部', exact: true }).click();
     await panel.getByRole('button', { name: 'v2 下一张样本', exact: true }).click();
     await panel.getByRole('button', { name: '恢复到画板', exact: true }).click();
-    await panel.getByRole('status').filter({ hasText: /从 v\d+ 继续/ }).waitFor();
+    await panel.getByRole('status').filter({ hasText: /已恢复 IMAGE 配方/ }).waitFor();
     restored = await form(page);
     assert.equal(restored.prompt, 'blue dress, soft light, low angle'); assert.equal(restored.steps, 25);
     assert.deepEqual([restored.width, restored.height], [192, 448], 'switching to the tall sample uses its actual recipe');
     assert.equal(restored.characters[0].prompt, 'silver hair'); assert.equal(restored.seed, '456');
     await panel.locator('[data-node="v1"] .node-image').click();
     await panel.getByRole('button', { name: '恢复到画板', exact: true }).click();
-    await panel.getByRole('status').filter({ hasText: /从 v\d+ 继续/ }).waitFor();
+    await panel.getByRole('status').filter({ hasText: /已恢复 IMAGE 配方/ }).waitFor();
     restored = await form(page);
     assert.equal(restored.prompt, 'blue dress, soft light, {rim light}'); assert.equal(restored.steps, 26);
     assert.equal(restored.characters.length, 3, 'restoration retains raw slots excluded from Diff');
@@ -186,6 +192,81 @@ test('Diff renders long raw prompts, complete weighted context, precise Chinese 
   } finally { await context.close(); }
 });
 
+test('generation updates preserve a live node or empty-frame drag, and landing keeps every independent placement', async () => {
+  const { page, context, llm, errors } = await open('/#/image', { ready: '.switcher', standard: true, ask: askSettings({ images: false }) });
+  let release;
+  try {
+    await seed(page, true);
+    llm.push(toolReply('clusters', 'get_recipe_clusters', {}), toolReply('graph', 'show_retrospect', graph), textReply('已整理。'));
+    await page.evaluate(() => ask.show({ question: '整理版本演进' })); await submitAsk(page);
+    await page.waitForFunction(() => !ask.running.value && ask.retrospects.records.value.length === 1);
+    await page.getByRole('button', { name: /^打开演进 / }).click();
+    const panel = page.getByRole('dialog', { name: graph.retrospect_title });
+    await panel.getByRole('button', { name: '关闭配方', exact: true }).click();
+    const fit = () => panel.getByRole('button', { name: '关系图适应全部', exact: true }).click();
+    const frame = () => page.evaluate(() => new Promise(resolve => requestAnimationFrame(() => resolve())));
+    const state = () => page.evaluate(() => structuredClone(ask.retrospects.records.value[0]));
+    const beginDrag = async (locator) => {
+      const box = await locator.boundingBox();
+      const point = { x: box.x + box.width * .8, y: box.y + box.height * .25 };
+      await page.mouse.move(point.x, point.y); await page.mouse.down();
+      await page.mouse.move(point.x + 45, point.y + 30, { steps: 5 }); await frame();
+    };
+    await fit();
+    await page.evaluate(() => { const r=ask.retrospects.get(ask.retrospects.opened.value.id); ask.retrospects.commitMove(ask.retrospects.prepareNext(r.boardId, 'ask')); });
+    await fit();
+    const before = await state();
+    const png = await page.evaluate(async () => {
+      await drawing.patch({ batchCount: 1 });
+      return [...new Uint8Array(await drawing.snapshot().history[0].blob.arrayBuffer())];
+    });
+    let arrived;
+    const started = new Promise(resolve => { arrived = resolve; }), waiting = new Promise(resolve => { release = resolve; });
+    await page.route(`https://${hosts.image}/**`, async route => {
+      if (!/\/(generate|generate-image)$/.test(new URL(route.request().url()).pathname)) return route.fallback();
+      arrived(); await waiting; return route.fulfill({ contentType: 'image/png', body: Buffer.from(png) });
+    });
+    await page.evaluate(() => { window.canvasGeneration = drawing.run(); }); await started;
+    const edge = panel.locator('[data-edge-from="v1"][data-edge-to="v2"] .edge-line');
+    const beforePath = await edge.getAttribute('d');
+    await beginDrag(panel.locator('[data-node="v2"] .node-media'));
+    const draggedPath = await edge.getAttribute('d'); assert.notEqual(draggedPath, beforePath);
+    // Drawing notifications also occur for progress, quotes and model refreshes while a request is pending.
+    await page.evaluate(() => drawing.patch({ seed: '789' })); await frame();
+    assert.equal(await panel.locator('[data-node="v2"].node-drag-active').count(), 1, 'metadata refresh does not cancel placement');
+    assert.equal(await edge.getAttribute('d'), draggedPath, 'the edge keeps the live endpoint after Vue updates');
+    await page.mouse.up(); await frame();
+    const moved = await state(); assert.notDeepEqual(moved.nodeLayout.v2, before.nodeLayout.v2);
+    assert.deepEqual(moved.nodeLayout.v1, before.nodeLayout.v1);
+    assert.deepEqual(moved.nodeLayout.v3, before.nodeLayout.v3);
+    assert.deepEqual(moved.continuationAnchor, before.continuationAnchor);
+
+    await fit(); await beginDrag(panel.locator('.continuation-frame'));
+    assert.equal(await panel.locator('.continuation-frame.node-drag-active').count(), 1, 'empty-frame drag has started');
+    const blankPath = await panel.locator('.continuation-line').getAttribute('d');
+    await page.evaluate(() => drawing.patch({ seed: '790' })); await frame();
+    assert.equal(await panel.locator('.continuation-frame.node-drag-active').count(), 1);
+    assert.equal(await panel.locator('.continuation-line').getAttribute('d'), blankPath);
+    await page.mouse.up(); await frame();
+    const blankMoved = await state(); assert.notDeepEqual(blankMoved.continuationAnchor, before.continuationAnchor);
+    assert.deepEqual(blankMoved.nodeLayout, moved.nodeLayout, 'empty-frame placement never moves a real node');
+
+    await fit(); await beginDrag(panel.locator('[data-node="v1"] .node-media'));
+    release(); await page.evaluate(() => window.canvasGeneration); await frame();
+    assert.equal(await panel.locator('[data-node="v1"].node-drag-active').count(), 1, 'a new result does not cancel an unrelated node drag');
+    await page.mouse.up(); await frame();
+    const landed = await state(), { x, cy, z } = blankMoved.continuationAnchor;
+    assert.notDeepEqual(landed.nodeLayout.v1, moved.nodeLayout.v1);
+    assert.deepEqual(landed.nodeLayout.v2, moved.nodeLayout.v2);
+    assert.deepEqual(landed.nodeLayout.v3, moved.nodeLayout.v3);
+    assert.deepEqual(landed.nodeLayout.v4, { x, cy, z }, 'the result replaces the exact independently placed empty frame');
+    assert.equal(await panel.locator('.version-node').count(), 4);
+    assert.equal(await panel.locator('.graph-edge').count(), 3);
+    assert.equal(await panel.locator('.node-drag-active').count(), 0);
+    assert.deepEqual(errors, []);
+  } finally { release?.(); await context.close(); }
+});
+
 test('evolution camera pans freely and the continuation preview returns to editing without writing or generating', async () => {
   const { page, context, llm, calls, requests, errors } = await open('/#/image', { ready: '.switcher', standard: true, ask: askSettings({ images: false }) });
   try {
@@ -195,6 +276,7 @@ test('evolution camera pans freely and the continuation preview returns to editi
     await page.getByRole('button', { name: /^打开演进 / }).click();
     const panel = page.getByRole('dialog', { name: graph.retrospect_title }), world = panel.locator('.graph-world');
     const canvas = panel.locator('.graph-viewport'), preview = panel.locator('.continuation-frame');
+    await page.evaluate(() => { const r=ask.retrospects.get(ask.retrospects.opened.value.id); ask.retrospects.commitMove(ask.retrospects.prepareNext(r.boardId, 'ask')); });
     await page.waitForFunction(() => !!ask.retrospects.records.value[0].continuationAnchor);
     const before = await form(page), record = await page.evaluate(() => structuredClone(ask.retrospects.records.value[0]));
     const fit = () => panel.getByRole('button', { name: '关系图适应全部', exact: true }).click();
@@ -306,7 +388,7 @@ test('[core] ASK retrospective: semantic fork card, exact raw Diff, explicit res
     assert.match(await panel.getByRole('button', { name: '选择对比基准', exact: true }).getAttribute('title'), /A · v3/);
     assert.equal(calls.length, 3, 'comparisons are computed locally');
     await panel.getByRole('button', { name: '恢复到画板', exact: true }).click();
-    await panel.getByRole('status').filter({ hasText: /从 v\d+ 继续/ }).waitFor();
+    await panel.getByRole('status').filter({ hasText: /已恢复 IMAGE 配方/ }).waitFor();
     const restored = await form(page);
     assert.equal(restored.prompt, 'blue dress, dark light'); assert.equal(restored.negative, 'lowres'); assert.equal(restored.steps, 30);
     assert.equal(restored.seed, '456'); assert.equal(restored.batchCount, 3);
@@ -438,7 +520,7 @@ test('retrospect status: failed ASK turns keep activation; successful end hides 
     await panel.getByRole('button', { name: '继续演进', exact: true }).click();
     assert.equal(await page.evaluate(id => ask.retrospects.get(id).status, id), 'active');
     assert.equal(await panel.getByRole('button', { name: '批注工具' }).isDisabled(), false);
-    assert.equal(await panel.locator('.continuation-frame').count(), 1);
+    assert.equal(await panel.locator('.continuation-frame').count(), 0);
     assert.deepEqual(errors, []);
   } finally { await context.close(); }
 });
@@ -466,6 +548,8 @@ test('live evolution uses actual generated results, rollback drafts, same-tree u
     const id = await page.evaluate(() => ask.retrospects.records.value[0].id);
     await page.evaluate(id => ask.retrospects.open(id), id);
     const initialPanel = page.getByRole('dialog', { name: graph.retrospect_title }); await initialPanel.waitFor();
+    assert.equal(await initialPanel.locator('.continuation-frame').count(),0);
+    await page.evaluate(() => { const r=ask.retrospects.get(ask.retrospects.opened.value.id); ask.retrospects.commitMove(ask.retrospects.prepareNext(r.boardId, 'ask')); });
     assert.equal(await initialPanel.locator('.continuation-frame').getAttribute('data-origin'), 'v3');
     const movable = await initialPanel.locator('[data-node="v3"] .node-media').boundingBox();
     await page.mouse.move(movable.x + movable.width / 2, movable.y + movable.height / 2); await page.mouse.down();
@@ -486,6 +570,8 @@ test('live evolution uses actual generated results, rollback drafts, same-tree u
     assert.equal(tree.value.nodes.length, 3);
     assert.equal(tree.value.nodes[2].image_ids.length, 2, 'seed-only generation stays in the current stage');
     await page.evaluate(id => ask.retrospects.open(id), id); await initialPanel.waitFor();
+    assert.equal(await initialPanel.locator('.continuation-frame').count(),0);
+    await page.evaluate(() => { const r=ask.retrospects.get(ask.retrospects.opened.value.id); ask.retrospects.commitMove(ask.retrospects.prepareNext(r.boardId, 'ask')); });
     assert.equal(await initialPanel.locator('.continuation-frame').getAttribute('data-origin'), 'v3');
     assert.equal(await initialPanel.locator('.continuation-frame').getAttribute('data-origin-sample'), tree.cursor.imageId);
     await initialPanel.getByRole('button', { name: '关系图适应全部', exact: true }).click();
@@ -506,7 +592,7 @@ test('live evolution uses actual generated results, rollback drafts, same-tree u
     await page.evaluate(id => ask.retrospects.open(id), id); await initialPanel.waitFor();
     const restoredView = await initialPanel.locator('.graph-world').evaluate(el => { const m = new DOMMatrix(getComputedStyle(el).transform); return [m.e, m.f, m.a]; });
     assert.ok(restoredView.every((n, i) => Math.abs(n - [savedView.x, savedView.y, savedView.scale][i]) <= Math.max(1, Math.abs(n)) * .00001), 'reopening renders the saved camera after new generation');
-    assert.equal(await initialPanel.locator('.continuation-frame').getAttribute('data-origin'), 'v4');
+    assert.equal(await initialPanel.locator('.continuation-frame').count(),0,'fulfilled slots do not leave another blank frame');
     assert.equal(await initialPanel.getByRole('img', { name: '新版本', exact: true }).count(), 1);
     await initialPanel.getByRole('button', { name: '关闭演进' }).click();
     assert.equal(await page.evaluate(() => drawing.snapshot().history.some(p => p.params.isComparison)), true);
@@ -565,7 +651,7 @@ test('live evolution uses actual generated results, rollback drafts, same-tree u
     assert.match(await panel.getByRole('button', { name: '选择对比基准' }).getAttribute('aria-description'), /#h2/, 'ASK reorganization retains the generated sample provenance');
     await panel.getByRole('button', { name: '交换对比方向' }).click();
     await panel.getByRole('button', { name: '恢复到画板', exact: true }).click();
-    await panel.getByRole('status').filter({ hasText: /从 v1 继续/ }).waitFor();
+    await panel.getByRole('status').filter({ hasText: /已恢复 IMAGE 配方/ }).waitFor();
     assert.equal((await form(page)).prompt, 'blue dress, soft light', 'swapping and restoring uses the exact A sample, not the node cover');
     await panel.getByRole('button', { name: '交换对比方向' }).click();
     assert.equal(await panel.getByRole('img', { name: '新版本', exact: true }).count(), 0, 'renaming the tree does not mark an already viewed stage new again');
@@ -586,6 +672,11 @@ test('live evolution uses actual generated results, rollback drafts, same-tree u
     assert.equal(await page.evaluate(label => {
       const r = ask.retrospects.records.value[0]; return drawing.snapshot().favorites.some(p => p.id === r.pictureRefs[label].record_id);
     }, finalSample), true);
+    await panel.getByRole('button', { name: '撤销演进操作', exact: true }).click();
+    await page.waitForFunction(id => ask.retrospects.get(id).status === 'active', id);
+    assert.equal(await page.evaluate(id => ask.retrospects.get(id).final, id), null);
+    await panel.getByRole('button', { name: '重做演进操作', exact: true }).click();
+    await page.waitForFunction(id => ask.retrospects.get(id).status === 'ended', id);
     await panel.getByRole('button', { name: '关闭演进' }).click();
     assert.equal(await page.getByRole('button', { name: '打开画板演进，进行中' }).count(), 0);
     await page.evaluate(() => drawing.run());
@@ -603,7 +694,8 @@ test('live evolution uses actual generated results, rollback drafts, same-tree u
     assert.equal(await page.evaluate(id => ask.retrospects.get(id).revision, id), detached, 'an in-flight result cannot revive a detached tree');
     assert.equal(await page.evaluate(id => ask.retrospects.get(id).value.nodes.length, id), 5);
     await page.evaluate(boardId => drawing.switchBoard(boardId), tree.boardId);
-    assert.equal(await page.evaluate(id => ask.retrospects.get(id).status, id), 'ended');
+    assert.equal(await page.evaluate(id => ask.retrospects.get(id).status, id), 'active');
+    assert.equal(await page.evaluate(id => ask.retrospects.get(id).imageAttached, id), false, 'switching IMAGE boards detaches collection without ending workshops');
     assert.ok(generation >= 7);
     assert.deepEqual(errors, []);
   } finally { await context.close(); }

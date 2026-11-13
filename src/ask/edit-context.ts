@@ -9,7 +9,7 @@ export interface PictureScopes { page: string; favorites: string; ask: string; c
 export function editPictures(editor: Editor | undefined, ids: Ids, chat: readonly Picture[] = []): readonly Picture[] {
   if (!editor) return [];
   const records = new Map(editor.records().map(r => [r.id, r]));
-  return editor.boards().flatMap(board => board.versions.map(v => {
+  const versions = editor.boards().flatMap(board => board.versions.map(v => {
     const r = records.get(v.recordId)!;
     const local = board.id === editor.session.id;
     const aliases = [qualifiedEditLabel(board, v), ...(local ? [editLabel(v)] : [])];
@@ -24,6 +24,12 @@ export function editPictures(editor: Editor | undefined, ids: Ids, chat: readonl
       size: Object.freeze({ ...r.size }), params: Object.freeze(structuredClone(r.params)),
     });
   }));
+  const references: Picture[] = (editor.referenceRecords?.() ?? []).flatMap(({record:r,boardId,label})=>{
+    const board=editor.boards().find(b=>b.id===boardId);if(!board)return [];
+    const tag=`#e${board.boardSeq}:${label.toLowerCase()}`;
+    return [{id:r.id,label:tag,aliases:[tag],entity_key:r.entity_key,createdAt:r.createdAt,blob:r.blob,size:{...r.size},params:{...r.params,editReference:true},origins:[{source:'edit',label:tag,boardId,order:0}]}];
+  });
+  return [...versions,...references];
 }
 /** Keep recipes per record; only add aliases when the occurrence really is the same record. */
 export function withEditPictures(base: readonly Picture[], edits: readonly Picture[]): readonly Picture[] {

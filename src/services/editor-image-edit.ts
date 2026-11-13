@@ -1,3 +1,5 @@
+import type { ReferenceImage } from '../domain/edit-references.ts';
+import { MAX_INPUT_BYTES, MAX_TOTAL_BYTES } from '../domain/media.ts';
 import type { CatalogModel } from '../domain/catalog.ts';
 import { buildChatPayload } from '../domain/media.ts';
 import { annotationPrompt, canMaskAnnotations, defaultAnnotationEdges, validateAnnotationSnapshot } from '../domain/region-annotation.ts';
@@ -46,7 +48,7 @@ function maskLocation(mask: MaskBitmap) {
   return { x: x1/mask.width, y: y1/mask.height, w: (x2-x1)/mask.width, h: (y2-y1)/mask.height };
 }
 export async function prepareEditorImageEdit(source: { id: number; entity_key: string; blob: Blob; width: number; height: number; name: string }, model: CatalogModel,
-  prompt: string, options: Record<string, string>, settings: ImageEditSettings, painted?: MaskBitmap, annotation?: AnnotationSnapshot) {
+  prompt: string, options: Record<string, string>, settings: ImageEditSettings, painted?: MaskBitmap, annotation?: AnnotationSnapshot, references: readonly ReferenceImage[] = []) {
   const snapshot = annotation?.regions.length ? structuredClone(annotation) : undefined;
   if (snapshot) {
     validateAnnotationSnapshot(snapshot);
@@ -59,23 +61,27 @@ export async function prepareEditorImageEdit(source: { id: number; entity_key: s
   if (snapshot && canMaskAnnotations(snapshot.regions)) {
     const regions = annotationMask(snapshot); mask = mask ? unionMasks(mask, regions) : regions;
   }
+  const encodedRefs = await Promise.all(references.map(async r => (await fitReference(r.blob, r.name)).blob));
+  const checkImages = (inputs: Blob[]) => { const all = [...inputs, ...encodedRefs]; if (all.some(b => b.size > MAX_INPUT_BYTES) || all.reduce((n,b) => n+b.size,0) > MAX_TOTAL_BYTES) throw new Error('参考图片超过单图 8MB 或合计 32MB 上限'); };
   const needsGuide = !!mask || !!snapshot;
   if (settings.markup && needsGuide) {
     if (!model.markupEligible) throw new Error('请选择支持原生标注的模型参考，或切回双图标注');
     const pair = await prepareAnnotationMarkup(source.blob, snapshot, painted);
-    const instructions = annotationPrompt(snapshot?.regions ?? [], 'markup', prompt, painted?.bits.some(Boolean) ? maskLocation(painted) : undefined);
-    return { request: { ...buildChatPayload(model, instructions, options, [await dataUrl(pair.input)]), markup_image: await dataUrl(pair.markup) },
+    const instructions = annotationPrompt(snapshot?.regions ?? [], 'markup', prompt, painted?.bits.some(Boolean) ? maskLocation(painted) : undefined, references);
+    checkImages([pair.input, pair.markup]);
+    return { request: { ...buildChatPayload(model, instructions, options, [await dataUrl(pair.input), ...await Promise.all(encodedRefs.map(dataUrl))]), markup_image: await dataUrl(pair.markup) },
       comparison: { sourceId: source.id, mask, edges: { ...settings.edges } } satisfies EditorComparison };
   }
   const useGuide = needsGuide && !(settings.textOnly && model.maxImages < 2);
   if (useGuide && model.maxImages < 2) throw new Error('此来源仅支持单图；请明确选择“仅方位文字”，或切换支持双图的来源');
-  const clean = await fitReference(source.blob, source.name), images = [await dataUrl(clean.blob)];
+  const clean = await fitReference(source.blob, source.name), blobs = [clean.blob];
   if (useGuide) {
     let guide = mask ? await maskGuide(source.blob, mask) : source.blob;
     if (snapshot) guide = await annotationPreview(guide, snapshot);
-    images.push(await dataUrl((await fitReference(guide, '修改区域指示图.png')).blob));
+    blobs.push((await fitReference(guide, '修改区域指示图.png')).blob);
   }
-  const instructions = annotationPrompt(snapshot?.regions ?? [], useGuide, prompt, painted?.bits.some(Boolean) ? maskLocation(painted) : undefined);
-  return { request: buildChatPayload(model, instructions, options, images),
+  const instructions = annotationPrompt(snapshot?.regions ?? [], useGuide, prompt, painted?.bits.some(Boolean) ? maskLocation(painted) : undefined, references);
+  checkImages(blobs);
+  return { request: buildChatPayload(model, instructions, options, await Promise.all([...blobs, ...encodedRefs].map(dataUrl))),
     comparison: { sourceId: source.id, mask, edges: { ...settings.edges } } satisfies EditorComparison };
 }

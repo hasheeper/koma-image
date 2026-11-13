@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import { versionCount, stagedCount } from './model.ts';
 import { computed } from 'vue';
 import { useAsk } from '../../app/ask.ts';
 import AppIcon from '../../shared/AppIcon.vue';
@@ -19,14 +20,14 @@ function open(version?: string) {
 </script>
 <template>
   <section class="recap picture-strip" :aria-label="`演进 ${value.title}，${status}`">
-    <button class="strip-head" type="button" :disabled="!ready" :aria-label="`打开演进 ${value.title}，${value.nodes.length} 版，${count} 张，${status}`" @click="open()">
+    <button class="strip-head" type="button" :disabled="!ready" :aria-label="`打开演进 ${value.title}，${versionCount(value)} 版，${count} 张，${status}`" @click="open()">
       <AppIcon name="i-branch" />
-      <span class="strip-identity"><b class="title" :title="value.title">{{ value.title }}</b><small>{{ value.nodes.length }} 版 · {{ count }} 张</small></span>
+      <span class="strip-identity"><b class="title" :title="value.title">{{ value.title }}</b><small>{{ versionCount(value) }} 版<span v-if="stagedCount(value)"> · {{ stagedCount(value) }} 待生成</span> · {{ count }} 张</small></span>
       <small v-if="ended">{{ status }}</small><i v-else class="state-dot" title="进行中" aria-hidden="true"></i>
       <AppIcon name="i-chevron" class="arrow" />
     </button>
     <div class="versions">
-      <button v-for="node in value.nodes.slice(0, 6)" :key="node.id" class="version" type="button" :disabled="!ready" :aria-label="`查看 ${node.id} ${node.label}`" @click="open(node.id)"><img :src="picture(node.cover)" alt="" /><span>{{ node.id }}</span></button>
+      <button v-for="node in value.nodes.slice(0, 6)" :key="node.id" class="version" type="button" :disabled="!ready" :aria-label="`查看 ${node.id} ${node.label}`" @click="open(node.id)"><AppIcon v-if="!node.image_ids.length" name="i-plus" /><img v-else :src="picture(node.cover)" alt="" /><span>{{ node.id }}</span></button>
       <button v-if="value.nodes.length > 6" class="more-versions" type="button" :disabled="!ready" aria-label="查看其余版本" @click="open()">+{{ value.nodes.length - 6 }}</button>
     </div>
   </section>

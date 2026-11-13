@@ -1,4 +1,5 @@
 import { checkShape } from './schema-check.ts';
+import { editReferencesSchema } from './edit-references.ts';
 import { draftSchema } from './schema.ts';
 import { editorModels, validateEditorSource } from "../../domain/media.ts";
 import { isEnhanceScale } from "../../domain/nai-enhance.ts";
@@ -23,7 +24,7 @@ export function initialEditState(p:Picture,base:DraftState):EditDraftState {
  const settings={...DEFAULTS,...readNaiSettings({...recipe,cfgRescale:recipe.cfgRescale??recipe.cfg_rescale})};
  const fields={...readNaiSettings(settings),transparentBg:recipe.transparentBg===true,prompt:String(recipe.basePrompt??recipe.prompt??''),negative_prompt:String(recipe.baseNegative??recipe.negative_prompt??recipe.negative??''),
    sampler:typeof recipe.sampler==='string'?recipe.sampler:DEFAULTS.sampler,steps:typeof recipe.steps==='number'?recipe.steps:DEFAULTS.steps,scale:typeof recipe.scale==='number'?recipe.scale:DEFAULTS.scale,seed:recipe.seed==null?'':String(recipe.seed),detail:''};
- const config:EditConfiguration={mode:'img2img',chosen,strength:{img2img:.5,inpaint:1},noise:{img2img:0,inpaint:0},focus:{on:false,rect:null},enhance:{on:false,scale:1,magnitude:3,strength:.5,noise:0},fields,characters,placement:recipe.placement==='manual'?'manual':'auto',naiReferences:readReferences(recipe.naiReferences),director:emptyDirectorSettings(),options:{},upscaleOpen:false,directorOpen:false};
+ const config:EditConfiguration={references:[],mode:'img2img',chosen,strength:{img2img:.5,inpaint:1},noise:{img2img:0,inpaint:0},focus:{on:false,rect:null},enhance:{on:false,scale:1,magnitude:3,strength:.5,noise:0},fields,characters,placement:recipe.placement==='manual'?'manual':'auto',naiReferences:readReferences(recipe.naiReferences),director:emptyDirectorSettings(),options:{},upscaleOpen:false,directorOpen:false};
  if(recipe.tool==='img2img'||recipe.tool==='inpaint')for(const key of ['strength','noise'] as const){const value=recipe[key];if(typeof value==='number'&&Number.isFinite(value)&&value>=0&&value<=1)config[key][recipe.tool]=value;}
  if(recipe.enhance===true&&isEnhanceScale(recipe.enhanceScale))config.enhance={on:true,scale:recipe.enhanceScale,magnitude:typeof recipe.enhanceMagnitude==='number'&&Number.isInteger(recipe.enhanceMagnitude)&&recipe.enhanceMagnitude>=1&&recipe.enhanceMagnitude<=5?recipe.enhanceMagnitude:null,strength:typeof recipe.strength==='number'?recipe.strength:.5,noise:typeof recipe.noise==='number'?recipe.noise:0};
  return {id:crypto.randomUUID(),name:`编辑 ${p.label}`,boardSeq:0,present:true,ready:true,baseId:1,viewId:1,maskRevision:0,source:{...p.size,bytes:p.blob.size,recordId:p.id},config,nextCharacterId:nextCharacterId(characters),models:structuredClone(models),samplers:base.edit?.samplers??base.samplers,mask:{has_mask:false,status:'ready'},blocked:'',photopeaUsed:false};
@@ -34,11 +35,14 @@ export function parseEditHandoff(input:Readonly<Record<string,unknown>>,base:Dra
  const raw=input.steps as Record<string,unknown>[],steps=raw.filter(s=>s.kind==='edit_handoff');
  if(steps.length!==1||raw.some(s=>!['edit_handoff','slate_edit'].includes(String(s.kind))))throw new Error('交接只能与任务步骤组合');
  const step=steps[0];
- checkShape(step,draftSchema.properties.steps.items.anyOf.find(s=>s.properties.kind.enum.includes('edit_handoff'))!,'编辑交接');
+ const schema=draftSchema.properties.steps.items.anyOf.find(s=>s.properties.kind.enum.includes('edit_handoff'))!;
+ checkShape(step,{...schema,properties:{...schema.properties,references:editReferencesSchema}},'编辑交接');
  const label=String(step.image??''),p=library.find(p=>p.aliases.includes(label)),origin=p?.origins.find(o=>o.label===label);
- if(!p||!origin||(!p.project&&(origin.source==='attachment'||label.startsWith('#a'))))throw new Error('交接来源不在本轮工作区或企划图片快照中');
- const existing=p.project?undefined:base.editBoards?.find(s=>s.recordIds?.includes(p.id)||s.sourceKey===`record:${p.id}`||s.id===p.params.editBoardId);
- const target=structuredClone(existing??initialEditState(p,base));
+ if(!p||!origin)throw new Error('交接来源不在本轮已读取的图片快照中');
+ const scoped=p.project||p.scope?.kind==='ask';
+ const image=handoffImage(label,base,library);
+ const existing=scoped?base.editBoards?.find(s=>s.sourceKey===`record:${image.ref}`):base.editBoards?.find(s=>s.recordIds?.includes(p.id)||s.sourceKey===`record:${p.id}`||s.id===p.params.editBoardId);
+ const target=structuredClone(existing??initialEditState(scoped?{...p,id:image.ref}:p,base));
  const params=step.params===undefined?{}:step.params;
  if(!params||typeof params!=='object'||Array.isArray(params))throw new Error('params 无效');
  const proposalSteps:Record<string,unknown>[]=[{kind:'params_patch',params:{...params,editMode:step.mode??'img2img',...(step.inpaint_kind?{inpaintKind:step.inpaint_kind}:{}),...(step.focus_rect?{focusRect:step.focus_rect}:{})}}];
@@ -46,8 +50,9 @@ export function parseEditHandoff(input:Readonly<Record<string,unknown>>,base:Dra
  if(step.director_tool)proposalSteps.push({...step.director_tool as object,kind:'director_patch'});
  proposalSteps.push(...raw.filter(s=>s.kind==='slate_edit'));
  const fakeBase={...base,workspace:'edit' as const,edit:target};
+ if(step.references!==undefined)proposalSteps.push({kind:'edit_references',references:step.references});
  const proposal=parseDraft({...input,base_hash:editStateHash(target),steps:proposalSteps},fakeBase,library,question);
- const image=p.project?handoffImage(label,base,library):{label,source:origin.source as 'history'|'favorites'|'chat'|'edit',ref:origin.source==='chat'?p.scope?.asset_id??p.id:p.id,binding:p.bindings?.[label]};
+
  const handoff:EditHandoff={image,target,created:!existing,proposal,params:structuredClone(p.params),origin:origin.source==='chat'?'chat':origin.source==='edit'?'edit':'image'};
  return {...proposal,target:undefined,base:structuredClone(base),baseHash:stateHash(base),editHandoff:handoff};
 }

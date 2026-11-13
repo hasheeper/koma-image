@@ -2,7 +2,7 @@
 import { onBeforeUnmount, onMounted, useTemplateRef } from 'vue';
 import AppIcon from '../../shared/AppIcon.vue';
 
-defineProps<{ scene: 'graph' | 'image'; detailOpened: boolean; detailId: string; askOpened: boolean; askDisabled: boolean }>();
+defineProps<{ scene: 'graph' | 'image'; imageDisabled?: boolean; detailOpened: boolean; detailId: string; askOpened: boolean; askDisabled: boolean }>();
 defineEmits<{ scene: [value: 'graph' | 'image']; detail: []; ask: [] }>();
 const dock = useTemplateRef<HTMLElement>('dock'), recipe = useTemplateRef<HTMLButtonElement>('recipe');
 let observer: ResizeObserver | undefined, stage: HTMLElement | null = null;
@@ -21,7 +21,7 @@ defineExpose({ focusRecipe() { recipe.value?.focus({ preventScroll: true }); } }
   <div ref="dock" class="editor-toolbar stage-dock" :data-scene="scene" role="toolbar" aria-label="演进工具">
     <div class="editor-tool-controls stage-dock-controls">
       <div class="editor-tool-capsule">
-        <button class="editor-tool stage-view-toggle" type="button" :aria-label="scene === 'graph' ? '大图' : '演进图'" :data-tip="scene === 'graph' ? '查看大图' : '返回演进图'" @click="$emit('scene', scene === 'graph' ? 'image' : 'graph')"><AppIcon :name="scene === 'graph' ? 'i-upscale' : 'i-branch'" />{{ scene === 'graph' ? '大图' : '演进图' }}</button>
+        <button class="editor-tool stage-view-toggle" type="button" :disabled="scene === 'graph' && imageDisabled" :aria-label="scene === 'graph' ? '大图' : '演进图'" :data-tip="scene === 'graph' ? '查看大图' : '返回演进图'" @click="$emit('scene', scene === 'graph' ? 'image' : 'graph')"><AppIcon :name="scene === 'graph' ? 'i-upscale' : 'i-branch'" />{{ scene === 'graph' ? '大图' : '演进图' }}</button>
       </div>
       <div class="stage-context-controls"><slot /></div>
       <div class="editor-tool-capsule">

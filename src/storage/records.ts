@@ -20,6 +20,7 @@ export type MessageBlock =
   | { type: "image"; assetId: string }
   | { type: "text"; text: string };
 export interface ChatAnnotation {
+  referenceAssets?: {id:string;assetId:string}[];
   snapshot: AnnotationSnapshot;
   sourceAssetId: string;
   inputAssetId: string;
@@ -89,6 +90,7 @@ export interface AssetRecord {
   blob: Blob;
 }
 export interface HandoffRecord {
+  source?: { recordId: string; entityKey?: string };
   blob: Blob;
   name: string;
   at: number;
@@ -96,7 +98,7 @@ export interface HandoffRecord {
 export const HANDOFF_MAX_AGE = 30 * 60 * 1000;
 export function assetRefs(conversations: ConversationRecord[]): Set<string> {
   const refs = new Set<string>();
-  const annotation = (a?: ChatAnnotation) => { if(a) for(const id of [a.sourceAssetId,a.inputAssetId,a.guideAssetId, ...(a.markup ? [a.markup.inputAssetId,a.markup.overlayAssetId] : [])]) refs.add(id); };
+  const annotation = (a?: ChatAnnotation) => { if(a) for(const id of [a.sourceAssetId,a.inputAssetId,a.guideAssetId,...a.referenceAssets?.map(r=>r.assetId)??[], ...(a.markup ? [a.markup.inputAssetId,a.markup.overlayAssetId] : [])]) refs.add(id); };
   for (const c of conversations) {
     annotation(c.pendingAnnotation);
     for (const id of [c.mainId, ...c.attachments, ...c.keepIds])

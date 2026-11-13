@@ -69,8 +69,8 @@ function change(
       </div>
       <div class="s-row">
         <div>
-          <b><label for="historyLimit">绘图历史</label></b>
-          <p>刷新后清空</p>
+          <b><label for="historyLimit">最近原图</label></b>
+          <p>更早历史保留缩略图和配方，演进／收藏引用保留原图；刷新后历史清空</p>
         </div>
         <div class="s-ctl">
           <div class="fld-inline history-limit" title="填 0 不限数量">
@@ -81,7 +81,7 @@ function change(
               step="1"
               inputmode="numeric"
               :value="form.historyLimit"
-              aria-label="历史保留张数，0 为不限"
+              aria-label="最近原图保留张数，0 为不限"
               @change="change('historyLimit', $event)"
               @keydown.enter.prevent="($event.target as HTMLInputElement).blur()"
             />

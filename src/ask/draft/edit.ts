@@ -1,3 +1,5 @@
+import { parseEditReferences } from './edit-references.ts';
+import { idPattern } from '../ids.ts';
 import { checkEditConfiguration } from "./edit-configuration.ts";
 import { isEmptyInsertion } from './text.ts';
 import { editSourceKey, patchEditOptions } from './edit-options.ts';
@@ -52,6 +54,7 @@ export function parseEditDraft(input:Readonly<Record<string,unknown>>,base:Draft
  const extras:Draft['steps'][number][]=[], common:Record<string,unknown>[]=[], sourceSteps:number[]=[];
  for(const [index,raw] of input.steps.entries()) {
    const step=obj(raw);
+   if(step.kind==='edit_references'){if(extras.some(s=>s.kind==='edit_references'))throw new Error('同稿只需一份完整参考图列表');extras.push(parseEditReferences(step,base,library));continue;}
    if(step.kind==='director_patch'){extras.push(parseDirector(step));continue;}
    if(step.kind==='params_patch') {
      const params=obj(step.params),regular:Record<string,unknown>={},extra:Record<string,unknown>={};
@@ -66,6 +69,19 @@ export function parseEditDraft(input:Readonly<Record<string,unknown>>,base:Draft
    } else throw new Error('此步骤不能与 EDIT 页内草稿组合');
    while(sourceSteps.length<common.length)sourceSteps.push(index+1);
  }
+ // Only rewrite newly proposed text; anchors still match the original form verbatim.
+ // Stable R labels are translated to physical input positions when a request is built.
+ const referenceStep=extras.find(step=>step.kind==='edit_references');
+ const labels=new Map<string,string>();
+ for(const ref of referenceStep?.items??[]) {
+   labels.set(ref.image.label,ref.reference.label);
+   for(const alias of library.find(p=>p.aliases.includes(ref.image.label))?.aliases??[])labels.set(alias,ref.reference.label);
+ }
+ if(!referenceStep)for(const ref of s.config.references??[])for(const alias of library.find(p=>p.id===ref.id)?.aliases??[])labels.set(alias,ref.label);
+ const source=library.find(p=>p.id===s.source?.recordId||`${p.scope?.id}/${p.id}`===s.source?.recordId);
+ for(const alias of source?.aliases??[])labels.set(alias,'底图');
+ if(s.sourceTag)labels.set(s.sourceTag,'底图');
+ for(const step of common)if(step.kind==='prompt_patch'&&typeof step.text==='string')step.text=step.text.replace(idPattern,label=>labels.get(label)??label);
  const inner=adapted(base,s),synthetic=!common.length;
  const parsed=parseDraft({...input,base_hash:stateHash(inner),steps:common.length?common:[{kind:'prompt_patch',target:'image.prompt',mode:'rewrite',text:inner.form.prompt}]},inner,library,question);
  return {...parsed,target:'edit',base:structuredClone(base),baseHash:stateHash(base),synthetic,steps:[...parsed.steps.map((step,i)=>step.kind==='prompt_patch'?{...step,sourceStep:sourceSteps[i]}:step),...extras]};
@@ -112,8 +128,8 @@ export function validateEditDraft(draft:Draft,now:DraftState,options:ValidateOpt
  let issue=!live?.present?'编辑画板已关闭':live.blocked;
  const s=live??base;let after=structuredClone(s.config);
  if(s.baseId!==base.baseId)issue ||= '底图已变化，请重新提议';
- const extras=draft.steps.filter(step=>step.kind==='edit_config'||step.kind==='director_patch');
- const common=[...draft.steps.filter(step=>step.kind!=='edit_config'&&step.kind!=='director_patch')];
+ const extras=draft.steps.filter(step=>step.kind==='edit_config'||step.kind==='director_patch'||step.kind==='edit_references');
+ const common=[...draft.steps.filter(step=>step.kind!=='edit_config'&&step.kind!=='director_patch'&&step.kind!=='edit_references')];
  const extraRows:CheckedStep[]=[];
  try {
    const merged=Object.assign({},...extras.flatMap(step=>step.kind==='edit_config'?[step.params]:[]));
@@ -128,14 +144,22 @@ export function validateEditDraft(draft:Draft,now:DraftState,options:ValidateOpt
    if(merged.effort&&!model)common.push({kind:'params_patch',params:{model:after.chosen[after.mode]}});
    if(canonical(s.config)!==canonical(base.config)&&extras.length)throw new Error('编辑配置已变化，请重新提议');
    for(const [i,step] of extras.entries()){
-     if(step.kind==='director_patch'){
+
+   if(step.kind==='director_patch'){
        if(!s.models.some(m=>m.profileId==='nai-official-v1'&&m.tools.includes('director')))throw new Error('Director Tools 没有可用来源');
        after.director.tool=step.tool as typeof after.director.tool;after.directorOpen=true;after.upscaleOpen=false;
        if(step.tool==='emotion'||step.tool==='colorize')Object.assign(after.director[step.tool],{...(step.prompt!==undefined?{prompt:step.prompt}:{}),...(step.defry!==undefined?{defry:step.defry}:{}),...(step.emotion!==undefined?{emotion:step.emotion}:{})});
      }
      const add=(label:string,before:string,after:string)=>extraRows.push({id:`edit:${i}:${extraRows.length}`,kind:'parameter',label,locked:true,enabled:true,issue:'',aligned:false,before,after});
      const mode=(c:EditConfiguration)=>c.upscaleOpen?'放大':c.mode==='inpaint'?c.focus.on&&!isGenerativeEditorModel(s.models.find(m=>m.id===c.chosen[c.mode]))?'聚焦重绘':'重绘':'图生图';
-     if(step.kind==='director_patch')add('Director Tools',directorName(s.config.director.tool),[directorName(step.tool as typeof after.director.tool),step.emotion,step.defry===undefined?'':`强度 ${step.defry}`,step.prompt].filter(Boolean).join(' · '));
+
+   if(step.kind==='director_patch')add('Director Tools',directorName(s.config.director.tool),[directorName(step.tool as typeof after.director.tool),step.emotion,step.defry===undefined?'':`强度 ${step.defry}`,step.prompt].filter(Boolean).join(' · '));
+     else if(step.kind==='edit_references') {
+       if (step.items.some(item=>options.has?.(item.image)===false)) throw new Error('参考原图已失效，请重新提议');
+       after.references=step.items.map(item=>({...item.reference}));
+       const describe=(refs:NonNullable<EditConfiguration['references']>)=>refs.map(r=>`${r.label} · ${r.name}${r.usage ? `：${r.usage}` : ''}`).join('\n')||'无';
+       add('参考图',describe(s.config.references??[]),describe(after.references));
+     }
      else {
        const p=step.params;
        if(p.image_options!==undefined) {
@@ -188,6 +212,6 @@ export function validateEditDraft(draft:Draft,now:DraftState,options:ValidateOpt
    const original=JSON.parse(file.text),doc=recipeDocument({id:s.id,name:s.name,color:'',nextCharacterId:s.nextCharacterId,form:boardForm(finalForm)},finalForm,original.exported_at);
    return {...file,text:doc.formats.json!,summary:`编辑画板 · ${s.name} · ${finalForm.model} · ${finalForm.width} × ${finalForm.height}`};
  });
- const plan={...generic,...(slate?{slate}:{}),...(files?{files}:{}),boardId:undefined,boardName:s.name,editSourceTag:s.sourceTag,workspace:'edit' as const,steps,changes:[],edit,aligned:generic.aligned||!!issue};
+ const plan={...generic,...(slate?{slate}:{}),...(files?{files}:{}),boardId:undefined,boardName:s.name,editSourceTag:s.sourceTag,workspace:'edit' as const,steps,changes:[],edit,editReferences:extras.find(step=>step.kind==='edit_references')?.items,aligned:generic.aligned||!!issue};
  return {...plan,fingerprint:hash(canonical(plan))};
 }

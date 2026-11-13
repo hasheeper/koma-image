@@ -20,6 +20,8 @@ export interface AskSettings {
   model: string;
   /** Absent means use the current ASK connection and model. */
   naming?: { connectionId: string; model: string };
+  /** Each new conversation gets one attempt; manual titles are preserved. */
+  autoNaming: boolean;
   /** IDs picked per reasoning connection, in the order picked; the composer switches among them. */
   models: Record<string, string[]>;
   images: boolean;
@@ -39,6 +41,7 @@ export const defaultAskSettings = (): AskSettings => ({
   version: 1,
   connectionId: "",
   model: "",
+  autoNaming: false,
   models: {},
   images: true,
   responseMode: "text",
@@ -83,6 +86,7 @@ export function readAskSettings(value: unknown): AskSettings {
     out.connectionId = v.connectionId;
   if (typeof v.model === "string") out.model = modelId(v.model);
   const naming = object(v.naming);
+  out.autoNaming = v.autoNaming === true;
   if (connectionKey(naming.connectionId))
     out.naming = { connectionId: naming.connectionId, model: typeof naming.model === "string" ? modelId(naming.model) : "" };
   for (const [id, list] of Object.entries(object(v.models))) {

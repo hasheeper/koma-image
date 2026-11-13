@@ -343,28 +343,39 @@ function refResponse(protocol, name, input={}, prose='资料已整理成备忘�
 }
 test(`B2 openai-chat-v1: metadata-only initial state, text/image tool reads, frozen contents, saved attachments and explicit memo export`,async()=>{
   const protocol = "openai-chat-v1";
+  let finish;const finalReply=new Promise(resolve=>finish=resolve);
   const calls=[];let script=[['read_ref',{path:'brief.md'}],['read_ref',{path:'palette.png'}],[null,{}]];
-  const {page,context,errors}=await setup({llm:true,protocol,respond(body){calls.push(body);const [name,input]=script.shift()??[null,{}];return refResponse(protocol,name,input)}});
+  const {page,context,errors}=await setup({llm:true,protocol,async respond(body){calls.push(body);const [name,input]=script.shift()??[null,{}];if(!name)await finalReply;return refResponse(protocol,name,input)}});
   try {
     await page.evaluate(async()=>{
       await directoryFile('refs/brief.md','B2_ORIGINAL_BODY');
       const canvas=new OffscreenCanvas(120,80);canvas.getContext('2d').fillRect(0,0,120,80);await directoryFile('refs/palette.png',await canvas.convertToBlob({type:'image/png'}));
-      await directoryFile('assets/do-not-read.md','PRIVATE_ASSET');await bridge.mount();await ask.setImages(true);ask.show();ask.setInput('请查看 brief.md 和 palette.png');void ask.send();
+      await directoryFile('assets/do-not-read.md','PRIVATE_ASSET');await bridge.mount();await ask.setImages(true);ask.show();
+      await ask.addFiles([new File(['用户补充原文'],'user-notes.txt',{type:'text/plain'})]);ask.setInput('请查看 brief.md 和 palette.png');void ask.send();
     });
+    await page.waitForFunction(()=>ask.live.value?.attachments.length===3);
+    assert.deepEqual(await page.locator('.ask-sent-att .ask-att-name').allTextContents(),['user-notes.txt'],'tool reads must not be presented as user uploads while streaming');
+    assert.equal(await page.locator('.ask-sent-img').count(),0);
+    assert.equal(await page.locator('.ask-tray').count(),0,'tool reads do not enter the pending input');
+    finish();
     await page.waitForFunction(()=>!ask.running.value&&ask.entries.value.some(e=>e.type==='turn'));
     assert.equal(await page.evaluate(()=>ask.entries.value.find(e=>e.type==='turn').turn.status),'done');assert.equal(calls.length,3);
     const initial=JSON.stringify(calls[0].messages);assert.match(initial,/refs_index/);assert.match(initial,/brief.md/);assert.doesNotMatch(initial,/B2_ORIGINAL_BODY|PRIVATE_ASSET/);
     const refs=await page.evaluate(async()=>JSON.parse(await directoryFile('state.live.json')).refs_index);assert.deepEqual(refs.lore.map(f=>f.path),['refs/brief.md']);assert.deepEqual(refs.references.map(f=>f.path),['refs/palette.png']);
     assert.match(JSON.stringify(calls[1].messages),/B2_ORIGINAL_BODY/);assert.match(JSON.stringify(calls[2].messages),/data:image\/webp;base64/);
-    const captured=await page.evaluate(()=>ask.entries.value.find(e=>e.type==='turn').turn.attachments);assert.equal(captured.length,2);assert.ok(captured.every(a=>a.toolRead&&a.origin.version));
+    const captured=await page.evaluate(()=>ask.entries.value.find(e=>e.type==='turn').turn.attachments);assert.equal(captured.length,3);assert.equal(captured.filter(a=>a.toolRead&&a.origin.version).length,2);
+    assert.deepEqual(await page.locator('.ask-sent-att .ask-att-name').allTextContents(),['user-notes.txt']);
+    assert.match(await page.locator('.ask-tools-summary').textContent(),/refs\/brief\.md|brief\.md/,'tool activity remains visible');
     await page.evaluate(async()=>{await directoryFile('refs/brief.md','B2_REPLACED_BODY');await ask.toggleFavorite();await ask.flushFavorites();await bridge.unmount();});
     await page.reload();await bind(page);await page.evaluate(()=>ask.show());
-    assert.equal(await page.evaluate(()=>ask.attachmentText(ask.entries.value.find(e=>e.type==='turn').turn.attachments.find(a=>a.kind==='text').id)),'B2_ORIGINAL_BODY');
+    assert.equal(await page.evaluate(()=>ask.attachmentText(ask.entries.value.find(e=>e.type==='turn').turn.attachments.find(a=>a.toolRead&&a.kind==='text').id)),'B2_ORIGINAL_BODY');
     assert.equal(await page.evaluate(()=>ask.entries.value.find(e=>e.type==='turn').turn.attachments.find(a=>a.kind==='image').origin.path),'refs/palette.png');
+    assert.deepEqual(await page.locator('.ask-sent-att .ask-att-name').allTextContents(),['user-notes.txt'],'favorite restore preserves attachment provenance');
+    assert.equal(await page.locator('.ask-sent-img').count(),0);
     await page.getByRole('button',{name:'保存为备忘录',exact:true}).click();await page.locator('#askFullDraft .draft-toggle').click();await page.getByRole('button',{name:'创作备忘录 · 保存详情',exact:true}).click();assert.match(await page.locator('.file-prose').textContent(),/资料已整理成备忘录。/);
     const download=page.waitForEvent('download');await apply(page);const file=await download;assert.equal(await readFile(await file.path(),'utf8'),'资料已整理成备忘录。');
     assert.equal(calls.length,3,'export does not invoke inference');assert.deepEqual(errors,[]);
-  } finally {await context.close();}
+  } finally {finish();await context.close();}
 });
 
 test(`B2 openai-chat-v1: save_ref tool creates a reviewable file draft and writes only after confirmation`,async()=>{
@@ -455,6 +466,7 @@ test('B2 explicit retry re-reads a new file version without turning tool content
     await page.evaluate(async()=>{await directoryFile('refs/retry.md','FIRST_VERSION');await bridge.mount();ask.show();ask.setInput('看一下 retry.md');void ask.send()});
     await page.waitForFunction(()=>!ask.running.value&&ask.entries.value.some(e=>e.type==='turn'));
     const failed=await page.evaluate(()=>ask.entries.value.find(e=>e.type==='turn').turn);assert.equal(failed.status,'failed');assert.equal(failed.attachments.length,1);assert.equal(failed.attachments[0].toolRead,true);
+    assert.equal(await page.locator('.ask-sent-att').count(),0,'a tool-only turn has no user attachment row');
     await page.evaluate(async id=>{await directoryFile('refs/retry.md','SECOND_VERSION');ask.retry(id,'plain')},failed.id);
     await page.waitForFunction(()=>!ask.running.value&&ask.entries.value.some(e=>e.type==='turn'&&e.turn.status==='done'));
     assert.equal(calls.length,4);assert.doesNotMatch(JSON.stringify(calls[2].messages),/FIRST_VERSION|SECOND_VERSION/);assert.match(JSON.stringify(calls[3].messages),/SECOND_VERSION/);
@@ -462,6 +474,7 @@ test('B2 explicit retry re-reads a new file version without turning tool content
     assert.equal(await page.evaluate(id=>ask.attachmentText(id),failed.attachments[0].id),null,'replaced failed tool attachment is released');
     assert.equal(await page.evaluate(()=>ask.editTurn(ask.entries.value.find(e=>e.type==='turn').id,'')),false,'tool-only attachments do not authorize an empty edited question');
     await page.locator('.ask-turn .ask-u').hover();await page.getByRole('button',{name:'编辑提问',exact:true}).click();await page.getByRole('textbox',{name:'编辑提问',exact:true}).fill('');
+    assert.equal(await page.locator('.ask-sent-att').count(),0,'editing does not reclassify tool reads as user uploads');
     assert.equal(await page.getByRole('button',{name:'重新回答',exact:true}).isDisabled(),true);assert.equal(calls.length,4);
     assert.deepEqual(errors,[]);
   } finally {await context.close();}

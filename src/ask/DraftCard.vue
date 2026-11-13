@@ -35,7 +35,8 @@ const destinations = [
   { newBoard: true, label: "应用到新画板" },
 ];
 const applyTitle = computed(() => plan.value?.workspace === "edit" ? "写入编辑画板，不会生成 · Tab" : plan.value?.slate && !plan.value.changes.length && !plan.value.newBoardName ? "写入任务板，不会生成 · Tab" : plan.value?.newBoardName ? `新建画板「${plan.value.newBoardName}」并应用，不会生成 · Tab`
-  : view.value?.destination ? "新开对话写入参考图、画幅和输入框，不会发送 · Tab"
+  : plan.value?.handoff?.current ? "更新当前对话的底图、参考图和输入框，不会发送 · Tab"
+  : view.value?.destination ? "新开对话写入底图、参考图、画幅和输入框，不会发送 · Tab"
   : `${plan.value?.workspace === 'image' ? '写入来源画板，不会生成' : '写入输入框，不会发送'} · Tab`);
 const applyIcon = computed(() => plan.value?.newBoardName ? "i-copy" : view.value?.destination ? "i-compose" : "i-check");
 /** Thumbnail and size of a handoff image; null once it left history, favorites or CHAT. */

@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import { isStaged } from './model.ts';
 import type { RetrospectNode } from './model.ts';
 import type { ReviewPicture } from './view.ts';
 import AppIcon from '../../shared/AppIcon.vue';
@@ -12,8 +13,8 @@ const ratio = computed(() => {
 </script>
 <template>
   <span class="identity" :class="{ stacked, compact, hero, titled: !!$slots.default }" :title="brief && sample ? `${node?.id ?? '—'} · ${sample.id}` : undefined">
-    <span class="thumb" :style="{ '--thumb-ratio': ratio }"><img v-if="sample?.url" :src="sample.url" alt="" /><AppIcon v-else name="i-branch" /><span v-if="mark">{{ mark }}</span></span>
-    <span class="meta"><span class="meta-line"><strong>{{ node?.id ?? '—' }}</strong><span v-if="$slots.default" class="meta-title"><slot /></span><small v-if="sample" :class="{ 'sr-only': brief }">{{ sample.id }}</small></span><span v-if="description" class="meta-description" :title="description">{{ description }}</span></span>
+    <span class="thumb" :class="{ 'preset-thumb': node && isStaged(node) }" :style="{ '--thumb-ratio': ratio }"><img v-if="sample?.url" :src="sample.url" alt="" /><AppIcon v-else :name="node && isStaged(node) ? 'i-file' : 'i-branch'" /><span v-if="mark">{{ mark }}</span></span>
+    <span class="meta"><span class="meta-line"><strong>{{ node?.id ?? '—' }}</strong><span v-if="$slots.default" class="meta-title"><slot /></span><small v-if="node && isStaged(node) && !hero">预设</small><small v-else-if="sample && !(node && isStaged(node))" :class="{ 'sr-only': brief }">{{ sample.id }}</small></span><span v-if="description" class="meta-description" :title="description">{{ description }}</span></span>
   </span>
 </template>
 <style scoped>
@@ -22,6 +23,7 @@ const ratio = computed(() => {
 .thumb img { display: block; width: 100%; height: 100%; object-fit: contain; }
 .thumb > span { position: absolute; left: 1px; top: 1px; padding: 0 2px; border-radius: var(--r1); background: color-mix(in srgb, var(--chrome) 80%, transparent); color: var(--a); font: var(--fz-2xs)/1.2 var(--mono); }
 .thumb > .ico { --ico: var(--ico-sm); color: var(--fg-3); }
+.thumb.preset-thumb { background: var(--raised); border: 1px dashed var(--line-2); }
 .meta { display: flex; align-items: baseline; gap: 6px; overflow: hidden; min-width: 0; }
 .meta strong { flex: none; font: var(--fw-semibold) var(--fz-md)/1.3 var(--mono); }
 .meta small { color: var(--fg-3); font: var(--fz-xs)/1.3 var(--mono); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }

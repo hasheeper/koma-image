@@ -22,13 +22,13 @@ async function bind(page){await page.waitForFunction(()=>!!document.body.__vue_a
 async function send(page,target){await page.locator('#editorSend').click();await page.getByRole('menuitem',{name:target==='ask'?/^问 ASK/:target==='new'?'CHAT 改图 · 新对话':/^CHAT 改图 · 来源对话 /}).click();}
 async function sendItems(page){await page.locator('#editorSend').click();const items=await page.locator('#editorSendMenu [role=menuitem]').evaluateAll(n=>n.map(e=>e.getAttribute('aria-label')||e.textContent.trim()));await page.keyboard.press('Escape');return items;}
 async function addPoint(page,text,x=.5){const b=await page.locator('#editorStage').boundingBox();await page.mouse.click(b.x+b.width*x,b.y+b.height*.5);const c=page.getByPlaceholder('添加批注…');await c.fill(text);await c.press('Enter');}
-async function setup(outputSize = [128, 128]){
+async function setup(outputSize = [128, 128], maxContextImages = 3){
  const context=await browser.newContext({viewport:{width:1280,height:900},reducedMotion:'reduce'}),page=await context.newPage(),errors=[],posts=[];
  page.on('pageerror',e=>errors.push(e.message));page.setDefaultTimeout(12000);
  await page.goto('about:blank');
  const output=await page.evaluate(([w,h])=>{const c=document.createElement('canvas');c.width=w;c.height=h;const g=c.getContext('2d');g.fillStyle='#2580ec';g.fillRect(0,0,w,h);return c.toDataURL().split(',')[1];},outputSize);
  await context.addInitScript(()=>{if(!location.protocol.startsWith('http')||localStorage.getItem('koma.routing.v1'))return;localStorage.setItem('koma.routing.v1',JSON.stringify({version:1,connections:{test:{id:'test',name:'Synthetic',baseUrl:'https://gateway.example.test',profileId:'koma-standard-v1',credentialRef:'key',revision:'one'}},links:{}}));sessionStorage.setItem('koma.session.keys',JSON.stringify({key:'synthetic-only-key'}));});
- await context.route('**/*',route=>{const u=new URL(route.request().url());if(u.origin===origin)return route.continue();if(u.hostname!=='gateway.example.test')return route.abort();if(u.pathname.endsWith('/image/models'))return route.fulfill({json:catalog});if(u.pathname.endsWith('/media/quota'))return route.fulfill({json:{credits:{remaining:1000}}});if(u.pathname.endsWith('/estimate'))return route.fulfill({json:{cost:0}});if(u.pathname.endsWith('/token_stats_data'))return route.fulfill({json:{temp_limits:{is_temp:false}}});posts.push(route.request().postDataJSON());return route.fulfill({json:{data:[{b64_json:output}]}});});
+ await context.route('**/*',route=>{const u=new URL(route.request().url());if(u.origin===origin)return route.continue();if(u.hostname!=='gateway.example.test')return route.abort();if(u.pathname.endsWith('/image/models'))return route.fulfill({json:{...catalog,studio_features:{...catalog.studio_features,max_context_images:maxContextImages}}});if(u.pathname.endsWith('/media/quota'))return route.fulfill({json:{credits:{remaining:1000}}});if(u.pathname.endsWith('/estimate'))return route.fulfill({json:{cost:0}});if(u.pathname.endsWith('/token_stats_data'))return route.fulfill({json:{temp_limits:{is_temp:false}}});posts.push(route.request().postDataJSON());return route.fulfill({json:{data:[{b64_json:output}]}});});
  await page.goto(origin+'/#/chat');await page.waitForFunction(()=>!!document.body.__vue_app__?._instance);await bind(page);await page.waitForFunction(()=>chat.snapshot().ready);await page.evaluate(()=>chat.setModel('gpt-image-2'));
  return {context,page,posts,errors};
 }
@@ -198,7 +198,7 @@ test('CHAT-origin EDIT boards return to their own conversation from every entry 
   assert.equal(await t.page.evaluate(()=>annotations.active.value.target.chat.turnId),source.turn);
   await addPoint(t.page,'first',.3);
   // Leaving and re-entering annotation, then switching CHAT elsewhere, keeps the destination.
-  await t.page.getByRole('button',{name:'退出批注',exact:true}).click();await t.page.locator('#editorStage .annotation-svg').waitFor({state:'hidden'});
+  await t.page.getByRole('button',{name:'完成批注',exact:true}).click();await t.page.locator('#editorStage .annotation-svg').waitFor({state:'hidden'});
   await t.page.locator('#editorAnnotate').click();await t.page.locator('#editorStage .annotation-svg').waitFor();
   await addPoint(t.page,'second',.7);
   await t.page.evaluate(()=>{chat.addConversation();chat.setPrompt('other draft');});
@@ -510,7 +510,7 @@ test('EDIT selects on its own canvas and hands off without changing inpaint',asy
   const regions=await t.page.evaluate(()=>structuredClone(annotations.active.value.snapshot.regions));assert.equal(regions.length,1);assert.ok(Math.abs(regions[0].bbox.w-.25)<.01);
   await t.page.locator('#editorViewport').press('+');
   assert.deepEqual(await t.page.evaluate(()=>annotations.active.value.snapshot.regions),regions);
-  await t.page.getByRole('button',{name:'退出批注',exact:true}).click();await t.page.locator('#editorStage .annotation-svg').waitFor({state:'hidden'});
+  await t.page.getByRole('button',{name:'完成批注',exact:true}).click();await t.page.locator('#editorStage .annotation-svg').waitFor({state:'hidden'});
   await t.page.getByRole('button',{name:'选择批注方式',exact:true}).click();await t.page.getByRole('menuitemradio',{name:'椭圆选区',exact:true}).click();
   await t.page.locator('#editorStage .annotation-svg').waitFor();assert.deepEqual(await t.page.evaluate(()=>annotations.active.value.snapshot.regions),regions);
   await send(t.page,'ask');await t.page.waitForFunction(()=>!annotations.active.value);
@@ -668,4 +668,207 @@ test('EDIT submits an open comment once, re-estimates it, and keeps the result o
   assert.equal(await t.page.evaluate(()=>editor.session.versions.length),2);assert.equal(await t.page.evaluate(()=>!!editor.snapshot().viewed.comparison.mask),true);
   assert.deepEqual(t.errors,[]);
  }finally{gate.resolve();await t.context.close();}
+});
+
+
+test('EDIT annotation upload links its reference and the input area only lists it without changing the base',async()=>{
+ const t=await setup();try {
+  const base=await t.page.evaluate(async()=>{await editor.open('image',await makeImage(256,256),'base.png');editor.setModel('gpt-image-2');editor.patch({prompt:'replace badge'});return editor.session.baseId;});
+  const bytes=await t.page.evaluate(async()=>[...new Uint8Array(await (await makeImage(128,96,'#22bbaa')).arrayBuffer())]);
+  await t.page.evaluate(async()=>{const v=editor.snapshot().viewed;await annotations.open({blob:v.blob,name:v.name,recordId:v.recordId,workspace:'edit',inline:true,edit:{boardId:editor.session.id,versionId:v.id}});});
+  const bounds=await t.page.locator('#editorStage').boundingBox();await t.page.mouse.click(bounds.x+bounds.width*.5,bounds.y+bounds.height*.5);
+  await t.page.getByPlaceholder('添加批注…').fill('替换徽章');
+  await t.page.getByRole('button',{name:'批注参考图',exact:true}).click();
+  const choose=t.page.waitForEvent('filechooser');await t.page.getByRole('menuitem',{name:'上传参考图',exact:false}).click();
+  await (await choose).setFiles({name:'badge.png',mimeType:'image/png',buffer:Buffer.from(bytes)});
+  await t.page.getByRole('button',{name:'查看参考图 R1',exact:true}).waitFor();
+  assert.equal(await t.page.evaluate(()=>editor.session.baseId),base);
+  assert.equal(await t.page.getByRole('menuitemcheckbox',{name:'批注参考 R1'}).getAttribute('aria-checked'),'true');
+  await t.page.getByRole('menuitemcheckbox',{name:'批注参考 R1'}).press('Escape');
+  assert.equal(await t.page.getByRole('menu',{name:'批注参考图'}).count(),0);
+  assert.match(await t.page.getByRole('button',{name:'批注参考图',exact:true}).getAttribute('title'),/已关联 R1/);
+  assert.equal(await t.page.getByPlaceholder('添加批注…').inputValue(),'替换徽章');
+  await t.page.getByRole('button',{name:'完成',exact:true}).click();
+  assert.equal(await t.page.locator('#editorImagePromptBox input[type=file]').count(),0);
+  assert.equal(await t.page.getByRole('button',{name:'添加参考图',exact:true}).count(),0);
+  await t.page.getByRole('button',{name:'查看参考图 R1',exact:true}).click();await t.page.getByLabel('参考图用途').fill('只参考徽章');await t.page.getByLabel('参考图用途').press('Tab');await t.page.getByRole('button',{name:'关闭参考图'}).click();
+  assert.equal(await t.page.evaluate(()=>editor.session.references[0].usage),'只参考徽章');
+  const frozen=await t.page.evaluate(()=>({ref:editor.session.references[0].id,regions:annotations.active.value.snapshot.regions}));assert.deepEqual(frozen.regions[0].referenceIds,[frozen.ref]);
+  await t.page.evaluate(()=>editor.run());
+  assert.equal(t.posts.length,1);assert.equal(t.posts[0].additional_images.length,2);assert.match(t.posts[0].prompt,/R1 = 第 3 张图：只参考徽章/);assert.match(t.posts[0].prompt,/批注 1 参考：R1/);
+  const recorded=await t.page.evaluate(()=>{const v=editor.snapshot().viewed;editor.setReferences([]);return {input:v.params.evolutionInput,config:v.configuration.references,kept:!!editor.record(v.configuration.references[0].id)};});
+  assert.equal(recorded.input.references[0].id,frozen.ref);assert.equal(recorded.kept,true);assert.equal(recorded.config[0].usage,'只参考徽章');assert.deepEqual(t.errors,[]);
+ }finally{await t.context.close();}
+});
+
+test('EDIT annotations accept dropped and pasted references while the input area remains a reference list',async()=>{
+ const t=await setup([128,128],4);try {
+  const base=await t.page.evaluate(async()=>{await editor.open('image',await makeImage(256,256),'base.png');editor.setModel('gpt-image-2');editor.patch({prompt:'keep this instruction'});return editor.session.baseId;});
+  await t.page.evaluate(async()=>{const v=editor.snapshot().viewed;await annotations.open({blob:v.blob,name:v.name,recordId:v.recordId,workspace:'edit',inline:true,edit:{boardId:editor.session.id,versionId:v.id}});});
+  const bounds=await t.page.locator('#editorStage').boundingBox();await t.page.mouse.click(bounds.x+bounds.width*.5,bounds.y+bounds.height*.5);
+  await t.page.getByPlaceholder('添加批注…').fill('替换领口');
+  await t.page.evaluate(async()=>{
+   const data=new DataTransfer();data.items.add(new File([await makeImage(80,90,'#22bbaa')],'drop.png',{type:'image/png'}));
+   const root=document.querySelector('#imageEditor'),prompt=document.querySelector('.annotation-comment textarea');
+   root.dispatchEvent(new DragEvent('dragenter',{bubbles:true,dataTransfer:data}));
+   prompt.dispatchEvent(new DragEvent('dragenter',{bubbles:true,dataTransfer:data}));
+   prompt.dispatchEvent(new DragEvent('dragover',{bubbles:true,cancelable:true,dataTransfer:data}));
+   prompt.dispatchEvent(new DragEvent('drop',{bubbles:true,cancelable:true,dataTransfer:data}));
+  });
+  await t.page.getByRole('button',{name:'查看参考图 R1',exact:true}).waitFor();
+  await t.page.evaluate(async()=>{
+   const data=new DataTransfer();data.items.add(new File([await makeImage(90,80,'#aa2244')],'paste.png',{type:'image/png'}));
+   document.querySelector('.annotation-comment textarea').dispatchEvent(new ClipboardEvent('paste',{bubbles:true,cancelable:true,clipboardData:data}));
+  });
+  await t.page.getByRole('button',{name:'查看参考图 R2',exact:true}).waitFor();
+  assert.equal(await t.page.evaluate(()=>annotations.active.value.snapshot.regions[0].referenceIds.length),2);
+  await t.page.evaluate(async()=>{
+   const data=new DataTransfer();data.items.add(new File([await makeImage(20,20)],'wrong-area.png',{type:'image/png'}));
+   document.querySelector('#editorImagePrompt').dispatchEvent(new ClipboardEvent('paste',{bubbles:true,cancelable:true,clipboardData:data}));
+  });
+  await t.page.getByRole('button',{name:'查看参考图 R2',exact:true}).press('Alt+ArrowLeft');
+  const result=await t.page.evaluate(()=>({base:editor.session.baseId,boards:editor.boards().length,prompt:editor.session.fields.prompt,labels:editor.session.references.map(r=>r.label)}));
+  assert.deepEqual(result,{base,boards:1,prompt:'keep this instruction',labels:['R2','R1']});assert.deepEqual(t.errors,[]);
+ }finally{await t.context.close();}
+});
+
+test('annotation reference decoding rejects a removed target without keeping an orphan upload',async()=>{
+ const t=await setup();try{
+  await t.page.evaluate(async()=>{
+   await editor.open('image',await makeImage(256,256),'base.png');editor.setModel('gpt-image-2');
+   const v=editor.snapshot().viewed;await annotations.open({blob:v.blob,name:v.name,recordId:v.recordId,workspace:'edit',inline:true,edit:{boardId:editor.session.id,versionId:v.id}});
+   annotations.update([{key:'upload-target',shape:'point',bbox:{x:.5,y:.5,w:0,h:0},comment:'upload here'}]);
+  });
+  await t.page.getByRole('button',{name:'批注 1：upload here',exact:true}).press('Enter');
+  await t.page.evaluate(async()=>{
+   const data=new DataTransfer();data.items.add(new File([await makeImage(80,90)],'stale.png',{type:'image/png'}));
+   document.querySelector('.annotation-comment textarea').dispatchEvent(new ClipboardEvent('paste',{bubbles:true,cancelable:true,clipboardData:data}));
+   annotations.update([]);
+  });
+  await t.page.getByText('上传目标已变化，请重新上传',{exact:true}).waitFor();
+  assert.equal(await t.page.evaluate(()=>editor.session.references.length),0);assert.deepEqual(t.errors,[]);
+ }finally{await t.context.close();}
+});
+
+test('reference transport switches between guide/native without changing labels; CHAT/ASK freeze associations',async()=>{
+ const t=await setup();try {
+  const result=await t.page.evaluate(async()=>{
+   const {prepareEditorImageEdit,imageEditSettings}=await import('/src/services/editor-image-edit.ts');
+   const {validateConversation}=await import('/src/storage/backup-schema.ts');
+   const {contextSnapshot}=await import('/src/domain/conversation.ts');
+   const {serializeAnnotations}=await import('/src/domain/region-annotation.ts');
+   await editor.open('image',await makeImage(),'base.png');editor.setModel('gpt-image-2');
+   await editor.addReferences([new File([await makeImage(80,90,'#1122aa')],'first.png',{type:'image/png'}),new File([await makeImage(80,90,'#ddaa22')],'second.png',{type:'image/png'})]);
+   editor.setReferences([...editor.session.references].reverse());const refs=editor.referenceImages(),v=editor.snapshot().viewed,snapshot=await makeSnapshot(v.blob);snapshot.image.record_id=v.recordId;snapshot.references=refs.map(({blob,...r})=>r);snapshot.regions[0].referenceIds=[refs[1].id];
+   const m={...editor.snapshot().model,maxImages:4,markupEligible:true},settings=imageEditSettings();
+   const dual=await prepareEditorImageEdit(v,m,'badge',{},settings,undefined,snapshot,refs),native=await prepareEditorImageEdit(v,m,'badge',{}, {...settings,markup:true},undefined,snapshot,refs);
+   let overflow='';try {await prepareEditorImageEdit(v,{...m,maxImages:2},'badge',{},settings,undefined,snapshot,refs);}catch(e){overflow=e.message;}
+   const {annotationPreview}=await import('/src/native/annotation-canvas.ts');await chat.prepareAnnotations(v.blob,await annotationPreview(v.blob,snapshot),snapshot,undefined,refs);const c=chat.snapshot().current,dualContext=contextSnapshot(c,'modify',4);validateConversation(c);
+   const saved=JSON.parse(JSON.stringify(c));validateConversation(saved);c.pendingAnnotation.markup={inputAssetId:c.pendingAnnotation.inputAssetId,overlayAssetId:c.pendingAnnotation.guideAssetId};const nativeContext=contextSnapshot(c,'modify',3);delete c.pendingAnnotation.markup;
+   let askLimit='';try{await ask.prepareAnnotations(v.blob,v.blob,snapshot,[...refs,{...refs[0],id:'third',label:'R9'}]);}catch(e){askLimit=e.message;}
+   await ask.prepareAnnotations(v.blob,v.blob,snapshot,refs);
+   const source=ask.annotationSource(ask.tray.value[0].id);const xml=serializeAnnotations(source.snapshot,ask.tray.value[0].id,ask.tray.value[1].id);
+   return {labels:refs.map(r=>r.label),dual:dual.request,native:native.request,overflow,dualContext,nativeContext,askLimit,xml,count:ask.tray.value.length,saved};
+  });
+  assert.deepEqual(result.labels,['R2','R1']);assert.equal(result.dual.additional_images.length,3);assert.equal(result.native.additional_images.length,2);assert.ok(result.native.markup_image);
+  assert.match(result.dual.prompt,/R2 = 第 3 张图/);assert.match(result.native.prompt,/R2 = 第 2 张图/);assert.match(result.native.prompt,/批注 1 参考：R1/);assert.ok(result.overflow);
+  assert.match(result.dualContext.text,/R1 = 第 4 张图/);assert.match(result.nativeContext.text,/R1 = 第 3 张图/);
+  assert.match(result.askLimit,/4 张/);assert.equal(result.count,4);assert.match(result.xml,/R1 \(#a4\)/);
+  await t.page.evaluate(()=>app_shell.router.switchWorkspace('chat'));await t.page.reload();await bind(t.page);await t.page.waitForFunction(()=>chat.snapshot().ready);assert.equal(await t.page.evaluate(()=>chat.snapshot().current.pendingAnnotation.referenceAssets.length),2);assert.deepEqual(t.errors,[]);
+ }finally{await t.context.close();}
+});
+
+test('EDIT reference draft apply/undo/redo owns originals and rejects changed configuration',async()=>{
+ const t=await setup();try {
+  const result=await t.page.evaluate(async()=>{
+   const {parseDraft,validateDraft,stateHash}=await import('/src/ask/draft/validate.ts');
+   const {createDraftWriter}=await import('/src/ask/draft/apply.ts');const {createDraftStack}=await import('/src/ask/draft/stack.ts');
+   const {editPictures}=await import('/src/ask/edit-context.ts');
+   await editor.open('image',await makeImage(),'base.png');editor.setModel('gpt-image-2');editor.patch({prompt:'badge'});
+   await editor.addReferences([new File([await makeImage(60,60,'#11aa11')],'badge.png',{type:'image/png'})]);
+   const d=drawing.snapshot(),base={workspace:'edit',form:d.form,models:d.models,samplers:d.samplers,composer:'',conversationId:chat.snapshot().current.id,edit:editor.askSnapshot()},refs=editPictures(editor,{label:()=>null});
+   const draft=parseDraft({base_hash:stateHash(base),draft_title:'移除参考',steps:[{kind:'edit_references',references:[]}]},base,refs),plan=validateDraft(draft,base,{off:new Set()});
+   const writer=createDraftWriter(drawing,chat,app_shell.router,undefined,undefined,editor),stack=createDraftStack(writer),item=stack.create(draft,'test',1),id=editor.session.references[0].id;
+   await stack.apply(item,plan);editor.retainRecords(writer.retainedRecords());const removed=editor.session.references.length,retained=!!editor.record(id);
+   await stack.undo(item.id);const undone=editor.session.references.map(r=>r.id);await stack.restore(item.id);const redone=editor.session.references.length;
+   editor.patch({prompt:'changed'});const conflict=writer.conflict(plan,'after');return {removed,retained,undone,redone,id,conflict};
+  });assert.equal(result.removed,0);assert.equal(result.retained,true);assert.deepEqual(result.undone,[result.id]);assert.equal(result.redone,0);assert.match(result.conflict,/配置已变化/);assert.deepEqual(t.errors,[]);
+ }finally{await t.context.close();}
+});
+
+test('ASK multi-image EDIT handoff imports scoped originals, keeps the base separate and supports board undo/redo',async()=>{
+ const t=await setup();try {
+  const result=await t.page.evaluate(async()=>{
+   const {parseDraft,stateHash,validateDraft}=await import('/src/ask/draft/validate.ts');
+   const {createDraftWriter}=await import('/src/ask/draft/apply.ts');const {createDraftStack}=await import('/src/ask/draft/stack.ts');
+   const {createAttachments,prepareAttachment,attachmentPictures}=await import('/src/ask/attachments.ts');const {createHandoffImages}=await import('/src/ask/handoff-images.ts');
+   await editor.open('image',await makeImage(),'existing.png');editor.setModel('gpt-image-2');
+   const pool=createAttachments(),images=createHandoffImages(scope=>scope==='test-scope'?pool:undefined),records=[];
+   for(const [name,color]of [['base','#bbaa44'],['reference','#44aabb']])records.push(pool.add(await prepareAttachment(new File([await makeImage(300,400,color)],name+'.png',{type:'image/png'}))));
+   const d=drawing.snapshot(),base={workspace:'image',form:d.form,models:editor.snapshot().models,samplers:d.samplers,composer:'',conversationId:chat.snapshot().current.id,edit:editor.askSnapshot(),editBoards:editor.boards().map(b=>editor.askSnapshot(b.id))};
+   const library=attachmentPictures(pool.read(records.map(r=>r.id)),'test-scope');
+   const draft=parseDraft({base_hash:stateHash(base),draft_title:'徽章参考改图',steps:[{kind:'edit_handoff',image:'#a1',params:{model:'gpt-image-2'},prompt:'参考徽章',references:[{image:'#a2',usage:'只参考徽章'}]}]},base,library);
+   const plan=validateDraft(draft,base,{off:new Set(),has:i=>!!images.get(i.ref)});
+   if(plan.steps.some(r=>r.issue))throw new Error(JSON.stringify(plan.steps));
+   const writer=createDraftWriter(drawing,chat,app_shell.router,undefined,undefined,editor,undefined,images),stack=createDraftStack(writer),item=stack.create(draft,'test',1);
+   await stack.apply(item,plan);editor.retainRecords(writer.retainedRecords());
+   const target=editor.board(plan.edit.id),reference=target.references[0],original=records[1].blob;
+   const applied={count:target.versions.length,baseBytes:[...new Uint8Array(await target.versions[0].blob.arrayBuffer())].join(),refBytes:[...new Uint8Array(await editor.record(reference.id).blob.arrayBuffer())].join(),label:reference.label,usage:reference.usage};
+   pool.release(records.map(r=>r.id));await stack.undo(item.id);const removed=!editor.board(plan.edit.id);await stack.restore(item.id);
+   return {applied,expectedBase:[...new Uint8Array(await records[0].blob.arrayBuffer())].join(),expectedRef:[...new Uint8Array(await original.arrayBuffer())].join(),removed,restored:editor.board(plan.edit.id).references[0].id===reference.id};
+  });
+  assert.equal(result.applied.count,1);assert.equal(result.applied.baseBytes,result.expectedBase);assert.equal(result.applied.refBytes,result.expectedRef);assert.equal(result.applied.label,'R1');assert.equal(result.applied.usage,'只参考徽章');assert.equal(result.removed,true);assert.equal(result.restored,true);assert.deepEqual(t.errors,[]);
+ }finally{await t.context.close();}
+});
+
+test('ASK annotation return restores reference bytes and region associations after the original EDIT board closes',async()=>{
+ const t=await setup();try{
+  const before=await t.page.evaluate(async()=>{
+   await editor.open('image',await makeImage(),'return-source.png');editor.setModel('gpt-image-2');
+   await editor.addReferences([new File([await makeImage(120,90,'#13aacc')],'badge.png',{type:'image/png'})]);
+   const v=editor.snapshot().viewed,ref=editor.session.references[0];editor.setReferences([{...ref,usage:'只参考徽章'}]);
+   await annotations.open({blob:v.blob,name:v.name,recordId:v.recordId,workspace:'edit',inline:true,edit:{boardId:editor.session.id,versionId:v.id}});
+   annotations.update([{key:'badge-region',shape:'rect',bbox:{x:.2,y:.2,w:.3,h:.3},comment:'替换徽章',referenceIds:[ref.id]}]);
+   const bytes=[...new Uint8Array(await editor.referenceImages()[0].blob.arrayBuffer())].join();await annotations.act('ask');
+   if(!editor.removeBoard(editor.session.id))throw new Error('cannot close board');return {bytes,oldRef:ref.id};
+  });
+  await t.page.getByRole('button',{name:'展开或收起批注列表'}).click();await t.page.getByRole('button',{name:'回到 EDIT',exact:true}).click();
+  await t.page.waitForFunction(()=>!!annotations.active.value);
+  const restored=await t.page.evaluate(async()=>{
+   const a=annotations.active.value.snapshot,r=editor.referenceImages()[0];return {ref:r.id,usage:r.usage,links:a.regions[0].referenceIds,comment:a.regions[0].comment,bytes:[...new Uint8Array(await r.blob.arrayBuffer())].join()};
+  });
+  assert.notEqual(restored.ref,before.oldRef);assert.equal(restored.bytes,before.bytes);assert.deepEqual(restored.links,[restored.ref]);assert.equal(restored.usage,'只参考徽章');assert.equal(restored.comment,'替换徽章');assert.deepEqual(t.errors,[]);
+ }finally{await t.context.close();}
+});
+
+test('EDIT clean image handoff includes references for ASK and CHAT without replacing another conversation draft',async()=>{
+ const t=await setup();try{
+  const ids=await t.page.evaluate(async()=>{
+   const source=chat.snapshot().current.id;chat.setPrompt('来源草稿');chat.addConversation();chat.setPrompt('其他草稿');const other=chat.snapshot().current.id;
+   await editor.open('image',await makeImage(),'clean-source.png');editor.setModel('gpt-image-2');editor.patch({prompt:'参考 R1 的徽章'});
+   await editor.addReferences([new File([await makeImage(120,90,'#11cc44')],'badge.png',{type:'image/png'})]);
+   const ref=editor.session.references[0];editor.setReferences([{...ref,usage:'只参考徽章'}]);return {source,other};
+  });
+  await send(t.page,'ask');await t.page.waitForFunction(()=>ask.tray.value.length===2);await t.page.evaluate(()=>ask.hide());
+  const result=await t.page.evaluate(async({source,other})=>{
+   const v=editor.snapshot().viewed;await chat.prepareEditorImages(v,editor.referenceImages(),editor.session.fields.prompt,source);
+   const c=chat.snapshot().current,{contextSnapshot}=await import('/src/domain/conversation.ts');const snapshot=contextSnapshot(c);
+   const all=chat.snapshot().conversations;return {id:c.id,text:c.prompt,images:snapshot.imageIds.length,other:all.find(c=>c.id===other).prompt,turns:c.turns.length};
+  },ids);
+  assert.equal(result.id,ids.source);assert.equal(result.images,2);assert.match(result.text,/来源草稿/);assert.match(result.text,/R1 = 第 2 张图：只参考徽章/);assert.equal(result.other,'其他草稿');assert.equal(result.turns,0);assert.equal(t.posts.length,0);assert.deepEqual(t.errors,[]);
+ }finally{await t.context.close();}
+});
+
+test('reference upload rejects a board or model change during decoding without partial writes',async()=>{
+ const t=await setup();try{
+  const result=await t.page.evaluate(async()=>{
+   await editor.open('image',await makeImage(),'race-source.png');editor.setModel('gpt-image-2');const board=editor.session.id;
+   const file=new File([await makeImage(80,90,'#44aaff')],'reference.png',{type:'image/png'});
+   const first=editor.addReferences([file]).then(()=>'',e=>e.message);editor.createBoard();const switched=await first;
+   const counts=[editor.board(board).references.length,editor.session.references.length];editor.switchBoard(board);
+   const second=editor.addReferences([file]).then(()=>'',e=>e.message);editor.setModel('nai-diffusion-4-5-full');const downgraded=await second;
+   return {switched,downgraded,counts,final:editor.session.references.length};
+  });
+  assert.match(result.switched,/画板.*变化/);assert.match(result.downgraded,/模型.*变化/);assert.deepEqual(result.counts,[0,0]);assert.equal(result.final,0);assert.deepEqual(t.errors,[]);
+ }finally{await t.context.close();}
 });

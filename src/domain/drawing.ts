@@ -106,6 +106,13 @@ export type DrawingParams = Pick<
 export interface ImageRecord extends Omit<FavoriteRecord, "favoritedAt"> {
   favoritedAt?: number;
 }
+/** Page history keeps the recipe and identity after releasing original pixels. */
+export type HistoryRecord = ImageRecord | (Omit<ImageRecord, "blob" | "thumbBlob"> & {
+  blob?: undefined;
+  thumbBlob: Blob;
+  originalMime: string;
+});
+export const hasOriginal = (record: HistoryRecord): record is ImageRecord => record.blob instanceof Blob;
 export type Tier = "s" | "m" | "l";
 export type Orientation = "portrait" | "square" | "landscape";
 export const RATIOS = ["2:3", "3:4", "4:5", "9:16", "1:2"];
@@ -296,13 +303,14 @@ export function reuseFields(item: Pick<ImageRecord, "params">) {
     ...(Array.isArray(p.localCharacters ?? p.characters) ? { characters: readCharacters(p.localCharacters ?? p.characters), placement: p.placement === "manual" ? "manual" : "auto" } : {}),
   };
 }
-export function imageFileName(item: ImageRecord) {
+export function imageFileName(item: HistoryRecord) {
   const p = item.params,
     model = String(p.model || "koma-image").replace(/[^a-zA-Z0-9._-]+/g, "-");
+  const mime = item.blob?.type ?? ("originalMime" in item ? item.originalMime : "image/png");
   const ext =
-    item.blob.type === "image/jpeg"
+    mime === "image/jpeg"
       ? "jpg"
-      : item.blob.type === "image/webp"
+      : mime === "image/webp"
         ? "webp"
         : "png";
   return `${model}-${p.isComparison ? `batch-${p.comparisonTotal || p.batchTotal || 1}` : String(p.seed ?? item.id ?? "result").replace(/[^a-zA-Z0-9._-]+/g, "-")}.${ext}`;

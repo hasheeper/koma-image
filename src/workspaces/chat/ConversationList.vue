@@ -20,6 +20,7 @@ import {
 import type { ConversationPeriod } from "../../domain/conversation";
 import { placeMenu, menuKeys } from "../../shared/popover";
 import AppIcon from "../../shared/AppIcon.vue";
+import AiNameButton from "../../shared/AiNameButton.vue";
 const props = defineProps<{ query: string }>();
 const { chat, view } = useChat(),
   shell = useShell();
@@ -263,7 +264,9 @@ onBeforeUnmount(cancelHold);
     >
       <button class="menu-item" type="button" role="menuitem" @click="act('rename')">
         <AppIcon name="i-rename" /><span>重命名</span></button
-      ><button class="menu-item" type="button" role="menuitem" @click="act('pin')">
+      >
+      <AiNameButton v-if="target" kind="chat" :id="target.id" menu @click="close(true)" />
+      <button class="menu-item" type="button" role="menuitem" @click="act('pin')">
         <AppIcon name="i-pin" /><span>{{
           target?.pinned ? "取消置顶" : "置顶"
         }}</span></button

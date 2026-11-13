@@ -1,5 +1,7 @@
 import { object } from "../domain/value.ts";
 import type { AskStop, AskUsage, CacheUsage, ResponseDiagnostics } from "./messages.ts";
+import { exportCallLog } from "./debug-export.ts";
+import type { CallExportMode } from "./debug-export.ts";
 
 export interface CallInfo {
   /** The page conversation that made the call. */
@@ -59,8 +61,8 @@ export function createCallLog(changed: (view: CallLogView) => void, limits = { c
       const current = records.find(r => r.id === id);
       return current && [...records].reverse().find(r => r.id < id && r.connection === current.connection && r.protocol === current.protocol && r.model === current.model);
     },
-    export(id?: number) {
-      return JSON.stringify({ app: "koma-ask", kind: "call-debug", version: 1, dropped, calls: records.filter(r => id === undefined || r.id === id) }, null, 2);
+    export(id?: number, mode: CallExportMode = "compact") {
+      return exportCallLog(records.filter(r => id === undefined || r.id === id), dropped, mode);
     },
     clear() { records = []; dropped = 0; publish(); },
   };
@@ -137,7 +139,7 @@ function shape(path: string, value: unknown, tools: ReadonlyMap<string, string>,
   if (compaction && last) return { kind: "question", name: "压缩指令", tool: null, gist: excerpt(text), role: "user", wireRole };
   return { kind: "question", name: "提问", tool: null, gist: asked(text), role: "user", wireRole };
 }
-/** Readable rendering only. Copy/export always use the untouched dispatch body. */
+/** Readable rendering only. Copy and full export use the untouched dispatch body. */
 export function inspectCall(record: CallRecord, previous?: CallRecord) {
   const body = object(JSON.parse(record.body)), prior = previous ? units(object(JSON.parse(previous.body))) : [];
   const found: Omit<DebugImage, "source">[] = [], breakpoints: string[] = [];
@@ -154,7 +156,7 @@ export function inspectCall(record: CallRecord, previous?: CallRecord) {
       if (!data) return [key, walk(val, location)];
       const base64 = data.slice(data.indexOf(",") + 1), padding = base64.endsWith("==") ? 2 : base64.endsWith("=") ? 1 : 0;
       found.push({ path: location, url: data, bytes: Math.max(0, Math.floor(base64.length * .75) - padding), part: owner(location) });
-      return [key, `[图片 ${found.length} · Base64 已在预览中折叠，复制／导出保留完整数据]`];
+      return [key, `[图片 ${found.length} · Base64 已在预览中折叠，复制／完整导出保留图片数据]`];
     }));
   }
   const readable = object(walk(body, "")), current = units(body), display = units(readable);

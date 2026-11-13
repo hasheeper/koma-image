@@ -122,8 +122,8 @@ test('backup conflicts retain separate recipes and remap CHAT record and lineage
    const blob=await makeImage(), {imageEntity}=await import('/src/domain/image-identity.ts'),entity_key=await imageEntity(blob),assetId=entity_key.slice(7);
    const {chatImageId}=await import('/src/domain/image-origin.ts'), chatRecord=chatImageId('chat','turn','version',assetId);
    const conversation={id:'chat',title:'Original',prompt:'',settings:{},headId:'turn',mainId:assetId,attachments:[],keepIds:[],skipTurnIds:[],baseFollows:true,selectionRevision:1,pinned:false,renamed:false,updatedAt:1,
-     turns:[{id:'turn',parentId:null,prompt:'source prompt',settings:{},snapshot:{text:'source prompt',imageIds:[],turnIds:[],parentId:null,base:null,refs:[],dropped:0},selectedVersion:0,
-       versions:[{id:'version',status:'done',blocks:[{type:'image',assetId}]}]}]};
+     turns:[{id:'turn',parentId:null,prompt:'source prompt',settings:{},snapshot:{text:'source prompt',imageIds:[],turnIds:[],parentId:null,base:null,refs:[],dropped:[]},selectedVersion:0,
+       versions:[{id:'version',status:'done',quote:null,blocks:[{type:'image',assetId}]}]}]};
    const writeChat=async row=>app.data.write(async()=>{const tx=app.databases.transaction(names.databases.chat,['conversations','assets'],'readwrite'),done=db.transactionDone(tx);tx.objectStore('conversations').put(row);tx.objectStore('assets').put({id:assetId,blob,origin:'result',name:'synthetic.png',width:128,height:128});await done;});
    await writeChat(conversation);
    await app.data.write(async()=>{

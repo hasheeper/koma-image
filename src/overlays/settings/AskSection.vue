@@ -241,6 +241,11 @@ async function removeReplacement(rule: Replacement) {
               <span class="switch" aria-hidden="true"></span>
             </label>
           </div>
+        </div>
+      </section>
+      <section class="sp-sec" aria-label="AI 命名">
+        <h3>AI 命名</h3>
+        <div class="sp-group">
           <div class="s-row" role="group" aria-label="命名模型">
             <div><b><label for="askNamingConnection">命名模型</label></b></div>
             <div class="s-ctl s-field ask-pick">
@@ -251,6 +256,13 @@ async function removeReplacement(rule: Replacement) {
               </select>
               <button v-if="settings.naming" class="ask-link" type="button" :title="settings.naming.model || undefined" :disabled="!namingReady" @click="emit('models', settings.naming.connectionId, 'naming')"><span>{{ settings.naming.model || "选择模型" }}</span><AppIcon name="i-chevron" /></button>
             </div>
+          </div>
+          <div class="s-row">
+            <div><b><label for="askAutoNaming">自动命名</label></b><p>ASK 首次回复、CHAT 首次发送后命名，保留手动名称</p></div>
+            <label class="s-toggle">
+              <input id="askAutoNaming" type="checkbox" role="switch" :checked="settings.autoNaming" @change="save({ autoNaming: checked($event) })" />
+              <span class="switch" aria-hidden="true"></span>
+            </label>
           </div>
         </div>
       </section>

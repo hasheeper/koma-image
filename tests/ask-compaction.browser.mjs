@@ -36,7 +36,7 @@ test(`ASK CP4: chat second automatic compaction, frozen prefix and full paged re
     const logs = await page.evaluate(() => ask.debug.value.calls);
     assert.equal(logs[11].purpose, 'compaction'); assert.equal(logs[12].afterCompaction, true);
     for (const i of [11, 12]) {
-      const exported = JSON.parse(await page.evaluate(id => ask.exportDebug(id), logs[i].id)).calls[0];
+      const exported = JSON.parse(await page.evaluate(id => ask.exportDebug(id, 'raw'), logs[i].id)).calls[0];
       assert.equal(exported.body, calls[i].raw); assert.equal(exported.usage.input, i === 11 ? 70_000 : 2400);
     }
     await reloadAsk(page);
@@ -178,7 +178,7 @@ for (const connectionId of ['chat', 'claude']) test(`ASK CP2: ${connectionId} du
     assert.equal(await page.evaluate(() => drawing.snapshot().form.prompt), 'CP2 current unsent state');
     const log = await page.evaluate(() => ask.debugCall(ask.debug.value.calls.at(-1).id));
     assert.equal(log.purpose, 'compaction'); assert.equal(log.body, compaction.raw); assert.equal(log.usage.input, 9000);
-    assert.equal(JSON.parse(await page.evaluate(id => ask.exportDebug(id), log.id)).calls[0].body, compaction.raw);
+    assert.equal(JSON.parse(await page.evaluate(id => ask.exportDebug(id, 'raw'), log.id)).calls[0].body, compaction.raw);
     await openDebug(page); await page.locator('#askDebugCall').click();
     assert.equal(await page.locator('#askDebugCalls [role="menuitemradio"]').filter({ hasText: '压缩上下文' }).count(), 1);
     await page.keyboard.press('Escape'); await page.getByRole('button', { name: '关闭调用上下文', exact: true }).click();

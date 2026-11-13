@@ -1,3 +1,5 @@
+import type { EditReference } from './edit-references.ts';
+import { referenceInstructions, validateEditReferences } from './edit-references.ts';
 import type { ImageTagBinding } from './image-identity.ts';
 
 export type AnnotationAreaShape = 'rect' | 'ellipse' | 'polygon';
@@ -5,8 +7,8 @@ export type AnnotationShape = AnnotationAreaShape | 'point';
 export interface UnitPoint { x: number; y: number }
 export interface UnitRect extends UnitPoint { w: number; h: number }
 /** A point has an exact x/y anchor and zero w/h; it never implies an editing area. */
-export interface RegionAnnotation { key: string; shape: AnnotationShape; bbox: UnitRect; points?: UnitPoint[]; comment: string }
-export interface ImageAnnotations { image: ImageTagBinding; width: number; height: number; regions: RegionAnnotation[] }
+export interface RegionAnnotation { key: string; shape: AnnotationShape; bbox: UnitRect; points?: UnitPoint[]; comment: string; referenceIds?: string[] }
+export interface ImageAnnotations { image: ImageTagBinding; width: number; height: number; regions: RegionAnnotation[]; references?: (EditReference & { image?: string })[] }
 export interface AnnotationEdges { dilate: number; feather: number }
 export interface AnnotationSnapshot extends ImageAnnotations { edges: AnnotationEdges }
 export const defaultAnnotationEdges: AnnotationEdges = { dilate: .006, feather: .003 };
@@ -44,6 +46,7 @@ export function validateRegions(regions: readonly RegionAnnotation[], allowEmpty
     if (!['point', 'rect', 'ellipse', 'polygon'].includes(r.shape) || !b || ![b.x,b.y,b.w,b.h].every(Number.isFinite) || b.x < 0 || b.y < 0 || b.x > 1 || b.y > 1 || b.w < 0 || b.h < 0 || b.x + b.w > 1 + 1e-8 || b.y + b.h > 1 + 1e-8) throw new Error('批注坐标超出图片');
     if (r.shape === 'point' ? b.w !== 0 || b.h !== 0 || r.points !== undefined : b.w === 0 || b.h === 0) throw new Error('点批注不包含选区面积，形状选区的面积不能为空');
     if (typeof r.comment !== 'string' || r.comment.length > annotationLimits.comment) throw new Error('每处批注最多 2000 字');
+    if (r.referenceIds !== undefined && (!Array.isArray(r.referenceIds) || r.referenceIds.length > 16 || r.referenceIds.some(id => typeof id !== 'string' || !id) || new Set(r.referenceIds).size !== r.referenceIds.length)) throw new Error('批注参考图无效');
     if (r.shape !== 'polygon') continue;
     const p = r.points;
     if (!p || p.length < 3 || p.length > annotationLimits.points || p.some(v => !Number.isFinite(v.x) || !Number.isFinite(v.y) || v.x < 0 || v.x > 1 || v.y < 0 || v.y > 1)) throw new Error('多边形需要 3～128 个有效顶点');
@@ -73,6 +76,7 @@ export function validateAnnotationSnapshot(value: AnnotationSnapshot): void {
   if (!value.image?.entity_key || !value.image.record_id || !value.image.scope?.id) throw new Error('批注来源无效');
   if (!value.edges || ![value.edges.dilate,value.edges.feather].every(n => Number.isFinite(n) && n >= 0 && n <= .025)) throw new Error('外扩和羽化需在短边的 0～2.5% 内');
   validateRegions(value.regions);
+  validateEditReferences(value.references ?? []);
 }
 /** Same display direction; a near-square rounding discrepancy is still square. */
 export function annotationAlignment(base: { width: number; height: number }, result: { width: number; height: number }) {
@@ -88,7 +92,7 @@ export function annotationAlignment(base: { width: number; height: number }, res
 export function annotationSummary(regions: readonly RegionAnnotation[]) {
   const n3 = (n: number) => Math.round(n * 1000) / 1000;
   return regions.map((r, i) => ({ n: i + 1, shape: r.shape, x: n3(r.bbox.x), y: n3(r.bbox.y),
-    ...(r.shape === 'point' ? {} : { w: n3(r.bbox.w), h: n3(r.bbox.h) }), comment: r.comment }));
+    ...(r.shape === 'point' ? {} : { w: n3(r.bbox.w), h: n3(r.bbox.h) }), comment: r.comment, ...(r.referenceIds?.length ? {reference_ids:r.referenceIds} : {}) }));
 }
 export function annotationCrop(value: ImageAnnotations, n: number): [number, number, number, number] {
   if (!Number.isSafeInteger(n) || n < 1 || n > value.regions.length) throw new Error('批注编号不存在');
@@ -114,9 +118,11 @@ export function annotationTag(r: RegionAnnotation, n: number, width: number, hei
 const percent = (n: number) => `${Math.round(n * 100)}%`;
 const location = (b: UnitRect) => ['左上', '上方', '右上', '左侧', '中央', '右侧', '左下', '下方', '右下'][Math.min(2, Math.floor((b.y + b.h / 2) * 3)) * 3 + Math.min(2, Math.floor((b.x + b.w / 2) * 3))];
 const bounds = (b: UnitRect) => `横向 ${percent(b.x)}–${percent(b.x+b.w)}，纵向 ${percent(b.y)}–${percent(b.y+b.h)}`;
-export function annotationPrompt(regions: readonly RegionAnnotation[], dual: boolean | 'markup' = true, extra = '', painted?: UnitRect): string {
+export function annotationPrompt(regions: readonly RegionAnnotation[], dual: boolean | 'markup' = true, extra = '', painted?: UnitRect, references: readonly EditReference[] = [], firstReference = dual === true ? 3 : 2, indices?: readonly number[]): string {
   validateRegions(regions, true);
-  if (!regions.length && !painted) return extra;
+  for (const r of regions) if (r.referenceIds?.some(id => !references.some(ref => ref.id === id))) throw new Error('批注引用的参考图已移除，请重新选择');
+  const referenceText = referenceInstructions(references, firstReference, indices);
+  if (!regions.length && !painted) { const text = [extra, referenceText].filter(Boolean).join('\n'); if (text.length > 24000) throw new Error('修改说明超过 24000 字符'); return text; }
   const point = regions.some(r => r.shape === 'point');
   const lines = dual === 'markup'
     ? ['首张图片是要修改的干净原图；独立透明标注层中的紫色线框、填充和编号仅用于定位，编号对应下面的批注。', '请以原图为底，按标注和文字要求修改：']
@@ -124,6 +130,7 @@ export function annotationPrompt(regions: readonly RegionAnnotation[], dual: boo
     ? [regions.length ? '图 1 是要修改的原图；图 2 是同尺寸的定位图，紫色线框和编号标出要改的位置，编号对应下面的批注。' : '图 1 是要修改的原图；图 2 是同尺寸的定位图，半透明紫色标出修改范围。', regions.length ? '请以图 1 为底，按批注修改：' : '请以图 1 为底，只修改紫色范围内的内容：']
     : ['请以输入图为底，按以下要求修改。位置按画面宽高的百分比给出，原点在左上角：'];
   lines.push(...regions.map((r, i) => `${i+1}. ${r.shape === 'point' ? '位置点' : `${r.shape === 'rect' ? '矩形' : r.shape === 'ellipse' ? '椭圆' : '多边形'}区域`}${dual ? '' : `，画面${location(r.bbox)}`}（${r.shape === 'point' ? `横向 ${percent(r.bbox.x)}，纵向 ${percent(r.bbox.y)}` : bounds(r.bbox)}）：${r.comment.trim() || (extra.trim() ? '按用户补充修改此处' : dual ? '按定位图修改此处' : '修改此处')}`));
+  if (referenceText) lines.push(referenceText, ...regions.flatMap((r, i) => r.referenceIds?.length ? [`批注 ${i+1} 参考：${r.referenceIds.map(id => references.find(ref => ref.id === id)!.label).join('、')}。`] : []));
   if (point) lines.push('点只标示位置，不代表修改范围，按文字判断要改的对象。');
   if (extra.trim()) lines.push(extra);
   if (painted) lines.push(`${regions.length ? '另有手绘修改范围' : '修改范围'}：${bounds(painted)}。`);
@@ -136,8 +143,10 @@ export function annotationPrompt(regions: readonly RegionAnnotation[], dual: boo
 const xml = (text: string) => text.replace(/[&<>"']/g, c => ({'&':'&amp;', '<':'&lt;', '>':'&gt;', '"':'&quot;', "'":'&apos;'}[c]!));
 export function serializeAnnotations(value: ImageAnnotations, image = value.image.tag, guide?: string): string {
   validateRegions(value.regions);
+  validateEditReferences(value.references ?? []);
   const num = (n: number) => n.toFixed(3);
-  return [`<image_annotations version="2" image="${xml(image)}"${guide ? ` guide="${xml(guide)}"` : ''} units="0-1">`, ...annotationSummary(value.regions).map(r => r.shape === 'point'
-    ? `  <point n="${r.n}" x="${num(r.x)}" y="${num(r.y)}">${xml(r.comment)}</point>`
-    : `  <region n="${r.n}" shape="${r.shape}" x="${num(r.x)}" y="${num(r.y)}" w="${num(r.w!)}" h="${num(r.h!)}">${xml(r.comment)}</region>`), '</image_annotations>'].join('\n');
+  const comment = (r: ReturnType<typeof annotationSummary>[number]) => xml([r.comment, ...(r.reference_ids?.length ? ['参考：' + r.reference_ids.map(id => { const ref = value.references?.find(ref => ref.id === id); return ref ? `${ref.label} (${ref.image ?? ref.name})${ref.usage ? `：${ref.usage}` : ''}` : '已移除'; }).join('、')] : [])].join('；'));
+  return [`<image_annotations version="2" image="${xml(image)}"${guide ? ` guide="${xml(guide)}"` : ''} units="0-1">`, ...(value.references??[]).map(r=>`  <reference label="${xml(r.label)}" image="${xml(r.image??r.name)}">${xml(r.usage)}</reference>`), ...annotationSummary(value.regions).map(r => r.shape === 'point'
+    ? `  <point n="${r.n}" x="${num(r.x)}" y="${num(r.y)}">${comment(r)}</point>`
+    : `  <region n="${r.n}" shape="${r.shape}" x="${num(r.x)}" y="${num(r.y)}" w="${num(r.w!)}" h="${num(r.h!)}">${comment(r)}</region>`), '</image_annotations>'].join('\n');
 }

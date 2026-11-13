@@ -72,7 +72,8 @@ test('B1 state exports exact snapshot names, lightweight aliases and only four d
   const state=liveState(snap,{boards:[{id:'board-a',name:'A',color:'blue',nextCharacterId:1,form:snap.base.form}],workspace:'tags',selectedId:'i5',scope:'page',revision:1,receipt:null});
   assert.equal(state.active_workspace,'tags');assert.equal(state.history_index.length,6);assert.equal(state.favorites_index.length,1);
   assert.equal(state.history_index[0].seed,0);assert.equal(state.history_index[0].prompt_excerpt.length,160);
-  assert.deepEqual(Object.keys(state.history_index[0]).sort(),['label','width','height','seed','prompt_excerpt','record_id','entity_key'].sort());
+  assert.deepEqual(Object.keys(state.history_index[0]).sort(),['label','width','height','seed','prompt_excerpt','record_id','entity_key','image_availability'].sort());
+  assert.equal(state.history_index[0].image_availability,'original');
   assert.equal(previewPictures(snap.library,'i5').pictures.length,4);
   assert.equal(previewPictures(snap.library,'i0').pictures.length,3);
   assert.equal(state.selected_image.preview,null);

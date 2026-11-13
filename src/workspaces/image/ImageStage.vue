@@ -17,13 +17,14 @@ import { useShell } from "../../app/shell";
 import { useUi, message } from "../../app/ui";
 import { imageFileName, samplerName } from "../../domain/drawing";
 import AppIcon from "../../shared/AppIcon.vue";
+import EvolutionAction from '../../ask/retrospect/EvolutionAction.vue';
 import EmptyStage from "./EmptyStage.vue";
 import WaveHost from "./WaveHost.vue";
 import { useAsk, AskMark } from "../../app/ask";
 const ask = useAsk();
 const annotations = useAnnotations();
 async function annotate() {
-  const item=current.value;if(!item)return;
+  const item=current.value;if(!item?.blob)return;
   shell.zoom=false;
   try { await annotations.open({blob:item.blob,name:imageFileName(item),recordId:item.id,settings:item.params,workspace:"image"}); } catch(e) { ui.toast(message(e),"err"); }
 }
@@ -35,7 +36,7 @@ const services = useServices();
 const { router } = useShell();
 async function resultAction(id: string) {
   const item = current.value;
-  if (!item) return;
+  if (!item?.blob) return;
   try {
     if (id === "annotateBtn") {
       await annotate();
@@ -43,6 +44,7 @@ async function resultAction(id: string) {
       const ticket = await createHandoff(services).queue(
         item.blob,
         imageFileName(item),
+        { recordId: item.id, entityKey: item.entity_key },
       );
       const url = new URL(location.href);
       url.searchParams.set("image", ticket);
@@ -225,7 +227,7 @@ function scrollParams(event: WheelEvent) {
   strip.scrollLeft = next;
 }
 function save() {
-  if (!current.value) return;
+  if (!current.value?.blob) return;
   const a = document.createElement("a");
   a.href = drawing.url(current.value);
   a.download = imageFileName(current.value);
@@ -313,6 +315,7 @@ function openAsk() {
           @wheel="scrollParams"
         >
           <button v-if="askId" class="result-param result-ask-id" type="button" title="复制图片 ID" @click="copy(askId, '图片 ID')">{{ askId }}</button>
+          <span v-if="current && !current.blob" class="result-param" title="原图已释放；可查看缩略图、对照及恢复配方">仅缩略图</span>
           <button
             v-if="params.tool !== 'manual-edit' && params.tool !== 'director'"
             class="result-param result-seed"
@@ -352,6 +355,7 @@ function openAsk() {
             <button class="btn btn-sm result-ask" type="button" :disabled="!current" aria-label="Ask 这张图" @click="openAsk"><AskMark />Ask</button>
           </div>
           <div class="result-group">
+            <EvolutionAction v-if="current" :record-id="current.id" />
             <button
               v-for="action in [
                 { id: 'editBtn', label: '编辑这张图', icon: 'i-edit' },
@@ -363,8 +367,9 @@ function openAsk() {
               class="ibtn"
               type="button"
               :aria-label="action.label"
-              :data-tip="action.label"
-              :disabled="!current"
+              :data-tip="!current?.blob ? '原图已释放，仅保留缩略图和配方' : action.label"
+              :disabled="!current?.blob"
+              :title="!current?.blob ? '仅保留缩略图和配方，原图已释放' : undefined"
               @click="resultAction(action.id)"
             >
               <AppIcon :name="action.icon" />
@@ -375,22 +380,24 @@ function openAsk() {
               class="ibtn"
               id="favoriteBtn"
               type="button"
-              :data-tip="saved ? '取消收藏' : '收藏'"
+              :data-tip="!current?.blob ? '原图已释放，无法收藏原图' : saved ? '取消收藏' : '收藏'"
               :aria-label="saved ? '取消收藏' : '收藏图片'"
               :aria-pressed="saved"
               :disabled="
-                view.favoritesLoading ||
+                !current?.blob || view.favoritesLoading ||
                 view.favoritePending.includes(current?.id || '')
               "
               @click="drawing.toggleFavorite()"
             >
               <AppIcon name="i-star" /></button
             ><button
-              class="ibtn ibtn-accent"
+              class="ibtn"
+              :class="{ 'ibtn-accent': current?.blob }"
               id="saveBtn"
               type="button"
-              data-tip="下载"
+              :data-tip="!current?.blob ? '原图已释放，无法下载原图' : '下载'"
               aria-label="下载"
+              :disabled="!current?.blob"
               @click="save"
             >
               <AppIcon name="i-download" />
@@ -412,7 +419,7 @@ function openAsk() {
         id="lightboxImg"
         :src="drawing.url(current)"
         alt="放大查看"
-      /><button class="btn lightbox-annotate" @click="annotate"><AppIcon name="i-annotate" />批注</button><button
+      /><button class="btn lightbox-annotate" :disabled="!current?.blob" @click="annotate"><AppIcon name="i-annotate" />批注</button><button
         class="ibtn lightbox-x"
         type="button"
         aria-label="关闭"

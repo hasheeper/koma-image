@@ -5,7 +5,7 @@ import type { Retrospect } from './model.ts';
 import type { PictureRefs } from '../edit-context.ts';
 const props = defineProps<{ value: Retrospect; pictureRefs: PictureRefs }>();
 const ask = useAsk();
-const covers = computed(() => { void ask.libraryRevision.value; return props.value.nodes.slice(0, 3).map(node => ({ id: node.id, url: ask.pictureInfo(node.cover, props.pictureRefs)?.url })); });
+const covers = computed(() => { void ask.libraryRevision.value; return props.value.nodes.filter(n => n.image_ids.length).slice(0, 3).map(node => ({ id: node.id, url: ask.pictureInfo(node.cover, props.pictureRefs)?.url })); });
 </script>
 <template><span class="retrospect-covers" aria-hidden="true"><span v-for="cover in covers" :key="cover.id"><img v-if="cover.url" :src="cover.url" alt="" /></span></span></template>
 <style scoped>

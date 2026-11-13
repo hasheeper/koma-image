@@ -28,6 +28,8 @@ export interface Picture extends DigestImage {
   readonly aliases: readonly string[];
   readonly origins: readonly PictureOrigin[];
   readonly blob: Blob;
+  readonly thumbnailOnly?: boolean;
+  readonly previewBlob?: Blob;
   readonly attachment?: Readonly<Record<string, unknown>>;
 }
 export const promptOf = (image: DigestImage) => String(image.params.basePrompt ?? image.params.prompt ?? "");
@@ -70,8 +72,8 @@ export function metadata(image: DigestImage): Record<string, unknown> {
   return out;
 }
 export function snapshotPictures(
-  history: readonly (DigestImage & { readonly blob: Blob })[],
-  favorites: readonly (DigestImage & { readonly blob: Blob })[],
+  history: readonly (DigestImage & ({ readonly blob: Blob; readonly thumbBlob?: Blob | null } | { readonly blob?: undefined; readonly thumbBlob: Blob }))[],
+  favorites: readonly (DigestImage & { readonly blob: Blob; readonly thumbBlob?: Blob | null })[],
   ids: Ids,
 ): readonly Picture[] {
   ids.sync(history, favorites);
@@ -88,7 +90,7 @@ export function snapshotPictures(
     aliases: [ids.history(r.id), ids.favorite(r.id)].filter((v): v is string => !!v),
     origins: Object.freeze(origins.map((origin) => Object.freeze(origin))),
     params: Object.freeze(structuredClone(r.params)),
-    size: Object.freeze({ ...r.size }), blob: r.blob,
+    size: Object.freeze({ ...r.size }), blob: r.blob ?? r.thumbBlob!, ...(r.thumbBlob ? { previewBlob:r.thumbBlob } : {}), ...(!r.blob ? { thumbnailOnly: true } : {}),
     });
   });
 }

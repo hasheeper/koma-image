@@ -114,6 +114,8 @@ Koma 字标在亮色中为纯墨蓝，方块保留品牌紫，形状与字体不
 
 `GuidanceControl.vue` 共用 Guidance 滑杆、手输值与同行 Variety+ 小按钮；开关消费共享按钮材质，按官方 V4.5 能力显示，不增加参数面板行高或公共样式补丁。
 
+`AppIcon.vue` 与 `BrandMark.vue` 统一引用页面内的 SVG symbol，由外壳唯一挂载 `IconSymbols.vue`；开发预览也挂载同一组件。图形源仍为 `public/assets/icons.svg`，通过 raw import 随应用打包，不再在运行时单独请求外部 SVG sprite，避免一次资源加载失败使关闭、搜索或品牌图形持续空白。
+
 `src/shared/ThemeToggle.vue` 维护五个工作区共用的单击外观按钮，当前暗／亮分别用本地图标精灵中的月亮／太阳表示，标签说明下一步切换目标；不依赖菜单。`src/app/theme.ts` 同时提供按钮和通用设置的两档选择，首屏脚本与服务均以暗色为缺省，不监听系统颜色。
 
 Photopea 应用级唯一宿主、固定紧凑顶栏与加载／错误反馈归 `PhotopeaPanel.vue` 的 scoped 样式，覆盖当前工作区。顶栏无展开／折叠功能。回传下拉复用共享菜单；分体边角只在存在两个按钮时生效，融合的独立确认按钮使用完整圆角。跨域 iframe 内部只用官方 Environment API 设置首次创建时的 White／Dark Blue、中文、面板折叠以及菜单／工具白名单，配置归 `photopea-scripts.ts`，不覆写第三方 DOM／CSS。
@@ -272,4 +274,4 @@ npm run check
 
 ## 演进
 
-`src/ask/retrospect/` 持有演进界面私有样式。`RecipeInspector` 统一正式与静态预览的配方外壳、停靠／关闭控件和操作插槽，`ComparePair` 复用 PopoverMenu 与 `CompareIdentity`；局部下拉箭头使用专属类名，不复用全局抽屉的 `.caret`。`RecipeReview`／`GroupBody` 持有浅槽连续分组与现有 Diff token，不在宿主另写一套正文覆盖。关系图与大图由 `StageDock` 统一承载底部胶囊，复用 EDIT 材质与按钮，`GraphTools`／`StageTools` 只提供当前视图工具；`StageDock` 测量自身高度供窄屏配方浮窗避让，隐藏视图不覆盖有效测量，卸载清理 Observer。画布不为工具栏裁切留白，工具宿主透传指针事件，仅胶囊恢复交互。选择复用 EditToolMode，批注编辑条沿用区域批注呈现；配方开合／停靠状态和画布避让归 `RetrospectPanel`。`VersionGraph` 在原生相机绘制中同步更新局部 CSS 圆点背景的尺寸、偏移与密度淡化，以及节点控件反向缩放变量和细节档位，不增加监听器、动画循环或全局样式。`VersionNode` 持有图外标题、相册下方的短圆角状态浮片、唯一选中边界及右侧图钉，复用 `i-pin`；图钉和分页为独立按钮，隔离指针与双击事件，恢复经宿主复用原端口。`node-chrome.ts` 共用上下文字预留、状态行尺寸与缩放档位，供画布命中和渲染使用。节点拖动的原生 rAF、Pointer Capture 和取消清理由 `VersionGraph` 持有；`continuation.ts` 共用连线与后继放置计算，手动锚点与画布镜头在本页 store 保存，不进入演进修订号；指针过程由原生驱动，离开关系图或卸载时才提交镜头快照。实际新增版本继承预留锚点，重开不重新布局或适应全图。`RetrospectHost` 负责唯一 ASK 浮窗的 Teleport，主外壳仍只挂一个实例。字段规则、选择／批注与状态生命周期仅在[演进专题](../workspaces/recipe-retrospect.md)维护，原型方案仍在 `.local/`，不打包未选分支。
+`src/ask/retrospect/` 持有演进界面私有样式。`RecipeInspector` 统一正式与静态预览的配方外壳、停靠／关闭控件和操作插槽，`ComparePair` 复用 PopoverMenu 与 `CompareIdentity`；局部下拉箭头使用专属类名，不复用全局抽屉的 `.caret`。`RecipeReview`／`GroupBody` 持有浅槽连续分组与现有 Diff token，不在宿主另写一套正文覆盖。关系图与大图由 `StageDock` 统一承载底部胶囊，复用 EDIT 材质与按钮，`GraphTools`／`StageTools` 只提供当前视图工具；`StageDock` 测量自身高度供窄屏配方浮窗避让，隐藏视图不覆盖有效测量，卸载清理 Observer。画布不为工具栏裁切留白，工具宿主透传指针事件，仅胶囊恢复交互。选择复用 EditToolMode，批注编辑条沿用区域批注呈现；配方开合／停靠状态和画布避让归 `RetrospectPanel`。`VersionGraph` 在原生相机绘制中同步更新局部 CSS 圆点背景的尺寸、偏移与密度淡化，以及节点控件反向缩放变量和细节档位，不增加监听器、动画循环或全局样式。`EvolutionAction` 共用 PopoverMenu、AppIcon 与现有图片操作栏，承载单图提拔和工坊交付，不另起工具栏；`WorkshopNode` 的轻量待交付挂件只参与场景布局，沿用同一指针驱动与曲线，状态区分待交付、已停止与目标失效。`VersionNode` 持有图外标题、相册下方的短圆角状态浮片、唯一选中边界及右侧图钉，复用 `i-pin`；图钉和分页为独立按钮，隔离指针与双击事件，恢复经宿主复用原端口。`node-chrome.ts` 共用上下文字预留、状态行尺寸与缩放档位，供画布命中和渲染使用。节点拖动的原生 rAF、Pointer Capture 和取消清理由 `VersionGraph` 持有；`continuation.ts` 共用连线与后继放置计算，手动锚点与画布镜头在本页 store 保存，不进入演进修订号；指针过程由原生驱动，离开关系图或卸载时才提交镜头快照。实际新增版本继承预留锚点，重开不重新布局或适应全图。`RetrospectHost` 负责唯一 ASK 浮窗的 Teleport，主外壳仍只挂一个实例。字段规则、选择／批注与状态生命周期仅在[演进专题](../workspaces/recipe-retrospect.md)维护，原型方案仍在 `.local/`，不打包未选分支。

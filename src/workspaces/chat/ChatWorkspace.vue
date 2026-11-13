@@ -532,7 +532,7 @@ onDeactivated(() => {
           :data-drop="drop || undefined"
           @submit.prevent="chat.execute()"
         >
-          <AnnotationCard v-if="c.pendingAnnotation" inline :regions="c.pendingAnnotation.snapshot.regions" :preview="chat.assets.assets.get(c.pendingAnnotation.guideAssetId)?.url" :single-image="c.pendingAnnotation.singleImage" :markup="!!c.pendingAnnotation.markup" :markup-eligible="view.model?.markupEligible" :disabled="!!view.busy || !!view.uploading" @comment="chat.annotationComment" @mode="chat.annotationTextOnly" @markup="chat.annotationMarkup()" @remove="chat.clearAnnotations()" />
+          <AnnotationCard v-if="c.pendingAnnotation" inline :regions="c.pendingAnnotation.snapshot.regions" :references="c.pendingAnnotation.snapshot.references" :preview="chat.assets.assets.get(c.pendingAnnotation.guideAssetId)?.url" :single-image="c.pendingAnnotation.singleImage" :markup="!!c.pendingAnnotation.markup" :markup-eligible="view.model?.markupEligible" :disabled="!!view.busy || !!view.uploading" @comment="chat.annotationComment" @mode="chat.annotationTextOnly" @markup="chat.annotationMarkup()" @remove="chat.clearAnnotations()" />
           <div class="chat-attachments" aria-label="本轮图片">
             <div
               v-for="id in c.attachments.filter(id => id !== c.pendingAnnotation?.guideAssetId)"

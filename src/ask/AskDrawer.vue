@@ -161,7 +161,7 @@ onBeforeUnmount(() => { controller.abort(); ask.attach(null); });
           <button class="ibtn" type="button" aria-label="收起 ASK" title="收起" @click="ask.hide()"><svg class="ico" viewBox="0 0 24 24" aria-hidden="true"><path d="M5 12h14" /></svg></button>
         </div>
       </header>
-      <AskStream @start="start" @focus="composer?.focus(true)" />
+      <AskStream :active="shown" @start="start" @focus="composer?.focus(true)" />
       <div class="ask-bottom">
         <AskRetrospectBar /><AskTodos />
         <div class="ask-compose-panel" :class="{ 'has-draft': joinedDraft }">
@@ -299,7 +299,8 @@ html[data-home-vt] .ask-island[data-home]::before { opacity: 0; }
   width: var(--ask-available-width, 100vw); height: var(--ask-available-height, 100dvh); border-radius: 0;
   transition-property: border-radius;
 }
-.ask-island:is([data-home], [data-fullscreen]) :deep(.ask-stream), .ask-island:is([data-home], [data-fullscreen]) .ask-bottom { padding-inline: max(16px, calc((100% - 760px) / 2)); }
+.ask-island:is([data-home], [data-fullscreen]) { --ask-reading-inset: max(16px, calc((100% - 760px) / 2)); }
+.ask-island:is([data-home], [data-fullscreen]) .ask-bottom { padding-inline: var(--ask-reading-inset); }
 .ask-island[data-fullscreen] .ask-head { height: calc(48px + env(safe-area-inset-top)); padding: env(safe-area-inset-top) max(14px, env(safe-area-inset-right)) 0 max(18px, env(safe-area-inset-left)); }
 .ask-island[data-fullscreen] .ask-bottom { padding-bottom: calc(14px + env(safe-area-inset-bottom)); }
 .ask-island:is([data-home], [data-fullscreen]) :is(.ask-handle, .ask-fill) { cursor: default; touch-action: auto; }

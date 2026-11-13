@@ -1,3 +1,4 @@
+import { idPattern } from "../ids.ts";
 import { recipeOf } from '../retrospect/recipe.ts';
 import { isEmptyInsertion } from './text.ts';
 import { prepareRecipe } from '../retrospect/restore.ts';
@@ -38,29 +39,37 @@ export const stateHash = (s: DraftState) => s.workspace === "edit" && s.edit ? e
 const outsideChat = (base: DraftState) => {
   if (base.workspace && base.workspace !== "chat") throw new Error("在 HOME／IMAGE／TAGS 提问时，写入 CHAT 一律新开会话：请改用 chat_handoff");
 };
-export function handoffImage(label: string, base: DraftState, library: readonly Picture[]): HandoffImage {
-  const project = library.find(p => p.aliases.includes(label))?.project;
-  if (project) return { label, source: 'project', ref: project.ref };
-  if (label.startsWith("#a")) throw new Error("附件不能作为交接图片");
+const sameImage = (a: HandoffImage, b: HandoffImage) => a.ref === b.ref || !!a.binding?.entity_key && a.binding.entity_key === b.binding?.entity_key;
+export function handoffImage(label: string, base: DraftState, library: readonly Picture[], recipeOnly = false): HandoffImage {
+  const picture = library.find(p => p.aliases.includes(label)), project = picture?.project;
+  if (picture?.thumbnailOnly && !recipeOnly) throw new Error(`${label} 原图已释放，仅保留缩略图和配方，无法交接原图`);
+  if (project) return { label, source: 'project', ref: project.ref, ...(picture?.bindings?.[label] ? { binding: picture.bindings[label] } : {}) };
+  if (label.startsWith("#a")) {
+    if (picture?.attachment && picture.scope?.kind === 'ask') return { label, source: 'attachment', ref: `${picture.scope.id}/${picture.id}`, ...(picture.bindings?.[label] ? { binding: picture.bindings[label] } : {}) };
+    throw new Error('附件不能作为交接图片：本轮未读取到该图片原件');
+  }
   if (label.startsWith("#c")) {
+    const picture = library.find(p => p.aliases.includes(label));
+    if (label.includes(':') && picture?.scope?.kind === 'chat' && picture.scope.asset_id)
+      return { label, source: 'chat', ref: picture.scope.asset_id, ...(picture.bindings?.[label] ? { binding: picture.bindings[label] } : {}) };
     const image = base.chat ? chatImage(base.chat, label) : null;
     if (!image) throw new Error(`${label} 不在当前分支或没有已完成图片`);
     const binding = library.find(p=>p.aliases.includes(label))?.bindings?.[label];
     return { label, source: "chat", ref: image.assetId, ...(binding ? {binding} : {}) };
   }
-  const picture = library.find((p) => p.aliases.includes(label)), origin = picture?.origins.find((o) => o.label === label);
+  const origin = picture?.origins.find((o) => o.label === label);
   if (!picture || (origin?.source !== "history" && origin?.source !== "favorites" && origin?.source !== "edit")) throw new Error(`${label} 不在本轮图片快照中`);
   return { label, source: origin.source, ref: picture.id, ...(picture.bindings?.[label] ? {binding:picture.bindings[label]} : {}) };
 }
-export function parseDraft(input: Readonly<Record<string, unknown>>, base: DraftState, library: readonly Picture[], question = "", evolutionBase?: (recordId: string) => EvolutionChange & { edit?: import("../../domain/edit-draft.ts").EditDraftState }): Draft {
+export function parseDraft(input: Readonly<Record<string, unknown>>, base: DraftState, library: readonly Picture[], question = "", evolutionBase?: (recordId: string) => EvolutionChange | { edit?: import("../../domain/edit-draft.ts").EditDraftState }): Draft {
   if(input.base_image_id!==undefined&&base.workspace==='edit') {
-    if(!evolutionBase||input.new_board_name!==undefined||input.base_hash!==stateHash(base)||!base.edit)throw new Error('回退草稿需要当前编辑演进与原始快照');
+    if(!evolutionBase||input.new_board_name!==undefined||input.base_hash!==stateHash(base)||!base.edit)throw new Error('回退草稿需要当前编辑画板与原始快照');
     const label=text(input.base_image_id,32),p=library.find(p=>p.aliases.includes(label));if(!p)throw new Error('回退图片未读取');
-    const {edit:target,...change}=evolutionBase(p.id);if(!target||target.id!==base.edit.id)throw new Error('回退基底须在当前编辑画板');
+    const result=evolutionBase(p.id),target='edit' in result?result.edit:undefined;if(!target||target.id!==base.edit.id)throw new Error('回退基底须在当前编辑画板');
     if(target.source?.width!==base.edit.source?.width||target.source?.height!==base.edit.source?.height)throw new Error('回退图片尺寸不同，请先在演进图中从该图开始，检查蒙版后再提议');
     const prepared={...base,edit:target}, {base_image_id:_base,...inputWithoutBase}=input;
     const parsed=parseEditDraft({...inputWithoutBase,base_hash:stateHash(prepared)},prepared,library,question);
-    return {...parsed,editRollback:{evolution:change,before:structuredClone(base.edit),after:target,label}};
+    return {...parsed,editRollback:{before:structuredClone(base.edit),after:target,label}};
   }
   if (input.base_image_id !== undefined && (!evolutionBase || base.workspace !== "image" || input.new_board_name !== undefined || draftTarget(input, base) === "edit" || Array.isArray(input.steps) && input.steps.some(s => s?.kind === "edit_handoff" || s?.kind === "chat_handoff" || s?.kind === "chat_distill_branch"))) throw new Error("base_image_id 仅用于内置 ASK 当前 IMAGE 演进的回退草稿");
   if(Array.isArray(input.steps)&&input.steps.some(s=>s?.kind==="edit_handoff"))return parseEditHandoff(input,base,library,question);
@@ -74,12 +83,13 @@ export function parseDraft(input: Readonly<Record<string, unknown>>, base: Draft
   if (input.base_image_id !== undefined) {
     const label = text(input.base_image_id, 32), source = library.find(p => p.aliases.includes(label));
     if (!source || !/^#[hf]\d+$/.test(label)) throw new Error('回退基底不在本轮 IMAGE 历史或收藏中');
-    const image = handoffImage(label, base, library);
+    const image = handoffImage(label, base, library, true);
     if (!image.binding) throw new Error('回退基底缺少稳定图片绑定');
     const prepared = prepareRecipe(recipeOf(source.params), { form: base.form, nextCharacterId: base.nextCharacterId ?? nextCharacterId(base.form.characters), models: base.models, samplersFor: id => base.samplersByModel?.[id] ?? base.samplers });
     const sourceRoles = Array.isArray(source.params.localCharacters) ? source.params.localCharacters as { id: string }[] : [];
     roleIds = new Map(sourceRoles.map((c, i) => [c.id, prepared.form.characters[i].id]));
-    rollbackBase = { image, recipe: recipeOf(source.params), expected: boardForm(base.form), fields: prepared.changes, evolution: evolutionBase!(source.id) };
+    const move = evolutionBase!(source.id); if (!('after' in move)) throw new Error('IMAGE 演进基底不可用');
+    rollbackBase = { image, recipe: recipeOf(source.params), expected: boardForm(base.form), fields: prepared.changes, evolution: move };
   }
   const rawSteps = input.steps.map(raw => {
     if (!roleIds) return raw;
@@ -132,13 +142,24 @@ export function parseDraft(input: Readonly<Record<string, unknown>>, base: Draft
     }
     if (step.kind === "chat_handoff") {
       const model = base.chatModel;
+      if (step.destination !== undefined && step.destination !== 'new' && step.destination !== 'current') throw new Error('destination 需为 new 或 current');
+      if (step.destination === 'current') {
+        outsideChat(base);
+        if (!base.chat) throw new Error('当前 CHAT 快照尚未就绪');
+        if (base.chat.annotated) throw new Error('当前对话有未处理的批注，请先处理批注');
+      }
       if (rawSteps.length !== 1) throw new Error("交接草稿必须独立提交");
       if (!model) throw new Error("CHAT 模型目录未就绪，暂不能交接；请让用户打开对话页或检查连接后再提议");
       if (!Array.isArray(step.images) || step.images.some((id) => typeof id !== "string")) throw new Error("images 需要图片 ID 列表");
       const images: HandoffImage[] = [];
       for (const label of step.images as string[]) {
         const image = handoffImage(text(label, 30), base, library);
-        if (!images.some((i) => i.ref === image.ref)) images.push(image);
+        if (!images.some((i) => sameImage(i, image))) images.push(image);
+      }
+      if (step.base_image !== undefined) {
+        const selected = handoffImage(text(step.base_image, 80), base, library), at = images.findIndex(i => sameImage(i, selected));
+        if (at < 0) throw new Error('base_image 必须包含在 images 中');
+        images.unshift(...images.splice(at, 1));
       }
       if (images.length > model.maxImages) throw new Error(`当前 CHAT 模型最多使用 ${model.maxImages} 张图`);
       const options: Record<string, string> = {};
@@ -149,9 +170,17 @@ export function parseDraft(input: Readonly<Record<string, unknown>>, base: Draft
         if (typeof value !== "string" || !field.options.includes(value)) throw new Error(`${key} 只能取 ${field.options.join("、")}`);
         options[key] = value;
       }
-      const body = text(step.text);
+      let body = text(step.text);
       if (!body.trim()) throw new Error("交接需要非空的输入框文字");
-      return { kind: "chat_handoff" as const, images, options, text: body };
+      // Resolve ASK codes to the exact outgoing order, including aliases of the same record.
+      body = body.replace(idPattern, label => {
+        const p = library.find(p => p.aliases.includes(label));
+        const at = images.findIndex(i => i.label === label || p && (i.ref === p.id || i.ref === p.scope?.asset_id || i.ref === `${p.scope?.id}/${p.id}` || !!i.binding?.entity_key && i.binding.entity_key === p.entity_key));
+        return at < 0 ? label : `第 ${at + 1} 张图`;
+      });
+      if (images.length > 1) body = `图片用途：第 1 张为底图，其余为参考图。以底图为修改主体，参考内容按下方要求使用。\n\n${body}`;
+      if (body.length > 24000) throw new Error('交接文字过长，请精简图片说明');
+      return { kind: "chat_handoff" as const, ...(step.destination ? { destination: step.destination as "new" | "current" } : {}), images, ...(images[0] ? { baseImage: images[0].ref } : {}), options, text: body };
     }
     if (step.kind !== "restore_partial") throw new Error("此阶段不支持该草稿类型");
     const source = text(step.source, 30), image = library.find((p) => p.aliases.includes(source));
@@ -241,7 +270,7 @@ export function validateDraft(draft: Draft, now: DraftState, options: ValidateOp
     const b = draft.rollbackBase;
     let unavailable = '';
     try { prepareRecipe(b.recipe, { form: now.form, nextCharacterId: now.nextCharacterId ?? 1, models: now.models, samplersFor: id => now.samplersByModel?.[id] ?? now.samplers }); } catch (error) { unavailable = error instanceof Error ? error.message : '回退配方不可用'; }
-    const issue = unavailable || (stateHash(now) !== draft.baseHash ? '画板已变化，请重新提议回退草稿' : options.has?.(b.image) === false ? '回退基底图片已移除' : '');
+    const issue = unavailable || (stateHash(now) !== draft.baseHash ? '画板已变化，请重新提议回退草稿' : (options.hasRecord ?? options.has)?.(b.image) === false ? '回退基底图片已移除' : '');
     checked.push({ id: 'evolution-base', label: '回退基底', kind: 'branch', locked: true, enabled: true, aligned: false, issue, before: '', after: `${b.evolution.after.cursor.nodeId} · ${b.image.label}` });
     for (const field of Object.keys(b.fields) as (keyof typeof b.fields)[]) {
       if (sameValue(initial[field], working[field]) || field === 'placement') continue;
@@ -449,10 +478,14 @@ function validateBranch(draft: Draft, now: DraftState, options: ValidateOptions)
 function validateHandoff(draft: Draft, now: DraftState, options: ValidateOptions): DraftPlan {
   const step = draft.steps[0], model = draft.base.chatModel, live = now.chatModel;
   if (step.kind !== "chat_handoff" || !model) throw new Error("交接草稿无效");
-  const stale = !live || live.id !== model.id ? "对话模型已变化，请重新提议" : "", on = (id: string) => !options.off.has(id);
+  const current = step.destination === 'current' ? { id: draft.base.conversationId, key: draft.base.chat!.key } : undefined;
+  const contextIssue = current && (now.conversationId !== current.id || now.chat?.key !== current.key) ? '会话或上下文已变化，请重新提议' : '';
+  const imageIssue = (step.images.length || current) && [...options.off].some(id => id.startsWith('0:image:') || id === '0:text') ? '底图、参考图与修改说明请整体应用或重新提议' : '';
+  const missing = step.images.some(image => options.has?.(image) === false) ? '交接图片已移除，请重新提议' : '';
+  const stale = (!live || live.id !== model.id ? "对话模型已变化，请重新提议" : '') || (step.images.length > (live?.maxImages ?? Infinity) ? '当前模型图片数量上限已变化，请重新提议' : '') || contextIssue || (step.baseImage && step.images[0]?.ref !== step.baseImage ? '交接底图与图片顺序不一致，请重新提议' : '') || imageIssue || missing, on = (id: string) => !options.off.has(id);
   const steps: CheckedStep[] = [
-    { id: "0:new", label: "新开对话", kind: "handoff", locked: true, enabled: true, issue: stale, aligned: false, before: "", after: model.name },
-    ...step.images.map((image, i): CheckedStep => ({ id: `0:image:${i}`, label: "参考图", kind: "handoff", enabled: on(`0:image:${i}`),
+    { id: "0:new", label: current ? "当前对话" : "新开对话", kind: "handoff", locked: true, enabled: true, issue: stale, aligned: false, before: "", after: model.name },
+    ...step.images.map((image, i): CheckedStep => ({ id: `0:image:${i}`, label: i === 0 ? "底图" : `参考图 ${i}`, kind: "handoff", locked: true, enabled: on(`0:image:${i}`),
       issue: stale || (options.has?.(image) === false ? "图片已移除" : ""), aligned: false, before: "", after: image.label })),
     ...Object.entries(step.options).map(([key, value]): CheckedStep => {
       const field = live?.writable[key];
@@ -460,14 +493,14 @@ function validateHandoff(draft: Draft, now: DraftState, options: ValidateOptions
         issue: stale || (field?.options.includes(value) ? "" : "当前模型不支持此值"), aligned: false, before: field?.value ?? "", after: value,
         displayBefore: field ? chatOptionLabel(field.value) : "—", displayAfter: chatOptionLabel(value) };
     }),
-    { id: "0:text", label: "对话输入框", kind: "rewrite", enabled: on("0:text"), issue: stale, aligned: false, before: "", after: step.text },
+    { id: "0:text", label: "对话输入框", kind: "rewrite", locked: !!step.images.length || !!current, enabled: on("0:text"), issue: stale, aligned: false, before: "", after: step.text },
   ];
   const usable = (id: string) => steps.some((s) => s.id === id && s.enabled && !s.issue);
   const images = step.images.filter((_, i) => usable(`0:image:${i}`)), body = usable("0:text") ? step.text : "";
   const handoff = body || images.length
-    ? { model: model.id, options: Object.fromEntries(Object.entries(step.options).filter(([key]) => usable(`0:option:${key}`))), text: body, images }
+    ? { model: model.id, options: Object.fromEntries(Object.entries(step.options).filter(([key]) => usable(`0:option:${key}`))), text: body, images, ...(current ? { current } : {}) }
     : undefined;
   const plan = { title: draft.title, workspace: "chat" as const, conversationId: draft.base.conversationId, steps,
-    changes: body ? [{ field: "composer" as const, before: "", after: body }] : [], aligned: !!stale, ...(handoff ? { handoff } : {}) };
+    changes: body ? [{ field: "composer" as const, before: current ? draft.base.composer : "", after: body }] : [], aligned: !!stale, ...(handoff ? { handoff } : {}) };
   return { ...plan, fingerprint: hash(canonical(plan)) };
 }

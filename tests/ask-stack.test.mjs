@@ -10,28 +10,31 @@ function fixture() {
   const origins = new Map();
   const router = { route: { value: { workspace: 'image', overlay: null } }, switchWorkspace(w) { this.route.value.workspace = w; } };
   const guard = () => { if (failure) throw new Error(failure); writes++; };
-  const writer = createDraftWriter({ snapshot: () => ({ form, history: [], favorites: [] }), async writeDraft(values) { guard(); Object.assign(form, values); } }, {
+  const writer = createDraftWriter({ retainHistory() {}, snapshot: () => ({ form, history: [], favorites: [] }), async writeDraft(values) { guard(); Object.assign(form, values); } }, {
     snapshot: () => ({ current, conversations }),
     async writeDraft(text) { guard(); current.prompt = text; },
     async writeBranchDraft(next, expected) { assert.equal(chatDraftKey(current), expected); guard(); Object.assign(current, structuredClone(next)); current.selectionRevision++; return chatDraftKey(current); },
     // Mirrors chat.writeHandoffDraft: reuse the blank conversation or open one, then show it.
     async writeHandoffDraft(draft) {
       guard();
-      const source = current, blank = conversations.find(isBlank), before = blank ? structuredClone(blank) : null, target = blank ?? newConversation();
+      const source = current, blank = draft.current ? current : conversations.find(isBlank), before = blank ? structuredClone(blank) : null, target = blank ?? newConversation();
       if (!blank) conversations.push(target);
       Object.assign(target, { prompt: draft.text, attachments: draft.images.map((i) => i.asset), settings: { model: draft.model, options: { ...draft.options } } });
-      target.selectionRevision++; current = target; origins.set(target.id, { before, source: source.id });
+      target.selectionRevision++; current = target; origins.set(chatDraftKey(target), { before, source: source.id });
       return chatDraftKey(target);
     },
     async undoHandoffDraft(receipt) {
-      const id = JSON.parse(receipt)[0], target = conversations.find((c) => c.id === id), origin = origins.get(id);
+      const id = JSON.parse(receipt)[0], target = conversations.find((c) => c.id === id), origin = origins.get(receipt);
       assert.equal(chatDraftKey(target), receipt); guard();
       if (origin.before) Object.assign(target, structuredClone(origin.before), { selectionRevision: target.selectionRevision + 1 });
       else conversations = conversations.filter((c) => c !== target);
       if (current === target) current = conversations.find((c) => c.id === origin.source) ?? conversations[0];
+      origins.delete(receipt);
       return chatDraftKey(current);
     },
-    handoffOrigin: (id) => origins.get(id) ?? null,
+    handoffOrigin: (receipt) => origins.get(receipt) ?? null,
+    rebaseHandoffDraft(before, after) { const origin = origins.get(before); if (origin) { origins.delete(before); origins.set(after, origin); } },
+    retainHandoffDrafts(receipts) { for (const key of origins.keys()) if (!receipts.includes(key)) origins.delete(key); },
   }, router);
   const stack = createDraftStack(writer);
   const make = (changes, workspace = 'image', branch, handoff) => ({ title: '测试草稿', workspace, conversationId: current.id, steps: [], changes, branch, handoff, fingerprint: 'fixture', aligned: false });
@@ -213,4 +216,21 @@ test('H3 stack: an edited or deleted handoff conversation cannot be undone; a re
   await assert.rejects(f.stack.undo(h.id), /新对话已删除/);
   f.conversations = [opened]; f.current = opened;
   assert.equal(f.writer.canUndo(h.plan, h.receipt), true);
+});
+
+test('CHAT handoffs survive branch revision changes and preflight consecutive current-context updates', async () => {
+  const f = fixture(), initial = chatSelection(f.current);
+  const first = await f.apply(f.handoff('first'));
+  const branch = await f.apply(f.branch('branched'));
+  const plan = f.handoff('current update');
+  plan.handoff.current = { id: f.current.id, key: chatDraftKey(f.current) };
+  const update = await f.apply(plan);
+  assert.deepEqual(f.stack.preflight([first.id, branch.id, update.id]), [update.id, branch.id, first.id]);
+  await f.stack.undo(update.id);
+  await f.stack.undo(branch.id);
+  assert.equal(f.current.prompt, 'first');
+  await f.stack.undo(first.id);
+  assert.deepEqual(chatSelection(f.current), initial);
+  await f.stack.restore(first.id);
+  assert.equal(f.current.prompt, 'first');
 });

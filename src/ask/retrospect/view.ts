@@ -1,5 +1,5 @@
 import type { RetrospectNode, RetrospectEdge } from './model.ts';
-export interface ReviewPicture { id: string; url?: string; width?: number; height?: number; parametersUnavailable?: boolean }
+export interface ReviewPicture { id: string; url?: string; width?: number; height?: number; parametersUnavailable?: boolean; thumbnailOnly?: boolean }
 export type ImageView = 'A' | 'B' | 'pair';
 export type GraphTool = 'view' | 'pan' | 'select' | 'annotate';
 export type SelectionMode = 'single' | 'multi' | 'box';

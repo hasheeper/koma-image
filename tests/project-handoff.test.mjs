@@ -1,13 +1,13 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { createAttachments, attachmentPictures } from '../src/ask/attachments.ts';
-import { createProjectImages, prepareProjectHandoffs, remapProjectDraft } from '../src/ask/project-images.ts';
+import { createHandoffImages, prepareProjectHandoffs, remapHandoffDraft } from '../src/ask/handoff-images.ts';
 import { parseDraft, stateHash, validateDraft } from '../src/ask/draft/validate.ts';
 import { DEFAULTS } from '../src/domain/drawing.ts';
 import { imageParameters } from '../src/domain/image-parameters.ts';
 
-test('project handoffs bind frozen scoped images, reject generic attachments and restore pending identity', async () => {
-  const pool=createAttachments(), scopes=new Map([['old',pool]]), images=createProjectImages(id=>scopes.get(id));
+test('project handoffs bind frozen scoped images, accept image attachments and restore pending identity', async () => {
+  const pool=createAttachments(), scopes=new Map([['old',pool]]), images=createHandoffImages(id=>scopes.get(id));
   const data={kind:'image',blob:new Blob(['original']),name:'portrait.png',bytes:8,mime:'image/png',size:{width:512,height:768},sentSize:{width:512,height:768},sentBytes:8,params:null,sent:{type:'image',mime:'image/png',data:'mock'}};
   const project=pool.add({...data,origin:{projectId:'A',path:'characters/hero/portrait.png',version:'hash',modified:1}}),generic=pool.add(data);
   const library=attachmentPictures(pool.read([project.id,generic.id]),'old');
@@ -17,12 +17,35 @@ test('project handoffs bind frozen scoped images, reject generic attachments and
   assert.deepEqual(calls,['characters/hero/portrait.png']);assert.equal(input.steps[0].images[0],'characters/hero/portrait.png');
   const draft=parseDraft(prepared,base,library),plan=validateDraft(draft,base,{off:new Set(),has:i=>!!images.get(i.ref)});
   assert.equal(plan.handoff.images[0].source,'project');assert.equal(plan.handoff.images[0].ref,'old/#a1');
-  assert.throws(()=>parseDraft({...input,steps:[{...input.steps[0],images:[generic.id]}]},base,library),/附件/);
+  const ordinary=parseDraft({...input,steps:[{...input.steps[0],images:[generic.id]}]},base,library);
+  assert.equal(ordinary.steps[0].images[0].source,'attachment');assert.equal(ordinary.steps[0].images[0].ref,'old/#a2');
   images.retain([plan]);pool.release([project.id]);assert.equal(await images.get('old/#a1').blob.text(),'original','undo/redo owns the frozen original independently of the turn');
   const restored=createAttachments();restored.restore(pool.snapshot([project.id]),[project.id]);scopes.set('new',restored);
-  const fresh=remapProjectDraft(draft,'old','new');assert.equal(fresh.steps[0].images[0].ref,'new/#a1');assert.equal(await images.get('new/#a1').blob.text(),'original');
+  const fresh=remapHandoffDraft(draft,'old','new');assert.equal(fresh.steps[0].images[0].ref,'new/#a1');assert.equal(await images.get('new/#a1').blob.text(),'original');
   images.retain([]);assert.equal(images.get('old/#a1'),null);assert.equal(images.get('new/#a1').origin.projectId,'A');
   const provenance={projectId:'A',path:'characters/hero/portrait.png',version:'hash'};
   assert.deepEqual(imageParameters({projectSource:{...provenance,handle:'not provenance',key:'not provenance'}}).projectSource,provenance,'EDIT parameter snapshots preserve only source identity fields');
   pool.dispose();restored.dispose();
+});
+
+test('attachment handoffs keep scope, explicit base order and full originals through retention and restore', async () => {
+  const a=createAttachments(),b=createAttachments(),scopes=new Map([['a',a],['b',b]]),images=createHandoffImages(id=>scopes.get(id));
+  const put=(pool,content)=>pool.add({kind:'image',blob:new Blob([content]),name:'upload.png',bytes:content.length,mime:'image/png',size:{width:1800,height:1200},sentSize:{width:1568,height:1045},sentBytes:1,params:null,sent:{type:'image',mime:'image/webp',data:'small'}});
+  const first=put(a,'original-A'),second=put(a,'original-B');put(b,'different-session');
+  const text=a.add({kind:'text',name:'notes.txt',bytes:4,mime:'text/plain',text:'text',pasted:false});
+  const base={form:{...DEFAULTS},composer:'',conversationId:'chat',workspace:'image',models:[],samplers:[],chatModel:{id:'model',name:'model',maxImages:4,writable:{}}};
+  const library=attachmentPictures(a.read([first.id,second.id,text.id]),'a');
+  const input={draft_title:'改图',base_hash:stateHash(base),steps:[{kind:'chat_handoff',images:[first.id,second.id],base_image:second.id,options:{},text:'修改 #a2，服装参考 #a1'}]};
+  const draft=parseDraft(input,base,library),plan=validateDraft(draft,base,{off:new Set()});
+  assert.deepEqual(plan.handoff.images.map(i=>i.ref),['a/#a2','a/#a1']);assert.match(plan.handoff.text,/修改 第 1 张图，服装参考 第 2 张图/);
+  assert.equal(await images.get('b/#a1').blob.text(),'different-session');
+  assert.throws(()=>parseDraft({...input,steps:[{...input.steps[0],base_image:'#a3'}]},base,library),/附件/);
+  assert.throws(()=>parseDraft({...input,steps:[{...input.steps[0],images:[text.id]}]},base,library),/快照/);
+  assert.throws(()=>parseDraft(input,base,attachmentPictures(a.read([first.id,second.id]))),/附件/,'unscoped labels cannot be rebound to the active ASK pool');
+  images.retain([plan]);a.release([first.id,second.id]);assert.equal(await images.get('a/#a1').blob.text(),'original-A');
+  const restored=createAttachments();restored.restore(a.snapshot([first.id,second.id]),[first.id,second.id]);scopes.set('restored',restored);
+  const fresh=remapHandoffDraft({...draft,editHandoff:{image:draft.steps[0].images[0],proposal:draft}},'a','restored');
+  assert.equal(fresh.steps[0].baseImage,'restored/#a2');assert.equal(fresh.editHandoff.image.ref,'restored/#a2');assert.equal(fresh.editHandoff.proposal.steps[0].images[1].ref,'restored/#a1');
+  images.retain([]);assert.equal(images.get('a/#a1'),null);assert.equal(await images.get('restored/#a1').blob.text(),'original-A');
+  a.dispose();b.dispose();restored.dispose();
 });

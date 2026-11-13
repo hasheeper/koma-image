@@ -1,6 +1,6 @@
 # 架构规范
 
-更新：2026-11-09。描述当前核心技术、模块结构与所有权。产品定位和功能见[产品总览](product/overview.md)，功能状态和真实待验项见[当前状态](status.md)，UI 标准见[设计语言](product/design-language.md)，行为约束见[业务契约](business-contracts.md)。
+更新：2026-11-12。描述当前核心技术、模块结构与所有权。产品定位和功能见[产品总览](product/overview.md)，功能状态和真实待验项见[当前状态](status.md)，UI 标准见[设计语言](product/design-language.md)，行为约束见[业务契约](business-contracts.md)。
 
 ## 核心技术
 
@@ -83,17 +83,19 @@ CHAT 收藏复制原始字节到既有收藏库，以会话／轮次／版本／
 
 这里的本地存储属于当前浏览器和站点来源，Cloudflare Pages 与本地服务均可运行 Todo；域名、端口或浏览器变化不共享数据。会话只关联 Slate ID，不拥有清单和成果；稳定身份与持久版本由任务服务管理，草稿校验沿用[共享编辑规则](integrations/bridge.md#ask-推进与复合草稿)。
 
-企划索引由 `bridge/project/` 扫描根目录约定结构及小型元数据，Bridge 持有目录身份、缓存与中止信号；面板按需解码素材并回收 URL。挂载只恢复本目录映射，任务操作冻结目录目标以防跨企划写入。ASK 通过只读端口取得摘要与原文，企划图片原件归会话附件池，由 `project-images.ts` 为待审草稿、收藏恢复和撤销栈保持引用；不新增资产数据库。完整约定见[企划集](integrations/bridge.md#企划目录与元数据)。
+企划索引由 `bridge/project/` 扫描根目录约定结构及小型元数据，Bridge 持有目录身份、缓存与中止信号；面板按需解码素材并回收 URL。挂载只恢复本目录映射，任务操作冻结目录目标以防跨企划写入。ASK 通过只读端口取得摘要与原文，企划与普通上传图片原件归会话附件池，由 `handoff-images.ts` 为待审草稿、收藏恢复和撤销栈保持引用；不新增资产数据库。完整约定见[企划集](integrations/bridge.md#企划目录与元数据)。
 
 ASK 的只读工具与外部 IMAGE 收件共用草稿结构，提示词、参数、`slate_edit` 和 `save_ref` 在 DraftCard 审阅。确认写入器协调原画板路径、本地任务／资产及文件预检与补偿，完成记录复用工具完成态；文件系统与 IndexedDB 之间不提供跨进程原子事务。公开 `/skills/koma-bridge/SKILL.md` 只说明外部操作方式，目录内生成的 `PROTOCOL.md` 才描述当前字段，不构成远程文件访问接口。
 
-版本演进由 `src/ask/retrospect/` 按需计算候选和精确 Diff，ASK 负责主题与拓扑推演。应用级服务持有本页稳定活动树、具体图片基底、批注与定稿；激活后订阅生成提交和成功落图，按有效配方归组或分叉，显式恢复／内置回退草稿成功后同步基底，复用原草稿撤销栈。消息保留当次快照，同树重整检查读取版本；删除来源回复不删除活动树，切板／清空／解除／定稿停止跟踪。`RetrospectHost` 以 Vue Teleport 承载唯一 ASK 浮窗。详见[版本演进](workspaces/recipe-retrospect.md)，不扩展 ASK 生图权限、外部 Bridge 草稿或跨刷新存储。
+版本演进由 `src/ask/retrospect/` 按需计算 IMAGE 候选和精确 Diff，ASK 负责主题与拓扑；应用级服务持有本页稳定树、唯一 IMAGE 游标、工坊工单／续交锚点、批注与定稿。`workshops.ts` 保护交付证据，`store.ts` 处理单图提拔、成功交接派工、显式交付、接力与容量预留；EDIT／CHAT 生成仅收集准确记录身份，原生服务继续持有图片与历史。`staged.ts` 纯求值、`branch-turn.ts` 逐次提交，表单／游标与纯树事务共用 `draft/apply.ts` 的 50 步撤销，后续依赖冲突时拒绝旧快照覆盖。生成提交冻结来源和目标，结束释放在途保护；消息保留当次快照，同树重整检查读取版本。`RetrospectHost` 以 Vue Teleport 承载唯一 ASK 浮窗。完整规则见[版本演进](workspaces/recipe-retrospect.md)。
 
 NAI 参考资产与编码由应用级 `services/nai-references.ts` 管理，收藏库保留 referenceAssets／vibeEncodings 两个独立存储；画板只持小型 JSON。Vibe 编码与生图共用任务锁，成功编码立即落库，参考准备后固定来源上下文。
 
 普通备份使用 `app=koma-image`、`kind=backup`、`version=2`；数据库 schema version 与备份 envelope version 独立。普通历史、编辑会话、交接数据、HOME 展示副本与偏好、Key 不导出。仅支持新版 Koma 格式，不检测、转换或清理旧应用数据。
 
 ## 图片身份
+
+IMAGE 历史索引与原图容量分离，由 `domain/image-history.ts` 计算降级、drawing 持有像素和 URL。ASK／Bridge 读取全部历史配方，并区分原图与仅缩略图；原图保护及可用操作见 [IMAGE 历史分层](workspaces/image.md#历史分层)。
 
 [图片身份与引用](engineering/image-identity.md)区分原图字节实体、操作记录及带作用域的展示短码。收藏库 schema v3 在原存储上增加最小编号登记和库身份；收藏号跨刷新固定，页内历史与 EDIT 号不持久化。ASK 冻结整轮具体绑定，按实体共享视觉编码和已看资格，按记录读取配方。EDIT 结果不自动进入 IMAGE 历史，Bridge 仅导出 EDIT 只读目录，外部草稿仍只写 IMAGE。内置 ASK 的 NAI 能力／预算／费用通过共用只读服务获取；EDIT 草稿经专用无报价写入器应用，蒙版、底图与生成不交给 ASK。见 [NAI 基础感知](ask/nai-awareness.md)及 [ASK × EDIT](ask/edit.md)。
 

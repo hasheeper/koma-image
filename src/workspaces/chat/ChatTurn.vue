@@ -26,6 +26,8 @@ import ModelIcon from "../../shared/ModelIcon.vue";
 import ChatPrint from "./ChatPrint.vue";
 import ChatVersions from "./ChatVersions.vue";
 import ChatResultTools from "./ChatResultTools.vue";
+import EvolutionAction from '../../ask/retrospect/EvolutionAction.vue';
+import { evolutionTarget } from '../../domain/evolution-input.ts';
 import WaveHost from "../image/WaveHost.vue";
 const annotations=useAnnotations(), showRaw=shallowRef<ReadonlySet<string>>(new Set());
 function displayed(id:string){ return showRaw.value.has(id) ? id : version.value.composites?.[id] ?? id; }
@@ -193,7 +195,7 @@ const filename = (id: string) =>
           <img :src="url(id)" :alt="asset(id)?.name" width="40" height="40" />
         </button>
       </div>
-      <AnnotationCard v-if="turn.snapshot.annotation" :regions="turn.snapshot.annotation.snapshot.regions" :preview="url(turn.snapshot.annotation.guideAssetId)" sent />
+      <AnnotationCard v-if="turn.snapshot.annotation" :regions="turn.snapshot.annotation.snapshot.regions" :references="turn.snapshot.annotation.snapshot.references" :preview="url(turn.snapshot.annotation.guideAssetId)" sent />
       <div v-if="turn.prompt" class="msg-bubble turn-prompt" tabindex="0">{{ turn.snapshot.annotation?.text ? turn.prompt.replace(turn.snapshot.annotation.text, '').trim() : turn.prompt }}</div>
       <div class="msg-tools">
         <button class="ibtn" type="button" aria-label="复制描述" @click="copy">
@@ -314,7 +316,7 @@ const filename = (id: string) =>
               @favorite="toggleFavorite(displayed(b.assetId))"
               @edit="openEdit(displayed(b.assetId))"
               @retry="chat.execute(turn)"
-            />
+            ><EvolutionAction :record-id="favoriteId(displayed(b.assetId))" :target="evolutionTarget('chat', view.current.id)" :disabled="version.status !== 'done'" /></ChatResultTools>
             <div v-if="turn.snapshot.annotation && canMaskAnnotations(turn.snapshot.annotation.snapshot.regions)" class="chat-annotation-review">
               <button class="btn btn-sm btn-quiet" @click="review(b.assetId)"><AppIcon name="i-mask" />{{ version.composites?.[b.assetId] ? '重新审核' : '审核并应用蒙版' }}</button>
               <button v-if="version.composites?.[b.assetId]" class="btn btn-sm btn-quiet" :aria-pressed="showRaw.has(b.assetId)" @click="toggleRaw(b.assetId)">{{ showRaw.has(b.assetId) ? '查看回贴图' : '查看模型直出' }}</button>

@@ -12,20 +12,30 @@ import type { ConversationRecord } from "../../storage/records.ts";
 import type { Drawing } from "../../services/drawing.ts";
 import type { Chat } from "../../services/chat.ts";
 import type { AppRouter } from "../../app/router.ts";
-import type { DrawingBoard, DrawingForm } from "../../domain/drawing.ts";
+import type { DrawingBoard, DrawingForm, ImageRecord } from "../../domain/drawing.ts";
 import { imageFileName } from "../../domain/drawing.ts";
 import type { DraftPlan, Field, RollbackBase } from "./types.ts";
-import type { ProjectImages } from '../project-images.ts';
+import type { HandoffImages } from '../handoff-images.ts';
+
+const evolutionChange = (plan: DraftPlan) => plan.evolution ?? (plan.rollbackBase ?? plan.stagedLoad)?.evolution;
 
 const labels: Partial<Record<Field, string>> = { prompt: "Prompt", negative: "Negative", composer: "对话输入框", model: "模型", width: "尺寸", height: "尺寸", seed: "Seed", steps: "步数", scale: "Guidance", cfg: "中转 CFG（旧）", cfgRescale: "Guidance Rescale", varietyPlus: "Variety+", naiMode: "模式", complexity: "Complexity", qualityPreset: "质量预设", negativePreset: "负向预设", transparentBg: "透明底", sampler: "采样器", batchCount: "张数", characters: "角色组", placement: "角色定位" };
 
 /** The only ASK module with write ports. Called exclusively by user actions. */
 export interface EvolutionWritePort {
+  treeIssue?: (change: NonNullable<DraftPlan['treeChange']>, undo?: boolean) => string;
+  commitTree?: (change: NonNullable<DraftPlan['treeChange']>, undo?: boolean) => void;
+  treeSnapshot?: (id: string) => NonNullable<DraftPlan['treeChange']>['before'] | undefined;
+  treeKey?: (record: NonNullable<DraftPlan['treeChange']>['before']) => string;
+  prepareHandoff?: (plan: DraftPlan, receipt: string | null) => NonNullable<DraftPlan['treeChange']> | null;
   moveIssue: (change: RollbackBase['evolution'], undo?: boolean) => string;
   commitMove: (change: RollbackBase['evolution'], undo?: boolean) => void;
+  stagedAvailable?: (load: NonNullable<DraftPlan['stagedLoad']>) => boolean;
   available: (base: RollbackBase) => boolean;
 }
-export function createDraftWriter(drawing: Drawing, chat: Chat, router: AppRouter, slates?: Slates, filePort?: () => FilePort | null, editor?: Pick<Editor, "records" | "askSnapshot" | "writeAskDraft" | "insertAskBoard" | "removeAskBoard">, evolution?: EvolutionWritePort, projectImages?: ProjectImages) {
+export function createDraftWriter(drawing: Drawing, chat: Chat, router: AppRouter, slates?: Slates, filePort?: () => FilePort | null, editor?: Pick<Editor, "records" | "record" | "installReferences" | "holdReferences" | "collectReferences" | "askSnapshot" | "writeAskDraft" | "insertAskBoard" | "removeAskBoard">, evolution?: EvolutionWritePort, handoffImages?: HandoffImages, retainedRecord?: (id: string) => ImageRecord | undefined) {
+  let retained = new Set<string>();
+  const workshopWrites = new Map<DraftPlan, NonNullable<DraftPlan['treeChange']>>();
   const chatKey = () => chatDraftKey(chat.snapshot().current);
   const readBoards = () => new Map((drawing.snapshot().boards ?? []).map(b => [b.id, structuredClone(b)]));
   const handoffTarget = (receipt: string | null) => receipt ? String(JSON.parse(receipt)[0]) : "";
@@ -43,9 +53,12 @@ export function createDraftWriter(drawing: Drawing, chat: Chat, router: AppRoute
       if(!plan.editRollback&&side==='before'&&plan.edit.sourceKey!==undefined&&plan.edit.sourceKey!==editSourceKey(state,plan.edit.after))return '编辑来源或参数声明已变化，请重新提议';
       return side==='before'?checkEditConfiguration(plan.editRollback?{...state,...plan.editRollback.after,models:state.models}:state,plan.edit.after):'';
     }
-    // A handoff opens its own conversation; only undo depends on CHAT's current state.
+    // Current-context drafts freeze the conversation; new handoffs own their target.
     if (plan.handoff) {
-      if (side === "before") return "";
+      if (side === "before") {
+        const target = plan.handoff.current;
+        return !target ? '' : current.id !== target.id ? '当前对话已切换' : chatDraftKey(current) !== (receipt ?? target.key) ? '会话或上下文已变化，请重新提议' : '';
+      }
       const target = find(handoffTarget(receipt));
       return !target ? "新对话已删除" : chatDraftKey(target) !== receipt ? "新对话已继续编辑" : "";
     }
@@ -63,7 +76,18 @@ export function createDraftWriter(drawing: Drawing, chat: Chat, router: AppRoute
   const boardConflict = (plan: DraftPlan, side: "before" | "after", receipt: string | null = null) =>
     conflictAt(plan, side, receipt, drawing.snapshot().form, chat.snapshot().current, readBoards(), (id) => chat.snapshot().conversations.find((c) => c.id === id));
   const conflict = (plan: DraftPlan, side: "before" | "after", receipt: string | null = null) => {
-    if(plan.editRollback){const issue=evolution?.moveIssue(plan.editRollback.evolution,side==='after')??'演进跟踪服务不可用';if(issue)return issue;}
+    const handoff = workshopWrites.get(plan);
+    if (handoff && side === 'after') { const issue = evolution?.treeIssue?.(handoff, true) ?? '演进服务不可用'; if (issue) return issue; }
+    if (plan.treeChange) {
+      const issue = evolution?.treeIssue?.(plan.treeChange, side === 'after') ?? '演进服务不可用';
+      if (issue || !plan.changes.length) return issue;
+    }
+    if (plan.evolution) { const issue = evolution?.moveIssue(plan.evolution, side === 'after') ?? '演进跟踪服务不可用'; if (issue) return issue; }
+    if (plan.stagedLoad) {
+      const issue = evolution?.moveIssue(plan.stagedLoad.evolution, side === 'after') ?? '演进跟踪服务不可用';
+      if (issue) return issue;
+      if (side === 'before' && !evolution?.stagedAvailable?.(plan.stagedLoad)) return '预设配方或来源已变化，请重新载入';
+    }
     if (plan.rollbackBase) {
       const issue = evolution?.moveIssue(plan.rollbackBase.evolution, side === 'after') ?? '演进跟踪服务不可用';
       if (issue) return issue;
@@ -76,42 +100,57 @@ export function createDraftWriter(drawing: Drawing, chat: Chat, router: AppRoute
     return boardConflict(plan, side, receipt);
   };
   /** Recheck workspace records at write time; history or EDIT versions may have been removed. */
-  function handoffImages(plan: DraftPlan) {
+  function resolveHandoffImages(plan: DraftPlan) {
     const d = drawing.snapshot(), records = [...d.history, ...d.favorites, ...editor?.records() ?? []];
     return plan.handoff!.images.map((image) => {
-      if (image.source === 'project') {
-        const item = projectImages?.get(image.ref); if (!item) throw new Error(`${image.label} 企划图片已失效`);
-        return { blob: item.blob, name: item.name, projectSource: { projectId: item.origin!.projectId!, path: item.origin!.path, version: item.origin!.version } };
+      if ((image.source === 'project' || image.source === 'attachment')) {
+        const item = handoffImages?.get(image.ref); if (!item) throw new Error(`${image.label} 图片附件已失效`);
+        return { blob: item.blob, name: item.name, ...(item.origin?.projectId ? { projectSource: { projectId: item.origin.projectId, path: item.origin.path, version: item.origin.version } } : {}), lineage: { via: 'upload' as const, parent_entity_key: item.entity_key, parent_ref: image.binding } };
       }
-      if (image.source === "chat") return { asset: image.ref };
-      const record = records.find((r) => r.id === image.ref);
-      if (!record) throw new Error(`${image.label} 已移除`);
+      if (image.source === "chat") return { asset: image.ref, recordId: image.binding?.record_id };
+      const record = records.find((r) => r.id === image.ref) ?? editor?.record?.(image.ref) ?? retainedRecord?.(image.ref);
+      if (!record?.blob) throw new Error(`${image.label} 原图已释放或移除`);
       return { blob: record.blob, name: imageFileName(record), lineage:{via:"chat" as const,parent_record_id:record.id,parent_entity_key:record.entity_key,parent_ref:image.binding} };
     });
   }
+  function referenceRecord(image: import('./types.ts').HandoffImage): ImageRecord {
+    if (image.source==='project'||image.source==='attachment') {
+      const a=handoffImages?.get(image.ref);if(!a)throw new Error(`${image.label} 参考原图已失效`);
+      return {id:image.ref,entity_key:a.entity_key,blob:a.blob,thumbBlob:null,size:a.size,params:{...(a.origin?.projectId?{projectSource:{...a.origin}}:{})},createdAt:Date.now()};
+    }
+    if(image.source==='chat') {const a=chat.assets.get(image.ref);return {id:image.ref,entity_key:a.entity_key,blob:a.blob,thumbBlob:null,size:{width:a.width,height:a.height},params:{},createdAt:Date.now()};}
+    const d=drawing.snapshot(),r=[...d.history,...d.favorites].find(r=>r.id===image.ref)??editor?.record?.(image.ref)??editor?.records().find(r=>r.id===image.ref)??retainedRecord?.(image.ref);
+    if(!r?.blob)throw new Error(`${image.label} 参考原图已释放或移除`);return r;
+  }
   async function writeLocal(plan: DraftPlan, undo: boolean, receipt: string | null) {
-    const reason = plan.rollbackBase || plan.editRollback ? boardConflict(plan, undo ? "after" : "before", receipt) : conflict(plan, undo ? "after" : "before", receipt);
+    if (plan.treeChange && !plan.changes.length) return null;
+    const reason = evolutionChange(plan) || plan.treeChange || plan.handoff || plan.editHandoff ? boardConflict(plan, undo ? "after" : "before", receipt) : conflict(plan, undo ? "after" : "before", receipt);
     if (reason) throw new Error(reason);
-    if (!plan.edit && !plan.changes.length && !plan.branch && !plan.handoff && !plan.slate && !plan.files?.length && !plan.rollbackBase && !plan.createdBoard) throw new Error("草稿没有可写入内容");
+    if (!plan.edit && !plan.changes.length && !plan.branch && !plan.handoff && !plan.slate && !plan.files?.length && !plan.rollbackBase && !plan.stagedLoad && !plan.createdBoard) throw new Error("草稿没有可写入内容");
     if (router.route.value.overlay) throw new Error("请先关闭当前面板");
     if(plan.edit) {
       const e=plan.edit,before=undo?e.after:e.before,after=undo?e.before:e.after;
+      const releaseReferences=editor?.holdReferences?.([...before.references??[],...after.references??[]].map(r=>r.id));
       let inserted=false;
+      try {
+      const preparedReferences=!undo ? (plan.editReferences??[]).map(({image,reference})=>({reference,record:referenceRecord(image)})) : [];
       if(!undo&&plan.editHandoff?.created&&!editor?.askSnapshot(e.id)) {
         const h=plan.editHandoff,image=h.image,d=drawing.snapshot();
-        const record=image.source==='project'?await (async()=>{const a=projectImages?.get(image.ref);if(!a)return;return {id:image.ref,entity_key:a.entity_key,createdAt:Date.now(),blob:a.blob,thumbBlob:await makeThumb(a.blob),name:a.name,size:a.size,params:{...h.params,projectSource:a.origin?{...a.origin}:null}};})():image.source==='chat'?await (async()=>{const a=chat.assets.get(image.ref);return {id:image.ref,entity_key:a.entity_key,createdAt:Date.now(),blob:a.blob,thumbBlob:await makeThumb(a.blob),name:a.name,size:{width:a.width,height:a.height},params:h.params,...(a.lineage?{lineage:a.lineage}:{})};})():[...d.history,...d.favorites,...editor?.records()??[]].find(r=>r.id===image.ref);
-        if(!record)throw new Error('交接来源已移除');
+        const record=(image.source==='project'||image.source==='attachment')?await (async()=>{const a=handoffImages?.get(image.ref);if(!a)return;return {id:image.ref,entity_key:a.entity_key,createdAt:Date.now(),blob:a.blob,thumbBlob:await makeThumb(a.blob),name:a.name,size:a.size,params:{...h.params,...(a.origin?.projectId?{projectSource:{...a.origin}}:{})}};})():image.source==='chat'?await (async()=>{const a=chat.assets.get(image.ref);return {id:image.ref,entity_key:a.entity_key,createdAt:Date.now(),blob:a.blob,thumbBlob:await makeThumb(a.blob),name:a.name,size:{width:a.width,height:a.height},params:h.params,...(a.lineage?{lineage:a.lineage}:{})};})():[...d.history,...d.favorites,...editor?.records()??[]].find(r=>r.id===image.ref)??editor?.record?.(image.ref)??retainedRecord?.(image.ref);
+        if(!record?.blob)throw new Error('交接原图已释放或移除');
         await editor!.insertAskBoard({...h.target,config:before},record,h.origin);inserted=true;
       }
       const live=editor!.askSnapshot(e.id);
       const lateIssue=!plan.editRollback&&!undo&&live?(e.sourceKey!==undefined&&e.sourceKey!==editSourceKey(live,after)?'编辑来源或参数声明已变化，请重新提议':checkEditConfiguration(live,after)):'';
       if(lateIssue){if(inserted)editor!.removeAskBoard(e.id);throw new Error(lateIssue);}
       const baseChange=plan.editRollback?{before:undo?plan.editRollback.after.baseId:plan.editRollback.before.baseId,after:undo?plan.editRollback.before.baseId:plan.editRollback.after.baseId}:undefined;
+      if(preparedReferences.length)editor!.installReferences(e.id,preparedReferences);
       editor!.writeAskDraft(e.id,before,after,baseChange);
       try { if(plan.slate) {const change=undo?{...plan.slate,before:plan.slate.after,after:plan.slate.before,bindings:[]}:plan.slate;await slates!.commit(change,undefined,true);} }
       catch(error){editor!.writeAskDraft(e.id,after,before,baseChange?{before:baseChange.after,after:baseChange.before}:undefined);if(inserted)editor!.removeAskBoard(e.id);throw error;}
       if(undo&&plan.editHandoff?.created)editor!.removeAskBoard(e.id);
       return plan.editRollback?JSON.stringify(['edit',e.id,editor!.askSnapshot(e.id)!.maskRevision]):null;
+      } catch(error) { if(inserted)editor!.removeAskBoard(e.id); throw error; } finally { releaseReferences?.(); }
     }
     if (plan.slate) {
       const board: BoardWrite | undefined = plan.changes.length || plan.createdBoard ? { id: plan.boardId!,
@@ -123,12 +162,12 @@ export function createDraftWriter(drawing: Drawing, chat: Chat, router: AppRoute
       if (board) router.switchWorkspace("image");
       return null;
     }
-    if (!plan.edit && !plan.changes.length && !plan.branch && !plan.handoff && !plan.rollbackBase && !plan.createdBoard) return null;
-    const images = plan.handoff && !undo ? handoffImages(plan) : [];
+    if (!plan.edit && !plan.changes.length && !plan.branch && !plan.handoff && !plan.rollbackBase && !plan.stagedLoad && !plan.createdBoard) return null;
+    const images = plan.handoff && !undo ? resolveHandoffImages(plan) : [];
     router.switchWorkspace(plan.workspace);
     if (router.route.value.workspace !== plan.workspace) throw new Error("未能切换到目标工作区");
-    if (plan.handoff) return undo ? chat.undoHandoffDraft(receipt!) : chat.writeHandoffDraft({ ...plan.handoff, images });
-    if (plan.branch) return chat.writeBranchDraft(undo ? plan.branch.before : plan.branch.after, receipt ?? plan.branch.key);
+    if (plan.handoff) return undo ? chat.undoHandoffDraft(receipt!, false) : chat.writeHandoffDraft({ ...plan.handoff, ...(plan.handoff.current ? { current: { ...plan.handoff.current, key: receipt ?? plan.handoff.current.key } } : {}), images }, false);
+    if (plan.branch) return chat.writeBranchDraft(undo ? plan.branch.before : plan.branch.after, receipt ?? plan.branch.key, !evolutionChange(plan));
     if (plan.createdBoard && plan.boardId) {
       if (undo) await drawing.removeBoardDraft(plan.createdBoard.id, plan.createdBoard, plan.boardId);
       else await drawing.insertBoardDraft(plan.createdBoard, plan.boardId);
@@ -144,10 +183,23 @@ export function createDraftWriter(drawing: Drawing, chat: Chat, router: AppRoute
     const reason = conflict(plan, undo ? "after" : "before", receipt); if (reason) throw new Error(reason);
     const local = async () => {
       const result = await writeLocal(plan, undo, receipt);
-      if (plan.rollbackBase || plan.editRollback) {
-        const move=plan.rollbackBase?.evolution??plan.editRollback!.evolution;
-        try { evolution!.commitMove(move, undo); }
+      if (evolutionChange(plan)) {
+        const move=evolutionChange(plan)!;
+        try {
+          if (!undo && plan.stagedLoad && !evolution!.stagedAvailable?.(plan.stagedLoad)) throw new Error('预设来源或参考资源已变化，已撤回载入');
+          evolution!.commitMove(move, undo);
+        }
         catch (error) { await writeLocal(plan, !undo, result); throw error; }
+      }
+      if (plan.treeChange) {
+        try { evolution!.commitTree!(plan.treeChange, undo); }
+        catch (error) { if (plan.changes.length) await writeLocal({ ...plan, treeChange: undefined }, !undo, result); throw error; }
+      }
+      if (plan.handoff || plan.editHandoff) {
+        try {
+          const change = undo ? workshopWrites.get(plan) : evolution?.prepareHandoff?.(plan, result);
+          if (change) { evolution!.commitTree!(change, undo); if (!undo) workshopWrites.set(plan, change); }
+        } catch (error) { await writeLocal(plan, !undo, result); throw error; }
       }
       return result;
     };
@@ -159,17 +211,28 @@ export function createDraftWriter(drawing: Drawing, chat: Chat, router: AppRoute
         result = await local(); committed = true; return result;
       });
     } catch (error) {
-      if (committed && (plan.rollbackBase || plan.editRollback)) {
+      const workshop = workshopWrites.get(plan);
+      if (committed && workshop) { evolution!.commitTree!(workshop, !undo); await writeLocal(plan, !undo, result); }
+      if (committed && plan.treeChange) { evolution!.commitTree!(plan.treeChange, !undo); if (plan.changes.length) await writeLocal(plan, !undo, result); }
+      if (committed && (evolutionChange(plan))) {
         await writeLocal(plan, !undo, result);
-        evolution!.commitMove((plan.rollbackBase ?? plan.editRollback)!.evolution, !undo);
+        evolution!.commitMove(evolutionChange(plan)!, !undo);
       }
       throw error;
     }
   }
   return {
     chatKey, conflict,
-    retain(plans: readonly DraftPlan[]) {
-      projectImages?.retain(plans);
+    rebaseReceipt: (before: string, after: string) => chat.rebaseHandoffDraft(before, after),
+    retainedRecords: () => retained,
+    retain(plans: readonly DraftPlan[], handoffReceipts: readonly string[] = []) {
+      for (const plan of workshopWrites.keys()) if (!plans.includes(plan)) workshopWrites.delete(plan);
+      handoffImages?.retain(plans);
+      retained = new Set(plans.flatMap(p => [...p.handoff?.images.map(i => i.ref) ?? [], ...p.editReferences?.map(i=>i.image.ref) ?? [], ...p.edit ? [...p.edit.before.references??[],...p.edit.after.references??[]].map(r=>r.id) : [], ...p.editHandoff ? [p.editHandoff.image.ref] : [],
+        ...p.treeChange ? [p.treeChange.before, p.treeChange.after].flatMap(r => Object.values(r.pictureRefs).map(ref => ref.record_id)) : []]));
+      for (const change of workshopWrites.values()) for (const record of [change.before, change.after]) for (const ref of Object.values(record.pictureRefs)) retained.add(ref.record_id);
+      drawing.retainHistory('draft-undo', retained);
+      chat.retainHandoffDrafts(handoffReceipts);
       if (!slates) return;
       const ids = plans.flatMap(p => p.slate ? [p.slate.before, p.slate.after].flatMap(s => s?.todos.flatMap(t => t.binding?.assetId ?? []) ?? []) : []);
       void slates.retain(ids).then(() => slates.cleanAssets()).catch(() => {});
@@ -182,17 +245,30 @@ export function createDraftWriter(drawing: Drawing, chat: Chat, router: AppRoute
       const form = structuredClone(drawing.snapshot().form), boards = readBoards(), snapshot = chat.snapshot(),
         conversations = new Map(snapshot.conversations.map((c) => [c.id, structuredClone(c)]));
       const evolutionKeys = new Map<string, string>();
+      const treeStates = new Map<string, NonNullable<DraftPlan['treeChange']>['before']>();
+      const treeState = (id: string) => treeStates.get(id) ?? evolution?.treeSnapshot?.(id);
+      const undoTree = (change: NonNullable<DraftPlan['treeChange']>) => {
+        const current = treeState(change.id);
+        const issue = current ? evolution?.treeKey?.(current) !== evolution?.treeKey?.(change.after) ? '演进已有后续修改' : '' : evolution?.treeIssue?.(change, true) ?? '演进服务不可用';
+        if (issue) throw new Error(issue);
+        treeStates.set(change.id, change.before); evolutionKeys.set(change.id, change.before.cursorKey);
+      };
       const edits=new Map<string,import("../../domain/edit-draft.ts").EditDraftState>();
       const tasks = new Map(slates?.list.value.map(s => [s.id, structuredClone(s)]) ?? []);
       let current = conversations.get(snapshot.current.id) ?? structuredClone(snapshot.current);
       return {
-        undo(plan: DraftPlan, receipt: string | null) {
-          if (plan.rollbackBase || plan.editRollback) {
-            const change = (plan.rollbackBase ?? plan.editRollback)!.evolution;
+        undo(plan: DraftPlan, receipt: string | null, originalReceipt = receipt) {
+          const workshop = workshopWrites.get(plan);
+          if (workshop) undoTree(workshop);
+          if (plan.treeChange) { undoTree(plan.treeChange); if (!plan.changes.length) return null; }
+          if (evolutionChange(plan)) {
+            const change = evolutionChange(plan)!;
             const simulated = evolutionKeys.get(change.id);
             if (simulated === undefined) { const issue = evolution?.moveIssue(change, true) ?? '演进跟踪服务不可用'; if (issue) throw new Error(issue); }
             else if (simulated !== change.after.key) throw new Error('演进基底已变化');
             evolutionKeys.set(change.id, change.before.key);
+            const currentTree = treeState(change.id);
+            if (currentTree) treeStates.set(change.id, { ...currentTree, cursor: change.before.cursor, cursorKey: change.before.key, destination: change.before.destination ?? null });
           }
           if (plan.slate && contentKey(tasks.get(plan.slate.id) ?? null) !== contentKey(plan.slate.after)) throw new Error("任务板已变化");
           if(plan.edit) {
@@ -209,7 +285,8 @@ export function createDraftWriter(drawing: Drawing, chat: Chat, router: AppRoute
           if (reason) throw new Error(reason);
           if (plan.slate) { if (plan.slate.before) tasks.set(plan.slate.id, structuredClone(plan.slate.before)); else tasks.delete(plan.slate.id); }
           if (plan.handoff) {
-            const id = handoffTarget(receipt), target = conversations.get(id)!, origin = chat.handoffOrigin(id);
+            const id = handoffTarget(receipt), target = conversations.get(id)!, origin = chat.handoffOrigin(originalReceipt!);
+            if (!origin) throw new Error("交接撤销记录已释放");
             if (origin?.before) Object.assign(target, origin.before, { selectionRevision: target.selectionRevision + 1 });
             else conversations.delete(id);
             if (current === target || !conversations.has(current.id))

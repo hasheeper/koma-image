@@ -14,6 +14,7 @@ export interface AnnotationTarget {
   blob: Blob; name: string; recordId: string; tag?: string; binding?: ImageTagBinding;
   workspace: 'image' | 'chat' | 'edit';
   initialTool?: AnnotationShape;
+  restore?: {snapshot:AnnotationSnapshot;references:import('../domain/edit-references.ts').ReferenceImage[]};
   settings?: Fields;
   inline?: boolean;
   edit?: { boardId: string; versionId: number };
@@ -37,7 +38,13 @@ export function createAnnotations(deps: {ask: Ask; editor: Editor; chat: Chat; r
     if (!version) return;
     const candidates = [...drafts.values(), ...(active.value ? [active.value.snapshot] : [])];
     const snapshot = candidates.reverse().find(s => s.image.record_id === version.recordId && s.image.entity_key === version.entity_key);
-    return snapshot ? structuredClone(snapshot) : undefined;
+    return snapshot ? { ...structuredClone(snapshot), references: structuredClone(owner!.references) } : undefined;
+  });
+  const stopReferences = deps.editor.subscribe(() => {
+    const a = active.value, board = a?.target.edit && deps.editor.board(a.target.edit.boardId);
+    if (!a || !board || JSON.stringify(a.snapshot.references) === JSON.stringify(board.references)) return;
+    const snapshot = { ...a.snapshot, references: structuredClone(board.references) };
+    active.value = { ...a, snapshot }; remember(snapshot);
   });
   function changed() { const edit = active.value?.target.edit; if (edit) deps.editor.annotationsChanged(edit.boardId, edit.versionId); }
   function remember(snapshot:AnnotationSnapshot){drafts.set(key(snapshot),structuredClone(snapshot));if(drafts.size>64)drafts.delete(drafts.keys().next().value!);}
@@ -67,6 +74,8 @@ export function createAnnotations(deps: {ask: Ask; editor: Editor; chat: Chat; r
       }
       const current = () => rev === revision && deps.router.route.value.workspace === 'edit' && target.edit?.boardId === deps.editor.session.id && target.edit?.versionId === deps.editor.snapshot().viewed?.id;
       if (!current()) return;
+      const referenceMap = target.restore ? await deps.editor.restoreAnnotationReferences(target.restore.references,target.edit!.boardId) : undefined;
+      if (!current()) return;
       const bitmap=await createImageBitmap(target.blob);
       try {
         if(bitmap.width*bitmap.height>32_000_000)throw new Error('批注最多支持 3200 万像素');
@@ -74,7 +83,8 @@ export function createAnnotations(deps: {ask: Ask; editor: Editor; chat: Chat; r
         if(binding?.entity_key && binding.entity_key!==entity)throw new Error('批注图片身份已变化');
         const image=binding?{...binding,entity_key:entity}:{tag:target.tag??'',entity_key:entity,record_id:target.recordId,scope:target.chat?{kind:'chat' as const,id:target.chat.conversationId,turn_id:target.chat.turnId,version_id:target.chat.versionId,asset_id:target.chat.assetId}:{kind:'page' as const,id:page,...(target.edit?{board_id:target.edit.boardId}: {})}};
         const initial:AnnotationSnapshot={image,width:bitmap.width,height:bitmap.height,regions:[],edges:{...defaultAnnotationEdges}};
-        const snapshot=structuredClone(drafts.get(key(initial))??initial);
+        const snapshot=structuredClone(target.restore ? {...target.restore.snapshot,image:initial.image,regions:target.restore.snapshot.regions.map(r=>({...r,referenceIds:r.referenceIds?.map(id=>referenceMap!.get(id)??id)}))} : drafts.get(key(initial))??initial);
+        snapshot.references = structuredClone(deps.editor.board(target.edit!.boardId)?.references ?? []);
         if(!current())return;
         active.value={target:{...target,inline:true},snapshot};
       }finally{bitmap.close();}
@@ -85,16 +95,18 @@ export function createAnnotations(deps: {ask: Ask; editor: Editor; chat: Chat; r
     /** CHAT goes to the image's own conversation unless a new one is asked for. */
     async act(action:'ask'|'chat', fresh=false) {
       const a=active.value;if(!a||busy.value)return;
-      const snapshot=structuredClone(a.snapshot);validateAnnotationSnapshot(snapshot);busy.value=true;
+      const snapshot=structuredClone(a.snapshot);validateAnnotationSnapshot(snapshot);
+      const references = deps.editor.referenceImages(a.target.edit!.boardId);
+      annotationPrompt(snapshot.regions, true, '', undefined, references); busy.value=true;
       try{
-        if(action==='ask'){const preview=await annotationPreview(a.target.blob,snapshot);await deps.ask.prepareAnnotations(a.target.blob,preview,snapshot);}
-        else if(action==='chat'){const preview=await annotationPreview(a.target.blob,snapshot);await deps.chat.prepareAnnotations(a.target.blob,preview,snapshot,fresh?undefined:a.target.chat);deps.router.switchWorkspace('chat');}
+        if(action==='ask'){const preview=await annotationPreview(a.target.blob,snapshot);await deps.ask.prepareAnnotations(a.target.blob,preview,snapshot,references);}
+        else if(action==='chat'){const preview=await annotationPreview(a.target.blob,snapshot);await deps.chat.prepareAnnotations(a.target.blob,preview,snapshot,fresh?undefined:a.target.chat,references);deps.router.switchWorkspace('chat');}
         close();
       }finally{busy.value=false;}
     },
     chatReview(conversationId:string,turnId:string,versionId:string,assetId:string){review.value=deps.chat.annotationReview(conversationId,turnId,versionId,assetId);},
     prompt:annotationPrompt,
-    dispose(){close();drafts.clear();review.value=null;deps.editor.setAnnotationReader(undefined);},
+    dispose(){stopReferences();close();drafts.clear();review.value=null;deps.editor.setAnnotationReader(undefined);},
   };
 }
 export type Annotations=ReturnType<typeof createAnnotations>;

@@ -56,16 +56,19 @@ export function readEvolutionInput(value: unknown): EvolutionInput | null {
 }
 /** Observers cannot change the outcome of a completed image operation. */
 export function createEvolutionEvents(report: (error: unknown) => void) {
-  const listeners = new Set<(target: string, parentId: string | null, advance: boolean) => ((recordId: string) => void) | null>();
+  const listeners = new Set<(target: string, parentId: string | null, advance: boolean, references: readonly string[]) => ((recordId: string) => void) | null>();
   const moves = new Set<(target: string, recordId: string) => void>();
+  const handoffs = new Set<(target: string, recordId: string, inputRecordId?: string) => void>();
   return {
+    onHandoff(fn: (target: string, recordId: string, inputRecordId?: string) => void) { handoffs.add(fn); return () => handoffs.delete(fn); },
+    handoff(target: string, recordId: string, inputRecordId?: string) { for (const fn of handoffs) try { fn(target, recordId, inputRecordId); } catch (e) { report(e); } },
     onMove(fn: (target: string, recordId: string) => void) { moves.add(fn); return () => moves.delete(fn); },
     move(target: string, recordId: string) { for (const fn of moves) try { fn(target,recordId); } catch (e) { report(e); } },
-    subscribe(fn: (target: string, parentId: string | null, advance: boolean) => ((recordId: string) => void) | null) { listeners.add(fn); return () => listeners.delete(fn); },
-    begin(target: string, parentId: string | null, advance = true) {
-      const completions = [...listeners].flatMap(fn => { try { const done = fn(target, parentId, advance); return done ? [done] : []; } catch (e) { report(e); return []; } });
+    subscribe(fn: (target: string, parentId: string | null, advance: boolean, references: readonly string[]) => ((recordId: string) => void) | null) { listeners.add(fn); return () => listeners.delete(fn); },
+    begin(target: string, parentId: string | null, advance = true, references: readonly string[] = []) {
+      const completions = [...listeners].flatMap(fn => { try { const done = fn(target, parentId, advance, references); return done ? [done] : []; } catch (e) { report(e); return []; } });
       return (recordId: string) => { for (const done of completions) try { done(recordId); } catch (e) { report(e); } };
     },
-    dispose() { listeners.clear(); moves.clear(); },
+    dispose() { listeners.clear(); moves.clear(); handoffs.clear(); },
   };
 }

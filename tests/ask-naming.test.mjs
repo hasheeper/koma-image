@@ -30,7 +30,9 @@ test('AI naming: title formatting tolerates wrappers and rejects partial lists, 
 test('AI naming: optional choice survives backup independently of ASK picks and preserves model IDs', () => {
   const base = readAskSettings({ connectionId: 'ask', model: 'main' });
   assert.equal(base.naming, undefined);
-  const config = readAskSettings({ ...base, naming: { connectionId: 'namer', model: ' Claude Name [provider] ', key: 'excluded-secret' } });
+  assert.equal(base.autoNaming, false);
+  assert.equal(readAskSettings({ autoNaming: 'true' }).autoNaming, false);
+  const config = readAskSettings({ ...base, autoNaming: true, naming: { connectionId: 'namer', model: ' Claude Name [provider] ', key: 'excluded-secret' } });
   assert.deepEqual(config.naming, { connectionId: 'namer', model: 'Claude Name [provider]' });
   assert.deepEqual(config.models, { ask: ['main'] });
   const preferences = collectBackupPreferences({ getItem(key) { return key === names.ask ? JSON.stringify(config) : null; } });

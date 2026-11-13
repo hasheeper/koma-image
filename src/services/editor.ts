@@ -66,6 +66,9 @@ import { compositeKey, composeMaskedResult } from "../native/inpaint-result.ts";
 import { directorName, directorSize, emptyDirectorSettings, isDirectorTool, directorEmotions } from "../domain/director-tools.ts";
 import type { DirectorSettings, DirectorTool, DirectorVariant } from "../domain/director-tools.ts";
 import { prepareDirectorImage, consumeDirector } from "../native/director-tools.ts";
+import type { EditReference, ReferenceImage } from '../domain/edit-references.ts';
+import { validateEditReferences, editReferenceCapacity } from '../domain/edit-references.ts';
+import { decodeImage } from './image-response.ts';
 export const modeNames = {
   img2img: "图生图",
   inpaint: "重绘",
@@ -124,6 +127,7 @@ export interface EditorSession {
   enhance: { on: boolean; scale: EnhanceScale; magnitude: number | null; strength: number; noise: number };
   options: Record<string, Record<string, string>>;
   imageEdit: ImageEditSettings;
+  references: EditReference[];
   director: DirectorSettings;
   directorChoices: Record<string, number>;
   characters: Character[];
@@ -171,7 +175,7 @@ const session = (
   focus: { on: false, rect: null },
   enhance: { on: false, scale: 2, magnitude: 3, strength: .5, noise: 0 },
   options: {},
-  imageEdit: imageEditSettings(),
+  imageEdit: imageEditSettings(), references: [],
   director: emptyDirectorSettings(), directorChoices: {},
   characters: [], placement: "auto", nextCharacterId: 1, naiReferences: emptyReferences(), provenance: {},
   fields: {
@@ -217,6 +221,17 @@ export function createEditor(
 ) {
   const sessions = new Map<string, EditorSession>(),
     listeners = new Set<() => void>();
+  const referencePool = new Map<string, { record: ImageRecord; url: string; boardId: string; label: string }>();
+  const referenceCounters = new Map<string, number>(), referenceLeases = new Map<string, number>();
+  let inFlightReferences: readonly string[] = [];
+  function referenceImages(id = current.id): ReferenceImage[] {
+    const s = sessions.get(id); if (!s) return [];
+    return s.references.map(r => { const item = referencePool.get(r.id); if (!item) throw new Error(`${r.label} 参考图已移除`); return { ...r, blob: item.record.blob }; });
+  }
+  function collectReferences() {
+    const used = new Set([...inFlightReferences, ...referenceLeases.keys(), ...retainedRecords, ...[...sessions.values()].flatMap(s => [...s.references, ...s.versions.flatMap(v => v.configuration?.references ?? [])].map(r => r.id))]);
+    for (const [id, item] of referencePool) if (!used.has(id)) { URL.revokeObjectURL(item.url); referencePool.delete(id); }
+  }
   let nextBoard = 2;
   let annotationReader: ((boardId: string, versionId: number) => AnnotationSnapshot | undefined) | undefined;
   let comparisonReader: ((boardId:string,versionId:number)=>ComparisonDisplay|undefined) | undefined;
@@ -284,17 +299,18 @@ export function createEditor(
     return {has_mask:false,status:'pending'};
   }
   function configuration(s:EditorSession):EditConfiguration {
-    const {mode,chosen,strength,noise,focus,enhance,fields,characters,placement,naiReferences,director,options}=s;
-    return structuredClone({mode,chosen,strength,noise,focus,enhance,fields,characters,placement,naiReferences,director,options,
+    const {mode,chosen,strength,noise,focus,enhance,fields,characters,placement,naiReferences,director,options,references}=s;
+    return structuredClone({mode,chosen,strength,noise,focus,enhance,fields,characters,placement,naiReferences,director,options,references,
       upscaleOpen:s===current?upscaleOpen:askPanels.get(s)?.upscaleOpen??false,directorOpen:s===current?directorOpen:askPanels.get(s)?.directorOpen??false});
   }
   function askSnapshot(id=current.id):EditDraftState|undefined {
     const s=sessions.get(id);if(!s)return;
     const v=s.versions.find(v=>v.id===s.baseId), viewing=s.versions.find(v=>v.id===s.viewId), config=configuration(s);
-    const catalog=models.length?models:drawing.snapshot().models;
+    // Pending ASK handoffs can be restored before EDIT ever opens its own catalog.
+    const catalog=models.length?models:[...drawing.snapshot().models,...chat.snapshot().models];
     const m=catalog.find(m=>m.id===config.chosen[config.upscaleOpen?'upscale':config.mode]);
     const j=s===current?jobs[config.upscaleOpen?'upscale':'edit']:undefined;
-    return {sourceKey:s.sourceKey,recordIds:s.versions.map(v=>v.recordId),id:s.id,name:s.name,boardSeq:s.boardSeq,present:true,ready:!!v,baseId:s.baseId,viewId:s.viewId,maskRevision:s.maskRevision,
+    return {nextReferenceNumber:(referenceCounters.get(s.id) ?? 0)+1,sourceKey:s.sourceKey,recordIds:s.versions.map(v=>v.recordId),id:s.id,name:s.name,boardSeq:s.boardSeq,present:true,ready:!!v,baseId:s.baseId,viewId:s.viewId,maskRevision:s.maskRevision,
       imageEditing:imageEditContext(s,annotationReader?.(s.id,s.baseId),comparisonReader?.(s.id,s.viewId)),
       connectionNames:Object.fromEntries(Object.values(services.connections.configuration.connections).map(c=>[c.id,c.name])),
       source:v?{width:v.width,height:v.height,bytes:v.blob.size,recordId:v.recordId}:null,sourceTag:v?qualifiedEditLabel(s,v):undefined,viewing:viewing?{width:viewing.width,height:viewing.height,bytes:viewing.blob.size,recordId:viewing.recordId}:null,config,nextCharacterId:s.nextCharacterId,
@@ -358,8 +374,15 @@ export function createEditor(
     return cap.max > 0 && current.characters.filter(c => c.on).length > cap.max ? `当前模型最多 ${cap.max} 个启用角色` : "";
   };
   const contextId = () => `${current.id}:${openSequence}`;
+  function referenceCapacity() {
+    if (!generative()) return 0;
+    const model = selected(), a = annotationReader?.(current.id,current.baseId);
+    const guide = !!a?.regions.length || current.mode==='inpaint' && maskSummary(current).has_mask;
+    return editReferenceCapacity(model?.maxImages??1,guide,current.imageEdit.markup,current.imageEdit.textOnly);
+  }
   const warning = (key: Job) => {
     const v = source(key);
+    if (key==='edit' && generative() && current.references.length>referenceCapacity()) return `当前底图与标注占位后，最多可用 ${referenceCapacity()} 张参考图；请移除部分参考或切换模型／标注方式`;
     if (key === "edit" && !generative() && (referenceProblem() || characterProblem())) return referenceProblem() || characterProblem();
     if (key === "edit" && focusing()) {
       if (!focusAvailable()) return "聚焦重绘仅支持 NovelAI 官方连接，设置已保留";
@@ -481,9 +504,9 @@ export function createEditor(
       maskPort?.save();
       const owner = current, config = configuration(owner), state = owner.mode === 'inpaint' && owner.maskFor === v.id && owner.mask ? copyMaskState(owner.mask) : undefined;
       const prompt = owner.fields.prompt, options = normalizeOptions(m, owner.options[m.id]), settings = structuredClone(owner.imageEdit);
-      const annotation = annotationReader?.(owner.id, v.id);
+      const annotation = annotationReader?.(owner.id, v.id), references = referenceImages(owner.id);
       const painted = state ? await maskStateBitmap(state) : undefined;
-      const prepared = await prepareEditorImageEdit(v, m, prompt, options, settings, painted, annotation);
+      const prepared = await prepareEditorImageEdit(v, m, prompt, options, settings, painted, annotation, references);
       if (mode === 'inpaint' && !prepared.comparison.mask) throw new Error('请先涂抹或选择需要修改的区域');
       return { payload: prepared.request as ImagePayload, comparison: prepared.comparison, model: m, parent: v, mode, owner, config, input: execution ? await editorEvolutionInput({...owner,...config,imageEdit:settings},v,mode,m.id,true,prepared.request,prepared.comparison.mask ?? null,annotation) : undefined, focusOriginal: undefined, settings: {} };
     }
@@ -635,7 +658,7 @@ export function createEditor(
     const grouped = data.director && s.versions.find(v => v.director?.group === data.director!.group);
     const sequence = grouped ? grouped.sequence : s.nextSequence++;
     const sourceId = data.kind === "source" ? data.sourceId?.replace(/^(?:record|history|favorite):/, "") : undefined;
-    const candidate = data.sourceRecord ?? (sourceId ? [...drawing.snapshot().history, ...drawing.snapshot().favorites].find(r => r.id === sourceId) : undefined);
+    const candidate = data.sourceRecord ?? (sourceId ? drawing.original(sourceId) : undefined);
     const entity_key = await imageEntity(data.blob);
     const sourceRecord = candidate && (candidate.entity_key ?? await imageEntity(candidate.blob)) === entity_key ? candidate : undefined;
     const recordId = sourceRecord?.id ?? `edit:${s.id}:${s.nextId}`;
@@ -657,12 +680,13 @@ export function createEditor(
     trimVersions(s);
     return v;
   }
+  let retainedRecords: ReadonlySet<string> = new Set();
   function trimVersions(s: EditorSession) {
     const limit = readHistoryLimit(drawing.snapshot().form.editorHistoryLimit);
     if (!limit) return;
     // Keep complete groups and live inputs, even when they alone exceed the limit.
     const newest = s.versions.at(-1);
-    const protectedVersion = (v: EditorVersion) => v.sequence === 1 || v.id === s.baseId || v.id === s.viewId ||
+    const protectedVersion = (v: EditorVersion) => retainedRecords.has(v.recordId) || v.sequence === 1 || v.id === s.baseId || v.id === s.viewId ||
       v === newest || v === external?.source || saves.has(v) ||
       s.versions.some(p => p.comparison?.sourceId === v.id);
     const protectedGroups = new Set(s.versions.filter(protectedVersion).flatMap(v => v.director ? [v.director.group] : []));
@@ -976,12 +1000,14 @@ export function createEditor(
     taskOwner = owner;
     const shownCost = jobs[key].quote?.cost ?? null;
     preparing = true;
+    inFlightReferences = owner.references.map(r=>r.id);
     emit();
     let p: Awaited<ReturnType<typeof payload>>;
     try {
       p = await payload(key, true);
     } catch (e) {
       jobs[key].error = failure(e);
+      inFlightReferences = [];
       preparing = false;
       taskOwner = undefined;
       emit();
@@ -1138,6 +1164,7 @@ export function createEditor(
           : failure(e);
     } finally {
       busy = false;
+      inFlightReferences = []; collectReferences();
       taskOwner = undefined;
       taskAbort = undefined;
       emit();
@@ -1219,6 +1246,7 @@ export function createEditor(
   return {
     onEvolution: evolution.subscribe,
     onEvolutionMove: evolution.onMove,
+    onEvolutionHandoff: evolution.onHandoff,
     evolutionDraftState(recordId:string) {
       const s=[...sessions.values()].find(s=>s.versions.some(v=>v.recordId===recordId)),v=s?.versions.find(v=>v.recordId===recordId);
       if(!s||!v?.configuration)return undefined;
@@ -1263,6 +1291,7 @@ export function createEditor(
       if(canonical(configuration(s))!==canonical(before))throw new Error('编辑配置已变化');
       if(baseChange&&(s.baseId!==baseChange.before||!s.versions.some(v=>v.id===baseChange.after)))throw new Error('编辑底图已变化或移除');
       if(baseChange){const source=s.versions.find(v=>v.id===baseChange.before)!,target=s.versions.find(v=>v.id===baseChange.after)!;if(source.width!==target.width||source.height!==target.height)throw new Error('回退图片尺寸不同，请先从该图开始并检查蒙版');}
+      if ((after.references ?? []).some(r => !referencePool.has(r.id))) throw new Error('参考图已失效，请重新提议');
       const {upscaleOpen:up,directorOpen:dt,...values}=structuredClone(after);
       draftPaused.add(s);askPanels.set(s,{upscaleOpen:up,directorOpen:dt});Object.assign(s,values);s.nextCharacterId=Math.max(s.nextCharacterId,nextCharacterId(s.characters));s.updatedAt=Date.now();
       // Same-size draft rollback changes the base, not mask pixels. Keeping the mask
@@ -1288,7 +1317,71 @@ export function createEditor(
         return [{ boardId: s.id, params: s.provenance, mask: coverage.value && s.maskRevision !== s.appliedMaskRevision, photopea: !!s.externalPending }];
       });
     },
+    referenceImages,
+    holdReferences(ids: readonly string[]) {
+      for(const id of ids)referenceLeases.set(id,(referenceLeases.get(id)??0)+1);
+      return () => { for(const id of ids) { const n=(referenceLeases.get(id)??1)-1; if(n)referenceLeases.set(id,n);else referenceLeases.delete(id); } };
+    },
+    referenceRecords: () => [...referencePool.values()].map(item => ({ ...item, record: { ...item.record } })),
+    installReferences(boardId: string, items: { reference: EditReference; record: ImageRecord }[]) {
+      if (disposed) throw new Error('编辑已关闭');
+      for (const { reference, record } of items) {
+        if (!record.blob?.size) throw new Error(`${reference.label} 原图不可用`);
+        if (!referencePool.has(reference.id) && Number(reference.label.slice(1)) <= (referenceCounters.get(boardId) ?? 0)) throw new Error('参考编号已变化，请重新提议');
+        if ([...referencePool.entries()].some(([id,item])=>id!==reference.id && item.boardId===boardId && item.label===reference.label)) throw new Error('参考编号已使用，请重新提议');
+        const existing = referencePool.get(reference.id);
+        if (existing && existing.record.entity_key !== record.entity_key) throw new Error('参考图身份已变化');
+      }
+      for (const { reference, record } of items) {
+        if (!referencePool.has(reference.id)) referencePool.set(reference.id, { record: { ...record, id: reference.id, params: {...record.params,editReferenceSource:record.id}, lineage: {via: 'upload',parent_record_id:record.id,parent_entity_key:record.entity_key} }, url: URL.createObjectURL(record.blob), boardId, label: reference.label });
+        referenceCounters.set(boardId, Math.max(referenceCounters.get(boardId) ?? 0, Number(reference.label.slice(1))));
+      }
+    },
+    collectReferences,
+    async restoreAnnotationReferences(references: readonly ReferenceImage[], boardId: string) {
+      const owner=sessions.get(boardId);if(!owner||owner!==current||locked()||external)throw new Error('编辑画板暂不可写入');
+      const before=canonical(owner.references),items:{reference:EditReference;record:ImageRecord}[]=[],mapping=new Map<string,string>();let next=referenceCounters.get(boardId)??0;
+      for(const r of references) {
+        const old=referencePool.get(r.id),same=old?.boardId===boardId;
+        const reference={id:same?r.id:crypto.randomUUID(),label:same?old.label:`R${++next}`,name:r.name,usage:r.usage};
+        const record=old?.record??{id:r.id,entity_key:await imageEntity(r.blob),createdAt:Date.now(),blob:r.blob,thumbBlob:null,params:{},size:await decodeImage(r.blob)};
+        items.push({reference,record});mapping.set(r.id,reference.id);
+      }
+      const nextRefs=[...owner.references.filter(r=>!items.some(i=>i.reference.id===r.id)),...items.map(i=>i.reference)];validateEditReferences(nextRefs);
+      if(disposed||owner!==current||!sessions.has(boardId)||canonical(owner.references)!==before||locked()||external)throw new Error('编辑画板已变化，请重新打开批注');
+      this.installReferences(boardId,items);owner.references=nextRefs;owner.updatedAt=Date.now();emit();requote();return mapping;
+    },
+    async addReferences(files: readonly File[], validTarget?: () => boolean) {
+      const owner = current, before = canonical(owner.references);
+      if (!base() || !generative() || locked() || external) throw new Error('请先选择通用改图模型和底图');
+      if (validTarget && !validTarget()) throw new Error('上传目标已变化，请重新上传');
+      if (!files.length) return [];
+      if (owner.references.length + files.length > referenceCapacity()) throw new Error('参考图数量超过当前模型上限（底图占一张）');
+      const items = [];
+      let next = referenceCounters.get(owner.id) ?? 0;
+      for (const file of files) {
+        if (!['image/png','image/jpeg','image/webp'].includes(file.type) || !file.size || file.size > 8 * 1024 * 1024) throw new Error('参考图支持 8MB 以内的 PNG、JPEG、WebP');
+        const size = await decodeImage(file); if (size.width * size.height > 40_000_000) throw new Error('参考图最多 4000 万像素');
+        const entity_key = await imageEntity(file), id = crypto.randomUUID();
+        const reference = { id, label: `R${++next}`, name: file.name.slice(0,200), usage: '' };
+        items.push({ reference, record: { id, entity_key, blob: file, thumbBlob: null, size, params: {}, createdAt: Date.now() } });
+      }
+      if (disposed || current !== owner || !sessions.has(owner.id) || canonical(owner.references) !== before || locked() || external) throw new Error('编辑画板或参考图已变化，请重新上传');
+      if(owner.references.length+items.length>referenceCapacity()||!generative())throw new Error('模型或标注容量已变化，请重新上传');
+      if (validTarget && !validTarget()) throw new Error('上传目标已变化，请重新上传');
+      this.installReferences(owner.id, items);
+      owner.references = [...owner.references, ...items.map(i => i.reference)]; owner.updatedAt = Date.now(); emit(); requote();
+      return items.map(i => ({...i.reference}));
+    },
+    setReferences(refs: readonly EditReference[]) {
+      if (locked() || external) return;
+      validateEditReferences(refs);
+      if (refs.some(r => !current.references.some(old => old.id === r.id && old.label === r.label))) throw new Error('参考图已变化');
+      current.references = structuredClone([...refs]); current.updatedAt = Date.now(); emit(); collectReferences(); requote();
+    },
     snapshot: () => ({
+      referenceCapacity: referenceCapacity(),
+      references: current.references.map(r => ({ ...r, url: referencePool.get(r.id)?.url ?? '' })),
       boards: [...sessions.values()].map(s => ({ id: s.id, name: s.name, count: s.versions.length, busy: taskOwner === s })),
       runningBoardId: taskOwner?.id,
       session: {
@@ -1405,7 +1498,7 @@ export function createEditor(
           configuration:raw.configuration,
           blob, width: source.width, height: source.height, comparison: { ...info,colorMatch,appliedKey:key },
           name: `${stem(raw.name)}-蒙版替换.png`, params: { ...raw.params, width: source.width, height: source.height,
-            localComposite: true, colorMatch, boundaryColorVersion:1, evolutionInput:JSON.parse(JSON.stringify({...original,workspace:'edit',operation:'composite',prompt:original?.prompt??null,negative:original?.negative??null,characters:original?.characters??null,mask,base:{id:raw.recordId,label:qualifiedEditLabel(owner,raw)},references:[{id:source.recordId,label:qualifiedEditLabel(owner,source)}],params:{...original?.params,width:source.width,height:source.height,colorMatch,...info.edges}})), editId: crypto.randomUUID(), editParent: parentIdentity(source) } });
+            localComposite: true, colorMatch, boundaryColorVersion:1, evolutionInput:JSON.parse(JSON.stringify({...original,workspace:'edit',operation:'composite',prompt:original?.prompt??null,negative:original?.negative??null,characters:original?.characters??null,mask,base:{id:raw.recordId,label:qualifiedEditLabel(owner,raw)},references:[{id:source.recordId,label:qualifiedEditLabel(owner,source)},...original?.references??[]],params:{...original?.params,width:source.width,height:source.height,colorMatch,...info.edges}})), editId: crypto.randomUUID(), editParent: parentIdentity(source) } });
         raw.comparison!.compositeId = merged.id;raw.comparison!.colorMatch=colorMatch;raw.comparison!.appliedKey=key; merged.comparison!.compositeId = merged.id;
         owner.viewId = merged.id; emit(); landed(merged.recordId); return merged;
       } finally { reading = false; emit(); requote(); }
@@ -1424,7 +1517,7 @@ export function createEditor(
           if(!valid())throw new Error('融合来源已变化，请重新打开');
           // Even an unchanged full-coverage raw image needs a formal composite.
           const original=readEvolutionInput(raw.params?.evolutionInput);
-          const input={...original,workspace:'edit' as const,operation:'fusion',prompt:original?.prompt??null,negative:original?.negative??null,characters:original?.characters??null,mask:await evolutionMask(info.mask),params:{...original?.params,width:source.width,height:source.height,colorMatch,...info.edges},base:{id:raw.recordId,label:qualifiedEditLabel(owner,raw)},references:[{id:source.recordId,label:qualifiedEditLabel(owner,source)}]};
+          const input={...original,workspace:'edit' as const,operation:'fusion',prompt:original?.prompt??null,negative:original?.negative??null,characters:original?.characters??null,mask:await evolutionMask(info.mask),params:{...original?.params,width:source.width,height:source.height,colorMatch,...info.edges},base:{id:raw.recordId,label:qualifiedEditLabel(owner,raw)},references:[{id:source.recordId,label:qualifiedEditLabel(owner,source)},...original?.references??[]]};
           if(external)external.landed=evolution.begin(evolutionTarget('edit',owner.id),raw.recordId);
           const merged=await applyExternalEdit(token.id,{mode:'image',image:blob},true,input);
           if(merged){merged.comparison={...info,colorMatch,appliedKey:compositeKey(options),compositeId:merged.id};
@@ -1471,7 +1564,7 @@ export function createEditor(
       }
       sessions.delete(id);
       for (const v of s.versions) URL.revokeObjectURL(v.url);
-      s.mask = undefined; s.versions = []; emit(); return true;
+      s.mask = undefined; s.versions = []; collectReferences(); emit(); return true;
     },
     beginExternalEdit,
     applyExternalEdit,
@@ -1486,7 +1579,14 @@ export function createEditor(
     isFavorite(version?: EditorVersion) { return !!version && drawing.snapshot().favorites.some(r => r.id === version.recordId); },
     reference(v: EditorVersion) { const board=[...sessions.values()].find(s=>s.versions.includes(v)); return board ? qualifiedEditLabel(board,v) : ""; },
     records,
-    record(id: string) { return records().find(r => r.id === id); },
+    retainRecords(ids: ReadonlySet<string>) {
+      if (ids.size === retainedRecords.size && [...ids].every(id => retainedRecords.has(id))) { collectReferences(); return; }
+      retainedRecords = new Set(ids);
+      const count = records().length;
+      for (const s of sessions.values()) trimVersions(s);
+      collectReferences(); if (records().length !== count) emit();
+    },
+    record(id: string) { return records().find(r => r.id === id) ?? referencePool.get(id)?.record; },
     label: editLabel,
     locate(id: string, boardId?: string) {
       const owner = [...sessions.values()].find(s => (!boardId || s.id === boardId) && s.versions.some(v => v.recordId === id));
@@ -1534,6 +1634,7 @@ export function createEditor(
         if (options.mode === "img2img" || options.mode === "inpaint") this.setMode(options.mode);
         if (options.mode === "upscale") { upscaleOpen = true; emit(); scheduleQuote("upscale", 0); }
         const version = viewed();
+        if (blob && options.sourceId && !options.viewSource) evolution.handoff(evolutionTarget('edit', current.id), options.sourceId.replace(/^(?:record|history|favorite):/, ''), base()?.recordId);
         return version ? { boardId: current.id, versionId: version.id } : undefined;
       }
       maskPort?.save();
@@ -1611,6 +1712,8 @@ export function createEditor(
       if (blob) await loadSource(blob, name, initialSettings ?? undefined, sourceKey);
       if (revision !== openSequence || !open) return;
       const focus = readInpaintFocus(settings?.inpaintFocus);
+      const imported = base();
+      if (imported && blob && options.sourceId && !options.viewSource) evolution.handoff(evolutionTarget('edit', current.id), options.sourceId.replace(/^(?:record|history|favorite):/, ''), imported.recordId);
       if (focus && base()?.width === focus.sourceWidth && base()?.height === focus.sourceHeight) current.focus = { on: true, rect: { x: focus.x, y: focus.y, width: focus.width, height: focus.height } };
       if (options.mode === "upscale" && viewed()) {
         upscaleOpen = true;
@@ -1778,6 +1881,7 @@ export function createEditor(
       if (!v || owner.origin !== "chat" || !conversationId || locked()) return;
       try {
         await chat.useEditorResult(conversationId, {
+          recordId: v.recordId,
           blob: v.blob,
           name: v.name,
           size: { width: v.width, height: v.height },
@@ -1808,6 +1912,7 @@ export function createEditor(
         for (const v of s.versions) URL.revokeObjectURL(v.url);
       external = undefined;
       sessions.clear();
+      for (const item of referencePool.values()) URL.revokeObjectURL(item.url); referencePool.clear();
       current.mask = undefined;
       current.versions = [];
       evolution.dispose(); listeners.clear();

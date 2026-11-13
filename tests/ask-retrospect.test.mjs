@@ -236,7 +236,8 @@ test('review lifecycle keeps provenance and comments across reopen, and rejects 
   const store = createRetrospects();
   const graph = { title: 'review', nodes: [{ id: 'v1', image_ids: ['#h1'], cover: '#h1', recipe: recipeOf(params()) }], edges: [] };
   const owner = { conversationId: 'ask-1', turnId: 3, boardId: 'board-1', boardName: 'first' };
-  const r = store.register(graph, {}, owner);
+  const r = store.register(graph, refsOf([picture(1)]), owner);
+  store.commitMove(store.prepareNext('board-1', 'ask'));
   store.annotate(r.id, ['node:v1'], 'keep light');
   const beforeLayout = store.get(r.id);
   store.arrange(r.id, { v1: { x: -80, cy: 200, z: 1 }, v2: { x: 400, cy: 200, z: 0 } });
@@ -287,17 +288,18 @@ test('live tree folds rolls, creates one stage per batch, and branches from a re
   const { store, r } = await activeTree();
   const layout = { v1: { x: -80, cy: 200, z: 1 }, v2: { x: 350, cy: 250, z: 2 } };
   const slot = { nodeId: 'v2', x: 780, cy: 410, z: 3 };
-  store.arrange(r.id, layout); store.arrangeContinuation(r.id, slot);
+  store.arrange(r.id, layout);
   const roll = store.begin('board-1'), p3 = picture(3, 'B');
   store.land(roll, p3, refsOf([p3]));
   assert.deepEqual(store.get(r.id).value.nodes[1].image_ids, ['#h2', '#h3']);
-  assert.deepEqual(store.get(r.id).continuationAnchor, slot, 'another sample does not consume or reposition the reserved node');
+  assert.equal(store.pending(r.id), null, 'manual changes do not reserve a new node');
+  store.commitMove(store.prepareNext('board-1', 'ask')); store.arrangeContinuation(r.id, slot);
   const next = store.begin('board-1');
   for (const p of [picture(4, 'C'), picture(5, 'C')]) store.land(next, p, refsOf([p]));
   assert.equal(store.get(r.id).value.nodes.length, 3);
   assert.deepEqual(store.get(r.id).value.nodes[2].image_ids, ['#h4', '#h5']);
   assert.deepEqual(store.get(r.id).nodeLayout, { ...layout, v3: { x: slot.x, cy: slot.cy, z: slot.z } }, 'the whole new batch occupies the reserved node without resetting the old scene');
-  const move = store.prepareMove('board-1', 'r1'); store.commitMove(move);
+  const move = store.prepareNext('board-1', 'ask', store.prepareMove('board-1', 'r1')); store.commitMove(move);
   const branch = store.begin('board-1'), p6 = picture(6, 'D'); store.land(branch, p6, refsOf([p6]));
   assert.deepEqual(store.get(r.id).value.edges.map(e => [e.from, e.to]), [['v1','v2'], ['v2','v3'], ['v1','v4']]);
   assert.equal(store.get(r.id).cursor.nodeId, 'v4');
@@ -307,7 +309,7 @@ test('live tree folds rolls, creates one stage per batch, and branches from a re
 });
 
 test('in-flight batches preserve submit origin without stealing an explicit rollback or reattaching after detach', async () => {
-  const { store, r } = await activeTree(), old = store.begin('board-1');
+  const { store, r } = await activeTree(); store.commitMove(store.prepareNext('board-1', 'ask')); const old = store.begin('board-1');
   store.commitMove(store.prepareMove('board-1', 'r1'));
   const late = picture(3, 'C'); store.land(old, late, refsOf([late]));
   assert.equal(store.get(r.id).cursor.nodeId, 'v1');
@@ -325,7 +327,7 @@ test('branch comparison retains the real base sample across rolls, reorganizatio
   const owner = { conversationId: 'ask', turnId: 1, boardId: 'board-1', boardName: 'board' };
   const r = store.register(graph, refsOf(pics), owner);
   assert.equal(r.value.nodes[0].cover, '#h2');
-  store.commitMove(store.prepareMove('board-1', 'r1'));
+  store.commitMove(store.prepareNext('board-1', 'ask', store.prepareMove('board-1', 'r1')));
   const p3 = picture(3, 'blue dress, rim light'); store.land(store.begin('board-1'), p3, refsOf([p3]));
   const p4 = picture(4, 'blue dress, rim light', { seed: 42 }); store.land(store.begin('board-1'), p4, refsOf([p4]));
   store.open(r.id); store.close(); store.open(r.id);
@@ -361,7 +363,8 @@ test('branch comparison retains the real base sample across rolls, reorganizatio
 test('capacity preserves all existing stages and history; explicit final keeps the root path', async () => {
   const { store, r } = await activeTree(Array.from({ length: 80 }, (_, i) => picture(i+1, `p${i}`)));
   const overflow = picture(81, 'new');
-  assert.match(store.land(store.begin('board-1'), overflow, refsOf([overflow])), /80.*ASK/);
+  assert.throws(() => store.prepareNext('board-1', 'ask'), /80.*ASK/);
+  assert.equal(store.land(store.begin('board-1'), overflow, refsOf([overflow])), null, 'same stage samples remain available at capacity');
   assert.equal(store.get(r.id).value.nodes.length, 80);
   const { finalPath } = await import('../src/ask/retrospect/store.ts');
   const live = store.get(r.id); store.finalize(r.id, 'v5', '#h5', live.revision);
@@ -397,15 +400,16 @@ test('built-in rollback restores the real base before patches, maps source roles
   const rollbackOnly = validateDraft(emptyInsert.draft, base, { off: new Set() });
   assert.equal(rollbackOnly.rollbackBase.evolution.after.cursor.nodeId, 'v1');
   assert.equal(rollbackOnly.changes.find(c => c.field === 'prompt').after, 'BASE');
-  const plan = validateDraft(draft, base, { off: new Set(), has: () => true });
+  const checked = validateDraft(draft, base, { off: new Set(), has: () => true });
+  const plan = { ...checked, rollbackBase: { ...checked.rollbackBase, evolution: store.prepareNext('board-1', 'ask', checked.rollbackBase.evolution) } };
   assert.deepEqual(plan.steps.filter(s => s.issue), []);
   assert.equal(plan.changes.find(c => c.field === 'prompt').after, 'BASE, low angle');
   assert.equal(plan.changes.find(c => c.field === 'characters').after[0].prompt, 'black hair, blue eyes');
   assert.equal(plan.changes.find(c => c.field === 'characters').after[0].id, 'c20');
   assert.ok(plan.steps.every(s => s.locked));
-  assert.ok(validateDraft(draft, { ...base, form: { ...base.form, prompt: 'manual' } }, { off: new Set() }).steps.every(s => s.issue));
-  const drawing = { snapshot: () => ({ form: currentForm, boards: [{ id: 'board-1', form: currentForm }] }), writeDraft: async changes => { if (fail) throw new Error('save failed'); currentForm = { ...currentForm, ...changes }; } };
-  const writer = createDraftWriter(drawing, { snapshot: () => ({ current: { id: 'chat' }, conversations: [] }) }, { route: { value: {} }, switchWorkspace(workspace) { this.route.value.workspace = workspace; } }, undefined, undefined, undefined, { moveIssue: store.moveIssue, commitMove: store.commitMove, available: () => true });
+  assert.ok(validateDraft(draft, { ...base, form: { ...base.form, prompt: 'ask' } }, { off: new Set() }).steps.every(s => s.issue));
+  const drawing = { retainHistory() {}, snapshot: () => ({ form: currentForm, boards: [{ id: 'board-1', form: currentForm }] }), writeDraft: async changes => { if (fail) throw new Error('save failed'); currentForm = { ...currentForm, ...changes }; } };
+  const writer = createDraftWriter(drawing, { snapshot: () => ({ current: { id: 'chat' }, conversations: [] }), retainHandoffDrafts() {} }, { route: { value: {} }, switchWorkspace(workspace) { this.route.value.workspace = workspace; } }, undefined, undefined, undefined, { moveIssue: store.moveIssue, commitMove: store.commitMove, available: () => true });
   const fileWriter = createDraftWriter(drawing, { snapshot: () => ({ current: { id: 'chat' }, conversations: [] }) }, { route: { value: {} }, switchWorkspace(workspace) { this.route.value.workspace = workspace; } }, undefined,
     () => ({ context: () => ({ id: null, available: true }), apply: async (_files, _undo, commit) => { await commit(); throw new Error('file failed after local commit'); } }), undefined,
     { moveIssue: store.moveIssue, commitMove: store.commitMove, available: () => true });
@@ -437,6 +441,7 @@ test('ASK updates the same living tree with expired evidence, preserves notes an
   assert.equal(store.records.value.length, 1); assert.equal(store.source('ask', 2).id, r.id);
   assert.equal(store.get(r.id).notes['node:v1'], 'keep light'); assert.equal(store.get(r.id).cursor.imageId, '#h2');
   assert.throws(() => store.update(r.id, revised.target.revision, revised, refsOf(pictures), r), /已变化/);
+  store.commitMove(store.prepareNext('board-1', 'ask'));
   const next = picture(3, 'C'); store.land(store.begin('board-1'), next, refsOf([next]));
   assert.equal(store.get(r.id).value.edges.at(-1).from, 'v1');
   assert.equal(store.get(r.id).value.nodes.at(-1).id, 'v3', 'merged historical version numbers are never reused');
@@ -454,11 +459,13 @@ test('NEW lasts for the first panel visit, including stages added while open, wi
   assert.equal(store.get(r.id).revision, revision, 'viewing does not stale an ASK update or rollback draft');
   const roll = picture(3, 'B'); store.land(store.begin('board-1'), roll, refsOf([roll]));
   assert.deepEqual(store.get(r.id).newNodes, [], 'new samples inside an existing stage are not new versions');
+  store.commitMove(store.prepareNext('board-1', 'ask'));
   const changed = picture(4, 'C'); store.land(store.begin('board-1'), changed, refsOf([changed]));
   assert.deepEqual(store.get(r.id).newNodes, ['v3']);
   store.close(); store.open(r.id);
   assert.deepEqual(store.get(r.id).newNodes, []);
   store.close();
+  store.commitMove(store.prepareNext('board-1', 'ask'));
   const later = picture(5, 'D'); store.land(store.begin('board-1'), later, refsOf([later]));
   store.open(r.id); assert.deepEqual(store.get(r.id).newNodes, ['v4']);
 });

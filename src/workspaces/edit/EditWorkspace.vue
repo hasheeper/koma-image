@@ -1,5 +1,8 @@
 <script setup lang="ts">
+import EditReferences from "./EditReferences.vue";
 import ModelParameterInput from "../../shared/ModelParameterInput.vue";
+import EvolutionAction from '../../ask/retrospect/EvolutionAction.vue';
+import { evolutionTarget } from '../../domain/evolution-input.ts';
 import {
   computed,
   ref,
@@ -28,10 +31,15 @@ async function sendSelection(action: 'ask' | 'chat', fresh = false) {
   try {
     selection.value?.saveComment(false);
     if (selecting.value && annotations.active.value!.snapshot.regions.length) { await annotations.act(action, fresh); return; }
-    if (action === 'ask') { await ask.addFiles([new File([v.blob], v.name || '编辑图片.png', {type:v.blob.type})]); ask.show(); }
+    const references = editor.referenceImages();
+    if (references.length) {
+      if (action==='ask')await ask.prepareEditorImages(v.blob,references);
+      else {await chat.prepareEditorImages(v,references,s.value.fields.prompt,fresh?undefined:chatSource.value?.id);router.switchWorkspace('chat');}
+    }
+    else if (action === 'ask') { await ask.addFiles([new File([v.blob], v.name || '编辑图片.png', {type:v.blob.type})]); ask.show(); }
     else if (!fresh && chatSource.value) await editor.useResult(v.id);
     else {
-      const ticket=await createHandoff(services).queue(v.blob,v.name);
+      const ticket=await createHandoff(services).queue(v.blob,v.name,{recordId:v.recordId,entityKey:v.entity_key});
       const url=new URL(location.href);url.searchParams.set('image',ticket);history.replaceState(history.state,'',url);
       router.switchWorkspace('chat');ui.imageDelivery.value++;
     }
@@ -728,6 +736,10 @@ function keyup(e: KeyboardEvent) {
 }
 function dragenter(e: DragEvent) {
   if (photopea.value) return;
+  if ((e.target as Element).closest('[data-reference-composer],[data-comment]')) {
+    drop.value = '';
+    return;
+  }
   if (
     !locked.value &&
     (e.dataTransfer?.types.includes("Files") ||
@@ -969,12 +981,14 @@ async function copyReference(v: EditorVersion) {
 
           </template>
           <template v-else>
+            <EditReferences>
             <div class="fld fld-hero promptbox" id="editorImagePromptBox">
               <div class="promptbox-head"><label for="editorImagePrompt">修改说明</label></div>
               <div class="promptbox-body"><div class="pane">
                 <HighlightInput v-if="view.open" id="editorImagePrompt" label="修改说明" :model-value="s.fields.prompt" :highlight="false" :disabled="locked" placeholder="描述需要修改的内容…" :max-length="24000" @update:model-value="editor.patch({prompt: $event})" />
               </div></div>
             </div>
+            </EditReferences>
             <EditImageParameters />
           </template>
           </fieldset>
@@ -1279,6 +1293,7 @@ async function copyReference(v: EditorVersion) {
                   </button>
                 </div>
                 <div class="editor-info-actions editor-tool-capsule" :hidden="!view.viewed" role="group" aria-label="图片操作">
+                  <EvolutionAction v-if="shown && shown.kind !== 'source'" :record-id="shown.recordId" :target="evolutionTarget('edit', editor.session.id)" :disabled="locked || unsavedPreview" />
                   <button v-if="view.viewed" class="ibtn" type="button"
                     :aria-label="editor.isFavorite(shown) ? '已收藏' : '收藏图片'" :data-tip="editor.isFavorite(shown) ? '已收藏' : '收藏'"
                     :aria-pressed="editor.isFavorite(shown)" :disabled="locked || unsavedPreview || view.saving || editor.isFavorite(shown)" @click="editor.saveFavorite(shown)">

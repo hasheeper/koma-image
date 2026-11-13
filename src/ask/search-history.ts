@@ -100,7 +100,7 @@ export function searchHistory(input: Readonly<Record<string, unknown>>, library:
   return {
     total_matched: hits.length,
     matches: hits.slice(0, limit).map(({ picture, origin, prior, changed, score, best }) => ({
-      id: origin.label, aliases: picture.aliases, source: origin.source,
+      id: origin.label, aliases: picture.aliases, source: origin.source, image_availability: picture.thumbnailOnly ? "thumbnail_only" : "original",
       age: age(picture.createdAt, now), size: [picture.size.width, picture.size.height],
       seed: typeof picture.params.seed === "number" && Number.isFinite(picture.params.seed) ? picture.params.seed : null,
       matched_field: query ? best.key : null,

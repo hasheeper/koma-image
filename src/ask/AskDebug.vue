@@ -7,6 +7,7 @@ import AppIcon from "../shared/AppIcon.vue";
 import AskMenu from "./AskMenu.vue";
 import { inspectCall } from "./debug.ts";
 import type { CallSummary, ContextPart, PartRole, PartSection } from "./debug.ts";
+import type { CallExportMode } from "./debug-export.ts";
 import { toolIcons } from "./presentation.ts";
 
 const props = defineProps<{ turn?: number }>(), emit = defineEmits<{ close: [] }>(), ask = useAsk(), ui = useUi();
@@ -115,10 +116,10 @@ async function copy() {
     copiedTimer = window.setTimeout(() => { copied.value = false; }, 1200);
   } catch (error) { ui.toast(message(error), "err"); }
 }
-function save(all = false) {
+function save(all = false, mode: CallExportMode = "compact") {
   if (!record.value && !all) return;
-  download(new Blob([ask.exportDebug(all ? undefined : selected.value)], { type: "application/json" }), `koma-ask-calls-${all ? "all" : selected.value}.json`);
-  ui.toast("已导出调用记录，body 字段为原始请求 JSON", "ok");
+  download(new Blob([ask.exportDebug(all ? undefined : selected.value, mode)], { type: "application/json" }), `koma-ask-calls-${all ? "all" : selected.value}${mode === 'raw' ? '-full' : ''}.json`);
+  ui.toast(mode === "raw" ? "已完整导出，包含原始请求与图片数据" : "已精简导出，重复内容合并，图片编码已省略", "ok");
 }
 onMounted(() => dialog.value?.showModal());
 onBeforeUnmount(() => { clearTimeout(copiedTimer); dialog.value?.close(); });
@@ -160,8 +161,11 @@ onBeforeUnmount(() => { clearTimeout(copiedTimer); dialog.value?.close(); });
             <button class="ibtn" type="button" aria-label="更多" aria-haspopup="menu" :aria-expanded="shown" @click="show"><AppIcon name="i-more" /></button>
           </template>
           <template #default="{ close }">
-            <button class="menu-item" type="button" role="menuitem" :disabled="!record" @click="save(); close(true)"><AppIcon name="i-download" /><span class="menu-label">导出本次</span></button>
-            <button class="menu-item" type="button" role="menuitem" :disabled="!ask.debug.value.calls.length" @click="save(true); close(true)"><AppIcon name="i-download" /><span class="menu-label">导出全部</span><span class="menu-meta">{{ ask.debug.value.calls.length }}</span></button>
+            <button class="menu-item" type="button" role="menuitem" :disabled="!record" @click="save(); close(true)"><AppIcon name="i-download" /><span class="menu-label">导出本次</span><span class="menu-meta">精简</span></button>
+            <button class="menu-item" type="button" role="menuitem" :disabled="!ask.debug.value.calls.length" @click="save(true); close(true)"><AppIcon name="i-download" /><span class="menu-label">导出全部</span><span class="menu-meta">精简 · {{ ask.debug.value.calls.length }}</span></button>
+            <hr />
+            <button class="menu-item" type="button" role="menuitem" :disabled="!record" @click="save(false, 'raw'); close(true)"><AppIcon name="i-download" /><span class="menu-label">完整导出本次</span><span class="menu-meta">含图片数据</span></button>
+            <button class="menu-item" type="button" role="menuitem" :disabled="!ask.debug.value.calls.length" @click="save(true, 'raw'); close(true)"><AppIcon name="i-download" /><span class="menu-label">完整导出全部</span><span class="menu-meta">含图片数据</span></button>
             <hr />
             <button class="menu-item danger" type="button" role="menuitem" :disabled="ask.running.value || !!ask.naming.value || !ask.debug.value.calls.length" @click="ask.clearDebug(); close(true)"><AppIcon name="i-trash" /><span class="menu-label">清空记录</span></button>
           </template>
@@ -206,7 +210,7 @@ onBeforeUnmount(() => { clearTimeout(copiedTimer); dialog.value?.close(); });
             <div class="debug-sh">
               <h3>图片</h3><span class="debug-sh-n">{{ inspection.images.length }} 张 · {{ kb(inspection.images.reduce((sum, image) => sum + image.bytes, 0)) }}</span>
               <span class="debug-gap"></span>
-              <span class="debug-hint" data-end tabindex="0" role="img" aria-label="图片说明" aria-describedby="askDebugImageTip"><AppIcon name="i-info" /><span id="askDebugImageTip" class="debug-pop" role="tooltip">缩略图为实际发送的处理后图像，Base64 在预览中折叠，复制与导出保留完整数据。点击定位到所在分块。</span></span>
+              <span class="debug-hint" data-end tabindex="0" role="img" aria-label="图片说明" aria-describedby="askDebugImageTip"><AppIcon name="i-info" /><span id="askDebugImageTip" class="debug-pop" role="tooltip">缩略图为实际发送的处理后图像。默认导出省略图片编码，复制请求与完整导出保留图片数据。点击定位到所在分块。</span></span>
             </div>
             <div class="debug-card debug-ibox">
               <button v-for="(image, n) in inspection.images" :key="image.path" class="debug-thumb" type="button" :title="`${sizes[image.path] ? `${sizes[image.path]} · ` : ''}${kb(image.bytes)}\n${image.path}`" :aria-label="`图片 ${n + 1}，定位到分块 ${index(image.part)}`" @click="jump(image.part)">

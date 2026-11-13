@@ -26,6 +26,7 @@ export function recipeContext(groups: readonly RecipeCluster[]) {
       seed: p.params.seed ?? null, effective_params: recipe.params,
       ...(recipe.input ? {input:recipe.input,parent_id:groups.flatMap(g=>g.images).find(image=>image.id===recipe.input!.base?.id)?.label??null} : {}),
       ...(diff ? { diff: { parameters: diff.parameters,
+        ...(diff.transition ? { workspace_transition: diff.transition } : {}),
         texts: diff.texts.filter(t => t.changed).map(t => ({ key: t.key, label: t.label,
           before_known: t.before !== null, after_known: t.after !== null, parts: t.parts })),
         characters_unknown: diff.charactersUnknown,

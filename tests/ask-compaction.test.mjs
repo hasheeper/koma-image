@@ -40,6 +40,52 @@ const contextState = s => { const { usage, ...rest } = s.snapshot(); return rest
 const withoutCache = data => JSON.parse(JSON.stringify(data, (key, value) => key === 'cache_control' ? undefined : value));
 const marks = body => (JSON.stringify(body).match(/"cache_control":/g) ?? []).length;
 
+test('CP2 image bindings stay out of memory and compaction input but survive archive, favorites, recall and forks', async () => {
+  const f = { session: createSession(), pool: createAttachments() }, bindings = [];
+  for (let n = 1; n <= 8; n++) {
+    const pictureRefs = Object.fromEntries(Array.from({ length: 35 }, (_,i) => {
+      const tag = `#h${i + 1}`;
+      return [tag, { tag, record_id: `synthetic-local-record-${n}-${i}`, entity_key: `sha256:${String(n * 100 + i).padStart(64, '0')}`,
+        scope: { kind: 'page', id: `synthetic-local-page-${n}` } }];
+    }));
+    bindings.push(pictureRefs);
+    commit(f.session, n, [], { pictureRefs, targets: ['#h1'], boards: ['b1'] });
+  }
+  const provider = fake(); await runCompaction(options(f, provider));
+  assert.doesNotMatch(JSON.stringify(provider.calls), /pictureRefs|synthetic-local-|sha256:/, 'the compression request must not repeat local binding tables');
+  assert.doesNotMatch(f.session.memory.text, /pictureRefs|synthetic-local-|sha256:/);
+  assert.match(f.session.memory.text, /"targets":\["#h1"\]/, 'the human-readable image index remains available');
+  assert.match(f.session.memory.text, /"turnId":"T1"/);
+  assert.deepEqual(f.session.archive[0].pictureRefs, bindings[0]);
+
+  const saved = structuredClone({ session: f.session.snapshot(), entries: [], attachments: [] });
+  const restored = restoreSavedSession(saved);
+  assert.equal(restored.memory.text, f.session.memory.text);
+  for (const source of [restored, restored.fork(2, f.pool.get), restored.fork(7, f.pool.get)]) {
+    const recalled = source.recall({ turns: ['T1', 'T2'], include: 'full' }, f.pool.get).turns;
+    assert.deepEqual(recalled[0].picture_refs, bindings[0]);
+    assert.deepEqual(recalled[1].picture_refs, bindings[1]);
+    assert.notEqual(recalled[0].picture_refs['#h1'].record_id, recalled[1].picture_refs['#h1'].record_id,
+      'a reused display number must still resolve to each turn\'s original image');
+  }
+  restored.truncate(2, f.pool.get);
+  assert.deepEqual(restored.records[0].pictureRefs, bindings[0]);
+  assert.equal(restored.memory, null);
+
+  const next = f.session.begin(message('继续修改'));
+  for (const profile of [openaiChatProfile, anthropicMessagesProfile]) {
+    const body = wireBody(profile, { ...request, maxTokens: 4096, messages: next.messages() });
+    assert.doesNotMatch(JSON.stringify(body), /pictureRefs|synthetic-local-|sha256:/);
+  }
+  next.rollback();
+  for (let n = 9; n <= 12; n++) commit(f.session, n, [], { pictureRefs: bindings[7], targets: ['#h1'] });
+  const repeated = fake(); await runCompaction(options(f, repeated));
+  assert.doesNotMatch(JSON.stringify(repeated.calls), /pictureRefs|synthetic-local-|sha256:/);
+  assert.doesNotMatch(f.session.memory.text, /pictureRefs|synthetic-local-|sha256:/);
+  assert.deepEqual(f.session.recall({ turns: ['T1'] }, f.pool.get).turns[0].picture_refs, bindings[0]);
+  f.pool.dispose();
+});
+
 async function realProvider(profile, makeResponse) {
   const store = new Map(), connections = createConnections({ getItem: k => store.get(k) ?? null, setItem: (k, v) => store.set(k, v) }, work => work());
   await connections.save({ version: 1, connections: { ask: { id: 'ask', name: '模拟推理', baseUrl: 'https://synthetic.example.test/v1', profileId: profile.id, credentialRef: 'key', revision: 'r1' } }, links: {} });
@@ -109,7 +155,7 @@ for (const profile of [openaiChatProfile, anthropicMessagesProfile]) test(`CP2 $
   assert.equal(restored.recall({ turns: ['T1'], include: 'full' }, f.pool.get).turns[0].messages[0].content[0].text, state);
   assert.equal(restored.takeAfterCompaction(), true); assert.equal(restored.takeAfterCompaction(), false);
   assert.equal(log.get(id).purpose, 'compaction'); assert.equal(log.get(id).usage.input, 1200);
-  assert.equal(JSON.parse(log.export()).calls[0].body, JSON.stringify(actual));
+  assert.equal(JSON.parse(log.export(undefined, 'raw')).calls[0].body, JSON.stringify(actual));
   assert.equal(inspectCall(log.get(id)).breakpoints.length, profile === anthropicMessagesProfile ? 3 : 0);
   f.pool.dispose();
 });

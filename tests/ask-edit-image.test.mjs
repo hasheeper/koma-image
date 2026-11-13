@@ -95,3 +95,45 @@ test('comparison context preserves original/raw/composite identity, frozen mask 
   raw.width=1024;raw.comparison.compositeId=3;session.versions.push({...src,id:3,sequence:3,recordId:'merged'});
   assert.equal(imageEditContext(session).comparison.status,'applied');
 });
+
+test('qualified CHAT aliases keep a concrete source for EDIT handoff before candidate expansion',async()=>{
+ const {newConversation,beginTurn,contextSnapshot,completeVersion}=await import('../src/domain/conversation.ts');
+ const {chatPictures}=await import('../src/ask/chat-context.ts');
+ const {createChatPictureIds}=await import('../src/ask/chat-identity.ts');
+ const current=newConversation(),{turn,version}=beginTurn(current,contextSnapshot(current),'source',{});
+ completeVersion(current,turn,version,[{type:'image',assetId:'asset'}],null,current.selectionRevision);
+ const s={...base(),workspace:'image'},library=chatPictures({current,models}, {assets:{assets:new Map([['asset',{id:'asset',width:512,height:768,blob:new Blob(['pixels'])}]])}},false,createChatPictureIds());
+ const draft=parseDraft(input(s,[{kind:'edit_handoff',image:'#c1:1.1',prompt:'adjust lighting'}]),s,library);
+ assert.equal(draft.editHandoff.image.source,'chat');assert.equal(draft.editHandoff.image.ref,'asset');
+ assert.equal(draft.editHandoff.target.source.recordId,library[0].id);
+});
+
+
+test('EDIT reference drafts bind images independently, preserve existing R labels, validate capacity and remain internal',async()=>{
+ const {internalDraftSchema,draftSchema}=await import('../src/ask/draft/schema.ts');
+ const {remapHandoffDraft,prepareProjectHandoffs}=await import('../src/ask/handoff-images.ts');
+ const s=base();s.edit.config.references=[{id:'old',label:'R3',name:'coat',usage:'服装'}];s.edit.nextReferenceNumber=5;
+ const pictures=[{id:'old',label:'#e1:r3',aliases:['#e1:r3'],blob:new Blob(['old']),size:{width:100,height:100},createdAt:1,params:{},origins:[{label:'#e1:r3',source:'edit'}]},
+ {id:'#a1',label:'#a1',aliases:['#a1'],attachment:true,scope:{kind:'ask',id:'scope'},blob:new Blob(['new']),size:{width:100,height:100},createdAt:1,params:{},origins:[{label:'#a1',source:'attachment'}]}];
+ const raw=input(s,[{kind:'edit_references',references:[{image:'#a1',usage:'参考徽章'},{image:'#e1:r3'}]}]);
+ const d=parseDraft(raw,s,pictures),p=validateDraft(d,s,{off:new Set()});
+ assert.ok(p.edit,JSON.stringify(p.steps));assert.deepEqual(p.edit.after.references.map(r=>[r.label,r.usage]),[['R5','参考徽章'],['R3','服装']]);
+ assert.equal(p.edit.after.references[1].id,'old');assert.equal(p.editReferences[0].image.ref,'scope/#a1');assert.equal(s.edit.config.references.length,1);
+ assert.equal(validateDraft(d,s,{off:new Set(),has:()=>false}).edit,undefined);
+ const changed=structuredClone(s);changed.edit.config.references=[];assert.equal(validateDraft(d,changed,{off:new Set()}).edit,undefined);
+ const remapped=remapHandoffDraft(d,'scope','new-scope');assert.equal(remapped.steps.at(-1).items[0].image.ref,'new-scope/#a1');
+ const clear=validateDraft(parseDraft(input(s,[{kind:'edit_references',references:[]}]),s,pictures),s,{off:new Set()});assert.deepEqual(clear.edit.after.references,[]);
+ assert.ok(internalDraftSchema.properties.steps.items.anyOf.some(step=>step.properties.kind.enum.includes('edit_references')));
+ assert.ok(!draftSchema.properties.steps.items.anyOf.some(step=>step.properties.kind.enum.includes('edit_references')));
+ const paths=[];await prepareProjectHandoffs({steps:[{kind:'edit_references',references:[{image:'references/logo.png'}]}]},async p=>{paths.push(p);return '#a1';});assert.deepEqual(paths,['references/logo.png']);
+ const narrow=base();narrow.edit.models.forEach(m=>m.maxImages=1);const nd=parseDraft(input(narrow,[{kind:'edit_references',references:[{image:'#a1'}]}]),narrow,pictures);assert.equal(validateDraft(nd,narrow,{off:new Set()}).edit,undefined);
+ const annotated=structuredClone(s);annotated.edit.models.forEach(m=>m.maxImages=3);annotated.edit.imageEditing={settings:{markup:false,textOnly:false},annotations:{regions:[{comment:'徽章'}]}};
+ const annotatedPlan=()=>validateDraft(parseDraft(input(annotated,raw.steps),annotated,pictures),annotated,{off:new Set()});
+ assert.equal(annotatedPlan().edit,undefined);assert.match(annotatedPlan().steps.at(-1).issue,/最多可用 1 张/);
+ annotated.edit.imageEditing.settings.markup=true;assert.ok(annotatedPlan().edit);
+ const named=parseDraft(input(s,[{kind:'prompt_patch',target:'edit.prompt',mode:'rewrite',text:'参考 #a1 的徽章与 #e1:r3 的服装'},...raw.steps]),s,pictures);
+ const namedPlan=validateDraft(named,s,{off:new Set()});assert.equal(namedPlan.edit.after.fields.prompt,'参考 R5 的徽章与 R3 的服装');assert.equal(namedPlan.steps[0].after,'参考 R5 的徽章与 R3 的服装');
+ s.edit.config.fields.prompt='参考 #e1:r3 的服装';
+ const patch=parseDraft(input(s,[{kind:'prompt_patch',target:'edit.prompt',mode:'replace',anchor:'#e1:r3 的服装',text:'#e1:r3 的徽章'}]),s,pictures);
+ assert.equal(validateDraft(patch,s,{off:new Set()}).edit.after.fields.prompt,'参考 R3 的徽章');
+});

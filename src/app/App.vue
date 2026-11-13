@@ -19,6 +19,7 @@ import EditWorkspace from "../workspaces/edit/EditWorkspace.vue";
 import ConfirmSheet from "../shared/ConfirmSheet.vue";
 import ToastList from "../shared/ToastList.vue";
 import ModelLogos from "../shared/ModelLogos.vue";
+import IconSymbols from "../shared/IconSymbols.vue";
 import { createUi, uiKey } from "./ui";
 import { createTheme, themeKey } from "./theme";
 import { createAskPresentation, askPresentationKey } from "../ask/presentation.ts";
@@ -134,6 +135,7 @@ const workspaces = {
 };
 </script>
 <template>
+  <IconSymbols />
   <KeepAlive :max="4">
     <component
       v-if="router.route.value.workspace !== 'edit'"

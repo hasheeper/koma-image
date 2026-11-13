@@ -20,44 +20,10 @@ test('mask identity distinguishes edits with equal bounds/area and preserves unk
   assert.equal(a.summary.coverage_ratio,b.summary.coverage_ratio);
   assert.notEqual(a.hash,b.hash);
   const diff=recipeDiff(recipeOf({evolutionInput:input({mask:a})}),recipeOf({evolutionInput:input({mask:b})}));
-  assert.equal(diff.parameters.find(p=>p.key==='input:mask').after,'蒙版已修改');
+  assert.deepEqual(diff.parameters,[]); assert.equal(diff.transition.before.input.mask.hash,a.hash); assert.equal(diff.transition.after.input.mask.hash,b.hash);
   assert.equal(await evolutionMask(null),null);
   assert.equal(await evolutionMask(undefined),undefined);
   assert.notEqual(effectiveSignature(recipeOf({evolutionInput:input()})),effectiveSignature(recipeOf({evolutionInput:input({mask:null})})));
-});
-
-test('EDIT candidates distinguish actual base/mask/options while ASK can still group a semantic stage',()=>{
-  const a=picture('p1'),b=picture('p2'),c=picture('p3',input({base:{id:'another',label:'#e1.8'}}));
-  const groups=recipeClusters([a,b,c],new Set(),'edit:board');assert.deepEqual(groups.map(g=>g.images.length),[2,1]);
-  const result=readRetrospect({retrospect_title:'微调阶段',nodes:[{id:'v1',label:'微调',image_ids:[a.label,c.label],primary_id:c.label}],edges:[]},groups);
-  assert.equal(result.nodes[0].recipe.input.base.id,'another');
-  assert.equal(result.nodes[0].recipes[a.label].input.base.id,'source');
-  const reader=createRecipeReader(()=>groups,'edit:board');const evidence=reader.read({});
-  assert.equal(evidence.evolution.length,3);assert.equal(evidence.evolution[2].input.base.id,'another');
-});
-
-test('EDIT live results branch from the actual source and repeat the same input without another node',()=>{
-  const origin=picture('source',input({operation:'source',base:null}));
-  const registry=createRetrospects();const r=registry.register(graph([origin]),refs([origin]),{conversationId:'ask',turnId:1,boardId:'edit:board',boardName:'编辑'});
-  const first=picture('p2');registry.land(registry.begin('edit:board',origin.id),first,refs([first]));
-  const second=picture('p3');registry.land(registry.begin('edit:board',origin.id),second,refs([second]));
-  assert.equal(registry.get(r.id).value.nodes.length,2);assert.equal(registry.get(r.id).value.nodes[1].image_ids.length,2);
-  const branch=picture('p4',input({prompt:'new direction'}));registry.land(registry.begin('edit:board',origin.id),branch,refs([branch]));
-  assert.deepEqual(registry.get(r.id).value.edges.map(e=>[e.from,e.to]),[['v1','v2'],['v1','v3']]);
-  const pending=registry.begin('edit:board',origin.id);registry.detachBoard('edit:board');
-  registry.land(pending,picture('p5'),refs([picture('p5')]));assert.equal(registry.get(r.id).value.nodes.length,3);
-});
-
-test('CHAT branch renumbering preserves record bindings and an in-flight parent',()=>{
-  const a=picture('p1'),b=picture('p2',input({base:{id:a.id,label:a.label}}));
-  const registry=createRetrospects();const r=registry.register(graph([a,b]),refs([a,b]),{conversationId:'ask',turnId:1,boardId:'chat:conversation',boardName:'CHAT'});
-  const pending=registry.begin('chat:conversation',a.id);
-  const renamed=[{...a,label:'#c2.1'},{...b,label:'#c1.1'}];registry.relabel(renamed);
-  assert.equal(registry.get(r.id).pictureRefs['#c2.1'].record_id,a.id);
-  assert.equal(registry.get(r.id).value.nodes[0].cover,'#c2.1');
-  const c={...picture('p3',input({workspace:'chat',operation:'chat',base:{id:a.id,label:'#c2.1'}})),label:'#c3.1',scope:{kind:'chat',id:'conversation'}};
-  delete c.params.editBoardId;registry.land(pending,c,refs([c]));
-  assert.equal(registry.get(r.id).value.sampleBases['#c3.1'],'#c2.1');
 });
 
 test('CHAT input includes selected text context and references; the message parent is not the image parent',()=>{
@@ -82,16 +48,23 @@ test('cosmetic image renumbering preserves restoration identity and malformed ro
   assert.equal(effectiveSignature(recipeOf({evolutionInput:input({params:{cfg_rescale:.4}})})),effectiveSignature(recipeOf({evolutionInput:input({params:{cfgRescale:.4}})})));
 });
 
-test('explicit source handoff retains graph identity/layout and invalidates old in-flight work',()=>{
-  const origin=picture('p1'), registry=createRetrospects();
-  const r=registry.register(graph([origin]),refs([origin]),{conversationId:'ask',turnId:1,boardId:'image-board',boardName:'绘图'});
-  registry.arrange(r.id,{v1:{x:400,cy:200,z:2}});
-  const old=registry.begin('image-board');
-  assert.equal(registry.transfer('edit:board',origin.id,'编辑'),true);
-  const next=picture('p2',input({prompt:'new edit'}));registry.land(old,next,refs([next]));
-  assert.equal(registry.get(r.id).value.nodes.length,1);
-  registry.land(registry.begin('edit:board',origin.id),next,refs([next]));
-  assert.equal(registry.get(r.id).value.nodes.length,2);
-  assert.deepEqual(registry.get(r.id).nodeLayout.v1,{x:400,cy:200,z:2});
-  assert.equal(registry.activeForBoard('image-board'),null);
+test('workspace boundaries keep full originals without pretending tags, edit prompts and CHAT instructions are word replacements',async()=>{
+ const {groupsOf}=await import('../src/ask/retrospect/groups.ts');
+ const {recipeTarget}=await import('../src/ask/retrospect/recipe.ts');
+ const image=recipeOf({model:'nai-v5',basePrompt:'1.35::artist::, 2girls, gothic window',baseNegative:'lowres',localCharacters:[]});
+ const edit=recipeOf({evolutionInput:input({prompt:'refine eyes'})});
+ const chat=recipeOf({evolutionInput:input({workspace:'chat',operation:'chat',prompt:'Add the gold logo, preserve both characters'})});
+ for(const [a,b] of [[image,chat],[image,edit],[edit,chat],[chat,image]]){
+  const d=recipeDiff(a,b);assert.deepEqual(d.texts,[]);assert.deepEqual(d.parameters,[]);
+  assert.equal(d.transition.before.prompt,a.prompt);assert.equal(d.transition.after.prompt,b.prompt);
+  const groups=groupsOf({recipe:a},{recipe:b});assert.ok(groups.every(g=>g.standalone));
+  assert.ok(groups.some(g=>g.texts.some(t=>t.after===a.prompt)));assert.ok(groups.some(g=>g.texts.some(t=>t.after===b.prompt)));
+ }
+ assert.ok(recipeDiff(chat,{...chat,prompt:chat.prompt+', small'}).transition);
+ assert.deepEqual(recipeDiff(chat,{...chat,prompt:chat.prompt+', small'}).texts,[]);
+ const imported={...picture('p1'),params:{boardId:'image-board',basePrompt:'tag',baseNegative:'',localCharacters:[]},origins:[{source:'history',order:1},{source:'edit',boardId:'editing'}]};
+ assert.equal(recipeTarget(imported),'image-board','visibility in EDIT does not change the source grammar or restore destination');
+ const chatPic={...picture('p2',input({workspace:'chat',operation:'chat'})),scope:{kind:'chat',id:'conversation'}};
+ assert.equal(recipeTarget(chatPic),'chat:conversation');
+ assert.throws(()=>readRetrospect({retrospect_title:'mixed',nodes:[{id:'v1',label:'不可混语法',image_ids:[imported.label,chatPic.label]}],edges:[]},recipeClusters([imported,chatPic],new Set())),/工坊|跨工作区/);
 });

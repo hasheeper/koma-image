@@ -22,6 +22,16 @@ export interface RecipeCluster {
   readonly recipe: Recipe;
   readonly signature: string;
 }
+export const recipeWorkspace = (recipe: Recipe) => recipe.input?.workspace ?? 'image';
+/** Imported aliases describe where an image is visible, not the language of its recipe. */
+export function recipeTarget(p: Picture): string | null {
+  const workspace = recipeWorkspace(recipeOf(p.params));
+  if (workspace === 'image') return typeof p.params.boardId === 'string' ? p.params.boardId : null;
+  if (workspace === 'chat') return p.scope?.kind === 'chat' ? evolutionTarget('chat', p.scope.id)
+    : typeof p.params.chatConversationId === 'string' ? evolutionTarget('chat', p.params.chatConversationId) : null;
+  const id = p.params.editBoardId ?? p.origins.find(o => o.source === 'edit')?.boardId;
+  return typeof id === 'string' ? evolutionTarget('edit', id) : null;
+}
 const parameterKeys = boardKeys.filter(k => !['prompt', 'negative', 'characters', 'seed', 'batchCount', 'optimize', 'naiReferences'].includes(k));
 /** Project recorded raw fields only. Unknown original text never falls back to sent text. */
 export function recipeOf(p: Readonly<Record<string, unknown>>): Recipe {
@@ -69,7 +79,7 @@ export function comparisonRecipe(recipe: Recipe): Recipe {
   return { ...recipe, params, characters: recipe.characters?.filter(c => c.on && (c.prompt.trim() || c.negative.trim())) ?? null };
 }
 export function isRecipePicture(p: Picture) {
-  if (p.params.isComparison) return false;
+  if (p.params.isComparison || p.params.editReference) return false;
   if (p.origins.some(o => o.source === 'edit' || o.source === 'chat') || readEvolutionInput(p.params.evolutionInput)) return true;
   return !p.params.tool && !p.params.editId && !p.params.editBoardId &&
     p.params.sourceWorkspace !== 'chat' && !p.params.chatConversationId &&
@@ -89,7 +99,7 @@ export function pictureTarget(p: Picture, preferred?: string | null): string | n
 export function recipeClusters(library: readonly Picture[], referencedFavorites: ReadonlySet<string>, target?: string | null): readonly RecipeCluster[] {
   const seen = new Set<string>(), sequences = new Map<string, Picture[]>();
   for (const p of library) {
-    if (seen.has(p.id) || !isRecipePicture(p)) continue;
+    if (p.params.editReference || p.params.chatInput || seen.has(p.id) || !isRecipePicture(p)) continue;
     const history = p.origins.some(o => o.source === 'history');
     if (!history && !p.origins.some(o => o.source === 'edit' || o.source === 'chat') && !(referencedFavorites.has(p.id) && p.origins.some(o => o.source === 'favorites'))) continue;
     seen.add(p.id);

@@ -144,7 +144,7 @@ EDIT 推荐完整码 #e板号.版本[a-c]。本板简写 #e版本[a-c] 另带 ed
 回执不更新时检查 updated_at、目录连接和页面是否在前台。
 
 boards/form 是当前 IMAGE 画板和表单，active_workspace 为 CHAT／EDIT 时也不改变外部写入目标。selected_image/recent_history.params 是对应图片的参数，basePrompt/baseNegative 与实际请求词文分别保存。
-history_index、favorites_index、edit 是图片目录；record_id 对应具体参数记录，entity_key 关联同一原图字节，配方以具体记录为准。
+history_index、favorites_index、edit 是图片目录；record_id 对应具体参数记录，entity_key 关联同一原图字节，配方以具体记录为准。IMAGE 的 image_availability 为 thumbnail_only 时只剩缩略图与完整配方，仍可 restore_partial，但不能绑定为成果原图；original 表示原件仍在。
 preview 指向导出的缩略预览，null 表示未附带图片文件；原图细节与透明度需读取原件。本机参考资产 ID 是资产标识，图片与编码不随 ID 导出。
 
 ## 任务与成果交付

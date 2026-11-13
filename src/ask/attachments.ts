@@ -172,6 +172,7 @@ export function attachmentBlocks(items: readonly Attachment[], metadataOnly: boo
 }
 export function attachmentPictures(items: readonly Attachment[], scopeId?: string): Picture[] {
   return items.flatMap(a => a.kind === "image" ? [{ id: a.id, entity_key: a.entity_key, label: a.id, aliases: [a.id], createdAt: 0, blob: a.blob, size: a.size,
+    ...(scopeId ? { scope: { kind: "ask" as const, id: scopeId } } : {}),
     ...(a.annotations ? { annotations: structuredClone(a.annotations.snapshot) } : {}),
     ...(a.origin?.projectId && scopeId ? { project: { ref: `${scopeId}/${a.id}`, path: a.origin.path, projectId: a.origin.projectId } } : {}),
     origins: [{ source: "attachment" as const, label: a.id, order: Number(a.id.slice(2)) }], params: { ...a.params?.fields },

@@ -1,13 +1,17 @@
+import { stagedLoadPlan } from './retrospect/staged.ts';
+import { createBranchTurn } from './retrospect/branch-turn.ts';
+import { isStaged, stagedCount, versionCount } from './retrospect/model.ts';
 import { evolutionTarget, evolutionTargetId, evolutionWorkspace } from '../domain/evolution-input.ts';
 import { chatEvolutionInput } from '../domain/chat-evolution.ts';
-import { activeReferences } from '../domain/nai-references.ts';
-import type { ReviewStatus } from './retrospect/store.ts';
+import { activeReferences, referenceOperation } from '../domain/nai-references.ts';
+import type { ReviewStatus, EvolutionTreeChange } from './retrospect/store.ts';
 import { createRetrospects } from './retrospect/store.ts';
-import { recipeClusters, recipeOf, recipeSignature } from './retrospect/recipe.ts';
+import { pendingWorkshopResult, workshopPending } from './retrospect/workshops.ts';
+import { recipeClusters, recipeOf, recipeSignature, recipeTarget, recipeWorkspace } from './retrospect/recipe.ts';
 import { createRecipeReader } from './retrospect/tools.ts';
 import type { Retrospect, RetrospectNode } from './retrospect/model.ts';
-import { restoreRecipe } from './retrospect/restore.ts';
-import { serializeAnnotations, validateAnnotationSnapshot, validateRegions } from "../domain/region-annotation.ts";
+import { prepareRecipe } from './retrospect/restore.ts';
+import { annotationPrompt, serializeAnnotations, validateAnnotationSnapshot, validateRegions } from "../domain/region-annotation.ts";
 import type { AnnotationSnapshot } from "../domain/region-annotation.ts";
 import { editAwareness } from "../services/edit-awareness.ts";
 import { naiAwareness,naiSourceKey,naiAccountSnapshot } from "../services/nai-awareness.ts";
@@ -26,9 +30,10 @@ import { parseSlateEdit } from "../slate/edit.ts";
 import { summary as slateSummary } from "../slate/model.ts";
 import type { ExternalOrigin, ExternalNote, InboxReceipt } from "../bridge/protocol.ts";
 import { characterCapability, characterSummary, nextCharacterId } from "../domain/characters.ts";
-import { boardForm, boardColors } from "../domain/drawing.ts";
+import { boardForm, boardColors, boardKeys } from "../domain/drawing.ts";
 import { stateHash } from "./draft/validate.ts";
 import { chatSnapshot, chatContext, chatDraftModel, chatModelState, chatPictures } from "./chat-context.ts";
+import { createChatPictureIds } from './chat-identity.ts';
 import { computed, nextTick, shallowRef, watch } from "vue";
 import type { ShallowRef } from "vue";
 import type { ApplicationServices } from "../services/application.ts";
@@ -76,14 +81,14 @@ import type { Draft, DraftPlan, DraftState, HandoffImage } from "./draft/types.t
 import { ATTACHMENT_LIMITS, attachmentBlocks, attachmentCapacity, attachmentPictures, attachmentView, createAttachments, prepareAttachment } from "./attachments.ts";
 import type { AttachmentView } from "./attachments.ts";
 import { boardNameContent, conversationNameContent, namingRequest, readGeneratedName } from "./naming.ts";
-import type { NamingTarget } from "./naming.ts";
+import type { NamingContent, NamingTarget } from "./naming.ts";
 import { namingPromptVersion } from "./prompts/naming.ts";
 import { createAskFavorites, restoreSavedSession } from "./favorites.ts";
 import type { SavedConversation } from "./favorites.ts";
 import type { Writer } from "../services/data-lease.ts";
 import type { RefSource, RefFile } from "./reference-source.ts";
 import { createReferenceReader } from "./read-ref.ts";
-import { createProjectImages, prepareProjectHandoffs, remapProjectDraft } from './project-images.ts';
+import { createHandoffImages, prepareProjectHandoffs, remapHandoffDraft } from './handoff-images.ts';
 
 export interface ToolRow {
   readonly id: string;
@@ -185,20 +190,39 @@ export function createAsk(deps: {
   const { preferences, connections } = services;
   let filePort: FilePort | null = null;
   const scopes = new Map<string, ConversationScope>();
-  const projectImages = createProjectImages(id => scopes.get(id)?.attachments);
+  const handoffImages = createHandoffImages(id => scopes.get(id)?.attachments);
   const writer = createDraftWriter(drawing, chat, router, deps.slates, () => filePort, deps.editor, {
     moveIssue: retrospects.moveIssue, commitMove: retrospects.commitMove,
+    treeIssue: retrospects.treeIssue, commitTree: retrospects.commitTree, treeKey: retrospects.treeKey, treeSnapshot: retrospects.get,
+    prepareHandoff: (plan, receipt) => {
+      const image = plan.editHandoff?.image ?? plan.handoff?.images[0];
+      const recordId = image?.binding?.record_id;
+      const target = plan.edit ? evolutionTarget('edit', plan.edit.id) : receipt ? evolutionTarget('chat', String(JSON.parse(receipt)[0])) : null;
+      if (!recordId || !target) return null;
+      const pictures = evolutionPictures();
+      return retrospects.prepareDispatch(target, recordId, evolutionName(target), pictures, freezePictureRefs(pictures, pictureScopes()),
+        plan.edit ? deps.editor?.askSnapshot(plan.edit.id)?.source?.recordId : recordId);
+    },
+    stagedAvailable: load => {
+      const r = retrospects.get(load.evolution.id, load.evolution.boardId), node = r?.value.nodes.find(n => n.id === load.evolution.after.cursor.nodeId);
+      if (!r || !node || currentEvolutionTarget() !== r.boardId) return false;
+      const source = boundPicture(load.source.tag, { [load.source.tag]: load.source });
+      if (!source || activeReferences(load.references).length && (!referenceOperation(load.model, load.references.active!) || services.references.cachedCost(load.references, load.model) === undefined)) return false;
+      return !isStaged(node) || node.staged.signature === load.signature && recipeSignature(recipeOf(source.params)) === recipeSignature(node.staged.baseRecipe);
+    },
     available: base => {
       const p = boundPicture(base.image.label, base.image.binding ? { [base.image.label]: base.image.binding } : {});
       return !!p && recipeSignature(recipeOf(p.params)) === recipeSignature(base.recipe) &&
         (!activeReferences(base.fields.naiReferences!).length || services.references.cachedCost(base.fields.naiReferences!, String(base.fields.model)) !== undefined);
     },
-  }, projectImages),
+  }, handoffImages, id => drawing.original(id)),
     history = createDraftStack(writer),
     vision = createVision(),
     tools = createTools(),
     toolList = [...tools.values()].map((entry) => entry.tool);
   const pageScope = crypto.randomUUID(), ids = createIds();
+  const chatIds = createChatPictureIds();
+  let pendingResourcePictures: readonly Picture[] = [];
   let referenceSource: RefSource | null = null;
   const pageAttachmentBytes = () => [...scopes.values()].reduce((sum, c) => sum + c.attachments.bytes, 0);
   function scope(id: string = crypto.randomUUID()) {
@@ -214,6 +238,9 @@ export function createAsk(deps: {
     callLog = createCallLog(view => { debug.value = view; });
   const naming = shallowRef<NamingTarget | null>(null);
   let namingController: AbortController | null = null;
+  type NamingJob = { target: NamingTarget; source: NamingContent; automatic: boolean; valid: () => boolean; apply: (name: string) => boolean | Promise<boolean> };
+  const namingQueue: NamingJob[] = [], autoNamed = new WeakSet<Conversation>(), titleRevisions = new WeakMap<Conversation, number>();
+  let activeNaming: NamingJob | null = null;
 
   const inline = shallowRef<{ target: "image.prompt" | "image.negative" | "chat.composer"; text: string } | null>(null);
   let inlineElement: HTMLTextAreaElement | null = null;
@@ -350,8 +377,8 @@ export function createAsk(deps: {
   function addFiles(files: readonly File[], pasted = false) { return addInputs(files.map(file => async () => ({ file })), pasted); }
   function removeAttachment(id: string) {
     if (!tray.value.includes(id) || running.value) return;
-    const source = attachments.read(tray.value).find(a => a.kind === 'image' && (a.id === id || a.annotations?.guideId === id) && a.annotations);
-    const ids = source?.kind === 'image' && source.annotations ? [source.id, source.annotations.guideId] : [id];
+    const source = attachments.read(tray.value).find(a => a.kind === 'image' && (a.id === id || a.annotations?.guideId === id || a.annotations?.snapshot.references?.some(r=>r.image===id)) && a.annotations);
+    const ids = source?.kind === 'image' && source.annotations ? [source.id, source.annotations.guideId, ...source.annotations.snapshot.references?.flatMap(r=>r.image ? [r.image] : [])??[]] : [id];
     if (ids.includes(anchor.value ?? '')) selectAnchor(null);
     setTray(tray.value.filter(value => !ids.includes(value))); attachments.release(ids);
   }
@@ -436,20 +463,23 @@ export function createAsk(deps: {
   function readDraftState(boardId?: string, slateId?: string, editId?:string): DraftState {
     const d = drawing.snapshot(), c = chat.snapshot().current;
     const board = d.boards.find(b => b.id === (boardId ?? d.activeBoardId));
-    return { edit: deps.editor?.askSnapshot(editId), editBoards:deps.editor?.boards().map(b=>deps.editor!.askSnapshot(b.id)!), fileContext: filePort?.context(), slate: deps.slates?.get(slateId ?? conversations.current.slateId ?? "") ?? null, boardId: boardId ?? d.activeBoardId, boardName: board?.name, boardPresent: !!board, nextCharacterId: board?.nextCharacterId, form: structuredClone({ ...d.form, ...board?.form }), composer: c.prompt, conversationId: c.id, chat: chatSnapshot(chat.snapshot(),true), models: [...d.models], samplers: [...d.samplers], samplersByModel: Object.fromEntries(d.models.map((m) => [m.id, drawing.samplersFor(m.id)])),
+    return { edit: deps.editor?.askSnapshot(editId), editBoards:deps.editor?.boards().map(b=>deps.editor!.askSnapshot(b.id)!), fileContext: filePort?.context(), slate: deps.slates?.get(slateId ?? conversations.current.slateId ?? "") ?? null, boardId: boardId ?? d.activeBoardId, boardName: board?.name, boardPresent: !!board, nextCharacterId: board?.nextCharacterId, form: structuredClone({ ...d.form, ...board?.form }), composer: c.prompt, conversationId: c.id, chat: chatSnapshot(chat.snapshot(),true,chatIds), models: [...d.models], samplers: [...d.samplers], samplersByModel: Object.fromEntries(d.models.map((m) => [m.id, drawing.samplersFor(m.id)])),
       workspace: router.route.value.workspace, chatModel: chatDraftModel(chat.snapshot()) };
   }
   /** Handoff images are checked live: IMAGE records by ID, CHAT pictures by asset. */
   function hasImage(image: HandoffImage) {
-    if (image.source === 'project') return !!projectImages.get(image.ref);
+    if (image.source === 'project' || image.source === 'attachment') return !!handoffImages.get(image.ref);
     if (image.source === "chat") return chat.assets.assets.has(image.ref);
     if (image.source === "edit" && deps.editor?.record(image.ref)) return true;
-    const d = drawing.snapshot();
-    return d.history.some((r) => r.id === image.ref) || d.favorites.some((r) => r.id === image.ref);
+    return !!drawing.original(image.ref);
+  }
+  function hasRecord(image: HandoffImage) {
+    const p = boundPicture(image.label, image.binding ? { [image.label]: image.binding } : undefined);
+    return p?.id === image.ref;
   }
   const draftPlan = computed(() => {
     void draftRevision.value;
-    return draft.value ? validateDraft(draft.value.draft, readDraftState(draft.value.draft.base.boardId, draft.value.draft.steps.find(s => s.kind === "slate_edit")?.change.before?.id, draft.value.draft.base.edit?.id), { off: draft.value.off, has: hasImage }) : null;
+    return draft.value ? validateDraft(draft.value.draft, readDraftState(draft.value.draft.base.boardId, draft.value.draft.steps.find(s => s.kind === "slate_edit")?.change.before?.id, draft.value.draft.base.edit?.id), { off: draft.value.off, has: hasImage, hasRecord }) : null;
   });
   const canReviseDraft = computed(() => {
     const record = draft.value;
@@ -458,11 +488,11 @@ export function createAsk(deps: {
   });
   const undoTarget = computed(() => {
     void draftRevision.value;
-    return history.top?.conversationId === conversationId.value ? history.top : null;
+    return history.top?.origin?.kind === 'evolution' || history.top?.conversationId === conversationId.value ? history.top : null;
   });
   const redoTarget = computed(() => {
     void draftRevision.value;
-    return history.redo?.conversationId === conversationId.value ? history.redo : null;
+    return history.redo?.origin?.kind === 'evolution' || history.redo?.conversationId === conversationId.value ? history.redo : null;
   });
   const canUndoDraft = computed(() => {
     void draftRevision.value;
@@ -470,6 +500,7 @@ export function createAsk(deps: {
     return !!record?.plan && writer.canUndo(record.plan, record.receipt);
   });
   function checkpoint(record: DraftRecord) {
+    if (record.origin) return;
     const owner = conversations.get(record.conversationId);
     if (!owner || !record.plan || record.status === "pending") return;
     restoreSlateLinks(record.plan);
@@ -502,6 +533,7 @@ export function createAsk(deps: {
     const to = router.route.value.workspace === "home" ? "切到" : "切回";
     if (workspace === "edit" || plan?.files?.length) return "应用";
     if (plan?.slate && !plan.changes.length && !plan.newBoardName) return "应用到任务板";
+    if (plan?.handoff?.current) return "应用到当前对话";
     if (plan?.steps.some((s) => s.kind === "handoff")) return router.route.value.workspace === "chat" ? "新开对话并应用" : "切到对话并新开";
     if (workspace === "image" && plan?.newBoardName) return router.route.value.workspace === "image" ? "新建并应用" : `${to}绘图并新建`;
     if (workspace === "image" && router.route.value.workspace !== "home" && plan?.boardId && drawing.snapshot().activeBoardId !== plan.boardId) return `切回${drawing.board(plan.boardId)?.name ?? "源画板"}并应用`;
@@ -538,7 +570,7 @@ export function createAsk(deps: {
     writingDraft.value = true;
     try { await chat.warm(); } finally { writingDraft.value = false; }
     if (draft.value !== record || controller || disposed) return;
-    let plan = validateDraft(record.draft, readDraftState(record.draft.base.boardId, record.draft.steps.find(s => s.kind === "slate_edit")?.change.before?.id, record.draft.base.edit?.id), { off: record.off, has: hasImage });
+    let plan = validateDraft(record.draft, readDraftState(record.draft.base.boardId, record.draft.steps.find(s => s.kind === "slate_edit")?.change.before?.id, record.draft.base.edit?.id), { off: record.off, has: hasImage, hasRecord });
     if (plan.fingerprint !== fingerprint) { draftRevision.value++; notice.value = "内容已变化，请核对更新后的草稿再应用"; return; }
     if (!plan.edit && !plan.changes.length && !plan.branch && !plan.handoff && !plan.slate && !plan.files?.length && !plan.rollbackBase && !plan.newBoardName) return;
     if ((plan.workspace === "edit" || plan.files?.length || plan.newBoardName) && plan.steps.some(step => step.issue)) { notice.value = "草稿有冲突，请先核对"; return; }
@@ -551,6 +583,10 @@ export function createAsk(deps: {
         const form = boardForm({ ...drawing.snapshot().form, ...structuredClone(source.form), ...Object.fromEntries(plan.changes.map(c => [c.field, c.after])) });
         plan = { ...plan, createdBoard: { ...structuredClone(source), id: crypto.randomUUID(), name: plan.newBoardName ?? `${source.name} 副本`.slice(0, 80), color: boardColors[drawing.snapshot().boards.length % boardColors.length], nextCharacterId: Math.max(source.nextCharacterId, nextCharacterId(form.characters)), form } };
       }
+      if (!record.draft.external && !plan.createdBoard && plan.workspace === 'image' && !plan.edit && !plan.handoff && plan.changes.length && plan.boardId && retrospects.activeForBoard(plan.boardId)) {
+        const evolution = retrospects.prepareNext(plan.boardId, 'ask', plan.rollbackBase?.evolution);
+        plan = plan.rollbackBase ? { ...plan, rollbackBase: { ...plan.rollbackBase, evolution } } : { ...plan, evolution };
+      }
       rememberSlateLinks(plan);
       await history.apply(record, plan);
       if (plan.slate?.after) setSlateLink(conversations.current, plan.slate.id);
@@ -559,7 +595,7 @@ export function createAsk(deps: {
       externalStatus(record, "applied", notice.value || undefined);
       draft.value = null;
       appliedDraft.value = { id: record.id, workspace: plan.workspace };
-      const count = plan.handoff ? plan.steps.filter((s) => s.enabled && !s.issue && !s.locked).length : (plan.edit ? 1:0) + plan.changes.length + (plan.createdBoard ? 1 : 0) + (plan.slate ? 1 : 0) + (plan.files?.length ?? 0);
+      const count = plan.handoff ? plan.steps.filter((s) => s.enabled && !s.issue && s.id !== "0:new").length : (plan.edit ? 1:0) + plan.changes.length + (plan.createdBoard ? 1 : 0) + (plan.slate ? 1 : 0) + (plan.files?.length ?? 0);
       say(`已应用草稿 ${plan.title} · ${count} 项 · ${plan.workspace !== "chat" ? "未生成" : "未发送"}`);
       await focusWritten(plan);
     } catch (error) { notice.value = message(error); externalStatus(record, "pending", notice.value); }
@@ -609,24 +645,73 @@ export function createAsk(deps: {
     if(!target)return '画板';const id=evolutionTargetId(target),w=evolutionWorkspace(target);
     return w==='edit'?deps.editor?.board(id)?.name??'编辑画板':w==='chat'?chat.snapshot().conversations.find(c=>c.id===id)?.title??'对话':drawing.snapshot().boards.find(b=>b.id===id)?.name??'画板';
   }
-  function evolutionPictures() {return withEditPictures(pictureLibrary(),chatPictures(chat.snapshot(),chat,true));}
-  function moveEvolution(target:string,recordId:string) {
-    const r=retrospects.activeForBoard(target);if(!r){retrospects.transfer(target,recordId,evolutionName(target));return;}
-    if(!Object.values(r.pictureRefs).some(ref=>ref.record_id===recordId)){retrospects.detachBoard(target);return;}
-    retrospects.commitMove(retrospects.prepareMove(target,recordId));
+  function chatLibrary(evolution = false) {
+    const state = chat.snapshot();
+    const related = referencedPictureIds();
+    return state.conversations.flatMap(current => {
+      const all = chatPictures({ ...state, current }, chat, true, chatIds);
+      if (!evolution && current.id === state.current.id) {
+        const active = chatPictures(state, chat, false, chatIds), visible = new Set(active.map(p => p.id));
+        return [...active, ...all.filter(p => !visible.has(p.id) && related.has(p.id)).map(p => ({ ...p, aliases: [p.label] }))];
+      }
+      return all
+        .filter(p => evolution || related.has(p.id))
+        .map(p => current.id === state.current.id ? p : { ...p, aliases: [p.label] });
+    });
   }
-  function trackEvolution(target:string,parentId:string|null,advance:boolean) {
-    const binding=retrospects.begin(target,parentId,advance);if(!binding)return null;
-    return (recordId:string)=>{const pictures=evolutionPictures();retrospects.relabel(pictures);const p=pictures.find(p=>p.id===recordId);if(!p)return;const warning=retrospects.land(binding,p,freezePictureRefs([p],pictureScopes()));if(warning)deps.ui.toast(warning,'warn');};
+  function evolutionPictures() {return withEditPictures(pictureLibrary(),chatLibrary(true));}
+  function dispatchEvolution(target: string, recordId: string, inputRecordId?: string) {
+    const pictures = evolutionPictures(); retrospects.relabel(pictures);
+    const change = retrospects.prepareDispatch(target, recordId, evolutionName(target), pictures, freezePictureRefs(pictures, pictureScopes()), inputRecordId);
+    if (change) retrospects.commitTree(change);
   }
+  function trackEvolution(target: string, parentId: string | null, _advance: boolean, references: readonly string[] = []) { return retrospects.collectWorkshop(target, parentId, references); }
+  async function applyTreeChange(change: EvolutionTreeChange, title: string, nodeId = '', beforeCommit?: () => Promise<void>, notify = true) {
+    if (controller || writingDraft.value || disposed) throw new Error('请等待当前操作完成');
+    writingDraft.value = true;
+    try {
+      await chat.warm();
+      const issue = retrospects.treeIssue(change); if (issue) throw new Error(issue);
+      await beforeCommit?.();
+      const base = readDraftState(change.before.boardId ?? undefined);
+      const plan: DraftPlan = { title, workspace: 'image', conversationId: base.conversationId, boardId: change.before.boardId ?? undefined,
+        changes: [], steps: [], aligned: true, fingerprint: change.id, treeChange: change };
+      const operation = history.create({ title, question: '', baseHash: stateHash(base), base, steps: [], synthetic: true }, '', 0,
+        { kind: 'evolution', retrospectId: change.id, nodeId });
+      await history.apply(operation, plan);
+      if (notify) deps.ui.toast(title, 'info', { label: '撤销', run: () => undoDraft(operation.id) });
+    } finally { writingDraft.value = false; draftRevision.value++; }
+  }
+
   function pictureLibrary() {
     const d = drawing.snapshot();
-    return withEditPictures(snapshotPictures(d.history, d.favorites, ids), editPictures(deps.editor, ids, chatPictures(chat.snapshot(), chat)));
+    return withEditPictures(snapshotPictures(d.history, d.favorites, ids), editPictures(deps.editor, ids, chatLibrary()));
+  }
+  function referencedPictureIds() {
+    const wanted = new Set<string>();
+    const add = (tags: readonly string[], refs?: PictureRefs) => { for (const tag of tags) if (refs?.[tag]) wanted.add(refs[tag].record_id); };
+    for (const r of retrospects.records.value) add(r.value.nodes.flatMap(n => n.image_ids), r.pictureRefs);
+    for (const c of conversations.list()) {
+      for (const turn of c.session.records) add(turn.targets, turn.pictureRefs);
+      for (const e of c === conversations.current ? entries.value : c.entries) if (e.type === 'turn') {
+        add([...(e.turn.question.match(idPattern) ?? []), ...e.turn.anchor ? [e.turn.anchor] : [], ...e.turn.items.flatMap(i => i.kind === 'text' ? i.text.match(idPattern) ?? [] : i.kind === 'pick' ? i.ids : i.kind === 'retrospect' ? i.value.nodes.flatMap(n => n.image_ids) : [])], e.turn.pictureRefs);
+      }
+    }
+    return wanted;
+  }
+  function syncPictureResources() {
+    if (disposed) return;
+    const wanted = referencedPictureIds();
+    drawing.retainHistory('evolution', new Set(retrospects.records.value.flatMap(r => r.value.nodes.flatMap(n => n.image_ids.flatMap(tag => r.pictureRefs[tag] ? [r.pictureRefs[tag].record_id] : [])))));
+    const drafts = conversations.list().flatMap(c => [...c.externalQueue, ...((c === conversations.current ? draft.value : c.draft) ? [(c === conversations.current ? draft.value : c.draft)!] : [])]).filter(r => r.status === 'pending');
+    drawing.retainHistory('drafts', new Set(drafts.flatMap(r => [...r.draft.editHandoff ? [r.draft.editHandoff.image.ref] : [], ...r.draft.steps.flatMap(s => s.kind === 'edit_references' ? s.items.map(i=>i.image.ref) : s.kind === 'chat_handoff' ? s.images.map(i => i.ref) : s.kind === 'slate_edit' ? s.change.bindings.map(b => b.ref) : [])])));
+    deps.editor?.retainRecords(new Set([...wanted, ...writer.retainedRecords(), ...pendingResourcePictures.map(p => p.id)]));
+    libraryRevision.value++;
   }
   const pictureScope = () => pageScope;
   const pictureScopes = () => ({page:pageScope,favorites:drawing.favoritesScopeId,ask:activeScope.id,chat:chat.snapshot().current.id});
   function boundPicture(label: string, refs?: PictureRefs): Picture | null {
-    const all = [...pictureLibrary(), ...chatPictures(chat.snapshot(), chat), ...attachmentPictures(attachments.read([...new Set([...entryAttachments(entries.value), ...tray.value])]), activeScope.id)];
+    const all = [...pictureLibrary(), ...chatLibrary(), ...attachmentPictures(attachments.read([...new Set([...entryAttachments(entries.value), ...tray.value])]), activeScope.id)];
     if (!refs) return all.find(p => p.aliases.includes(label)) ?? null;
     const ref = refs[label];
     if (!ref) return null;
@@ -639,14 +724,19 @@ export function createAsk(deps: {
         blob:asset.blob,size:{width:asset.width,height:asset.height},params:{evolutionInput:JSON.parse(JSON.stringify(chatEvolutionInput(c,t,v,asset.id,asset))),chatConversationId:c.id},origins:[{source:"chat" as const,label,order:0}],
       };
     }
+    if (scope.kind === 'chat' && !scope.turn_id && scope.asset_id) {
+      const state = chat.snapshot(), c = state.conversations.find(c => c.id === scope.id);
+      const p = c && chatPictures({ ...state, current: c }, chat, false, chatIds).find(p => p.id === ref.record_id && p.entity_key === ref.entity_key);
+      if (p) return { ...p, label, aliases: [label] };
+    }
     const exact = all.find(p => p.id===ref.record_id && (!ref.entity_key || p.entity_key===ref.entity_key));
     // Original persisted record is readable across refresh; no label is resolved anew.
     if (exact && (scopeValid || exact.origins.some(o=>o.source==="favorites"))) return exact;
     return ref.entity_key ? all.find(p=>p.entity_key===ref.entity_key && p.origins.some(o=>o.source==="favorites")) ?? null : null;
   }
-  /** Borrow URLs from the resource owner; a lookup must never replace another view's preview. */
+  /** Preview URLs stay with the source owner and survive original-pixel release. */
   function pictureUrl(item: Picture): string | null {
-    const same = (record: { blob: Blob; entity_key?: string }) => record.blob === item.blob || !!item.entity_key && record.entity_key === item.entity_key;
+    const same = (record: { blob?: Blob; entity_key?: string }) => record.blob === item.blob || !!item.entity_key && record.entity_key === item.entity_key;
     if (item.scope?.kind === "chat" && item.scope.asset_id) {
       const asset = chat.assets.assets.get(item.scope.asset_id);
       if (asset && same(asset)) return asset.url;
@@ -689,6 +779,7 @@ export function createAsk(deps: {
               turns: ancestry(conversation).length,
               head: conversation.headId ? chatLabel(conversation, conversation.headId) : null,
               composer: conversation.prompt,
+              input_images: chatContext(c, chatLibrary()).input_images,
               context: {
                 turns: c.context.turnIds.length,
                 images: c.context.imageIds.length,
@@ -734,24 +825,31 @@ export function createAsk(deps: {
   syncDrawing();
   const stops = [
     drawing.subscribe(syncDrawing),
+    drawing.onRemove(() => { libraryRevision.value++; }),
+    watch([entries, draft, externalRevision, draftRevision, retrospects.records], syncPictureResources, { flush: 'sync' }),
     drawing.onClear(boardId => { boardTrackingEpoch++; retrospects.detachBoard(boardId); }),
     drawing.onGeneration(boardId => {
       const binding = retrospects.begin(boardId);
       if (!binding) return null;
-      return record => {
+      return Object.assign((record: import('../domain/drawing.ts').ImageRecord) => {
         const p = pictureLibrary().find(p => p.id === record.id);
         if (!p) return;
         const warning = retrospects.land(binding, p, freezePictureRefs([p], pictureScopes()));
         if (warning) deps.ui.toast(warning, "warn");
-      };
+      }, { finish: () => retrospects.finish(binding) });
     }),
-    ...(deps.editor ? [deps.editor.onEvolution(trackEvolution),deps.editor.onEvolutionMove(moveEvolution), deps.editor.subscribe(() => { const id=deps.editor!.session.id;if(previousEditId!==id){if(previousEditId)retrospects.detachBoard(evolutionTarget('edit',previousEditId));previousEditId=id;boardTrackingEpoch++;} if(deps.editor?.snapshot().externalId) open.value=false; stateRevision.value++; libraryRevision.value++; draftRevision.value++; })] : []),
+    ...(deps.editor ? [deps.editor.onEvolution(trackEvolution),deps.editor.onEvolutionHandoff(dispatchEvolution), deps.editor.subscribe(() => { const id=deps.editor!.session.id;if(previousEditId!==id){previousEditId=id;boardTrackingEpoch++;} if(deps.editor?.snapshot().externalId) open.value=false; stateRevision.value++; libraryRevision.value++; draftRevision.value++; })] : []),
     ...(deps.slates ? [deps.slates.subscribe(() => { pruneSlateLinks(); stateRevision.value++; draftRevision.value++; })] : []),
-    chat.onEvolution(trackEvolution),chat.onEvolutionMove(moveEvolution),
-    chat.subscribe(() => { const id=chat.snapshot().current.id;if(previousChatId!==id){retrospects.detachBoard(evolutionTarget('chat',previousChatId));previousChatId=id;boardTrackingEpoch++;} draftRevision.value++; libraryRevision.value++; }),
+    chat.onEvolution(trackEvolution),chat.onEvolutionHandoff(dispatchEvolution),
+    chat.onFirstPrompt(id => queueAutomaticName({ kind: "chat", id })),
+    chat.subscribe(() => { const id=chat.snapshot().current.id;if(previousChatId!==id){previousChatId=id;boardTrackingEpoch++;} draftRevision.value++; libraryRevision.value++; }),
     watch(open, (shown) => { if (shown) void chat.warm(); }, { immediate: true }),
     preferences.subscribe((key) => {
-      if (!key || key === names.ask) settings.value = readSettings();
+      if (!key || key === names.ask) {
+        settings.value = readSettings();
+        if (activeNaming?.automatic && !namingEnabled(activeNaming)) namingController?.abort();
+        for (let i = namingQueue.length - 1; i >= 0; i--) if (!namingEnabled(namingQueue[i]!)) namingQueue.splice(i, 1);
+      }
       if (!key || key === names.askAdult) adult.value = readAdult();
     }),
     connections.subscribe(() => (routing.value = connections.configuration)),
@@ -838,13 +936,14 @@ export function createAsk(deps: {
           attachments: context.attachments.read(e.turn.attachments.map(a => a.id)).map(attachmentView),
         } });
         for (const entry of restoredEntries) sequence = Math.max(sequence, entry.id);
-        const pending = record.draft ? history.create(remapProjectDraft(record.draft.value, record.scope.id, context.id), record.id, record.draft.turnId) : null;
+        const pending = record.draft ? history.create(remapHandoffDraft(record.draft.value, record.scope.id, context.id), record.id, record.draft.turnId) : null;
         if (pending && record.draft) pending.off = new Set(record.draft.off);
         return { id: record.id, slateId: record.slateId ?? null, title: record.title, named: record.named, favorite: true, createdAt: record.createdAt, origin: record.origin,
           scope: context, session, entries: restoredEntries,
           input: record.input, anchor: record.anchor, tray: record.tray, draft: pending, preparing: 0, externalQueue: (record.externalQueue ?? []).map(r => history.create(r.value, record.id, r.turnId)) };
       });
       conversations.restore(restored);
+      for (const owner of restored) if (owner.session.turns) autoNamed.add(owner);
       for (const owner of restored) for (const entry of owner.entries) if (entry.type === 'turn' && entry.turn.status === 'done')
         for (const item of entry.turn.items) if (item.kind === 'retrospect') retrospects.register(item.value, entry.turn.pictureRefs ?? {}, { conversationId: owner.id, turnId: entry.id, boardId: null, boardName: '历史画板' }, 'ended');
       if (restored.length) load();
@@ -1096,11 +1195,11 @@ export function createAsk(deps: {
     // The snapshot is fixed for the whole turn; get_state appends newer ones.
     retrospects.relabel(evolutionPictures());
     const snapshotBoardEpoch = boardTrackingEpoch, target=currentEvolutionTarget();
-    const frozenEvolutionChat=chatPictures(chat.snapshot(),chat,true);
+    const frozenEvolutionChat=chatLibrary(true);
     const snapshotTime = Date.now(), snapshot = drawing.snapshot(),
       frozenBoards = structuredClone(snapshot.boards),
-      library = bindPictures([...withEditPictures(pictureLibrary(), chatPictures(chat.snapshot(), chat)), ...attachmentPictures(attachments.read([...new Set([...entryAttachments(entries.value), ...attached.map(a => a.id)])]), owner.scope.id)], pictureScopes()),
-      turnChatContext = chatContext(chat.snapshot()),
+      library = bindPictures([...withEditPictures(pictureLibrary(), chatLibrary()), ...attachmentPictures(attachments.read([...new Set([...entryAttachments(entries.value), ...attached.map(a => a.id)])]), owner.scope.id)], pictureScopes()),
+      turnChatContext = chatContext(chat.snapshot(), library),
       known = owner.session.viewed(),
       turnViewed = new Set(known),
       draftBase = readDraftState();
@@ -1111,10 +1210,14 @@ export function createAsk(deps: {
       (!options.anchorRefs || previousRef && p.id === previousRef.record_id &&
         p.bindings?.[requestedAnchor]?.entity_key === previousRef.entity_key &&
         canonical(p.bindings?.[requestedAnchor]?.scope) === canonical(previousRef.scope))) ? requestedAnchor : null;
-    const reviewScope = structuredClone(retrospects.records.value.filter(r => r.sources.some(s => s.conversationId === owner.id) || r.boardId === target).slice(-20));
+    const reviewScope = structuredClone(retrospects.records.value.filter(r => r.sources.some(s => s.conversationId === owner.id) || retrospects.relatedTo(r, target)).map(r => retrospects.get(r.id, target)!).slice(-20));
     const recipeRecords = owner.session.records;
     const recipes = createRecipeReader(() => {
-      for(const p of bindPictures(frozenEvolutionChat,pictureScopes()))if(!library.some(existing=>existing.id===p.id))library.push(p);
+      for (const p of bindPictures(frozenEvolutionChat, pictureScopes())) {
+        const at = library.findIndex(existing => existing.id === p.id);
+        if (at < 0) library.push(p);
+        else library[at] = { ...library[at], label: p.label, aliases: [...new Set([...library[at].aliases, ...p.aliases])], bindings: { ...library[at].bindings, ...p.bindings } };
+      }
       working.pictureRefs=freezePictureRefs(library,pictureScopes());
       const referencedFavorites = new Set<string>();
       for (const record of recipeRecords) {
@@ -1128,13 +1231,13 @@ export function createAsk(deps: {
         const p = library.find(p => p.aliases.includes(tag) && p.origins.some(o => o.source === 'favorites'));
         if (p) referencedFavorites.add(p.id);
       }
-      return recipeClusters(library, referencedFavorites,target);
-    }, target, reviewScope);
+      return recipeClusters(library.filter(p => recipeWorkspace(recipeOf(p.params)) === 'image'), referencedFavorites, target);
+    }, reviewScope.find(r => r.status === 'active' && retrospects.relatedTo(r, target))?.boardId ?? target, reviewScope);
     const digest = digestNow(turnAnchor, false, metadataOnly), initialState = digestNow(turnAnchor, true, metadataOnly);
     const frozenReferenceCosts = new Map(frozenBoards.map(b=>[b.id,Object.fromEntries(snapshot.models.map(m=>[m.id,services.references.cachedCost(b.form.naiReferences,m.id)]))]));
     const frozenEditContexts=new Map(deps.editor?.boards().map(b=>[b.id,editWorkspaceContext(deps.editor,library,b.id)])??[]);
     const frozenEdits = new Map(deps.editor?.boards().map(b=>[b.id, deps.editor!.askSnapshot(b.id)!]) ?? []);
-    const frozenEvolutionEdits = new Map(reviewScope.filter(r=>r.boardId===target).flatMap(r=>Object.values(r.pictureRefs)).map(ref=>[ref.record_id,deps.editor?.evolutionDraftState(ref.record_id)]));
+    const frozenEvolutionEdits = new Map(library.map(p=>[p.id,deps.editor?.evolutionDraftState(p.id)]));
     const includeImageForm = !!JSON.parse(digest.json).image.form;
     const readBoards = new Set(draftBase.boardId && includeImageForm ? [draftBase.boardId] : []);
     if (!metadataOnly) for (const a of attached) if (a.kind === "image") turnViewed.add(a.entity_key ?? a.id);
@@ -1145,7 +1248,7 @@ export function createAsk(deps: {
     const editInput = draftBase.workspace === 'edit' && initialEdit?.ready ? await editAwareness(initialEdit).counted() : undefined;
     abort.signal.throwIfAborted();
     const pendingReviewStatus = new Map<string, ReviewStatus>();
-    const reviewSummary = () => reviewScope.map(r => ({ retrospect_id: r.id, title: r.value.title, status: pendingReviewStatus.get(r.id) ?? retrospects.get(r.id)?.status ?? r.status, board_id: r.boardId, versions: r.value.nodes.length, expected_revision: r.revision, cursor: r.cursor, final: r.final }));
+    const reviewSummary = () => reviewScope.map(r => ({ retrospect_id: r.id, title: r.value.title, status: pendingReviewStatus.get(r.id) ?? retrospects.get(r.id)?.status ?? r.status, board_id: r.boardId, versions: versionCount(r.value), staged: stagedCount(r.value), expected_revision: r.revision, cursor: r.cursor, pending: retrospects.pending(r.id), workshops: r.workshops.map(t => ({ workspace: evolutionWorkspace(t.target), status: workshopPending(t) ? 'pending' : 'delivered', node_id: t.nodeId })), final: r.final }));
     for (const value of [digest, initialState]) {
       const state = JSON.parse(value.json);
       if (awareness) state.image = {...state.image,...awareness};
@@ -1186,6 +1289,13 @@ export function createAsk(deps: {
       checkpoint: null,
       attachments: attached.map(attachmentView),
     };
+    const branchTurn = createBranchTurn({ store: retrospects, reader: recipes, reviews: reviewScope, base: draftBase,
+      owner: { conversationId: owner.id, turnId: working.id, boardId: target, boardName: evolutionName(target) }, library,
+      refs: () => working.pictureRefs ?? {}, signal: abort.signal,
+      current: () => currentEvolutionTarget() === target && boardTrackingEpoch === snapshotBoardEpoch && router.route.value.workspace === 'image',
+      available: source => boundPicture(source.label, working.pictureRefs)?.id === source.id,
+      check: candidate => checkNaiInput(candidate, { image: form => naiAwareness({ ...frozenNai, form, samplers: draftBase.samplersByModel?.[form.model] ?? frozenNai.samplers, quote: undefined }).counted(), edit: state => editAwareness(state).counted() }),
+    });
     const visual = { signal: abort.signal, metadataOnly, budget: turn.budget.vision, viewed: turnViewed };
     const readRef = createReferenceReader({ source: referenceSource?.snapshot() ?? null, pool: owner.scope.attachments,
       attached, limits: config.textAttachments, pageBytes: pageAttachmentBytes, visual, vision,
@@ -1229,6 +1339,9 @@ export function createAsk(deps: {
       }
     }
     try {
+      pendingResourcePictures = library;
+      drawing.retainHistory('running', new Set(library.map(p => p.id)));
+      syncPictureResources();
       for await (const event of run({
         stream: tracedStream,
         responseMode: config.responseMode,
@@ -1240,15 +1353,18 @@ export function createAsk(deps: {
           metadataOnly,
           library,
           recipes,
+          refreshRecipeReviews: branchTurn.refresh,
+          stageEvolutionBranch: branchTurn.stage,
           evolutionBase: recordId => {
+            if (draftBase.workspace === 'edit') return { edit: structuredClone(frozenEvolutionEdits.get(recordId)) };
             const frozen = reviewScope.find(r => r.boardId === target && r.status === 'active');
             if (!frozen || retrospects.get(frozen.id)?.revision !== frozen.revision) throw new Error('版本演进已变化，请重新读取后提议回退');
-            return {...retrospects.prepareMove(target,recordId),...(draftBase.workspace==='edit'?{edit:structuredClone(frozenEvolutionEdits.get(recordId))}:{})};
+            return retrospects.prepareMove(target,recordId);
           },
           setRetrospectStatus(id, status) {
             const base = reviewScope.find(r => r.id === id), current = retrospects.get(id);
             if (!base || current?.revision !== base.revision) throw new Error('演进状态已变化，请重新确认当前状态');
-            if (status === 'active' && (base.boardId !== currentEvolutionTarget() || !base.cursor || !boundPicture(base.cursor.imageId, base.pictureRefs))) throw new Error('请先切回原画板，并选择仍有效的演进基底');
+            if (status === 'active' && (!retrospects.relatedTo(base, currentEvolutionTarget()) || !base.cursor || !boundPicture(base.cursor.imageId, base.pictureRefs))) throw new Error('请先切回原画板，并选择仍有效的演进基底');
             pendingReviewStatus.set(id, status);
             return { retrospect_id: id, status, pending_until_turn_success: true, history_retained: true };
           },
@@ -1353,7 +1469,7 @@ export function createAsk(deps: {
         attachments: attached.map(a => a.id), targets: [...new Set([...(`${turnAnchor ?? ""} ${question}`.match(idPattern) ?? []),
           ...attached.filter(a => a.kind === "image").map(a => a.id), ...readTargets])],
         boards: [...readBoards],
-        ...(proposed ? { draft: recordDraft(proposed, validateDraft(proposed, draftBase, { off: new Set(), has: hasImage })) } : {}) });
+        ...(proposed ? { draft: recordDraft(proposed, validateDraft(proposed, draftBase, { off: new Set(), has: hasImage, hasRecord })) } : {}) });
       working.committed = owner.session.turns;
       // Successful ordinary turns retain their anchor just like forkTurn. A failed
       // turn, or a new selection made while waiting, must not replace the lock.
@@ -1365,34 +1481,38 @@ export function createAsk(deps: {
       working.status = "done";
       const updatedReviews = new Set<string>();
       for (const item of working.items) if (item.kind === 'retrospect') {
+        if (branchTurn.committed.has(item.value)) continue;
         const reviewOwner = { conversationId: owner.id, turnId: working.id, boardId: target, boardName: evolutionName(target) };
         try {
           if (item.value.target) {
             retrospects.update(item.value.target.id, item.value.target.revision, item.value, working.pictureRefs ?? {}, reviewOwner);
             updatedReviews.add(item.value.target.id);
           } else {
-            const r=retrospects.register(item.value, working.pictureRefs ?? {}, reviewOwner, currentEvolutionTarget() === target && boardTrackingEpoch === snapshotBoardEpoch ? 'active' : 'ended', library);
-            const workspace=evolutionWorkspace(target), id=evolutionTargetId(target);
-            const source=workspace==='edit'?deps.editor?.askSnapshot(id)?.source?.recordId:workspace==='chat'?chat.evolutionSource(id):undefined;
-            if(r.status==='active'&&source&&r.value.nodes.some(n=>n.image_ids.some(tag=>r.pictureRefs[tag]?.record_id===source)))retrospects.commitMove(retrospects.prepareMove(target,source));
+            retrospects.register(item.value, working.pictureRefs ?? {}, reviewOwner, currentEvolutionTarget() === target && boardTrackingEpoch === snapshotBoardEpoch ? 'active' : 'ended', library);
+
           }
         } catch (error) { working.items.push({ kind: 'text', text: `版本演进未更新：${message(error)}` }); }
       }
       for (const [id, status] of pendingReviewStatus) {
         const base = reviewScope.find(r => r.id === id)!;
         const current = retrospects.get(id);
-        if (status === 'active' && (currentEvolutionTarget() !== base.boardId || !current?.cursor || !boundPicture(current.cursor.imageId, current.pictureRefs))) continue;
+        if (status === 'active' && (!retrospects.relatedTo(base, currentEvolutionTarget()) || !current?.cursor || !(current.cursor.kind === 'staged' ? current.value.nodes.some(n => n.id === current.cursor!.nodeId && isStaged(n) && boundPicture(n.staged.base.tag, current.pictureRefs)) : boundPicture(current.cursor.imageId, current.pictureRefs)))) continue;
         retrospects.setStatus(id, status, base.revision + (updatedReviews.has(id) ? 1 : 0));
       }
       const reply = working.items.flatMap((i) => (i.kind === "text" ? [i.text.trim()] : [])).filter(Boolean).join("\n\n");
       say([reply, proposed ? "草稿已就绪，等待确认" : ""].filter(Boolean).join("\n"));
       settle(working);
+      if (!autoNamed.has(owner)) {
+        autoNamed.add(owner);
+        if (!owner.origin && owner.session.turns === 1) queueAutomaticName({ kind: "conversation", id: owner.id });
+      }
       if (currentHash() !== digest.baseHash)
         push({ type: "note", id: ++sequence, text: "提示词已在外部修改" });
     } catch (error) {
       pacer.cancel();
       await pacer.settled();
       turn.rollback();
+      if (branchTurn.count) working.items.push({ kind: 'text', text: `本轮未完成，已保留 ${branchTurn.count} 个预设分支，可在版本演进中查看。` });
       const stopped = abort.signal.aborted;
       working.status = stopped ? "stopped" : "failed";
       working.failure = stopped
@@ -1402,6 +1522,9 @@ export function createAsk(deps: {
       say(stopped ? "已停止" : `未能完成：${working.failure!.message}`);
       settle(working);
     } finally {
+      pendingResourcePictures = [];
+      syncPictureResources();
+      drawing.retainHistory('running', new Set());
       abort.signal.removeEventListener("abort", pacer.cancel);
       cancelAnimationFrame(frame);
       usage.value = { ...total };
@@ -1422,6 +1545,7 @@ export function createAsk(deps: {
     const owner = conversations.get(id);
     if (!owner || !name.trim() || disposed) return;
     owner.title = titleOf(name); owner.named = true; listRevision.value++;
+    titleRevisions.set(owner, (titleRevisions.get(owner) ?? 0) + 1);
     saveFavorite(owner);
   }
   async function toggleFavorite() {
@@ -1434,33 +1558,75 @@ export function createAsk(deps: {
     catch { owner.favorite = before; dirtyFavorites.delete(owner.id); listRevision.value++; }
     finally { favoriteBusy.value = false; }
   }
-  /** A single explicit naming request, independent of conversation turns and generation locks. */
+  function captureNaming(target: NamingTarget, automatic = false): NamingJob | null {
+    stash();
+    if (target.kind === "chat") {
+      const snapshot = chat.captureName(target.id);
+      if (!snapshot || automatic && snapshot.renamed) return null;
+      return { target, automatic, source: conversationNameContent(snapshot.turns), valid: snapshot.valid, apply: snapshot.apply };
+    }
+    if (target.kind === "board") {
+      const board = drawing.board(target.id);
+      if (!board) return null;
+      const original = board.name;
+      return { target, automatic, source: boardNameContent(board.form),
+        valid: () => drawing.board(target.id) === board && board.name === original,
+        apply: async name => { await drawing.renameBoard(target.id, name); return true; } };
+    }
+    const owner = conversations.get(target.id);
+    if (!owner || automatic && owner.named) return null;
+    const original = owner.title, revision = titleRevisions.get(owner);
+    return { target, automatic,
+      source: conversationNameContent(owner.entries.flatMap(e => e.type === "turn" && e.turn.status === "done"
+        ? [{ question: e.turn.question, reply: e.turn.items.flatMap(i => i.kind === "text" ? [i.text] : []).join("\n") }] : [])),
+      valid: () => conversations.get(owner.id) === owner && owner.title === original && titleRevisions.get(owner) === revision,
+      apply: name => { renameConversation(owner.id, name); return true; } };
+  }
+  const sameNamingTarget = (a: NamingTarget, b: NamingTarget) => a.kind === b.kind && a.id === b.id;
+  function namingEnabled(job: NamingJob) {
+    return !job.automatic || settings.value.autoNaming;
+  }
+  function queueAutomaticName(target: NamingTarget) {
+    if (disposed || !settings.value.autoNaming) return;
+    const job = captureNaming(target, true);
+    if (job) { namingQueue.push(job); drainNaming(); }
+  }
+  function drainNaming() {
+    if (disposed || namingController) return;
+    let job: NamingJob | undefined;
+    while ((job = namingQueue.shift())) {
+      if (!namingEnabled(job) || !job.valid()) continue;
+      void runNaming(job);
+      break;
+    }
+  }
+  /** Manual naming can cancel its current request; automatic jobs share this lane. */
   async function generateName(target: NamingTarget) {
     if (disposed) return;
     if (naming.value) {
-      if (naming.value.kind === target.kind && naming.value.id === target.id) namingController?.abort();
+      if (sameNamingTarget(naming.value, target)) namingController?.abort();
       return;
     }
-    stash();
-    const owner = target.kind === "conversation" ? conversations.get(target.id) : null,
-      board = target.kind === "board" ? drawing.board(target.id) : null;
-    if (!owner && !board) return;
-    const original = owner?.title ?? board!.name, config = settings.value,
-      choice = config.naming ?? config;
+    for (let i = namingQueue.length - 1; i >= 0; i--) if (sameNamingTarget(namingQueue[i]!.target, target)) namingQueue.splice(i, 1);
+    const job = captureNaming(target);
+    if (job) await runNaming(job);
+  }
+  /** Text-only requests never join ASK context or block generation / reply completion. */
+  async function runNaming(job: NamingJob) {
+    if (disposed || !job.valid() || !namingEnabled(job)) return;
+    const { target } = job, config = settings.value, choice = config.naming ?? config;
     let call = 0, received = false;
     const abort = new AbortController(), timeout = setTimeout(() => abort.abort(new ProviderError("timeout", "命名超时，请重试")), 60_000);
-    namingController = abort; naming.value = target;
+    namingController = abort; naming.value = target; activeNaming = job;
     try {
-      const source = board ? boardNameContent(board.form) : conversationNameContent(owner!.entries.flatMap(e => e.type === "turn" && e.turn.status === "done"
-        ? [{ question: e.turn.question, reply: e.turn.items.flatMap(i => i.kind === "text" ? [i.text] : []).join("\n") }] : []));
-      const request = namingRequest(choice.model, source);
+      const request = namingRequest(choice.model, job.source);
       if (!reasoningConnections(routing.value).some(c => c.id === choice.connectionId) || !choice.model)
         throw new Error("请先在设置 → ASK 配置命名模型或当前 ASK 模型");
       const provider = createProvider(connections.context(choice.connectionId), deps.fetch),
         codec = codecFor({ adult: adult.value, enabled: codecActive.value, words: config.words, replacements: config.replacements, wordEncoding: config.wordEncoding });
       let text = "";
       for await (const event of provider.stream(request, { signal: abort.signal, codec, observe(event) {
-        if (event.type === "request") call = callLog.start({ conversation: owner?.id ?? `board:${target.id}`, turn: 0, step: 1, question: `AI 命名 · ${owner ? "ASK" : "画板"}`,
+        if (event.type === "request") call = callLog.start({ conversation: target.kind === "conversation" ? target.id : `${target.kind}:${target.id}`, turn: 0, step: 1, question: `AI 命名 · ${target.kind === "conversation" ? "ASK" : target.kind === "chat" ? "CHAT" : "画板"}`,
           connection: choice.connectionId, protocol: provider.protocol, model: choice.model, promptVersion: namingPromptVersion }, event.body);
         else if (call) callLog.finish(call, event);
       } })) {
@@ -1473,22 +1639,17 @@ export function createAsk(deps: {
       }
       received = true;
       abort.signal.throwIfAborted();
-      const name = readGeneratedName(text, owner ? 60 : 80);
-      if (owner) {
-        if (conversations.get(owner.id) !== owner || owner.title !== original) return;
-        renameConversation(owner.id, name);
-      } else {
-        if (drawing.board(target.id) !== board || board!.name !== original) return;
-        await drawing.renameBoard(target.id, name);
-      }
-      if (!disposed) deps.ui.toast("名称已更新");
+      const name = readGeneratedName(text, target.kind === "board" ? 80 : 60);
+      if (disposed || !job.valid() || !namingEnabled(job)) return;
+      if (await job.apply(name) && !disposed && !job.automatic) deps.ui.toast("名称已更新");
     } catch (error) {
       if (call && !received) callLog.fail(call, abort.signal.aborted && !(abort.signal.reason instanceof ProviderError), message(error));
       if (!disposed && (!abort.signal.aborted || abort.signal.reason instanceof ProviderError))
-        deps.ui.toast(`命名失败：${message(abort.signal.aborted ? abort.signal.reason : error)}`, "err");
+        deps.ui.toast(`${job.automatic ? "自动命名" : "命名"}失败：${message(abort.signal.aborted ? abort.signal.reason : error)}`, "err");
     } finally {
       clearTimeout(timeout);
-      if (namingController === abort) { namingController = null; naming.value = null; }
+      if (namingController === abort) { namingController = null; naming.value = null; activeNaming = null; }
+      drainNaming();
     }
   }
   /** Stays on (or returns to) the one empty conversation; "limit" at 20. */
@@ -1530,6 +1691,7 @@ export function createAsk(deps: {
     draftRevision.value++;
     if (conversations.current !== before) load();
     else listRevision.value++;
+    syncPictureResources();
   }
   /** Preflight the whole rollback before invoking any write port or truncating. */
   async function editTurn(id: number, text: string): Promise<boolean> {
@@ -1825,21 +1987,23 @@ export function createAsk(deps: {
     startEvolution() { if(!input.value.trim()) input.value='请整理当前创作的版本演进，结合提示词、参数、蒙版与实际编辑来源分析各阶段变化。';open.value=true; },
     setEvolutionStatus(id: string, status: ReviewStatus) {
       try {
-        const r = retrospects.get(id);
+        const r = retrospects.get(id, currentEvolutionTarget());
         if (!r) throw new Error('版本演进已失效');
-        if (status === 'active' && (r.boardId !== currentEvolutionTarget() || !r.cursor || !boundPicture(r.cursor.imageId, r.pictureRefs))) throw new Error('请先切回原画板，并选择仍有效的演进基底');
+        if (status === 'active' && (!retrospects.relatedTo(r, currentEvolutionTarget()) || !r.cursor || !(r.cursor.kind === 'staged' ? r.value.nodes.some(n => n.id === r.cursor!.nodeId && isStaged(n) && boundPicture(n.staged.base.tag, r.pictureRefs)) : boundPicture(r.cursor.imageId, r.pictureRefs)))) throw new Error('请先切回原画板，并选择仍有效的演进基底');
         return retrospects.setStatus(id, status);
       } catch (error) { deps.ui.toast(message(error), 'warn'); return false; }
     },
     async finalizeEvolution(id: string, node: RetrospectNode) {
       if (controller || writingDraft.value) throw new Error('请等待当前操作完成');
       const r = retrospects.get(id), p = r && boundPicture(node.cover, r.pictureRefs);
-      const source = p && ([...drawing.snapshot().history, ...drawing.snapshot().favorites, ...deps.editor?.records()??[]].find(item => item.id === p.id) ??
-        (p.scope?.kind==='chat'&&p.scope.turn_id&&p.scope.version_id&&p.scope.asset_id?await chat.favoriteRecord(p.scope.id,p.scope.turn_id,p.scope.version_id,p.scope.asset_id):undefined));
-      if (!r || r.status !== 'active' || !source || recipeSignature(recipeOf(source.params)) !== recipeSignature(node.recipe)) throw new Error('定稿样本已失效');
-      writingDraft.value = true;
-      try { await drawing.ensureFavorite(source); retrospects.finalize(id, node.id, node.cover, r.revision); }
-      finally { writingDraft.value = false; }
+      if (p?.thumbnailOnly) throw new Error('原图已释放，仅保留缩略图和配方，无法设为定稿');
+      if (!r || r.status !== 'active' || !p || !r.value.nodes.some(n => n.id === node.id && n.image_ids.includes(node.cover))) throw new Error('定稿样本已失效');
+      await applyTreeChange({ id, before: r, after: { ...r, final: { nodeId: node.id, imageId: node.cover }, status: 'ended', endedAt: Date.now(), imageAttached: false, epoch: r.epoch + 1 } }, '已设为定稿并收藏', node.id, async () => {
+        const source = drawing.original(p.id) ?? deps.editor?.record(p.id) ??
+          (p.scope?.kind === 'chat' && p.scope.turn_id && p.scope.version_id && p.scope.asset_id ? await chat.favoriteRecord(p.scope.id, p.scope.turn_id, p.scope.version_id, p.scope.asset_id) : undefined);
+        if (!source || recipeSignature(recipeOf(source.params)) !== recipeSignature(node.recipe)) throw new Error('定稿样本已失效');
+        await drawing.ensureFavorite(source);
+      }, retrospects.opened.value?.id !== id);
     },
     canManage: computed(() => favoritesReady.value && !favoriteBusy.value && !running.value && !writingDraft.value),
     newConversation,
@@ -1856,28 +2020,48 @@ export function createAsk(deps: {
       return addInputs([() => source.read(path, new AbortController().signal, ATTACHMENT_LIMITS.bytes)]);
     },
     pictureBinding(recordId: string, tag?: string): ImageTagBinding | undefined {
-      const picture = [...pictureLibrary(), ...chatPictures(chat.snapshot(), chat)].find(p => p.id === recordId);
+      const picture = [...pictureLibrary(), ...chatLibrary()].find(p => p.id === recordId);
       if (!picture) return;
       const label = tag && picture.aliases.includes(tag) ? tag : picture.label;
       return structuredClone(freezePictureRefs([picture], pictureScopes())[label]);
     },
+    async prepareEditorImages(source: Blob, references: readonly import('../domain/edit-references.ts').ReferenceImage[]) {
+      if(disposed||!favoritesReady.value||editorOpen.value)throw new Error('ASK 暂不可用');
+      const owner=conversations.current,pool=owner.scope.attachments;owner.preparing++;preparing.value=owner.preparing;
+      const work=importing.then(async()=>{
+        if(pool.read(owner.tray).filter(a=>a.kind==='image').length+1+references.length>ATTACHMENT_LIMITS.images)throw new Error('ASK 每轮最多 4 张图片（含底图），请先精简参考图');
+        const prepared=await Promise.all([prepareAttachment(new File([source],'编辑底图.png',{type:source.type})),...references.map(r=>prepareAttachment(new File([r.blob],`${r.label} · ${r.usage||r.name}`,{type:r.blob.type})))]);
+        if(disposed||conversations.current!==owner)throw new Error('ASK 会话已切换，未添加图片');
+        if(pool.read(owner.tray).filter(a=>a.kind==='image').length+prepared.length>ATTACHMENT_LIMITS.images)throw new Error('ASK 每轮最多 4 张图片，请先精简参考图');
+        if([...scopes.values()].reduce((n,s)=>n+s.attachments.bytes,prepared.reduce((n,a)=>n+a.bytes,0))>ATTACHMENT_LIMITS.pageBytes)throw new Error('本页附件已超过 200 MB');
+        const ids:string[]=[];
+        try{for(const a of prepared)ids.push(pool.add(a).id);setTray([...owner.tray,...ids],owner);selectAnchor(ids[0]);inline.value=null;open.value=true;}
+        catch(error){pool.release(ids);throw error;}
+      });importing=work.catch(()=>{});
+      try{await work;}finally{owner.preparing--;if(owner===conversations.current)preparing.value=owner.preparing;saveFavorite(owner);}
+    },
     /** Atomically prepare a clean attachment + guide; the clean #a reference remains crop-able after source disposal. */
-    async prepareAnnotations(source: Blob, preview: Blob, snapshot: AnnotationSnapshot) {
+    async prepareAnnotations(source: Blob, preview: Blob, snapshot: AnnotationSnapshot, references: readonly import('../domain/edit-references.ts').ReferenceImage[] = []) {
       validateAnnotationSnapshot(snapshot);
+      annotationPrompt(snapshot.regions,true,'',undefined,references);
       if (disposed || !favoritesReady.value || editorOpen.value) throw new Error("ASK 暂不可用");
       const owner = conversations.current, pool = owner.scope.attachments;
       owner.preparing++; preparing.value = owner.preparing;
       const work = importing.then(async () => {
+        if (pool.read(owner.tray).filter(a=>a.kind==='image').length + 2 + references.length > ATTACHMENT_LIMITS.images) throw new Error('ASK 每轮最多 4 张图片；批注原图与定位图占两张，请先精简参考图');
+        const refAttachments = await Promise.all(references.map(r=>prepareAttachment(new File([r.blob], r.name, {type:r.blob.type}))));
         const clean = await prepareAttachment(new File([source], "批注原图.png", { type: source.type }));
         const guide = await prepareAttachment(new File([preview], "编号定位图.png", { type: preview.type }));
         if (disposed || conversations.current !== owner) throw new Error("ASK 会话已切换，未添加批注");
-        if (pool.read(owner.tray).filter(a => a.kind === "image").length > ATTACHMENT_LIMITS.images - 2) throw new Error("批注需要两个图片附件名额，请先移除部分附件");
-        if ([...scopes.values()].reduce((n, c) => n + c.attachments.bytes, clean.bytes + guide.bytes) > ATTACHMENT_LIMITS.pageBytes) throw new Error("本页附件已超过 200 MB");
+        if (pool.read(owner.tray).filter(a => a.kind === "image").length + 2 + references.length > ATTACHMENT_LIMITS.images) throw new Error("ASK 每轮最多 4 张图片，请先精简参考图");
+        if ([...scopes.values()].reduce((n, c) => n + c.attachments.bytes, clean.bytes + guide.bytes + refAttachments.reduce((n,a)=>n+a.bytes,0)) > ATTACHMENT_LIMITS.pageBytes) throw new Error("本页附件已超过 200 MB");
         const added: string[] = [];
         try {
           const original = pool.add(clean); added.push(original.id);
           const marked = pool.add(guide); added.push(marked.id);
-          pool.annotate(original.id, { snapshot, guideId: marked.id });
+          const frozen = structuredClone(snapshot);
+          frozen.references = references.map(({blob:_blob,...r},i)=>{ const attachment=pool.add(refAttachments[i]); added.push(attachment.id); return {...r,image:attachment.id}; });
+          pool.annotate(original.id, { snapshot: frozen, guideId: marked.id });
           setTray([...owner.tray, ...added], owner);
           selectAnchor(original.id); inline.value = null; open.value = true;
         } catch (error) { pool.release(added); throw error; }
@@ -1887,7 +2071,7 @@ export function createAsk(deps: {
     },
     addPastedText(text: string) { return addFiles([new File([text], "粘贴的文本", { type: "text/plain" })], true); },
     removeAttachment,
-    annotationSource(id: string) { const a=attachments.get(id); return a?.kind === 'image' && a.annotations ? { source:a.blob, snapshot:structuredClone(a.annotations.snapshot) } : null; },
+    annotationSource(id: string) { const a=attachments.get(id); if(a?.kind!=='image'||!a.annotations)return null;const references=(a.annotations.snapshot.references??[]).map(r=>{const asset=r.image&&attachments.get(r.image);if(!asset||asset.kind!=='image')throw new Error('批注参考图已失效');return {...r,blob:asset.blob};});return {source:a.blob,snapshot:structuredClone(a.annotations.snapshot),references}; },
     updateAnnotationComment(id: string, key: string, comment: string) {
       if (!tray.value.includes(id) || running.value) return;
       const a=attachments.get(id); if (a?.kind !== 'image' || !a.annotations) return;
@@ -1982,7 +2166,7 @@ export function createAsk(deps: {
     labelFor(id: string) { return ids.label(id); },
     favoriteLabelFor(id: string) { return ids.favorite(id); },
     pictureCandidates(prefix: string) {
-      const library = withEditPictures(pictureLibrary(),chatPictures(chat.snapshot(),chat));
+      const library = withEditPictures(pictureLibrary(),chatLibrary());
       const attached = attachmentPictures(attachments.read([...new Set([...entryAttachments(entries.value),...tray.value])]), activeScope.id);
       const workspace=router.route.value.workspace;
       const priority = (p: import("./library.ts").Picture) => workspace==="edit" ? p.origins.some(o=>o.source==="edit"&&o.boardId===deps.editor?.session.id)?0:p.origins.some(o=>o.source==="edit")?1:p.origins.some(o=>o.source==="history")?2:3 : workspace==="chat" ? p.origins.some(o=>o.source==="chat") ? 0 : 1 : /^#e/.test(anchor.value ?? "") ? p.origins.some(o=>o.source==="edit") ? 0 : 1 : p.origins.some(o=>o.source==="history") ? 0 : 1;
@@ -1997,39 +2181,130 @@ export function createAsk(deps: {
     pictureInfo(label: string, refs?: PictureRefs) {
       const item = boundPicture(label, refs);
       const url = item && pictureUrl(item);
-      return item && url ? { label, url, width:item.size.width,height:item.size.height,
+      return item && url ? { label, url, width:item.size.width,height:item.size.height, thumbnailOnly:!!item.thumbnailOnly,
         expired: !!refs?.[label] && refs[label].scope.kind==="page" && refs[label].scope.id!==pageScope,
         parametersUnavailable:!!refs?.[label] && refs[label].record_id!==item.id } : null;
     },
-    editEvolution(recordId: string) {
+    async promoteEvolution(recordId: string, imageRecordId: string) {
+      const change = retrospects.preparePromote(recordId, imageRecordId);
+      await applyTreeChange(change, '立为阶段', change.after.cursor!.nodeId);
+    },
+    workshopChoices(target: string, imageRecordId: string) {
+      return retrospects.workshopsFor(target, imageRecordId).filter(({ ticket }) => ticket.results.includes(imageRecordId));
+    },
+    async deliverEvolution(id: string, ticketId: string, recordId: string, mode: 'append' | 'next', kind: 'stage' | 'rejected' | 'final' = 'stage') {
+      if (controller || writingDraft.value) throw new Error('请等待当前操作完成');
+      const pictures = evolutionPictures(); retrospects.relabel(pictures);
+      const p = pictures.find(p => p.id === recordId); if (!p || p.thumbnailOnly) throw new Error('交付原图已失效');
+      const change = retrospects.prepareDelivery(id, ticketId, p, freezePictureRefs([p], pictureScopes()), mode, kind === 'rejected' ? 'rejected' : 'stage');
+      if (kind === 'final') {
+        const node = change.after.value.nodes.find(n => n.image_ids.some(tag => change.after.pictureRefs[tag]?.record_id === p.id))!;
+        const imageId = node.image_ids.find(tag => change.after.pictureRefs[tag]?.record_id === p.id)!;
+        await applyTreeChange({ ...change, after: { ...change.after, final: { nodeId: node.id, imageId }, status: 'ended', endedAt: Date.now(), imageAttached: false, epoch: change.after.epoch + 1 } }, '已设为最终定稿', node.id, async () => {
+          const source = deps.editor?.record(p.id) ?? (p.scope?.kind === 'chat' && p.scope.turn_id && p.scope.version_id && p.scope.asset_id ? await chat.favoriteRecord(p.scope.id, p.scope.turn_id, p.scope.version_id, p.scope.asset_id) : undefined);
+          if (!source) throw new Error('定稿原图已失效');
+          await drawing.ensureFavorite(source);
+        });
+      } else if (change.after !== change.before) await applyTreeChange(change, kind === 'rejected' ? '已记入方向否定' : '已记入演进', change.after.workshops.find(t => t.id === ticketId)?.nodeId ?? '');
+      else {
+        const node = change.before.value.nodes.find(n => n.image_ids.includes(p.label));
+        retrospects.open(id, node?.id);
+        deps.ui.toast(`这张图已记入 ${node?.id ?? '演进'}，已打开对应阶段`);
+      }
+    },
+    async cancelWorkshop(id: string, ticketId: string) { await applyTreeChange(retrospects.prepareCancel(id, ticketId), '已取消工坊挂靠'); },
+    workshopAvailable(target: string) {
+      void libraryRevision.value;
+      const id = evolutionTargetId(target);
+      return evolutionWorkspace(target) === 'edit' ? !!deps.editor?.askSnapshot(id) : chat.snapshot().conversations.some(c => c.id === id);
+    },
+    async openWorkshop(id: string, ticketId: string) {
+      const ticket = retrospects.get(id)?.workshops.find(t => t.id === ticketId); if (!ticket) throw new Error('工坊关联已失效');
+      if (!workshopPending(ticket)) throw new Error('当前没有待交付结果，请从演进节点查看历史图片');
+      const target = evolutionTargetId(ticket.target);
+      const resultId = pendingWorkshopResult(ticket);
+      if (evolutionWorkspace(ticket.target) === 'edit') {
+        if (!deps.editor?.askSnapshot(target)) throw new Error('原编辑板已关闭');
+        if (resultId) { if (!deps.editor.locate(resultId, target)) throw new Error('当前待交付结果已不存在'); }
+        else deps.editor.gotoAskBoard(target);
+      } else {
+        const c = chat.snapshot().conversations.find(c => c.id === target); if (!c) throw new Error('原对话已删除');
+        if (resultId) {
+          const scope = evolutionPictures().find(p => p.id === resultId)?.scope;
+          if (scope?.kind !== 'chat' || !scope.turn_id || !scope.version_id || !scope.asset_id || !chat.locateImage(scope.id, scope.turn_id, scope.version_id, scope.asset_id)) throw new Error('当前待交付结果已不存在');
+        } else chat.switchConversation(c);
+        router.switchWorkspace('chat');
+      }
+      retrospects.close();
+    },
+    promoteTarget(imageRecordId: string) {
+      return retrospects.records.value.find(r => r.status === 'active' && r.value.nodes.some(n => !isStaged(n) && n.image_ids.length > 1 && recipeWorkspace(n.recipe) === 'image' && n.image_ids.some(tag => r.pictureRefs[tag]?.record_id === imageRecordId)))?.id;
+    },
+    async editEvolution(recordId: string) {
       const r = retrospects.get(recordId);
-      if (!r?.cursor || r.status !== 'active' || r.boardId !== currentEvolutionTarget()) throw new Error('当前画板已不再跟踪这份演进');
-      router.switchWorkspace(evolutionWorkspace(r.boardId)); open.value = false;
+      if (!r?.boardId || !drawing.board(r.boardId)) throw new Error('原 IMAGE 画板已不存在');
+      await drawing.switchBoard(r.boardId); router.switchWorkspace('image'); open.value = false;
+    },
+    evolutionHistory(id: string) {
+      void draftRevision.value;
+      const undo = history.top?.origin?.retrospectId === id ? history.top : null;
+      const redo = history.redo?.origin?.retrospectId === id ? history.redo : null;
+      return { undo: undo?.id, redo: redo?.id, undoLabel: undo?.plan?.stagedLoad ? '撤销载入' : '撤销演进操作', redoLabel: redo?.plan?.stagedLoad ? '重做载入' : '重做演进操作', canUndo: !!undo?.plan && writer.canUndo(undo.plan, undo.receipt),
+        canRedo: !!redo?.plan && !writer.conflict(redo.plan, 'before', redo.receipt) };
+    },
+    removeEvolutionBranch(id: string, nodeId: string) {
+      if (controller || writingDraft.value) throw new Error('请等待当前操作完成');
+      retrospects.removeStaged(id, nodeId); draftRevision.value++;
+    },
+    async loadEvolutionBranch(id: string, nodeId: string) {
+      if (controller || writingDraft.value || disposed) throw new Error('请等待当前操作完成');
+      const r = retrospects.get(id, currentEvolutionTarget()), node = r?.value.nodes.find(n => n.id === nodeId);
+      if (!r || !node || !isStaged(node) || currentEvolutionTarget() !== r.boardId || router.route.value.workspace !== 'image') throw new Error('请先切回该预设所在的 IMAGE 画板');
+      const base = readDraftState(r.boardId!), move = retrospects.prepareStagedMove(id, nodeId, r.boardId!);
+      const plan = stagedLoadPlan(node.staged, base, move, `载入分支：${node.label}`);
+      writingDraft.value = true;
+      try {
+        await chat.warm(); await services.references.ready();
+        const operation = history.create({ title: plan.title, question: '', baseHash: stateHash(base), base, steps: [], synthetic: true }, '', 0,
+          { kind: 'evolution', retrospectId: id, nodeId });
+        await history.apply(operation, plan);
+        if (retrospects.opened.value?.id !== id) deps.ui.toast(`已载入分支：${node.label}`, 'info', { label: '撤销', run: () => undoDraft(operation.id) });
+      } finally { writingDraft.value = false; draftRevision.value++; }
     },
     async restoreRetrospect(node: RetrospectNode, refs: PictureRefs, reviewId?: string) {
       if (controller || writingDraft.value) throw new Error('请等待当前操作完成');
       const source = boundPicture(node.cover, refs);
       const matches = () => { const p = boundPicture(node.cover, refs); return !!p && node.image_ids.includes(node.cover) && refs[node.cover]?.record_id === p.id && p.id === source?.id && recipeSignature(recipeOf(p.params)) === recipeSignature(node.recipe); };
       if (!matches()) throw new Error('原记录已失效，无法恢复配方');
-      const review=reviewId?retrospects.get(reviewId):undefined, target=review?.boardId??currentEvolutionTarget();
-      const workspace=evolutionWorkspace(target), active=retrospects.activeForBoard(target!);
-      if(workspace!=='image') {
-        const move=active?.id===reviewId&&source?retrospects.prepareMove(target!,source.id):undefined;
-        if(move&&retrospects.moveIssue(move))throw new Error(retrospects.moveIssue(move));
-        writingDraft.value=true;
-        try {
-          if(workspace==='edit') { if(!deps.editor)throw new Error('编辑服务不可用');deps.editor.restoreEvolution(evolutionTargetId(target!),source!.id); }
-          else { const scope=source!.scope;if(scope?.kind!=='chat'||!scope.turn_id||!scope.version_id||!scope.asset_id)throw new Error('对话来源已失效');await chat.restoreEvolution(scope.id,scope.turn_id,scope.version_id,scope.asset_id); }
-          if(move)retrospects.commitMove(move);router.switchWorkspace(workspace);
-        } finally {writingDraft.value=false;}
-        return;
-      }
-      const move = reviewId && active?.id === reviewId && source ? retrospects.prepareMove(active.boardId!, source.id) : undefined;
+      const review = reviewId ? retrospects.get(reviewId) : undefined;
+      const workspace = recipeWorkspace(node.recipe), nativeTarget = recipeTarget(source!);
+      const target = workspace === 'image' ? review?.boardId ?? nativeTarget : nativeTarget;
+      if (workspace === 'image' && (!target || !drawing.board(target))) throw new Error('原 IMAGE 画板已不存在');
+      if (!target) throw new Error('来源工作区已失效');
       writingDraft.value = true;
       try {
-        await restoreRecipe(node.recipe, drawing, services.references, () => matches() && (!move || !retrospects.moveIssue(move)), move ? () => retrospects.commitMove(move) : undefined);
-      } finally { writingDraft.value = false; }
+        if (workspace === 'image') {
+          await services.references.ready();
+          const base = readDraftState(target), prepared = prepareRecipe(node.recipe, { form: base.form, nextCharacterId: base.nextCharacterId ?? 1, models: base.models, samplersFor: drawing.samplersFor });
+          if (activeReferences(prepared.form.naiReferences).length && services.references.cachedCost(prepared.form.naiReferences, prepared.form.model) === undefined) throw new Error('配方参考资源已不可用');
+          if (!matches()) throw new Error('原记录已失效');
+          const changes = boardKeys.map(field => ({ field, before: structuredClone(base.form[field]), after: structuredClone(prepared.form[field]) }));
+          const plan: DraftPlan = { title: '恢复 IMAGE 配方', workspace: 'image', conversationId: base.conversationId, boardId: target, steps: [], changes, aligned: true, fingerprint: canonical(changes),
+            ...(review ? { treeChange: retrospects.prepareRestore(review.id, source!.id) } : {}) };
+          const operation = history.create({ title: plan.title, question: '', baseHash: stateHash(base), base, steps: [], synthetic: true }, '', 0,
+            review ? { kind: 'evolution', retrospectId: review.id, nodeId: node.id } : undefined);
+          await history.apply(operation, plan);
+          if (drawing.snapshot().activeBoardId !== target) await drawing.switchBoard(target);
+        } else if (workspace === 'edit') {
+          if (!deps.editor?.locate(source!.id, evolutionTargetId(target))) throw new Error('原编辑版本已不存在');
+        } else {
+          const scope = source!.scope;
+          if (scope?.kind !== 'chat' || !scope.turn_id || !scope.version_id || !scope.asset_id || !chat.locateImage(scope.id, scope.turn_id, scope.version_id, scope.asset_id)) throw new Error('原对话版本已不存在');
+        }
+        router.switchWorkspace(workspace);
+      } finally { writingDraft.value = false; draftRevision.value++; }
     },
+
     openRetrospectAsk(recordId: string, node: RetrospectNode, baseline: RetrospectNode | null, noteKeys: readonly string[]) {
       if (input.value.trim() || controller || writingDraft.value) { open.value = true; return; }
       const record = retrospects.get(recordId);
@@ -2039,9 +2314,9 @@ export function createAsk(deps: {
         const p = boundPicture(n.cover, record.pictureRefs);
         return p && n.image_ids.includes(n.cover) && record.pictureRefs[n.cover]?.record_id === p.id ? liveLibrary.find(current => current.id === p.id) : undefined;
       };
-      const source = resolve(node);
+      const source = isStaged(node) ? boundPicture(node.staged.base.tag, record.pictureRefs) : resolve(node);
       if (!source) { open.value = true; return; }
-      const describe = (n: RetrospectNode) => `${n.id}（${resolve(n)?.label ?? '原记录已失效'} · ${n.label}）`;
+      const describe = (n: RetrospectNode) => `${n.id}（${isStaged(n) ? '待生成预设' : resolve(n)?.label ?? '原记录已失效'} · ${n.label}）`;
       const notes = [...new Set(noteKeys)].filter(key => record.notes[key]).map(key => `${key.startsWith('node:') ? key.slice(5) : key.slice(5).replace(':', ' → ')}：${record.notes[key]}`);
       selectAnchor(source.label);
       input.value = [`演进「${record.value.title}」`, `当前对照：${baseline ? `${describe(baseline)} → ` : ''}${describe(node)}`, ...(notes.length ? ['我的批注：', ...notes] : []), '请结合原始配方继续分析；涉及画板改动时，先提出草稿。'].join('\n');
@@ -2056,7 +2331,7 @@ export function createAsk(deps: {
         if (window.matchMedia("(max-width: 860px)").matches) open.value=false;
         return;
       }
-      if (item.scope?.kind==="chat") { chat.locateImage(item.scope.id,item.scope.turn_id!,item.scope.version_id!,item.scope.asset_id!); router.switchWorkspace("chat"); return; }
+      if (item.scope?.kind==="chat") { if(item.scope.turn_id&&item.scope.version_id)chat.locateImage(item.scope.id,item.scope.turn_id,item.scope.version_id,item.scope.asset_id!);else {const c=chat.snapshot().conversations.find(c=>c.id===item.scope!.id);if(c)chat.switchConversation(c);} router.switchWorkspace("chat"); return; }
       const d = drawing.snapshot(), record = [...d.history,...d.favorites].find(r=>r.id===item.id);
       if (record) { router.switchWorkspace("image"); drawing.show(record,true); }
       if (window.matchMedia("(max-width: 860px)").matches) open.value=false;
@@ -2066,7 +2341,7 @@ export function createAsk(deps: {
       if (!item) return;
       if (refs?.[label] && refs[label].record_id!==item.id) { notice.value="原图仍可预览，原记录参数已不可用"; return; }
       // Use a current unambiguous alias only when it still binds this exact record.
-      const current = [...pictureLibrary(),...chatPictures(chat.snapshot(),chat)].find(p=>p.id===item.id);
+      const current = [...pictureLibrary(),...chatLibrary()].find(p=>p.id===item.id);
       if (!current) return;
       const boardId = refs?.[label]?.scope.board_id;
       label = current.origins.find(o=>o.source==="edit" && (!boardId || o.boardId===boardId) && /^#e\d+\./.test(o.label))?.label ?? current.label;
@@ -2112,6 +2387,7 @@ export function createAsk(deps: {
       clearTimeout(favoriteTimer);
       document.removeEventListener("visibilitychange", flushOnHide);
       window.removeEventListener("pagehide", flushOnLeave);
+      namingQueue.length = 0;
       namingController?.abort();
       stopInline();
       inlineObserver.disconnect();
@@ -2126,6 +2402,8 @@ export function createAsk(deps: {
       layers.clear();
       callLog.clear();
       vision.dispose();
+      for (const owner of ['evolution', 'drafts', 'running', 'draft-undo']) drawing.retainHistory(owner, new Set());
+      deps.editor?.retainRecords(new Set());
       for (const context of scopes.values()) context.attachments.dispose();
       scopes.clear();
       attachmentPreview.value = null;

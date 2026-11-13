@@ -1,4 +1,7 @@
 import { naiQuoteKey } from "./nai-awareness.ts";
+import { releaseHistoryOriginals } from '../domain/image-history.ts';
+import { hasOriginal } from '../domain/drawing.ts';
+import type { HistoryRecord } from '../domain/drawing.ts';
 import { imageEntity } from "../domain/image-identity.ts";
 import { assignFavorite, retireFavorite, identityStores, readFavoriteIdentity } from "./image-identities.ts";
 import { validateNaiText } from "../domain/nai-input.ts";
@@ -43,6 +46,7 @@ import { imageConnections } from "../config/connections.ts";
 import { naiCapabilities } from "../domain/nai.ts";
 import { modelSamplers, naiNoiseSchedule, supportsNaiVariety } from "../domain/nai-parameters.ts";
 
+export type GenerationSink = ((record: ImageRecord) => void) & { finish?: () => void };
 export function createDrawing(
   services: ApplicationServices,
   ui: Ui,
@@ -50,9 +54,10 @@ export function createDrawing(
 ) {
   const listeners = new Set<() => void>(),
     urls = new Map<string, { blob: Blob; entityKey?: string; url: string }>();
-  const generationObservers = new Set<(boardId: string) => ((record: ImageRecord) => void) | null>();
+  const generationObservers = new Set<(boardId: string) => GenerationSink | null>();
   const resetListeners = new Set<(boardId: string) => void>();
   const imageListeners = new Set<(record: ImageRecord) => void>();
+  const removalListeners = new Set<(ids: readonly string[]) => void>();
   let boards = readBoards(services.preferences.get(names.preferences, {}));
   const activeBoard = () => boards.items.find(b => b.id === boards.activeId)!;
   let form: DrawingForm = {
@@ -68,9 +73,10 @@ export function createDrawing(
   let models: CatalogModel[] = [],
     samplers = [DEFAULTS.sampler],
     model: CatalogModel | undefined;
-  let history: ImageRecord[] = [],
+  const historyOwners = new Map<string, ReadonlySet<string>>();
+  let history: HistoryRecord[] = [],
     favorites: FavoriteRecord[] = [],
-    current: ImageRecord | null = null;
+    current: HistoryRecord | null = null;
   let state: "empty" | "busy" | "done" | "error" = "empty",
     busy = false,
     browsing = false,
@@ -136,12 +142,12 @@ export function createDrawing(
     if (!disposed) ui.toast(text, tone, action);
   };
   const batchCount = () => count(form.batchCount);
-  const url = (item: ImageRecord, thumb = false) => {
+  const url = (item: HistoryRecord, thumb = false) => {
     // Existing JPEG previews may have flattened alpha to black. Read the
     // original for those records; keep stored images and thumbnails untouched.
-    const preview = item.thumbBlob?.type === "image/jpeg" && item.blob.type !== "image/jpeg" ? item.blob : item.thumbBlob;
-    const blob = thumb ? preview || item.blob : item.blob,
-      key = item.id + (thumb && blob !== item.blob ? ":thumb" : ":full"),
+    const preview = item.thumbBlob?.type === "image/jpeg" && item.blob && item.blob.type !== "image/jpeg" ? item.blob : item.thumbBlob;
+    const blob = (thumb ? preview || item.blob : item.blob || item.thumbBlob)!,
+      key = item.id + (blob !== item.blob ? ":thumb" : ":full"),
       old = urls.get(key);
     // IndexedDB reloads clone Blobs. An unchanged entity still owns the same
     // preview; revoking it here would break other mounted consumers.
@@ -152,35 +158,48 @@ export function createDrawing(
     return next;
   };
   function prune() {
-    const keep = new Set(
-      [...history, ...favorites, ...(current ? [current] : [])].map(
-        (r) => r.id,
-      ),
-    );
+    const records = [...history, ...favorites, ...(current ? [current] : [])];
+    const keep = new Set(records.map(r => r.id)), originals = new Set(records.filter(hasOriginal).map(r => r.id));
     for (const [key, value] of urls)
-      if (!keep.has(key.replace(/:(thumb|full)$/, ""))) {
+      if (!keep.has(key.replace(/:(thumb|full)$/, "")) || key.endsWith(':full') && !originals.has(key.slice(0, -5))) {
         URL.revokeObjectURL(value.url);
         urls.delete(key);
       }
   }
   function trim() {
-    const limit = form.historyLimit;
-    if (limit) history = history.slice(0, limit);
+    const protectedIds = new Set([...favorites.map(r => r.id), ...[...historyOwners.values()].flatMap(ids => [...ids])]);
+    if (current?.blob) protectedIds.add(current.id);
+    const saved = new Map(favorites.map(r => [r.id, r]));
+    const available = history.map(r => !r.blob && saved.has(r.id) ? saved.get(r.id)! : r);
+    const next = releaseHistoryOriginals(available, form.historyLimit, protectedIds);
+    const changed = next.some((r, i) => r !== history[i]);
+    if (changed) history = next;
+    const restoredCurrent = current && !current.blob ? saved.get(current.id) : undefined;
+    if (restoredCurrent) { current = restoredCurrent; if (state === "done") describe(current); }
     prune();
+    return changed || !!restoredCurrent;
   }
-  function show(item: ImageRecord, viaUser = false) {
-    current = item;
-    browsing = viaUser && !!pending;
-    state = "done";
+  function original(id: string): ImageRecord | undefined {
+    return [...favorites, ...history].find((r): r is ImageRecord => r.id === id && hasOriginal(r));
+  }
+  function describe(item: HistoryRecord) {
     title = String(item.params.modelName || "结果");
     subtitle = [
       `${item.size.width}×${item.size.height}`,
       item.params.seed != null ? `seed ${item.params.seed}` : "",
       Number.isFinite(item.ms) ? `${(item.ms! / 1000).toFixed(1)}s` : "",
+      !item.blob ? '仅缩略图 · 完整配方已保留' : '',
     ]
       .filter(Boolean)
       .join("  ·  ");
-    prune();
+  }
+  function show(item: HistoryRecord, viaUser = false) {
+    item = original(item.id) ?? history.find(r => r.id === item.id) ?? item;
+    current = item;
+    browsing = viaUser && !!pending;
+    state = "done";
+    describe(item);
+    trim();
     emit();
   }
   function live() {
@@ -469,7 +488,7 @@ export function createDrawing(
         (a, b) => b.favoritedAt - a.favoritedAt || b.createdAt - a.createdAt,
       );
       favoritesError = "";
-      prune();
+      trim();
     } catch (e) {
       favoritesError = message(e);
     } finally {
@@ -506,6 +525,7 @@ export function createDrawing(
       (a, b) => b.favoritedAt - a.favoritedAt || b.createdAt - a.createdAt,
     );
     channel?.postMessage({ type: "favorites-changed" });
+    trim();
     emit();
   }
   async function toggleFavorite(item = current) {
@@ -551,6 +571,7 @@ export function createDrawing(
           },
         );
       } else {
+        if (!hasOriginal(item)) throw new Error('原图已释放，仅保留缩略图和配方，无法收藏原图');
         await saveFavorite(item);
         notify("已收藏", "ok");
       }
@@ -563,7 +584,7 @@ export function createDrawing(
       );
     } finally {
       favoritePending.delete(item.id);
-      prune();
+      trim();
       emit();
     }
   }
@@ -637,13 +658,13 @@ export function createDrawing(
     )
       return;
     const sourceBoardId = boards.activeId;
-    const generationSinks = [...generationObservers].flatMap(start => { const sink = start(sourceBoardId); return sink ? [sink] : []; });
     let selected = model;
     // Keep the price the user saw, including during a pending preview refresh.
     // A later board switch must not replace this batch's comparison baseline.
     let shownCost = quote.quote?.cost ?? null;
     let base: DrawingParams;
     try { base = collect(form, selected, batchCount()); } catch (e) { notify(message(e), "warn"); return; }
+    const generationSinks = [...generationObservers].flatMap(start => { const sink = start(sourceBoardId); return sink ? [sink] : []; });
     let completed = 0;
     const records: ImageRecord[] = [];
     taskAbort = new AbortController();
@@ -853,6 +874,7 @@ export function createDrawing(
         subtitle = completed ? `已完成 ${completed}/${base.batchCount}` : "";
       }
     } finally {
+      generationSinks.forEach(sink => sink.finish?.());
       busy = false;
       pending = null;
       browsing = false;
@@ -932,6 +954,12 @@ export function createDrawing(
   }
   return {
     get favoritesScopeId() { return favoritesScopeId; },
+    original,
+    /** Evolution and in-flight consumers lease originals, never recreate released pixels. */
+    retainHistory(owner: string, ids: ReadonlySet<string>) {
+      if (ids.size) historyOwners.set(owner, new Set(ids)); else historyOwners.delete(owner);
+      if (trim()) emit();
+    },
     snapshot: () => ({
       form,
       boards: boards.items,
@@ -970,10 +998,11 @@ export function createDrawing(
       listeners.add(fn);
       return () => listeners.delete(fn);
     },
-    onGeneration(start: (boardId: string) => ((record: ImageRecord) => void) | null) {
+    onGeneration(start: (boardId: string) => GenerationSink | null) {
       generationObservers.add(start); return () => generationObservers.delete(start);
     },
     onClear(fn: (boardId: string) => void) { resetListeners.add(fn); return () => resetListeners.delete(fn); },
+    onRemove(fn: (ids: readonly string[]) => void) { removalListeners.add(fn); return () => removalListeners.delete(fn); },
     async ensureFavorite(item: ImageRecord) {
       if (favoritePending.has(item.id)) throw new Error("请等待收藏操作完成");
       if (favorites.some(r => r.id === item.id)) return;
@@ -1096,6 +1125,7 @@ export function createDrawing(
     toggleFavorite,
     remove(id: string) {
       history = history.filter((r) => r.id !== id);
+      if (id) for (const listener of removalListeners) listener([id]);
       if (current?.id === id && !favorites.some((r) => r.id === id)) {
         current = null;
         live();
@@ -1115,6 +1145,7 @@ export function createDrawing(
       )
         return;
       for (const listener of resetListeners) listener(boards.activeId);
+      for (const listener of removalListeners) listener(history.map(r => r.id));
       history = [];
       if (!current || !favorites.some((r) => r.id === current!.id)) {
         current = null;
@@ -1143,8 +1174,10 @@ export function createDrawing(
       channel?.close();
       for (const v of urls.values()) URL.revokeObjectURL(v.url);
       urls.clear();
+      historyOwners.clear();
       listeners.clear();
       imageListeners.clear();
+      removalListeners.clear();
       generationObservers.clear(); resetListeners.clear();
       reveal = undefined;
     },

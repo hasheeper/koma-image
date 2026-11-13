@@ -279,10 +279,10 @@ test("neutral HTML redirects preserve tickets and work under a static subpath", 
         await result.page.evaluate(route => { location.hash = `#/${route}/settings/connections`; }, route);
         await result.page.waitForSelector("#settingsPanel[open]");
       }
-      const href = `${prefix}assets/icons.svg#i-swap`;
+      const href = "#i-swap";
       await result.page.waitForFunction(href => {
         const value = document.querySelector(".conn-empty .connection-avatar use")?.getAttribute("href");
-        return value && new URL(value, location.href).pathname + new URL(value, location.href).hash === href;
+        return value === href && !!document.querySelector(href);
       }, href, { timeout: 8000 });
       const sprite = await result.page.request.get(`${origin}${prefix}assets/icons.svg`);
       assert.equal(sprite.ok(), true);
@@ -402,4 +402,23 @@ test('failed settings deep link returns to EDIT without leaving the document', a
     assert.deepEqual(result.errors.filter(error => !/Failed to load resource/.test(error)), []);
     assert.deepEqual(result.external, []);
   } finally { await result.context.close(); }
+});
+
+test('built-in icons remain local and available while the external SVG sprite is blocked',async()=>{
+ let requests=0;
+ const result=await open('/repo/#/chat',async context=>{
+  await context.route('**/assets/icons.svg',route=>{requests++;return route.abort('failed');});
+ });
+ try {
+  const {page}=result;
+  for(const workspace of ['chat','image','chat']) {
+   await page.evaluate(workspace=>location.hash=`#/${workspace}`,workspace);
+   await page.locator(`[data-workspace-root='${workspace}']:visible`).waitFor();
+   assert.equal(await page.locator('.switcher:visible .brand-mark use').getAttribute('href'),`#mk-${workspace}`);
+   assert.equal(await page.locator(`symbol[id='mk-${workspace}']`).count(),1);
+   assert.ok(await page.locator('#i-close').innerHTML());
+  }
+  assert.equal(requests,0,'icons no longer depend on a separate SVG request');
+  assert.deepEqual(result.errors,[]);
+ }finally{await result.context.close();}
 });

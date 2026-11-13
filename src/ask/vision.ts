@@ -54,7 +54,7 @@ export function createVision() {
   const blobs = new WeakMap<Blob, number>();
   let sequence = 0, disposed = false;
   function identity(picture: Picture) {
-    if (picture.entity_key) return picture.entity_key;
+    if (picture.entity_key) return `${picture.entity_key}:${picture.thumbnailOnly ? "thumbnail" : "original"}`;
     if (!blobs.has(picture.blob)) blobs.set(picture.blob, ++sequence);
     return `${picture.id}:${blobs.get(picture.blob)}`;
   }
@@ -89,6 +89,7 @@ export function createVision() {
   return {
     async image(picture: Picture, spec: VisionSpec, region: Region | undefined, context: VisionContext, reinspect = false) {
       allowed(context);
+      if (spec === "crop" && picture.thumbnailOnly) throw new Error(`${picture.label} 原图已释放，仅可查看缩略图概览，无法精细裁切`);
       if (spec === "crop" && !context.viewed.has(picture.entity_key ?? picture.id)) throw new Error(`裁切 ${picture.label} 前请先用 glance 或 look 查看该图全图（拼图不计入单图查看）`);
       if (spec === "crop" && !region) throw new Error("crop 需要百分比 region");
       if (spec !== "crop" && region) throw new Error("只有 crop 接受 region");
@@ -106,7 +107,7 @@ export function createVision() {
           return canvas;
         } finally { bitmap.close(); }
       }, context, [picture.label], spec, reinspect);
-      if (spec !== "crop") context.viewed.add(picture.entity_key ?? picture.id);
+      if (spec !== "crop" && !picture.thumbnailOnly) context.viewed.add(picture.entity_key ?? picture.id);
       return value;
     },
     async sheet(pictures: readonly Picture[], spec: "glance" | "look", context: VisionContext) {

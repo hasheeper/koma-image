@@ -259,7 +259,7 @@ lifecycle.whileActive((signal) => {
               fields: reuseFields(item) as ImageMetadata["fields"],
               extras: [],
             },
-            item.blob,
+            (item.blob ?? item.thumbBlob)!,
           );
         else if (item && !canReuseDrawingParams(item.params)) ui.toast("对话图片没有可读取的绘图参数");
       } else {

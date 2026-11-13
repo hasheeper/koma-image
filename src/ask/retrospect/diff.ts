@@ -1,6 +1,6 @@
 import { canonical } from '../canonical.ts';
 import type { Recipe } from './recipe.ts';
-import { comparisonRecipe } from './recipe.ts';
+import { comparisonRecipe, recipeWorkspace } from './recipe.ts';
 import { textDiff } from './text-diff.ts';
 import type { TextChange } from './text-diff.ts';
 export { textDiff } from './text-diff.ts';
@@ -17,6 +17,12 @@ const labels: Record<string, string> = { model: '模型', sampler: '采样器', 
 Object.assign(labels, { strength: '强度', noise: '噪声', dilate: '外扩', feather: '羽化', colorMatch: '色彩对齐', mode: '编辑模式', focus: '聚焦范围', quality: '质量', resolution: '分辨率', aspect_ratio: '画幅', output_format: '输出格式', size: '尺寸', defry: '变化强度', emotion: '表情' });
 export function recipeDiff(a: Recipe | null, b: Recipe) {
   a = a && comparisonRecipe(a); b = comparisonRecipe(b);
+  const transition = a && (recipeWorkspace(a) !== 'image' || recipeWorkspace(b) !== 'image') ? { from: recipeWorkspace(a), to: recipeWorkspace(b), before: a, after: b } : null;
+  if (transition) return {
+    transition, parameters: [] as ReturnType<typeof parameterChange>[],
+    texts: [] as { key: string; label: string; before: string | null; after: string | null; parts: TextChange[]; changed: boolean }[],
+    charactersUnknown: a?.characters === null || b.characters === null,
+  };
   const left: Record<string, unknown> = { ...a?.params }, right: Record<string, unknown> = { ...b.params };
   for (const params of [left, right]) {
     if ('width' in params || 'height' in params) params.size = { width: params.width, height: params.height };
@@ -63,5 +69,7 @@ export function recipeDiff(a: Recipe | null, b: Recipe) {
       if (change.changed) parameters.push(change);
     }
   }
-  return { parameters, texts, charactersUnknown: a?.characters === null || b.characters === null };
+  // Different workspaces have different prompt and parameter contracts. Keep both
+  // originals, but never present a handoff as deletion/replacement of the source recipe.
+  return { parameters, texts, transition, charactersUnknown: a?.characters === null || b.characters === null };
 }

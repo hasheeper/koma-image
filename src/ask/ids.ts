@@ -7,7 +7,7 @@ interface Entry {
 }
 export interface IdSnapshot { readonly history: readonly string[]; readonly favorites: readonly string[]; readonly favoriteSeqs?: readonly {id:string; seq:number}[] }
 /** Shared grammar: a trailing sentence period is punctuation, another numeric segment is not. */
-export const pictureIdSource = String.raw`#(?:h[1-9]\d*|f[1-9]\d*|a[1-9]\d*|e[1-9]\d*(?:\.[1-9]\d*)?[a-c]?|c[1-9]\d*\.[1-9]\d*(?:[a-z]|\.[1-9]\d*)?)`;
+export const pictureIdSource = String.raw`#(?:h[1-9]\d*|f[1-9]\d*|a[1-9]\d*|e[1-9]\d*(?::r[1-9]\d*|(?:\.[1-9]\d*)?[a-c]?)|c(?:[1-9]\d*:r[1-9]\d*|(?:[1-9]\d*:)?[1-9]\d*\.[1-9]\d*(?:[a-z]|\.[1-9]\d*)?))`;
 export const isPictureId = (id: string) => new RegExp(`^(?:${pictureIdSource})$`).test(id);
 export const idPattern = new RegExp(`(?<![\\w:#])(?:${pictureIdSource})(?![\\w]|\\.[\\w.])`, "g");
 
@@ -22,14 +22,14 @@ export function createIds() {
     favorites = new Map<string, number>(),
     labels = new Map<string, string>();
   let activeHistory = new Set<string>(), activeFavorites = new Set<string>();
-  let seenHistory: readonly Entry[] | null = null,
-    seenFavorites: readonly Entry[] | null = null;
+  let seenHistory: WeakRef<readonly Entry[]> | null = null,
+    seenFavorites: WeakRef<readonly Entry[]> | null = null;
   return {
     snapshot(): IdSnapshot { return { history: [...history.keys()], favorites: [...favorites.keys()], favoriteSeqs:[...favorites].map(([id,seq])=>({id,seq})) }; },
     /** `historyList` is newest first, as the drawing service keeps it. */
     sync(historyList: readonly Entry[], favoriteList: readonly Entry[]) {
-      if (historyList !== seenHistory) {
-        seenHistory = historyList; activeHistory = new Set(historyList.map(r=>r.id));
+      if (historyList !== seenHistory?.deref()) {
+        seenHistory = new WeakRef(historyList); activeHistory = new Set(historyList.map(r=>r.id));
         for (let i = historyList.length - 1; i >= 0; i--) {
           const { id } = historyList[i];
           if (history.has(id)) continue;
@@ -37,14 +37,14 @@ export function createIds() {
           labels.set(`#h${history.size}`, id);
         }
       }
-      if (favoriteList !== seenFavorites) {
+      if (favoriteList !== seenFavorites?.deref()) {
         const registered = new Map<number, string>();
         for (const { id, favSeq } of favoriteList) {
           if (typeof favSeq !== "number" || !Number.isSafeInteger(favSeq) || favSeq < 1) throw new Error("收藏编号尚未就绪");
           if (registered.has(favSeq) && registered.get(favSeq) !== id) throw new Error("收藏编号冲突");
           registered.set(favSeq, id);
         }
-        seenFavorites = favoriteList; activeFavorites = new Set(favoriteList.map(r=>r.id));
+        seenFavorites = new WeakRef(favoriteList); activeFavorites = new Set(favoriteList.map(r=>r.id));
         favorites.clear();
         for (const [label] of labels) if (label.startsWith("#f")) labels.delete(label);
         for (const [seq, id] of registered) {
