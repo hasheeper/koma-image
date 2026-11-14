@@ -22,6 +22,7 @@
 | 2026-11-06 | v0.5.0 | [67c0fba7](https://github.com/hasheeper/koma-image/commit/67c0fba71dedce350dc35211aed01e16a7596b44) | [e5b78cf8](https://e5b78cf8.koma-image.pages.dev/) | [main CI](https://github.com/hasheeper/koma-image/actions/runs/42190358587)／[标签 CI](https://github.com/hasheeper/koma-image/actions/runs/42190358746) 通过 |
 | 2026-11-06 | v0.5.0 高亮修正 | [b83df25b](https://github.com/hasheeper/koma-image/commit/b83df25b511dbe1f3a1b6d8d0eb06be9714488ed) | [ce3aaeae](https://ce3aaeae.koma-image.pages.dev/) | [CI 通过](https://github.com/hasheeper/koma-image/actions/runs/42192983376)，原标签未移动 |
 | 2026-11-10 | v0.6.0 | [ac797931](https://github.com/hasheeper/koma-image/commit/ac7979319e022c0835823fdbee33c25a89519a5d) | [1c3418e6](https://1c3418e6.koma-image.pages.dev/) | main CI 通过，标签 CI 备份锁失败，见[完整证据](releases/2026-11-10-v0.6.0-release.md#github-ci) |
+| 2026-11-14 | v0.7.0 | [a767cfd9](https://github.com/hasheeper/koma-image/commit/a767cfd9393bfe129a7b4bc9b2106c93b9690eef) | [bf1c84a6](https://bf1c84a6.koma-image.pages.dev/) | [标签 CI](https://github.com/hasheeper/koma-image/actions/runs/43596084004) 通过；[main CI](https://github.com/hasheeper/koma-image/actions/runs/43596080858) 核心浏览器失败，用例待查（见状态页）。线上入口、模块与 SKILL 与构建一致，五工作区导航与 v0.7.0 日志无页面错误或意外外部请求 |
 
 2026-10-26 的 Bridge 记录仅有发布前检查，没有部署证据，不计为一次发布。2026-10-29 公开前匿名化历史作者邮箱时保持提交树内容，历史提交号已映射；上表使用映射后的引用。历史脱敏检查不能代替下一次发布前复查。
 
