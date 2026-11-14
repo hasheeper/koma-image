@@ -432,8 +432,9 @@ test("H1 chat rail: compact history, exact version states, responsive tools and 
       assert.equal(await first.getByRole("button", { name: "设为底图", exact: true }).count(), 0);
       assert.ok(await tools.getByRole("link", { name: "下载图片", exact: true }).getAttribute("download"));
     }
-    // The same version control retains selection across the mobile layout and KeepAlive.
+    // The same version control retains selection when switching to mobile BETA and across KeepAlive.
     await p.setViewportSize({ width: 320, height: 900 });
+    await p.getByRole("dialog", { name: "当前窗口较窄", exact: true }).getByRole("button", { name: "切换到 BETA", exact: true }).click();
     await first.getByRole("button", { name: "第 2 个版本 · 失败", exact: true }).click();
     assert.equal(await first.locator(".turn-output").getAttribute("data-status"), "error");
     await first.getByRole("button", { name: "第 1 个版本 · 已完成", exact: true }).click();

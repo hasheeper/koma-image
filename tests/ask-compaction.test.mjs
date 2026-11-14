@@ -40,6 +40,14 @@ const contextState = s => { const { usage, ...rest } = s.snapshot(); return rest
 const withoutCache = data => JSON.parse(JSON.stringify(data, (key, value) => key === 'cache_control' ? undefined : value));
 const marks = body => (JSON.stringify(body).match(/"cache_control":/g) ?? []).length;
 
+test('CP2 configured model parameters survive compaction request construction', async () => {
+  const f = fixture(), provider = fake(), parameters = { maxOutputTokens: 32768, temperature: 0, topP: .8 };
+  try {
+    await runCompaction(options(f, provider, { request: { ...request, parameters } }));
+    assert.deepEqual(provider.calls[0].parameters, parameters);
+  } finally { f.pool.dispose(); }
+});
+
 test('CP2 image bindings stay out of memory and compaction input but survive archive, favorites, recall and forks', async () => {
   const f = { session: createSession(), pool: createAttachments() }, bindings = [];
   for (let n = 1; n <= 8; n++) {

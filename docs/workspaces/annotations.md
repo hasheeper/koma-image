@@ -1,6 +1,6 @@
 # 图片区域批注与局部回贴
 
-更新：2026-11-13。共享批注、ASK、EDIT 通用编辑与 CHAT 双图交接已随 [v0.5.0](../archive/releases/2026-11-06-v0.5.0-release.md) 发布；GPT Image 2.5／2.6 原生标注、边界色彩对齐与 Photopea 融合精修已随 [v0.6.0](../archive/releases/2026-11-10-v0.6.0-release.md) 发布。本轮 EDIT 参考图及区域关联为本地待发布新增；真实供应商的多区域理解、位置保持和接缝质量仍待核验。原始调研与范围决策见[规划归档](../archive/workspaces/2026-11-04-region-annotations-research-plan.md)。
+更新：2026-11-14。共享批注、ASK、EDIT 通用编辑与 CHAT 双图交接已随 [v0.5.0](../archive/README.md#发布记录) 发布；GPT Image 2.5／2.6 原生标注、边界色彩对齐与 Photopea 融合精修已随 [v0.6.0](../archive/releases/2026-11-10-v0.6.0-release.md) 发布。EDIT 参考图及区域关联随 v0.7.0 发布；真实供应商的多区域理解、位置保持和接缝质量仍待核验。
 
 ## 入口与选区
 
@@ -110,10 +110,10 @@ GPT／Gemini 直出先完整保存，审核默认显示直出；原图、直出�
 | `services/editor.ts`、`services/chat.ts`、`ask/service.ts` | 各自任务、附件、版本、用户确认和持久化边界 |
 | `services/editor-image-edit.ts`、`workspaces/edit/EditImageParameters.vue` | EDIT 通用图像请求、冻结蒙版与来源参数；不创建 CHAT 消息 |
 
-纯逻辑与浏览器测试使用合成图片和模拟服务，覆盖几何、比例容差、原分辨率回贴、范围外像素、EDIT 撤销／聚焦、ASK 出站与 crop、CHAT 双图／单图提示／刷新及直出保留。完整 ZIP 专项已覆盖原图、编号图、直出、合成图及待发送批注的清空恢复、字节与尺寸校验、冲突副本和重复导入；恢复后的普通轮次不携带旧编号图或批注协议。点批注在窗口缩放后保持归一化坐标，并按当前画布尺寸继续拖动。验收记录见[本地收口](../archive/engineering/2026-11-06-unreleased-closeout.md)。
+纯逻辑与浏览器测试使用合成图片和模拟服务，覆盖几何、比例容差、原分辨率回贴、范围外像素、EDIT 撤销／聚焦、ASK 出站与 crop、CHAT 双图／单图提示／刷新及直出保留。完整 ZIP 专项已覆盖原图、编号图、直出、合成图及待发送批注的清空恢复、字节与尺寸校验、冲突副本和重复导入；恢复后的普通轮次不携带旧编号图或批注协议。点批注在窗口缩放后保持归一化坐标，并按当前画布尺寸继续拖动。
 
 原生标注的本地回归覆盖独立 multipart、来源开关与提交前拦截、冻结重试、刷新／ZIP 恢复、普通轮次隔离、配对缩放及 EDIT 手绘／几何范围回贴；仍使用合成图片和模拟接口。
 
-色彩对齐已用合成图片验证逐区误差改善、退化、范围外保留、开关缓存和 raw 字节不变；融合回传覆盖 EDIT／CHAT 正式结果与失效保护。真实内嵌 Photopea 已验证软图层蒙版、初始合成、蒙版涂黑露出原图、返回与重入分层保留，使用合成素材，无收费生成。记录见[新增能力验收](../archive/workspaces/2026-11-04-region-annotations-research-plan.md#9-验收与真实待验)。
+色彩对齐已用合成图片验证逐区误差改善、退化、范围外保留、开关缓存和 raw 字节不变；融合回传覆盖 EDIT／CHAT 正式结果与失效保护。真实内嵌 Photopea 已验证软图层蒙版、初始合成、蒙版涂黑露出原图、返回与重入分层保留，使用合成素材，无收费生成。核验日期、范围与未验边界见[Photopea](../integrations/photopea.md#12-验证范围与回归清单)。
 
 实际 Safari、移动真机、供应商生成效果和接缝仍待独立核验。未增加依赖，未新增 OpenAI Mask 上传或 `ModelLink` Mask 能力。

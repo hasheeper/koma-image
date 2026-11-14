@@ -158,7 +158,7 @@ test('draft view: fields in order, parameters last, stat counts enabled valid st
   const view = draftView(plan(d));
   assert.deepEqual(view.fields.map(f => f.key), ['prompt', 'negative', 'params']);
   assert.deepEqual(view.fields[0].steps[0].hunks, [[{ sign: 'del', text: 'red eyes' }, { sign: 'ins', text: 'blue eyes' }]]);
-  assert.deepEqual(view.fields[2].steps[0].kind === 'param' && [view.fields[2].steps[0].name, view.fields[2].steps[0].icon, view.fields[2].steps[0].after], ['Seed', 'i-dice', '42']);
+  assert.deepEqual(view.fields[2].steps[0].kind === 'param' && [view.fields[2].steps[0].name, view.fields[2].steps[0].after], ['Seed', '42']);
   assert.deepEqual([view.added, view.removed], [1 + 2 + 1, 1 + 0 + 1]);
   assert.deepEqual(view.fields[0].full.filter(p => p.op !== 'keep'), [{ op: 'del', text: 'red eyes' }, { op: 'ins', text: 'blue eyes' }]);
   const off = draftView(plan(d, base, ['0']));

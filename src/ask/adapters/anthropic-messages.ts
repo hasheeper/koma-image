@@ -11,6 +11,7 @@ import type {
   AskUsage,
 } from "../messages.ts";
 import type { SseEvent } from "./sse.ts";
+import { customParameters, samplingParameters } from "../parameters.ts";
 import { createResponseStream } from "../response-stream.ts";
 import type { ResponseEvent } from "../response-stream.ts";
 
@@ -55,8 +56,10 @@ export function body(request: AskRequest): Wire {
   if (memory >= 0 && memory !== messages.length - 1) messages[memory].content = marked(messages[memory].content);
   return {
     model: request.model,
-    max_tokens: request.maxTokens,
+    max_tokens: request.parameters?.maxOutputTokens ?? request.maxTokens,
     stream: true,
+    ...customParameters(request.parameters),
+    ...samplingParameters(request.parameters),
     ...(request.tools.length
       ? {
           tools: marked(

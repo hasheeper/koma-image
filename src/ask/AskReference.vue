@@ -41,6 +41,6 @@ onBeforeUnmount(() => { close(); removeLayer(); window.removeEventListener("scro
 .ask-id:hover, .ask-id:focus-visible { background: var(--hover); text-decoration: underline; }
 .ask-id:disabled { color: var(--fg-4); text-decoration: line-through; cursor: default; }
 .ask-id.ask-reference-tile { display: block; width: 100%; height: 100%; padding: 0; border-radius: inherit; }
-.ask-preview { position: fixed; z-index: var(--z-pop); display: flex; flex-direction: column; gap: 6px; width: 176px; padding: 6px; color: var(--fg-3); font: var(--fw-regular) var(--fz-xs)/1.4 var(--mono); background: var(--raised); border: 1px solid var(--line-2); border-radius: var(--r2); box-shadow: var(--sh-2); pointer-events: none; }
+.ask-preview { position: fixed; z-index: var(--z-pop); display: flex; flex-direction: column; gap: 6px; width: 176px; padding: 6px; color: var(--fg-3); font: var(--fw-regular) var(--fz-xs)/1.4 var(--mono); background: var(--glass-pop-bg); border: 1px solid var(--line-2); border-radius: 10px; box-shadow: var(--glass-pop-shadow); backdrop-filter: blur(var(--glass-blur)) saturate(var(--glass-saturation)); pointer-events: none; }
 .ask-preview img { width: 100%; max-height: 196px; object-fit: contain; border-radius: 5px; }
 </style>

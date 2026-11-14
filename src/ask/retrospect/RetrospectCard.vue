@@ -27,8 +27,8 @@ function open(version?: string) {
       <AppIcon name="i-chevron" class="arrow" />
     </button>
     <div class="versions">
-      <button v-for="node in value.nodes.slice(0, 6)" :key="node.id" class="version" type="button" :disabled="!ready" :aria-label="`查看 ${node.id} ${node.label}`" @click="open(node.id)"><AppIcon v-if="!node.image_ids.length" name="i-plus" /><img v-else :src="picture(node.cover)" alt="" /><span>{{ node.id }}</span></button>
-      <button v-if="value.nodes.length > 6" class="more-versions" type="button" :disabled="!ready" aria-label="查看其余版本" @click="open()">+{{ value.nodes.length - 6 }}</button>
+      <button v-for="node in value.nodes.slice(0, 6)" :key="node.id" class="version" type="button" :disabled="!ready" :aria-label="`查看 ${node.id} ${node.label}`" :title="node.label" @click="open(node.id)"><span class="version-preview" :class="{ staged: !node.image_ids.length }"><AppIcon v-if="!node.image_ids.length" name="i-plus" /><img v-else :src="picture(node.cover)" alt="" /></span><span>{{ node.id }}</span></button>
+      <button v-if="value.nodes.length > 6" class="version more-versions" type="button" :disabled="!ready" aria-label="查看其余版本" @click="open()"><span class="version-preview">+{{ value.nodes.length - 6 }}</span><span>更多</span></button>
     </div>
   </section>
 
@@ -43,14 +43,16 @@ function open(version?: string) {
 .recap .arrow { --ico: var(--ico-xs); color: var(--fg-3); }
 .state-dot { display: inline-block; flex: none; width: 5px; height: 5px; background: var(--a); border-radius: 50%; }
 .state-dot.ended { background: var(--fg-4); }
-.strip-head { display: flex; align-items: center; gap: var(--sp-2); width: 100%; min-height: 28px; text-align: left; border-radius: var(--r2); }
+.strip-head { display: flex; align-items: center; gap: var(--sp-2); width: 100%; min-height: 40px; text-align: left; border-radius: var(--r2); }
 .strip-head:hover { background: var(--ask-hover, var(--hover)); }
 .strip-head > .ico:first-child { color: var(--a); }
-.strip-identity { display: flex; align-items: baseline; gap: var(--sp-2); flex: 1; min-width: 0; }
-.strip-identity .title { flex: 0 1 auto; }
-.versions { display: flex; align-items: flex-start; gap: var(--sp-2); overflow: auto; padding-block: var(--sp-1); }
-.version { display: grid; justify-items: center; gap: var(--sp-1); flex: none; padding: 2px; border-radius: var(--r2); color: var(--a); font: var(--fz-2xs)/1.4 var(--mono); }
-.version img { width: 36px; height: 50px; object-fit: contain; background: var(--sunken); border-radius: var(--r1); outline: 1px solid transparent; }
-.version:hover img, .version:focus-visible img { outline-color: var(--a); }
-.more-versions { display: grid; place-items: center; flex: none; min-width: 36px; height: 50px; margin-top: 2px; color: var(--fg-3); font: var(--fz-xs)/1 var(--mono); background: var(--ask-layer, var(--raised)); border-radius: var(--r1); }
+.strip-identity { display: grid; gap: 2px; flex: 1; min-width: 0; }
+.strip-identity small { white-space: normal; line-height: 1.4; }
+.versions { display: flex; align-items: flex-start; gap: var(--sp-2); overflow: auto; padding-block: var(--sp-2) var(--sp-1); }
+.version { display: grid; justify-items: center; gap: var(--sp-1); flex: none; padding: 2px; border-radius: var(--r2); color: var(--fg-3); font: var(--fz-2xs)/1.4 var(--mono); }
+.version-preview { display: grid; place-items: center; width: 56px; height: 44px; overflow: hidden; border: 1px solid var(--line-2); border-radius: var(--r2); background: var(--ask-field, var(--sunken)); }
+.version-preview img { display: block; width: 100%; height: 100%; object-fit: contain; }
+.version-preview.staged { background: transparent; border-style: dashed; }
+.version:is(:hover, :focus-visible) { color: var(--fg); }
+.version:is(:hover, :focus-visible) .version-preview { border-color: var(--a-line); background: var(--ask-hover, var(--hover)); }
 </style>

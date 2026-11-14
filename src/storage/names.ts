@@ -11,6 +11,7 @@ export const names = Object.freeze({
   },
   preferences: "koma.prefs.v1",
   theme: "koma.theme.v1",
+  imageLayout: "koma.image.layout.v1",
   releaseSeen: "koma.release.seen.v1",
   home: "koma.home.v1",
   homePreferencesLock: "koma-home-preferences-v1",

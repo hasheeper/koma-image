@@ -1,0 +1,144 @@
+/* The same form, canvas and version list return to their regular homes outside BETA. */
+.edit-home-slot, .edit-form-home, .edit-print-layout { display: contents; }
+.edit-generation { display: grid; gap: 8px; }
+.edit-generation-notices { display: grid; gap: 6px; }
+.edit-generation-notices:empty { display: none; }
+.editor.edit-collaboration { display: grid; grid-template-rows: minmax(0, 1fr); height: var(--edit-canvas-height, 100dvh); padding: 8px; overflow: hidden; }
+.edit-collaboration .editor-shell { display: grid; grid-template-columns: minmax(0, 1fr) 10px var(--canvas-ask-width, 40%); grid-template-rows: minmax(0, 1fr); padding: 0; transition: none; }
+.edit-collaboration.edit-sidebar-collapsed .editor-shell { grid-template-columns: minmax(0, 1fr) 0 0; }
+.edit-collaboration .edit-form-home { display: none; }
+.edit-collaboration #editorCanvas { grid-column: 1; grid-row: 1; min-width: 0; min-height: 0; padding: 0; overflow: hidden; border-radius: 16px; }
+.edit-collaboration .editor-mat { width: 100%; height: 100%; min-height: 0; max-height: none; border-radius: inherit; }
+.edit-collaboration .editor-viewport { padding: 104px 12px calc(var(--editor-toolbar-height, 48px) + 28px); }
+.edit-collaboration .editor-info { top: 52px; height: 44px; padding: 0 12px; background: none; }
+.edit-collaboration .editor-info > .editor-send { margin-right: 0; }
+.edit-collaboration .editor-info-meta { gap: 8px; }
+
+/* Floating navigation keeps the canvas open, without another top bar. */
+.edit-canvas-head { position: absolute; top: 8px; right: 8px; left: 8px; z-index: 8; display: flex; align-items: center; gap: 8px; height: 36px; min-width: 0; pointer-events: none; }
+.edit-canvas-head > * { pointer-events: auto; }
+.edit-canvas-nav, .edit-switch-home { flex: none; }
+.edit-switch-home { margin-left: auto; }
+.edit-canvas-board, .edit-canvas-summary, .edit-canvas-options { color: var(--fg-2); background: var(--glass-bg); border: 1px solid var(--line-2); border-radius: 10px; box-shadow: var(--sh-1); backdrop-filter: blur(var(--glass-blur)); }
+.edit-canvas-board { flex: 0 1 160px; min-width: 90px; }
+.edit-canvas-summary { display: inline-flex; align-items: center; gap: 6px; flex: 0 1 auto; min-width: 0; height: 34px; padding: 0 10px; margin-left: auto; white-space: nowrap; font-size: var(--fz-xs); --ico: var(--ico-sm); }
+.edit-canvas-summary > .ico { flex: none; color: var(--fg-3); }
+.edit-canvas-summary strong { min-width: 0; overflow: hidden; text-overflow: ellipsis; color: var(--fg); font-weight: var(--fw-semibold); }
+.edit-canvas-summary > span { display: inline-flex; align-items: center; gap: 4px; flex: none; padding-left: 8px; border-left: 1px solid var(--line); font-variant-numeric: tabular-nums; color: var(--fg-3); }
+.edit-canvas-summary:hover { background: var(--hover); }
+.edit-canvas-options { width: 34px; height: 34px; --ico: var(--ico-md); }
+.edit-canvas-account { display: flex; flex-wrap: wrap; align-items: center; justify-content: flex-end; gap: 8px; padding: 2px; }
+.edit-canvas-account .topbar-account { margin: 0; }
+
+/* The versions form a narrow recess immediately beside the actual image. */
+.edit-collaboration .edit-print-layout { display: grid; grid-template-columns: var(--editor-display-width, 0px); align-items: start; width: max-content; height: max-content; margin: auto; }
+.edit-collaboration .edit-print-layout.with-versions { grid-template-columns: 72px var(--editor-display-width, 0px); gap: 4px; }
+.edit-collaboration .editor-print { margin: 0; }
+.edit-version-slot { height: var(--editor-display-height, 0px); min-height: 0; padding: 4px; overflow: hidden; border-radius: 10px; background: var(--sunken); box-shadow: inset 0 1px 3px rgb(var(--shadow-rgb) / calc(.2 * var(--shadow-strength))); }
+.edit-canvas-versions { width: 100%; height: 100%; min-height: 0; border: 0; background: none; }
+.edit-canvas-versions .gallery-head { display: none; }
+.edit-canvas-versions .tray { display: flex; flex-direction: column; gap: 6px; width: 100%; min-height: 0; padding: 0; overflow: hidden auto; scrollbar-width: none; }
+.edit-canvas-versions .tile { flex: none; width: 100%; margin: 0; padding: 2px; aspect-ratio: auto; border-radius: 8px; content-visibility: visible; }
+.edit-canvas-versions .tile[data-base="true"] { margin: 0; }
+.edit-canvas-versions .tile > img { position: static; width: 100%; height: auto; aspect-ratio: var(--image-ratio); object-fit: contain; border-radius: 6px; }
+.edit-canvas-versions .tile[aria-current="true"] { box-shadow: inset 0 0 0 2px var(--a); }
+
+/* Context tools have their own row; version browsing and generation bookend the main row. */
+.edit-collaboration .editor-toolbar { left: 12px; right: 12px; bottom: 12px; transform: none; display: grid; grid-template-columns: auto minmax(0, 1fr) auto; align-items: center; justify-items: center; gap: 8px; width: auto; max-width: none; pointer-events: none; }
+.edit-collaboration .editor-toolbar > * { pointer-events: auto; }
+.edit-collaboration .editor-toolbar > :not(.edit-versions-toggle, .editor-tool-controls, .edit-canvas-run) { grid-column: 1 / -1; }
+.edit-collaboration .editor-tool-controls { min-width: 0; gap: 8px; }
+.edit-collaboration .editor-secondary-tools { flex-wrap: wrap; }
+.edit-versions-toggle { justify-self: start; gap: 7px; height: 44px; padding: 0 14px; color: var(--fg-2); font-size: var(--fz-sm); --ico: var(--ico-md); }
+.edit-versions-toggle b { color: var(--fg-3); font-size: var(--fz-xs); font-weight: var(--fw-medium); }
+.edit-versions-toggle > .ico:last-child { --ico: var(--ico-xs); transform: rotate(90deg); }
+.edit-versions-toggle[aria-expanded="true"] > .ico:last-child { transform: rotate(-90deg); }
+.edit-canvas-run { position: relative; justify-self: end; min-width: 0; }
+.edit-canvas-run .edit-generation { gap: 0; }
+.edit-canvas-run .edit-generation-notices { position: absolute; right: 0; bottom: calc(100% + 8px); width: max-content; max-width: min(320px, calc(100vw - 32px)); }
+.edit-canvas-run .quota-warning { margin: 0; background: var(--glass-pop-bg); box-shadow: var(--sh-1); }
+.edit-canvas-run .go-row { width: auto; grid-template-columns: max-content 0px; }
+.edit-canvas-run .go-row:has(> .btn-stop:not([hidden])) { grid-template-columns: max-content 64px; column-gap: 6px; }
+.edit-canvas-run .btn-go { height: 48px; min-height: 48px; min-width: 168px; justify-content: center; padding: 0 10px; gap: 6px; font-size: var(--fz-sm); border-radius: 14px; box-shadow: var(--sh-1); }
+.edit-canvas-run[aria-busy="true"] .btn-go { min-width: 144px; }
+.edit-canvas-run .btn-stop { height: 48px; min-height: 48px; padding: 0 6px; gap: 4px; border-radius: 14px; }
+.edit-canvas-run .cost-tag { margin-left: 4px; padding: 3px 6px; font-size: var(--fz-xs); }
+.edit-canvas-run .go-keys { display: none; }
+
+.edit-canvas-splitter { grid-column: 2; grid-row: 1; position: relative; cursor: col-resize; touch-action: none; border-radius: 6px; }
+.edit-canvas-splitter::after { position: absolute; inset: 45% 4px; content: ''; background: var(--line-2); border-radius: 2px; }
+.edit-canvas-splitter:is(:hover, :focus-visible)::after { background: var(--a); }
+.edit-collaboration[data-resizing] { cursor: col-resize; user-select: none; }
+.edit-canvas-sidebar { grid-column: 3; grid-row: 1; position: relative; display: flex; flex-direction: column; min-width: 0; min-height: 0; border-radius: 16px; background: var(--glass-bg); box-shadow: inset 0 1px 0 var(--glass-edge), 0 0 0 1px var(--line-2), var(--sh-1); backdrop-filter: blur(var(--glass-blur)) saturate(var(--glass-saturation)); }
+.edit-sidebar-head { display: flex; flex: none; align-items: center; justify-content: space-between; gap: 12px; }
+.edit-sidebar-content { position: relative; flex: 1; min-width: 0; min-height: 0; border-radius: inherit; }
+.edit-canvas-ask, .edit-canvas-form { position: absolute; inset: 0; min-width: 0; min-height: 0; }
+.edit-canvas-form { display: flex; flex-direction: column; overflow: hidden; border-radius: inherit; }
+.edit-form-title { display: flex; align-items: center; flex: none; gap: 8px; height: 48px; padding: 0 18px; color: var(--fg-2); font-size: var(--fz-sm); font-weight: var(--fw-semibold); --ico: var(--ico-md); }
+.edit-form-side { flex: 1; min-height: 0; }
+.edit-form-side .composer { display: grid; width: 100%; height: 100%; min-height: 0; border: 0; border-radius: 0; background: transparent; box-shadow: none; }
+.edit-form-side .composer-scroll { overflow-y: auto; padding: 4px 16px 16px; }
+.edit-form-side .composer-foot { position: static; padding: 10px 16px 12px; border-radius: 0; background: var(--glass-layer); box-shadow: none; }
+.edit-browser-title { display: inline-flex; align-items: center; gap: 8px; height: 44px; padding: 0 16px; background: var(--glass-bg); border: 1px solid var(--line-2); border-radius: 999px; box-shadow: var(--sh-1); backdrop-filter: blur(var(--glass-blur)); font-size: var(--fz-sm); --ico: var(--ico-md); }
+.edit-browser-title b { color: var(--fg-3); font-size: var(--fz-xs); font-weight: var(--fw-medium); }
+.edit-version-browser .mobile-library-close { margin-left: auto; }
+.mobile-versions { height: auto; }
+.mobile-versions .tray { display: block; overflow: visible; }
+.mobile-versions .tile { display: inline-block; break-inside: avoid; margin-bottom: 10px; }
+.mobile-versions .tile[data-base="true"] { margin-bottom: 10px; }
+
+@container editor-mat (max-width: 720px) {
+  .edit-collaboration .editor-toolbar { grid-template-columns: auto 1fr; gap: 8px; }
+  .edit-collaboration .editor-tool-controls { grid-column: 1 / -1; grid-row: auto; order: -1; }
+  .edit-collaboration .editor-toolbar > :not(.edit-versions-toggle, .editor-tool-controls, .edit-canvas-run) { order: -2; }
+  .edit-canvas-board { flex-basis: 110px; }
+  .edit-canvas-head { gap: 6px; }
+  .edit-canvas-summary { gap: 5px; padding-inline: 8px; }
+}
+@media (max-width: 1079px) {
+  .editor.edit-collaboration { padding: max(8px, env(safe-area-inset-top)) max(8px, env(safe-area-inset-right)) max(8px, env(safe-area-inset-bottom)) max(8px, env(safe-area-inset-left)); }
+  .edit-collaboration .editor-shell, .edit-collaboration.edit-sidebar-collapsed .editor-shell { grid-template-columns: minmax(0, 1fr); }
+  /* Row one navigates (workspace, board, ⋯, tray switch), as in CHAT; row two only describes the board. */
+  .edit-canvas-head { display: grid; grid-template-columns: 36px minmax(0, 1fr) auto auto; grid-template-rows: 40px 40px; gap: 6px; height: auto; }
+  .edit-canvas-nav { grid-column: 1; grid-row: 1; }
+  .edit-canvas-board { grid-column: 2; grid-row: 1; width: auto; min-width: 0; }
+  .edit-canvas-head > .popover-menu-host { grid-column: 3; grid-row: 1; }
+  .edit-switch-home { grid-column: 4; grid-row: 1; margin: 0; }
+  .edit-canvas-head .edit-canvas-summary { grid-column: 1 / -1; grid-row: 2; max-width: 100%; height: 40px; justify-self: end; }
+  .edit-canvas-options { height: 40px; width: 36px; }
+  .edit-collaboration .editor-viewport { padding-top: 146px; }
+  .edit-collaboration .editor-info { top: 100px; }
+  .edit-collaboration .editor-info { justify-content: flex-start; gap: 10px; padding-inline: 12px; }
+  .edit-collaboration .editor-info-meta { flex: 1; }
+  .edit-collaboration .editor-info-meta .mono { display: none; }
+  .edit-collaboration .editor-info:has(.director-variants) .editor-info-kind { display: none; }
+  .edit-collaboration .editor-empty-sheet { width: 100px; height: 64px; grid-template-columns: 1fr 30px; margin-bottom: 16px; }
+  .edit-collaboration .editor-empty .editor-empty-open { min-width: 156px; min-height: 44px; padding-inline: 20px; }
+  .edit-collaboration .editor-zoom-step { display: none; }
+  .edit-collaboration .editor-size { flex: none; width: 82px; padding-inline: 5px; gap: 4px; }
+  .edit-collaboration .editor-size output { min-width: 20px; }
+  .edit-canvas-sidebar { position: absolute; inset: max(8px, env(safe-area-inset-top)) max(8px, env(safe-area-inset-right)) max(8px, env(safe-area-inset-bottom)) max(8px, env(safe-area-inset-left)); z-index: 9; gap: 8px; background: none; box-shadow: none; backdrop-filter: none; }
+  .edit-sidebar-head .ibtn { height: 40px; background: var(--glass-bg); border: 1px solid var(--line-2); border-radius: 10px; box-shadow: var(--sh-1); backdrop-filter: blur(var(--glass-blur)); }
+  .edit-sidebar-head .ibtn { width: 40px; --ico: var(--ico-md); }
+  /* Same corners as the canvas head: the switch stays put and × takes the workspace mark's place. */
+  .edit-sidebar-head { padding-right: 8px; }
+  /* The editor's containing block starts 8px lower: start the pane there so its head matches the others. */
+  .edit-canvas-sidebar { top: 0; }
+  .edit-sidebar-content { background: var(--glass-bg); box-shadow: inset 0 1px 0 var(--glass-edge), 0 0 0 1px var(--line-2), var(--sh-1); backdrop-filter: blur(var(--glass-blur)) saturate(var(--glass-saturation)); }
+  .edit-canvas-form .edit-form-title { display: none; }
+  .edit-form-side .composer-scroll { padding-top: 16px; }
+  .edit-form-side .fld-hero { flex: none; min-height: 280px; }
+  .edit-collaboration .editor-toolbar { left: 8px; right: 8px; bottom: 8px; }
+  .edit-canvas-run .btn-go, .edit-canvas-run .btn-stop { height: 44px; min-height: 44px; }
+  .edit-canvas-run .btn-go { min-width: 156px; }
+  .edit-history-browsing .editor-viewport { transform: translateX(24%) scale(1.22); filter: blur(14px); opacity: .5; pointer-events: none; }
+  .edit-history-browsing :is(.edit-canvas-head, .editor-info, .editor-toolbar) { opacity: 0; pointer-events: none; }
+}
+@media (max-width: 600px) {
+  .edit-collaboration #editorHand { display: none; }
+}
+@media (max-width: 360px) {
+  .edit-collaboration .editor-zoom { min-width: 42px; }
+  .edit-collaboration .editor-secondary-tools { gap: 6px; }
+  .edit-collaboration .editor-size { width: 66px; }
+}

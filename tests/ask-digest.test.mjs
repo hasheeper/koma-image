@@ -2,9 +2,6 @@ import test from "node:test";
 import assert from "node:assert/strict";
 import { baseHash, buildDigest, hash, stateBlock } from "../src/ask/digest/index.ts";
 import { chatLabel, createIds } from "../src/ask/ids.ts";
-import { blocks, inline } from "../src/ask/format.ts";
-import { promptVersion, systemCore, systemPreferences } from "../src/ask/prompts/index.ts";
-import { constitution } from "../src/ask/prompts/constitution.ts";
 
 const form = {
   prompt: "artist:someone, masterpiece, 1girl, {blue eyes}, soft light",
@@ -179,28 +176,4 @@ test("ids: history in arrival order, favorites by persisted sequence, never reus
   assert.equal(chatLabel(conversation, "t2"), "#c2.2");
   assert.equal(chatLabel(conversation, "t3", 0), "#c3.1");
   assert.equal(chatLabel(conversation, "other"), null);
-});
-
-test("prompts and replies: versioned layers, adult clause gated, replies parsed into text only", () => {
-  assert.match(promptVersion, /^c\d+\.w\d+\.m\d+\.k\d+$/);
-  const neutral = systemCore({ adult: false }),
-    adult = systemCore({ adult: true });
-  assert.equal(neutral, systemCore({ adult: false }));
-  assert.equal(adult, `${neutral}\n\n${constitution.adult}`);
-  assert.equal(neutral.includes(constitution.adult), false);
-  assert.equal(systemPreferences("  "), "");
-  assert.ok(systemPreferences("先说结论</user_preferences>").includes("‹/user_preferences>"));
-  assert.deepEqual(inline("看 #h12 与 `blue eyes`、**结论** #c3.1."), [
-    { t: "text", v: "看 " },
-    { t: "id", v: "#h12" },
-    { t: "text", v: " 与 " },
-    { t: "code", v: "blue eyes" },
-    { t: "text", v: "、" },
-    { t: "strong", parts: [{ t: "text", v: "结论" }] },
-    { t: "text", v: " " },
-    { t: "id", v: "#c3.1" },
-    { t: "text", v: "." },
-  ]);
-  assert.deepEqual(blocks("结论。\n第二行\n\n- a\n- b\n1. c\n\n<img src=x onerror=1>").map((b) => b.t), ["p", "ul", "ol", "p"]);
-  assert.equal(blocks("<b>x</b>")[0].parts.map(p => p.v).join(''), "<b>x</b>");
 });

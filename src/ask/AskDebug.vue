@@ -294,10 +294,8 @@ onBeforeUnmount(() => { clearTimeout(copiedTimer); dialog.value?.close(); });
   </Teleport>
 </template>
 <style scoped>
-/* Head stays on the dialog's raised surface; the body drops to chrome and
-   holds raised cards, whose code wells return to chrome. Section titles sit
-   outside the cards. */
-.ask-debug { --modal-w: 720px; height: min(820px, calc(100dvh - 32px)); max-height: none; font: var(--fw-regular) var(--fz-sm)/1.6 var(--sans); }
+/* The shell shares ASK glass; cards and code wells retain their reading surfaces. */
+.ask-debug { --modal-w: 720px; height: min(820px, calc(100dvh - 32px)); max-height: none; font: var(--fw-regular) var(--fz-sm)/1.6 var(--sans); background: var(--glass-pop-bg); border-color: var(--line-2); box-shadow: var(--glass-pop-shadow); backdrop-filter: blur(var(--glass-blur)) saturate(var(--glass-saturation)); }
 /* The shared toast host teleports into this native dialog; reserve its space. */
 .ask-debug :deep(.editor-toasts) { position: static; flex: none; width: auto; max-height: 35%; margin: 0 12px; overflow: auto; }
 .debug-gap { flex: 1; }
@@ -327,7 +325,7 @@ onBeforeUnmount(() => { clearTimeout(copiedTimer); dialog.value?.close(); });
 .debug-picker .menu-meta { padding-left: 8px; }
 @keyframes debug-breathe { 50% { opacity: .3; } }
 
-.debug-scroll { flex: 1; min-height: 0; padding: 16px 20px 20px; overflow: auto; overscroll-behavior: contain; background: var(--chrome); }
+.debug-scroll { flex: 1; min-height: 0; padding: 16px 20px 20px; overflow: auto; overscroll-behavior: contain; }
 .debug-card { background: var(--raised); border-radius: var(--r3); box-shadow: var(--sh-lip); }
 .debug-sec { margin-top: 20px; }
 .debug-sh { display: flex; flex-wrap: wrap; align-items: center; gap: 4px 8px; min-height: 22px; margin: 0 2px 8px; }
@@ -338,7 +336,7 @@ onBeforeUnmount(() => { clearTimeout(copiedTimer); dialog.value?.close(); });
 .debug-hint { position: relative; display: inline-grid; flex: none; place-items: center; width: 20px; height: 20px; color: var(--fg-3); border-radius: 6px; cursor: help; }
 .debug-hint:is(:hover, :focus-visible) { color: var(--fg); background: var(--hover); outline: none; }
 .debug-hint > .ico { --ico: var(--ico-sm); }
-.debug-pop { position: absolute; top: calc(100% + 6px); left: -8px; z-index: 5; display: none; width: min(288px, calc(100vw - 48px)); padding: 8px 10px; color: var(--fg-2); font: var(--fw-regular) var(--fz-xs)/1.6 var(--sans); text-align: left; white-space: normal; background: var(--hover); border: 1px solid var(--line-2); border-radius: var(--r3); box-shadow: var(--sh-2); cursor: default; }
+.debug-pop { position: absolute; top: calc(100% + 6px); left: -8px; z-index: 5; display: none; width: min(288px, calc(100vw - 48px)); padding: 8px 10px; color: var(--fg-2); font: var(--fw-regular) var(--fz-xs)/1.6 var(--sans); text-align: left; white-space: normal; background: var(--glass-pop-bg); border: 1px solid var(--line-2); border-radius: 10px; box-shadow: var(--glass-pop-shadow); backdrop-filter: blur(var(--glass-blur)) saturate(var(--glass-saturation)); cursor: default; }
 .debug-hint[data-end] .debug-pop { right: -8px; left: auto; }
 .debug-hint:is(:hover, :focus-visible) .debug-pop { display: block; }
 .debug-inline { --ico: var(--ico-xs); vertical-align: -1px; }

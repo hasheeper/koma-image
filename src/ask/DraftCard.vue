@@ -208,7 +208,7 @@ function discard() { closeMenu(); ask.ignoreDraft(); }
 .draft-apply-more .ico { transform: rotate(90deg); }
 .joined { margin-bottom: 0; background: transparent; border: 0; border-radius: 14px 14px 0 0; }
 /* Measured coordinates must not transition, including under the global reduced-motion duration. */
-.draft-apply-menu { width: min(184px, calc(100vw - 16px)); transition-property: none; }
+.draft-apply-menu { width: min(184px, calc(100vw - 16px)); background: var(--glass-pop-bg); border-radius: 10px; box-shadow: var(--glass-pop-shadow); backdrop-filter: blur(var(--glass-blur)) saturate(var(--glass-saturation)); transition-property: none; }
 .draft-aligned { flex: none; padding: 0 var(--draft-r) 8px var(--draft-b); color: var(--warn); font-size: var(--fz-xs); }
 .draft-body { display: grid; flex: 0 1 auto; grid-auto-rows: max-content; min-height: 0; max-height: min(44dvh, 340px); padding: 6px 0 10px; overflow-y: auto; overscroll-behavior: contain; border-top: 1px solid var(--line); }
 .draft-body.more { -webkit-mask-image: linear-gradient(to bottom, #000 calc(100% - 28px), transparent); mask-image: linear-gradient(to bottom, #000 calc(100% - 28px), transparent); }

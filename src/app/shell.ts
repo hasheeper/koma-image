@@ -13,7 +13,6 @@ export function createShell(router: AppRouter) {
     importing: false,
     drop: false,
     swap: false,
-    menuOpen: false,
     library: "history" as "history" | "favorites",
   });
   const chat = reactive({
@@ -25,7 +24,6 @@ export function createShell(router: AppRouter) {
   function resize() {
     narrow.value = media.matches;
     if (!media.matches) {
-      image.menuOpen = false;
       chat.sidebarOpen = false;
       tags.cartOpen = false;
     }

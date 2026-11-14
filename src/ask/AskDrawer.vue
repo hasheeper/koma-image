@@ -29,12 +29,23 @@ const drawingService = useDrawing().drawing, chatService = useChat().chat;
 const { router, image, chat } = useShell();
 const presentation = useAskPresentation();
 const { shown, mode, home, mobile, fullscreen, dock, canDock, latest, tools, compactDraft, completed, summary, outcome, dismiss } = presentation;
+const canvas = {
+  active: computed(() => !!presentation.dockedCanvas.value),
+  /* The shown pane stays through the tray's exit, so ASK leaves with it rather than blanking first. */
+  panel: computed(() => presentation.dockedCanvas.value?.shownPanel.value),
+  compact: presentation.canvas.compact,
+};
+const panelShown = computed(() => shown.value && (!canvas.active.value || canvas.panel.value === 'ask'));
 const joinedDraft = computed(() => !!ask.draftPlan.value && (home.value || mode.value !== 'ready'));
-const inlineWindow = computed(() => !home.value && !mobile.value && !!ask.inline.value);
+const inlineWindow = computed(() => !canvas.active.value && !home.value && !mobile.value && !!ask.inline.value);
 // TAGS keeps an expanded ASK in the right-hand slot it shares with the Prompt cart.
 const pinned = computed(() => router.route.value.workspace === 'tags' && !mobile.value && !ask.retrospects.host.value);
-const movable = computed(() => !home.value && !mobile.value && !ask.inline.value && !pinned.value);
-const behindImageMenu = computed(() => mobile.value && router.route.value.workspace === 'image' && image.menuOpen && !shown.value);
+const movable = computed(() => !canvas.active.value && !home.value && !mobile.value && !ask.inline.value && !pinned.value);
+/* A workspace switch only carries ASK to its new host: the layers' morph entrance is for opening and
+   changing mode, so after arriving the shown layer completes at once until the mode next changes. */
+const arriving = shallowRef(false);
+watch(() => router.route.value.workspace, () => { arriving.value = true; }, { flush: "sync" });
+watch(mode, () => { arriving.value = false; });
 const root = shallowRef<HTMLElement | null>(null),
   expanded = shallowRef(false),
   composer = shallowRef<InstanceType<typeof AskComposer> | null>(null);
@@ -43,7 +54,7 @@ function inspect(turn?: number) { debugTurn.value = turn; debugOpen.value = true
 const dropping = shallowRef(false);
 let dragDepth = 0;
 const clearDrop = () => { dragDepth = 0; dropping.value = false; };
-const acceptsInput = () => ask.visible.value && !ask.retrospects.blocksAsk();
+const acceptsInput = () => panelShown.value && !ask.retrospects.blocksAsk();
 function paste(event: ClipboardEvent) {
   if (!acceptsInput()) return;
   // Short text keeps its native insertion; CHAT's document handler must not see it.
@@ -89,12 +100,12 @@ onMounted(() => {
     place = installAskWindow(root.value, controller.signal);
   }
 });
-watch([mode, dock, fullscreen, ask.retrospects.host, ask.inline, expanded, pinned, behindImageMenu, () => router.route.value.workspace, () => image.historyOpen, () => chat.contextOpen], () => void nextTick(place), { flush: "post" });
+watch([canvas.active, mode, dock, fullscreen, ask.retrospects.host, ask.inline, expanded, pinned, () => router.route.value.workspace, () => image.historyOpen, () => chat.contextOpen], () => void nextTick(place), { flush: "post" });
 watch(ask.conversationId, clearDrop);
 watch(() => router.route.value.overlay, clearDrop);
-watch(ask.visible, visible => { if (!visible) { clearDrop(); ask.closeAttachment(); } });
+watch(panelShown, visible => { if (!visible) { clearDrop(); ask.closeAttachment(); } });
 function resize() {
-  if (mobile.value) return;
+  if (mobile.value || canvas.active.value) return;
   if (home.value) presentation.resizeHome();
   else if (!ask.inline.value) expanded.value = !expanded.value;
 }
@@ -105,12 +116,12 @@ function start(text: string) {
   void composer.value?.focus(true);
 }
 let returnFocus: HTMLElement | null = null;
-watch([shown, ask.inline], async ([visible]) => {
+watch([panelShown, ask.inline], async ([visible]) => {
   const active = document.activeElement;
   if (visible) {
     if (active instanceof HTMLElement && active !== document.body && !root.value?.contains(active)) returnFocus = active;
     await nextTick();
-    composer.value?.focus();
+    if (panelShown.value && !(canvas.active.value && canvas.compact.value)) composer.value?.focus();
   } else if (active instanceof HTMLElement && root.value?.contains(active)) {
     await nextTick();
     if (ask.visible.value || ask.retrospects.blocksAsk()) return;
@@ -129,7 +140,7 @@ watch(mode, async () => {
 onBeforeUnmount(() => { controller.abort(); ask.attach(null); });
 </script>
 <template>
-  <aside v-show="(!home || shown) && !behindImageMenu" id="askIsland" ref="root" class="ask-island" :class="{ 'ask-inline': inlineWindow && shown }" :data-mode="mode" :data-home="home && shown ? dock : undefined" :data-fullscreen="fullscreen || undefined" :data-pinned="pinned || undefined" :data-workspace="ask.retrospects.host.value ? 'retrospect' : router.route.value.workspace" :data-context-open="chat.contextOpen || undefined" :data-quiet="router.route.value.workspace === 'image' && image.state === 'busy' || undefined" :style="{ ...dimensions, '--ask-dock-w': `${presentation.dockWidth.value}px` }" aria-label="Koma ASK" :aria-describedby="home || mobile || pinned ? undefined : 'askMoveHint'">
+  <aside v-show="(!home || shown) && (!canvas.active.value || panelShown)" id="askIsland" ref="root" class="ask-island" :class="{ 'ask-inline': inlineWindow && shown }" :data-collaboration="canvas.active.value || undefined" :data-beta="presentation.canvas.enabled.value || undefined" :data-arriving="arriving || undefined" :data-mode="mode" :data-home="home && shown ? dock : undefined" :data-fullscreen="fullscreen || undefined" :data-pinned="pinned || undefined" :data-workspace="ask.retrospects.host.value ? 'retrospect' : router.route.value.workspace" :data-context-open="chat.contextOpen || undefined" :data-quiet="router.route.value.workspace === 'image' && image.state === 'busy' || undefined" :style="{ ...dimensions, '--ask-dock-w': `${presentation.dockWidth.value}px` }" aria-label="Koma ASK" :aria-describedby="home || mobile || pinned || canvas.active.value ? undefined : 'askMoveHint'">
     <button v-show="mode === 'idle'" id="askLauncher" class="ask-layer ask-launcher ask-open" :inert="mode !== 'idle'" data-ask-grip type="button" aria-label="打开 Koma ASK" aria-controls="askDrawer" aria-expanded="false" :title="pinned ? 'Koma ASK · ⌘J / Ctrl+J' : 'Koma ASK · 可拖动 · ⌘J / Ctrl+J'" @click="ask.show()"><AskMark interactive /></button>
     <div v-show="mode === 'run'" class="ask-layer ask-run" :inert="mode !== 'run'">
       <button class="ask-open ask-run-grip" data-ask-grip type="button" aria-label="展开 ASK 对话" @click="ask.show()"><AskMark thinking /><AskActivity /></button>
@@ -149,19 +160,19 @@ onBeforeUnmount(() => { controller.abort(); ask.attach(null); });
     <div v-show="mode === 'done'" class="ask-layer ask-done" :inert="mode !== 'done'">
       <button class="ask-open ask-done-grip" data-ask-grip type="button" aria-label="展开 ASK 对话" @click="ask.show()"><AppIcon name="i-check" /><span><b>已写入</b> · {{ ask.appliedDraft.value?.workspace === 'chat' ? '未发送' : '未生成' }}</span></button>
     </div>
-    <div v-show="shown" id="askDrawer" class="ask-layer ask-window" :class="{ 'ask-inline': inlineWindow, 'ask-expanded': movable && expanded }" :inert="!shown" role="dialog" :aria-modal="fullscreen" aria-label="Koma ASK" @paste="paste" @dragenter="drag" @dragover="drag" @dragleave="drag" @drop="drag">
+    <div v-show="panelShown" id="askDrawer" class="ask-layer ask-window" :class="{ 'ask-inline': inlineWindow, 'ask-expanded': movable && expanded }" :inert="!panelShown" role="dialog" :aria-modal="fullscreen" aria-label="Koma ASK" @paste="paste" @dragenter="drag" @dragover="drag" @dragleave="drag" @drop="drag">
       <header class="ask-head">
         <div class="ask-handle" :data-ask-grip="movable ? '' : undefined" :tabindex="movable ? 0 : undefined" role="group" :aria-label="movable ? '移动 ASK 窗口' : 'ASK'" :aria-describedby="movable ? 'askMoveHint' : undefined" @dblclick="resize"><AskMark :thinking="ask.running.value" /></div>
         <div class="ask-heading"><AskConversations @chosen="composer?.focus(true)" /></div>
         <div class="ask-fill" :data-ask-grip="movable ? '' : undefined" aria-hidden="true" @dblclick="resize"></div>
         <div class="ask-head-actions">
           <button v-if="inlineWindow" class="btn btn-quiet btn-xs" type="button" @click="ask.expand()">展开</button>
-          <button v-else-if="!mobile && !pinned && (!home || canDock)" class="ibtn" type="button" :aria-label="(home ? dock === 'full' : expanded) ? '还原 ASK 窗口' : '放大 ASK 窗口'" :title="(home ? dock === 'full' : expanded) ? '还原' : '放大'" @click="resize"><AppIcon :name="(home ? dock === 'full' : expanded) ? 'i-shrink' : 'i-expand'" /></button>
+          <button v-else-if="!canvas.active.value && !mobile && !pinned && (!home || canDock)" class="ibtn" type="button" :aria-label="(home ? dock === 'full' : expanded) ? '还原 ASK 窗口' : '放大 ASK 窗口'" :title="(home ? dock === 'full' : expanded) ? '还原' : '放大'" @click="resize"><AppIcon :name="(home ? dock === 'full' : expanded) ? 'i-shrink' : 'i-expand'" /></button>
           <AskMore @debug="inspect()" />
-          <button class="ibtn" type="button" aria-label="收起 ASK" title="收起" @click="ask.hide()"><svg class="ico" viewBox="0 0 24 24" aria-hidden="true"><path d="M5 12h14" /></svg></button>
+          <button v-if="!canvas.active.value" class="ibtn" type="button" aria-label="收起 ASK" title="收起" @click="ask.hide()"><svg class="ico" viewBox="0 0 24 24" aria-hidden="true"><path d="M5 12h14" /></svg></button>
         </div>
       </header>
-      <AskStream :active="shown" @start="start" @focus="composer?.focus(true)" />
+      <AskStream :active="panelShown" @start="start" @focus="composer?.focus(true)" />
       <div class="ask-bottom">
         <AskRetrospectBar /><AskTodos />
         <div class="ask-compose-panel" :class="{ 'has-draft': joinedDraft }">
@@ -175,7 +186,7 @@ onBeforeUnmount(() => { controller.abort(); ask.attach(null); });
     </div>
     <Teleport :to="!home && mode === 'ready' && compactDraft ? '#askCompactDraft' : '#askFullDraft'" defer><DraftCard :compact="!home && mode === 'ready'" :joined="joinedDraft" @review="ask.show()" /></Teleport>
     <div class="sr-only" role="status" aria-live="polite"><span :key="ask.announce.value.id">{{ ask.announce.value.text }}</span></div>
-    <span v-if="!home && !mobile && !pinned" id="askMoveHint" class="sr-only">拖动图标或标题栏移动；Alt 加方向键移动，Alt 加 Home 归位。⌘J 或 Ctrl+J 展开或收起。</span>
+    <span v-if="!home && !mobile && !pinned && !canvas.active.value" id="askMoveHint" class="sr-only">拖动图标或标题栏移动；Alt 加方向键移动，Alt 加 Home 归位。⌘J 或 Ctrl+J 展开或收起。</span>
   </aside>
   <AskDebug v-if="debugOpen" :turn="debugTurn" @close="debugOpen = false" />
 </template>
@@ -314,5 +325,16 @@ html[data-home-vt] .ask-island[data-home]::before { opacity: 0; }
 }
 body[data-tag-cart="open"] .ask-island[data-pinned]:not([data-mode="exp"]) { top: calc(var(--bar-h) + 18px); right: 18px; }
 .ask-island[data-pinned] :is(.ask-handle, .ask-fill) { cursor: default; }
+/* Canvas collaboration BETA: HOME's half dock and the TAGS slot take the tray's glass, 16px corners
+   and 8px seams; the TAGS launcher becomes a corner island. Full-screen docks stay solid. */
+.ask-island[data-beta][data-workspace="home"][data-home="half"] { --ask-glass: var(--glass-bg); top: 8px; right: 8px; bottom: 8px; border-radius: 16px; }
+.ask-island[data-beta][data-workspace="home"][data-home="half"]::before { box-shadow: inset 0 1px 0 var(--glass-edge), inset 0 0 0 1px var(--line-2); backdrop-filter: blur(var(--glass-blur)) saturate(var(--glass-saturation)); }
+.ask-island[data-beta][data-pinned][data-mode="exp"] { --ask-glass: var(--glass-bg); right: 8px; bottom: 8px; background: var(--glass-bg); border-radius: 16px; box-shadow: inset 0 1px 0 var(--glass-edge), 0 0 0 1px var(--line-2), var(--sh-1); backdrop-filter: blur(var(--glass-blur)) saturate(var(--glass-saturation)); }
+.ask-island[data-beta][data-workspace="tags"][data-mode="idle"] { border-radius: 12px; }
 @media (prefers-reduced-motion: reduce) { .ask-island:is([data-home], [data-fullscreen]), .ask-island:is([data-home], [data-fullscreen])::before { transition: none; } }
+.ask-island[data-collaboration] { position: absolute; inset: 0; width: 100%; height: 100%; max-height: none; border-radius: 16px; background: transparent; box-shadow: none; backdrop-filter: none; transition: none; }
+.ask-island[data-collaboration] .ask-layer { animation: none; }
+/* Zero-length rather than none: the layer keeps its animation name, so leaving this state never restarts it. */
+.ask-island[data-arriving] .ask-layer { animation-duration: 0s; animation-delay: 0s; }
+.ask-island[data-collaboration] :is(.ask-handle, .ask-fill) { cursor: default; }
 </style>

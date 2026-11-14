@@ -118,22 +118,16 @@ test('HOME empty state preserves ASK versus background image paste',async()=>{
   } finally {await clean(t);}
 });
 
-test("real directory, three layouts and responsive prints",async()=>{
+test("HOME directory mount, layout selection and saved previews survive refresh",async()=>{
   const t=await setup();const {page}=t;
   try {
     await page.getByRole('button',{name:'挂载企划目录',exact:true}).first().click();
     await page.waitForFunction(()=>bridge.phase.value==='active');assert.equal(await page.locator('.home-settings .directory-chip span').innerText(),'home-collab');
     await page.getByRole('button',{name:'关闭企划集',exact:true}).click();
-    {
-      const width = 1440;
-      await page.setViewportSize({width,height:900});
-      await page.waitForFunction(mode=>document.querySelector('.home-finals').dataset.layout===mode,width<=860?'cols':'rows');
-      assert.equal(await page.locator('.home-finals').getAttribute('data-layout'),width<=860?'cols':'rows');
-      for(const [name,mode] of [['行对齐','rows'],['列对齐','cols'],['拼图','mosaic']]) {
-        await page.getByRole('button',{name,exact:true}).click();await page.waitForFunction(mode=>document.querySelector('.home-finals').dataset.layout===mode,mode);
-      }
-      await page.evaluate(()=>home.store.setLayout(null));
+    for(const [name,mode] of [['行对齐','rows'],['列对齐','cols'],['拼图','mosaic']]) {
+      await page.getByRole('button',{name,exact:true}).click();await page.waitForFunction(mode=>document.querySelector('.home-finals').dataset.layout===mode,mode);
     }
+    await page.evaluate(()=>home.store.setLayout(null));
     await page.getByRole('button',{name:'拼图',exact:true}).click();await page.waitForFunction(()=>home.snapshot().preferences.layout==='mosaic');await page.evaluate(()=>home.store.flush());await page.reload();await bind(page);
     await page.waitForFunction(()=>document.querySelector('.home-finals').dataset.layout==='mosaic');assert.equal(await page.locator('.home-print').count(),9);
     assert.equal(await page.evaluate(()=>drawing.snapshot().history.length),0);

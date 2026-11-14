@@ -208,7 +208,7 @@ test('ASK continued anchor: EDIT follow-ups and forks retain the same full image
       assert.ok(state.conversation_history.retained_verbatim.includes('T1'));
     }
     assert.equal(calls.length,4,'one visual tool round, then two ordinary requests');
-    assert.match(calls.at(-1).body.messages[0].content,/retained_verbatim.*prompt \/ negative.*无需.*get_meta/);
+    assert.match(calls.at(-1).body.messages[0].content,/retained_verbatim[\s\S]*不重复调 `get_meta`/);
     await page.evaluate(id=>ask.forkTurn(id),source.turn);
     llm.push(textReply('分支使用同一组参数。'));
     await page.locator('#askPrompt').fill('同样罗列调整方案');await submitAsk(page);

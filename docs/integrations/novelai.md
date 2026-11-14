@@ -1,6 +1,6 @@
 # NovelAI 官方接入与模型能力
 
-更新：2026-10-29。官方 API 作为独立 `nai-official-v1` Profile；用户单独添加连接和 Key。本文区分已实现的请求与界面、真实只读验证、尚未接入的能力和真实生成待验项。NAI 适配发布与线上页面核验见[发布记录](../archive/releases/2026-10-28-home-edit-nai-release-verification.md)，历史接口来源见[归档](../archive/2026-10-25/README.md)。
+更新：2026-11-14。官方 API 作为独立 `nai-official-v1` Profile；用户单独添加连接和 Key。本文区分已实现的请求与界面、真实只读验证、尚未接入的能力和真实生成待验项；接口来源与核验日期集中在[来源与验证边界](#来源与验证边界)。
 
 ## 适配结论
 
@@ -50,7 +50,7 @@ IMAGE／EDIT 的原字符小计位置改为 token 数，悬停／辅助阅读显
 
 参数导入沿用 PNG 文本／压缩文本、JPEG、NAI／WebUI 和对照勾选；新增官方 `stealth_pngcomp` Alpha LSB 隐藏元数据读取，解压和像素分配有上限。可见字段优先，隐藏数据补足缺失字段；损坏隐藏数据不丢弃正常文本参数。外部 PNG 中的 `reference_image_multiple` 按配对强度、提取量、归一化和 V4.5 型号恢复为可勾选的「参考」项，仅点击导入后经数据租约保存至现有资源／编码缓存。只恢复 PNG 内实际附带的编码，不能从成图反推参考原图或 Precise 图片。编码型号不匹配或损坏时禁用该项，普通参数仍可导入；只编码参考锁定提取量。导入 Vibe 保留当前 Precise 配置，历史、备份及 `.naiv4vibe` 链路继续共用原缓存。结果「去除元数据」仍只删除文本、EXIF 与时间块，不重编码 Alpha 像素。
 
-本轮实现与模拟／静态产物检查见[收口核验](../archive/nai/2026-10-28-nai-cost-input-import-verification.md)。
+本轮实现与模拟／静态产物检查见[来源与验证边界](#来源与验证边界)。
 
 ## 型号与模式覆盖
 
@@ -68,7 +68,7 @@ Full 与 Curated 主要是训练数据覆盖和取舍不同，并不是「收费
 
 **V5 Full 的 Effort 已接入 High／Medium**。High 使用常规模型；Medium 使用独立的 `nai-diffusion-5-full-medium`，不是只改步数。普通绘图模型菜单合并显示 V5 Full，在模型框下方的分段切档；供应商模型页仍分别管理两种真实 ID 的来源，只有具备对应来源才能切换。额度不足或来源消失不会将 Medium 静默降为 High。Curated／V4.5 不显示 Effort。
 
-官方普通重绘已按操作映射到四个 `-inpainting` 型号；Medium 保留 14 步、Euler Ancestral、自定义负向与 Rescale 约束。型号映射、局部强度与参考边界参考官网公开客户端；4× 放大的 multipart 字段另与公开第三方 [novelai-python](https://github.com/LlmKira/novelai-python) 核对。虽然客户端枚举包含 V5 Curated 重绘名称，实际映射使用 V4.5 Curated；SDK 也明确指出 V5 Curated 的独立重绘接口不存在。本项目不声明该组合，不将请求静默换成 V4.5，用户可以在重绘菜单中明确选择 V4.5 Curated 或其他支持的型号。接口依据和验证边界见[基础编辑适配](../archive/nai/2026-10-27-nai-basic-edit-verification.md)。
+官方普通重绘已按操作映射到四个 `-inpainting` 型号；Medium 保留 14 步、Euler Ancestral、自定义负向与 Rescale 约束。型号映射、局部强度与参考边界参考官网公开客户端；4× 放大的 multipart 字段另与公开第三方 [novelai-python](https://github.com/LlmKira/novelai-python) 核对。虽然客户端枚举包含 V5 Curated 重绘名称，实际映射使用 V4.5 Curated；SDK 也明确指出 V5 Curated 的独立重绘接口不存在。本项目不声明该组合，不将请求静默换成 V4.5，用户可以在重绘菜单中明确选择 V4.5 Curated 或其他支持的型号。接口依据和验证边界见[来源与验证边界](#来源与验证边界)。
 
 ## V4.5 与 V5 的功能差异
 
@@ -115,7 +115,7 @@ Full 与 Curated 主要是训练数据覆盖和取舍不同，并不是「收费
 - 单次调用使用全应用任务锁、提交前选源和余额检查；明确 Anlas 不足才顺位到另一官方来源，未知余额保持优先级，提交后失败／取消不重试。结果归发起画板，保留当前查看图；图片、参数与历史处理完成后才释放任务槽。
 - 结果记录工具、参数、实际尺寸、来源身份及独立 `sourceRecipe`，不伪造生成 Seed。所有结果保留在 EDIT，不自动进入 IMAGE 历史；CHAT 来源保持显式回传，收藏与 Slate 继续使用原图和既有路径。来源为绘图配方时可恢复该配方，工具参数不冒充生成参数。
 
-依据为[官方工具文档](https://docs.novelai.net/en/image/directortools)、[公开接口 Schema](https://image.novelai.net/docs/doc.json)与当日公开客户端；模拟和界面检查见[接入核验](../archive/nai/2026-10-28-director-tools-verification.md)。Pixel Snap 不在本轮六项工具范围内；真实效果与实际扣费仍待单独核验。
+依据为[官方工具文档](https://docs.novelai.net/en/image/directortools)、[公开接口 Schema](https://image.novelai.net/docs/doc.json)与当日公开客户端；模拟和界面检查见[来源与验证边界](#来源与验证边界)。Pixel Snap 不在本轮六项工具范围内；真实效果与实际扣费仍待单独核验。
 
 ## 普通 Enhance
 
@@ -128,7 +128,7 @@ EDIT 的图生图表单提供 Enhance 开关，默认关闭；仅准确映射到
 - 结果宽高必须符合请求，完整记录原词文、有效词文、实际 Seed、强度／噪声、倍率与档位，保留编辑版本并可直接收藏／交付 Slate，不自动进入 IMAGE 历史。失败、取消或尺寸错误不写入结果、不重试；额度和任务锁规则不变。
 - 标准网关未声明 Enhance 能力，不将增强请求降级到普通图生图或丢弃倍率。多个官方来源仍沿用原优先级和余额规则。
 
-公开客户端依据与普通倍率的本地验证见[Enhance 核验](../archive/nai/2026-10-28-nai-enhance-verification.md)。
+公开客户端依据与普通倍率的本地验证见[来源与验证边界](#来源与验证边界)。
 
 ### V5 Max Enhance
 
@@ -139,7 +139,7 @@ V5 Full High／Medium／Curated 在同一个倍率下拉框中提供 `Max`，沿
 - Max 沿用原有效提示词，不追加普通 Enhance 的 `-2::upscaled, blurry::`。Medium 固定设置继续生效；快照记录 `enhanceScale: "max"`、实际尺寸与实际 Seed。
 - Max 输出可以不对齐 64 像素，下载／收藏／Slate 交付保留真实像素。普通图生图／重绘的 64 像素底图约束仍适用，继续编辑此类结果须先调整尺寸，不静默缩放。
 
-Max 属于带重绘的增强，画面可能随强度变化，不承诺无损或免费。实现与模拟验证见[Max 核验](../archive/nai/2026-10-28-nai-max-enhance-verification.md)，真实效果和实际消耗待单独核验。
+Max 属于带重绘的增强，画面可能随强度变化，不承诺无损或免费。实现与模拟验证见[来源与验证边界](#来源与验证边界)，真实效果和实际消耗待单独核验。
 
 ## 聚焦重绘（Focused Inpainting）
 
@@ -152,7 +152,7 @@ EDIT 工具栏「重绘 ⌄」的箭头菜单提供普通／聚焦二选一，�
 - 配置归各编辑画板，同板同尺寸换图保留框和蒙版，不同尺寸清空几何；回看旧版本不复活清空的框。普通重绘关闭聚焦后恢复全图请求。Photopea／文件导入的蒙版共用相同校验。
 - 处理使用原有任务锁、选源、额度和取消规则；标准网关未声明该处理协议，不能降级或静默丢弃。失败、取消、返回尺寸不符均不保存版本、不重试。结果保留原尺寸 EDIT 版本并可直接收藏／交付 Slate，不自动进入 IMAGE 历史；记录 `inpaintFocus`，不保存底图／蒙版字节。
 
-依据为[官方 Inpainting 文档](https://docs.novelai.net/en/image/inpaint)及当前公开客户端的裁切／放大实现；代码和本地模拟验证见[聚焦重绘核验](../archive/nai/2026-10-28-focused-inpaint-verification.md)。没有真实收费生成验收结论。
+依据为[官方 Inpainting 文档](https://docs.novelai.net/en/image/inpaint)及当前公开客户端的裁切／放大实现；代码和本地模拟验证见[来源与验证边界](#来源与验证边界)。没有真实收费生成验收结论。
 
 ## Anime／Furry 模式
 
@@ -178,7 +178,7 @@ Furry 模式只在有效基础提示词首位补充 `fur dataset`，原文不变
 - 不提供服务端缓存，请求固定 `cache: false`、`optimize: false`。「去除元数据」在本机删除结果 PNG 的文本、EXIF 与时间块，不重编码、不改像素，透明结果保留 Alpha。编辑器提供 Guidance／Guidance Rescale，继承来源图片的 `cfgRescale` 或 `cfg_rescale`，缺失时为 0；编辑结果及回到绘图页复用均保留实际 Rescale。EDIT 已复用绘图页的模型、模式、预设、角色和底部抽屉；原始词文与自动标签分别保留，结果记录实际提交 Seed 与完整配置。详见[编辑契约](../workspaces/edit.md#编辑表单与生成)。
 - ASK 接收新字段并可从历史审阅恢复；模型知识已将 Complexity 修正为画面复杂度。已有工具权限、草稿确认和不自动生成的边界保持。
 
-基础编辑的官网输入范围为：Img2Img `strength` 0.01–0.99、`noise` 0–0.99；Inpaint 强度 0.01–1，低于 1 写入嵌套 `img2img`，等于 1 则省略。步数为 1–50 整数，Seed 使用实际 uint32。公开 Schema 未完整声明这些字段的最小／最大值，项目依据当前官网客户端设置前端和出站校验，不将滑杆范围宣称为服务端硬限制。尤其 Guidance 的 10 只是滑杆上限；Koma 的 8MB 文件和绘图 2048 单边属于产品限制。当前核对依据与本地模拟见[参数边界收口](../archive/nai/2026-10-28-nai-parameters-verification.md)。
+基础编辑的官网输入范围为：Img2Img `strength` 0.01–0.99、`noise` 0–0.99；Inpaint 强度 0.01–1，低于 1 写入嵌套 `img2img`，等于 1 则省略。步数为 1–50 整数，Seed 使用实际 uint32。公开 Schema 未完整声明这些字段的最小／最大值，项目依据当前官网客户端设置前端和出站校验，不将滑杆范围宣称为服务端硬限制。尤其 Guidance 的 10 只是滑杆上限；Koma 的 8MB 文件和绘图 2048 单边属于产品限制。当前核对依据与本地模拟见[来源与验证边界](#来源与验证边界)。
 
 ## Vibe 与精确参考边界
 
@@ -196,7 +196,7 @@ Precise 用 Canvas 高质量插值等比缩放并居中填黑边，目标从 102
 
 参考配置随画板、编辑会话和结果参数保留，原图／缩略图与编码分别存在 `koma-image-favorites` 的 `referenceAssets`／`vibeEncodings`；普通 Koma v2 备份包含其资源闭包及编码校验，恢复不触发上游。支持官方 v1 Vibe／Bundle 的原图和编码文件导入导出；仅编码导入锁定提取量，缺当前型号编码时拒绝导入；带 Mask 或未支持的编码参数明确拒绝。Precise 使用独立的 Koma JSON 格式。外部 PNG 元数据中的 Vibe 编码通过参数导入页恢复；本机历史参数导入可恢复配置。ASK 仅接收不含图片与编码的参考摘要，不因此新增写入权限。
 
-公开字段依据与本地模拟边界见[实施核验](../archive/nai/2026-10-25-nai-references-integration.md)，前期能力勘探见[研究记录](../archive/nai/2026-10-25-nai-references-research.md)。
+参考字段的来源及模拟验证范围见[来源与验证边界](#来源与验证边界)。
 
 ## 后续工作与核验顺序
 
@@ -211,8 +211,23 @@ Precise 用 Canvas 高质量插值等比缩放并居中填黑边，目标从 102
 
 V5 的两种参考保持不开放：Precise 官方专题限定 V4.5，Vibe 的通用说明与所观察官网入口存在差异。获得进一步能力证据前，不把 V5 参考列成已确认应实现的缺口。
 
-真实收费验证须单独取得授权。后续每项检查 UI、请求、参数导入／恢复、原图字节与额度影响；不因此新增生成自动重试或付费确认。当前模拟和线上页面验证范围见[发布核验](../archive/releases/2026-10-25-nai-release-verification.md)。
+真实收费验证须单独取得授权。后续每项检查 UI、请求、参数导入／恢复、原图字节与额度影响；不因此新增生成自动重试或付费确认。线上资源与页面的历史核验见[发布证据](../archive/README.md#发布记录)。
+
+## 来源与验证边界
+
+| 日期与来源 | 已核对范围 | 不能据此声称 |
+| --- | --- | --- |
+| 2026-10-25，获授权账户只读请求 | 经本机 HTTP 传输桥访问 `image.novelai.net/user/subscription`；旧 api 主机返回 400 并指向 image 主机。有效但未订阅的 tier 0 账户仍可能有已购买余额 | 不证明浏览器 CORS、真实生成或实际扣费 |
+| 2026-10-25，官方 Schema／FAQ／订阅资料 | V5 用量百分比与 Anlas 分开；FAQ 的 100% 约等于 1730 张、23 步、约 1MP 仅为条件估计 | 不当作账户实测张数、回充速度或免费资格 |
+| 2026-10-27，缓存的官方公开客户端 | 模型映射、Img2Img／Inpaint 参数与参考边界；Upscale multipart 与公开第三方 SDK 交叉核对 | 当日在线 Schema 抓取受 TLS／超时影响，不能称为新鲜官方接口验证；未执行真实收费生成 |
+| 2026-10-28，官方公开客户端部署 `6fb7f79-40608358333-1` 及文档／Schema | Enhance／Max、手动聚焦、Director Tools、费用、输入预算与参数导入；合成图片和模拟服务验证请求、原字节／蒙版、结果尺寸、取消、锁与恢复 | 不证明真实工具效果、参考质量、缓存命中或计费 |
 
 公开参考为[图片 Schema](https://image.novelai.net/docs/doc.json)、[当前 API 文档](https://image.novelai.net/docs/index.html)、[产品说明](https://docs.novelai.net/en/image/)及 [Opus 用量 FAQ](https://docs.novelai.net/en/faq)。型号与功能依据为[Models](https://docs.novelai.net/en/image/models)、[Effort](https://docs.novelai.net/en/image/effort)、[特殊标签](https://docs.novelai.net/en/image/tags)、[角色](https://docs.novelai.net/en/image/multiplecharacters)、[精确参考](https://docs.novelai.net/en/image/precisereference)、[Vibe](https://docs.novelai.net/en/image/vibetransfer)、[文字绘制](https://docs.novelai.net/en/image/textrendering)、[质量预设](https://docs.novelai.net/en/image/qualitytags)、[负向预设](https://docs.novelai.net/en/image/undesiredcontent)、[重绘](https://docs.novelai.net/en/image/inpaint)和[Director Tools](https://docs.novelai.net/en/image/directortools)。
 
-连接、额度、型号、参数、模式、参考与基础编辑的验证记录统一见[历史索引](../archive/README.md#nai-与基础编辑)，各记录保留实际读取日期和模拟／真实边界。
+补充来源：
+
+- [订阅说明](https://docs.novelai.net/en/subscription)、[V5 Effort 公告](https://journal.novelai.net/novelai-diffusion-v5-full-effort-toggle/)、[Strength／Noise](https://docs.novelai.net/en/image/strengthnoise)。
+- 2026-10-27 核对的[官方模型模块](https://novelai.net/_next/static/chunks/1e943u861145k.js?dpl=32f2478-39929112768-1)；该 URL 属于历史部署，不保证长期可访问。
+- 第三方 [novelai-python Upscale](https://github.com/LlmKira/novelai-python/blob/main/src/novelai_python/sdk/ai/upscale.py) 与 [型号枚举](https://github.com/LlmKira/novelai-python/blob/main/src/novelai_python/sdk/ai/_enum.py)仅作交叉参考，不能替代官方支持或真实核验。
+
+后续调整按上文能力逐项补真实证据，不把本地近似费用、模拟成功或历史 Pages 资源核验合并成“供应商联调完成”。

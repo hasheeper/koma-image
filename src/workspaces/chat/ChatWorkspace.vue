@@ -1,11 +1,17 @@
 <script setup lang="ts">
 import WorkspaceEvolutionEntry from "../../ask/retrospect/WorkspaceEvolutionEntry.vue";
+import BoardRetrospectEntry from "../../ask/retrospect/BoardRetrospectEntry.vue";
+import { useRetrospects } from "../../ask/retrospect/use-retrospects";
 import AnnotationCard from "../../shared/annotations/AnnotationCard.vue";
 import ModelParameterInput from "../../shared/ModelParameterInput.vue";
-import { computed, shallowRef, ref, watch, nextTick, onDeactivated } from "vue";
+import { computed, shallowRef, ref, watch, nextTick, onDeactivated, onBeforeUnmount } from "vue";
 import { useShell } from "../../app/shell";
 import { useAskPresentation } from "../../ask/presentation";
-const { fullscreen: askFullscreen } = useAskPresentation();
+const { fullscreen: askFullscreen, chatCanvas: layout, selectCanvasPanel } = useAskPresentation();
+import { useAsk } from "../../app/ask";
+import { installCanvasSplitter } from "../../native/canvas-splitter";
+import PopoverMenu from "../../shared/ui/PopoverMenu.vue";
+import CanvasPanelSwitch from "../../shared/ui/CanvasPanelSwitch.vue";
 import { useChat } from "../../app/chat";
 import { usePhotopea } from "../../app/photopea.ts";
 const photopea = usePhotopea();
@@ -27,7 +33,44 @@ import WaveMark from "../../shared/WaveMark.vue";
 import ConversationList from "./ConversationList.vue";
 import ContextPanel from "./ContextPanel.vue";
 import ChatTurn from "./ChatTurn.vue";
-const annotations = useAnnotations(), fullId=shallowRef('');
+const annotations = useAnnotations(), fullId=shallowRef(''), ask = useAsk();
+/* Canvas collaboration only moves hosts: the stream, composer, context and
+   conversation remain owned by the chat service and these same components. */
+const coCreate = layout.active;
+/* The compact pane covers the stream until it is closed. */
+const compactPanel = layout.covered;
+const askHost = shallowRef<HTMLElement | null>(null), contextHost = shallowRef<HTMLElement | null>(null), canvasSplitter = shallowRef<HTMLElement | null>(null);
+const navFloat = shallowRef<HTMLElement | null>(null), accountFloat = shallowRef<HTMLElement | null>(null);
+const switchHome = shallowRef<HTMLElement | null>(null), switchSide = shallowRef<HTMLElement | null>(null);
+const switchTarget = computed(() => compactPanel.value ? switchSide.value : switchHome.value);
+const contextTarget = computed(() => coCreate.value ? contextHost.value : null);
+const contextOpen = computed(() => coCreate.value && layout.panel.value === "context");
+const contextExpanded = computed(() => coCreate.value ? contextOpen.value : shell.chat.contextOpen);
+/* Displayed pane: retained while the tray leaves, so the context dialog closes after the exit. */
+const contextShown = computed(() => coCreate.value && layout.shownPanel.value === "context");
+/* A draft applied to CHAT while ASK is showing marks the context switch until it is opened. */
+const contextUpdated = shallowRef(false);
+/* In collaboration an active evolution keeps its pill island; starting one moves into the ⋯ menu,
+   so the head never shows two identical ⋯ islands. */
+const { active: activeEvolution } = useRetrospects();
+const evolutionAvailable = computed(() => view.value.current.turns.some(t => t.versions.some(v => v.status === "done")));
+const panelOptions = computed(() => [
+  { value: "context", label: "上下文", icon: "i-layers", controls: "contextPanel", updated: contextUpdated.value },
+  { value: "ask", label: "ASK", icon: "i-ask", controls: "askDrawer" },
+]);
+watch(askHost, host => { layout.askHost.value = host; });
+onBeforeUnmount(() => { layout.askHost.value = null; });
+function selectPanel(panel: "ask" | "context") {
+  selectCanvasPanel(layout, panel);
+}
+function toggleContext() {
+  if (coCreate.value) selectPanel("context");
+  else context.value?.toggle();
+}
+watch(ask.appliedDraft, value => {
+  if (value?.workspace === "chat" && coCreate.value && layout.panel.value !== "context") contextUpdated.value = true;
+});
+watch(contextOpen, open => { if (open) contextUpdated.value = false; });
 const { chat, view } = useChat(),
   shell = useShell(),
   services = useServices(),
@@ -111,7 +154,7 @@ function newConversation() {
   prompt.value?.focus();
 }
 async function startSearch() {
-  if (shell.chat.railCollapsed && !narrow.value) rail();
+  if (shell.chat.railCollapsed && !coCreate.value) rail();
   searching.value = true;
   await nextTick();
   search.value?.focus();
@@ -173,7 +216,7 @@ function show(id: string) {
 }
 function place(pop: HTMLElement | null, button: HTMLElement) {
   if (!pop) return;
-  if (narrow.value) {
+  if (coCreate.value && narrow.value) {
     pop.removeAttribute("style");
     delete pop.dataset.placement;
     return;
@@ -262,6 +305,13 @@ watch(
   },
 );
 watch([() => view.value.ready, ui.imageDelivery], () => void claim());
+watch(coCreate, () => {
+  shell.chat.sidebarOpen = false;
+  shell.chat.contextOpen = false;
+  if (!coCreate.value) contextUpdated.value = false;
+  modelPop.value?.hidePopover();
+  paramPop.value?.hidePopover();
+});
 function rail() {
   shell.chat.railCollapsed = !shell.chat.railCollapsed;
   if (shell.chat.railCollapsed) void endSearch();
@@ -299,6 +349,7 @@ life.whileActive((signal) => {
   window.visualViewport?.addEventListener("scroll", viewport, { signal });
   window.addEventListener("resize", viewport, { signal });
   viewport();
+  if (canvasSplitter.value) installCanvasSplitter(canvasSplitter.value, app, () => layout.ratio.value, layout.setRatio, signal);
   const observer = new ResizeObserver(() =>
     app.style.setProperty(
       "--composer-height",
@@ -309,12 +360,10 @@ life.whileActive((signal) => {
   window.addEventListener(
     "keydown",
     (e) => {
-      if (
-        e.key === "Escape" &&
-        !document.querySelector("dialog[open],:popover-open") &&
-        shell.chat.sidebarOpen
-      )
-        closeSidebar();
+      /* The embedded context stays a non-modal dialog, so only modal layers hold Escape. */
+      const covered = document.querySelector(coCreate.value ? "dialog:modal,:popover-open" : "dialog[open],:popover-open");
+      if (e.key === "Escape" && !covered && shell.chat.sidebarOpen) closeSidebar();
+      else if (e.key === "Escape" && !covered && coCreate.value && layout.compact.value && layout.panel.value && !e.defaultPrevented) layout.panel.value = null;
       if (e.key === "Tab" && shell.chat.sidebarOpen) {
         const els = [
           ...document.querySelectorAll<HTMLElement>(
@@ -405,9 +454,9 @@ onDeactivated(() => {
 });
 </script>
 <template>
-  <div class="chat-app" id="chatApp" data-workspace-root="chat" :inert="askFullscreen || !!photopea.task.value">
-    <header class="topbar">
-      <WorkspaceSwitch workspace="chat" /><button
+  <div class="chat-app" id="chatApp" data-workspace-root="chat" :class="{ 'chat-collaboration': coCreate, 'canvas-collaboration': coCreate, 'chat-panel-collapsed': coCreate && !layout.trayHeld.value, 'chat-panel-compact': compactPanel, 'chat-drawer-open': coCreate && shell.chat.sidebarOpen }" :style="coCreate ? { '--canvas-ask-width': `${layout.ratio.value * 100}%` } : undefined" :inert="askFullscreen || !!photopea.task.value">
+    <header class="topbar" :hidden="coCreate">
+      <Teleport :to="navFloat || 'body'" :disabled="!coCreate || !navFloat"><WorkspaceSwitch workspace="chat" :compact="coCreate" /></Teleport><button
         class="ibtn rail-toggle"
         type="button"
         :aria-label="shell.chat.railCollapsed ? '展开侧栏' : '收起侧栏'"
@@ -418,31 +467,22 @@ onDeactivated(() => {
         <AppIcon name="i-sidebar" />
       </button>
       <div class="topbar-menu">
-        <div class="topbar-end" role="group" aria-label="工具"><WorkspaceEvolutionEntry :available="view.current.turns.some(t => t.versions.some(v => v.status === 'done'))" /></div>
-        <button
-          ref="menu"
-          class="ibtn chat-menu"
-          type="button"
-          aria-label="打开会话与工具"
-          :aria-expanded="shell.chat.sidebarOpen"
-          aria-controls="chatSidebar"
-          @click="shell.chat.sidebarOpen = !shell.chat.sidebarOpen"
-        >
-          <AppIcon name="i-menu" />
-        </button>
+        <div class="topbar-end" role="group" aria-label="工具"><WorkspaceEvolutionEntry v-if="!coCreate" :available="evolutionAvailable" /></div>
       </div>
-      <div class="topbar-account">
+      <Teleport :to="accountFloat || 'body'" :disabled="!coCreate || !accountFloat"><div class="topbar-account">
         <WalletDisplay :quota="view.quota" :model="view.model" /><ThemeToggle />
-      </div>
+      </div></Teleport>
     </header>
     <div class="chat-layout">
+      <Transition name="chat-backdrop">
       <button
+        v-show="coCreate && shell.chat.sidebarOpen"
         class="chat-sidebar-backdrop"
         type="button"
         aria-label="关闭侧栏"
-        :hidden="!shell.chat.sidebarOpen"
         @click="closeSidebar"
       ></button>
+      </Transition>
       <aside class="chat-sidebar" id="chatSidebar" aria-label="会话与工具">
         <div class="sidebar-actions">
           <button
@@ -484,12 +524,29 @@ onDeactivated(() => {
       </aside>
       <main
         class="chat-workspace"
-        :inert="narrow && shell.chat.sidebarOpen"
+        :inert="(coCreate && shell.chat.sidebarOpen) || compactPanel"
         :data-empty="!c.turns.length"
+        :data-receded="compactPanel || undefined"
       >
+        <header v-show="coCreate" class="chat-canvas-head canvas-recede-hide">
+          <div ref="navFloat" class="chat-canvas-nav"></div>
+          <button ref="menu" class="chat-canvas-conversation" type="button" aria-label="打开会话列表" aria-controls="chatSidebar" :aria-expanded="shell.chat.sidebarOpen" @click="shell.chat.sidebarOpen = !shell.chat.sidebarOpen">
+            <AppIcon name="i-sidebar" /><span>{{ c.turns.length ? c.title : "新对话" }}</span>
+          </button>
+          <div class="chat-canvas-evolution"><BoardRetrospectEntry v-if="coCreate" /></div>
+          <PopoverMenu id="chatCanvasOptions" label="对话画布选项" side="right" compact menu-class="canvas-options-menu" pointer-focus="menu">
+            <template #trigger="{ open, toggle }"><button class="ibtn chat-canvas-options" type="button" aria-label="对话画布选项" aria-haspopup="menu" :aria-expanded="open" @click="toggle"><AppIcon name="i-more" /></button></template>
+            <template #default="{ close }">
+              <button v-if="!activeEvolution && evolutionAvailable" class="menu-item" type="button" role="menuitem" @click="close(); ask.startEvolution()"><AppIcon name="i-branch" /><span class="menu-label">请 ASK 发起演进</span></button>
+              <div ref="accountFloat" class="chat-canvas-account"></div>
+            </template>
+          </PopoverMenu>
+          <div ref="switchHome" class="chat-switch-home"></div>
+        </header>
         <div
           ref="scroll"
           class="chat-scroll"
+          :class="{ 'canvas-recede': coCreate }"
           id="chatScroll"
           tabindex="0"
           aria-label="绘图消息"
@@ -517,6 +574,7 @@ onDeactivated(() => {
         </div>
         <button
           class="ibtn latest-button"
+          :class="{ 'canvas-recede-hide': coCreate }"
           type="button"
           aria-label="查看最新结果"
           :hidden="!latest || !c.turns.length"
@@ -612,10 +670,10 @@ onDeactivated(() => {
                 !view.context.dropped.length
               "
               aria-label="上下文"
-              :aria-expanded="shell.chat.contextOpen"
+              :aria-expanded="contextExpanded"
               :class="{ 'has-overflow': view.context.dropped.length }"
               :data-overflow="view.context.dropped.length || ''"
-              @click="context?.toggle()"
+              @click="toggleContext"
             >
               <AppIcon name="i-layers" /><span>{{
                 view.context.turnIds.length
@@ -687,6 +745,7 @@ onDeactivated(() => {
         <div
           v-if="!c.turns.length"
           class="chat-starters"
+          :class="{ 'canvas-recede-hide': coCreate }"
           role="group"
           aria-label="开始方式"
           :data-quiet="!!c.prompt.trim() || !!c.attachments.length || undefined"
@@ -705,9 +764,20 @@ onDeactivated(() => {
           </button>
         </div>
       </main>
-      <ContextPanel ref="context" @view="show" />
+      <div v-show="coCreate && layout.panel.value && !layout.compact.value" ref="canvasSplitter" class="chat-canvas-splitter" role="separator" tabindex="0" aria-orientation="vertical" aria-label="调整对话侧栏宽度" aria-valuemin="25" aria-valuemax="45" :aria-valuenow="Math.round(layout.ratio.value * 100)"></div>
+      <Transition name="canvas-tray" :css="layout.trayMotion.value" @after-leave="layout.settleTray()">
+      <aside v-show="coCreate && layout.panel.value" class="chat-canvas-sidebar" aria-label="对话创作侧栏">
+        <header v-show="layout.compact.value" class="chat-sidebar-head canvas-tray-head" :class="{ 'is-folded': layout.headFolded.value }"><div class="canvas-sheet-actions"><button class="ibtn" type="button" aria-label="收起对话面板" @click="layout.panel.value = null"><AppIcon name="i-close" /></button><button class="ibtn canvas-fold" type="button" aria-label="收起顶栏" @click="layout.toggleHead($event)"><AppIcon name="i-chevron" /></button></div><div ref="switchSide"></div><button v-show="layout.headFolded.value" class="canvas-head-handle" type="button" aria-label="展开顶栏" @click="layout.toggleHead($event)"></button></header>
+        <div class="chat-sidebar-content" :data-pane-motion="layout.paneMotion.value || undefined">
+          <div ref="askHost" class="chat-canvas-ask"></div>
+          <div ref="contextHost" v-show="contextShown" class="chat-canvas-context"></div>
+        </div>
+      </aside>
+      </Transition>
+      <Teleport :to="contextTarget || 'body'" :disabled="!contextTarget"><ContextPanel ref="context" :embedded="coCreate" :open="contextShown" @view="show" @close="layout.panel.value = null" /></Teleport>
     </div>
   </div>
+  <Teleport :to="switchTarget || 'body'" :disabled="!switchTarget"><CanvasPanelSwitch v-show="coCreate" label="对话侧栏内容" :options="panelOptions" :selected="layout.panel.value" @select="selectPanel($event as 'ask' | 'context')" /></Teleport>
   <Teleport to="body"
     ><dialog ref="lightbox" class="chat-lightbox" @close="full = ''">
       <button
@@ -722,6 +792,7 @@ onDeactivated(() => {
     <div
       ref="modelPop"
       class="menu editor-pop chat-pop model-panel"
+      :class="{ 'canvas-collaboration': coCreate }"
       popover
       role="dialog"
       aria-label="模型"
@@ -784,6 +855,7 @@ onDeactivated(() => {
     <div
       ref="paramPop"
       class="menu editor-pop chat-pop param-panel"
+      :class="{ 'canvas-collaboration': coCreate }"
       popover
       role="dialog"
       aria-label="参数"
@@ -818,6 +890,9 @@ onDeactivated(() => {
   >
 </template>
 
+<style scoped src="../../shared/canvas-motion.css"></style>
+<style scoped src="../../shared/canvas-surface.css"></style>
+<style scoped src="./chat-canvas.css"></style>
 <style scoped>
 .chat-lightbox .chat-annotate { position: absolute; bottom: 24px; left: 50%; transform: translateX(-50%); }
 </style>

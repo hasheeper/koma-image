@@ -43,6 +43,26 @@ async function setup(t){
  return {page,errors,network};
 }
 async function open(page){await page.locator('#editorPhotopea').click();await page.waitForFunction(()=>document.querySelector('.photopea-panel')&&!document.querySelector('.photopea-loading')&&!document.querySelector('.photopea-status'));}
+test('EDIT BETA retains Photopea across desktop and phone visits and returns ASK to its sidebar', async t => {
+ const {page,errors,network}=await setup(t);
+ await page.evaluate(()=>{const p=document.body.__vue_app__._instance.provides;window.presentation=p[Object.getOwnPropertySymbols(p).find(k=>k.description==='ask-presentation')];presentation.editCanvas.setEnabled(true);});
+ await page.locator('.edit-canvas-ask #askDrawer').waitFor();
+ for(const width of [1440,390]) {
+  await page.setViewportSize({width,height:844});
+  if(width===390)await page.getByRole('button',{name:'收起编辑面板'}).click();
+  await page.getByRole('button',{name:'编辑画布选项',exact:true}).click();
+  await open(page);
+  await page.evaluate(()=>{window.betaFrame??=document.querySelector('.photopea-frame iframe');});
+  assert.equal(await page.evaluate(()=>betaFrame===document.querySelector('.photopea-frame iframe')),true);
+  assert.equal(await page.locator('#askPrompt').isVisible(),false);
+  await page.getByRole('button',{name:'返回 EDIT',exact:true}).click();await page.getByRole('button',{name:'暂不应用',exact:true}).click();
+  await page.waitForSelector('.photopea-panel',{state:'hidden'});
+  await page.waitForFunction(()=>document.activeElement?.classList.contains('edit-canvas-options') || document.activeElement?.id === 'askPrompt');
+  if(width===390)await page.getByRole('group',{name:'编辑侧栏内容',exact:true}).getByRole('button',{name:'ASK',exact:true}).click();
+  await page.locator('.edit-canvas-ask #askDrawer').waitFor();
+ }
+ assert.deepEqual(errors,[]);assert.deepEqual(network,['https://www.photopea.com']);
+});
 test("Photopea iframe is lazy, retained across visits, preserves documents and suspends active listeners",async t=>{
  const {page,errors,network}=await setup(t);assert.deepEqual(network,[]);const listeners=await page.evaluate(()=>messageListeners.size),leaves=await page.evaluate(()=>leaveListeners.size);
  const leaveBaseline=await page.evaluate(()=>{const e=new Event('beforeunload',{cancelable:true});window.dispatchEvent(e);return e.defaultPrevented;});

@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { annotationAlignment, annotationPrompt, annotationCrop, annotationSummary, canMaskAnnotations, pointsBox, moveRegion, resizeRegion, regionUnion, serializeAnnotations, validateRegions } from '../src/domain/region-annotation.ts';
+import { annotationAlignment, annotationPrompt, annotationCrop, annotationSummary, canMaskAnnotations, pointsBox, moveRegion, resizeRegion, validateAnnotationAreas, serializeAnnotations, validateRegions } from '../src/domain/region-annotation.ts';
 import { newConversation, contextSnapshot, beginTurn, completeVersion, assetRefs, clearPendingAnnotation, retainImage } from '../src/domain/conversation.ts';
 import { validateConversation } from '../src/storage/backup-schema.ts';
 const region={key:'one',shape:'ellipse',bbox:{x:.2,y:.3,w:.2,h:.2},comment:'<眼睛>&"眉毛"'};
@@ -19,7 +19,7 @@ test('point annotations have only a location, serialize separately, and never in
  assert.throws(()=>resizeRegion(point,{x:0,y:0,w:.2,h:.2}),/点批注/);
  assert.throws(()=>validateRegions([{...point,bbox:{...point.bbox,w:.1,h:.1}}]),/点批注/);
  assert.throws(()=>validateRegions([{...point,points:[{x:.4,y:.6}]}]),/点批注/);
- assert.throws(()=>regionUnion([region,point]),/点批注/);
+ assert.throws(()=>validateAnnotationAreas([region,point]),/点批注/);
  assert.equal(canMaskAnnotations([point]),false);assert.equal(canMaskAnnotations([region,point]),false);assert.equal(canMaskAnnotations([region]),true);
  const xml=serializeAnnotations({...snapshot,regions:[point,region]});
  assert.match(xml,/<point n="1" x="0.400" y="0.600">检查&lt;这里&gt;<\/point>/);assert.match(xml,/<region n="2" shape="ellipse"/);

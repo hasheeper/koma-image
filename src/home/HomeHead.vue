@@ -3,6 +3,7 @@ import { computed, shallowRef, onActivated, onDeactivated, onBeforeUnmount, watc
 import WaveMark from '../shared/WaveMark.vue';
 import AppIcon from '../shared/AppIcon.vue';
 import ThemeToggle from '../shared/ThemeToggle.vue';
+import WorkspaceSwitch from '../shared/WorkspaceSwitch.vue';
 import DirectoryChip from '../bridge/DirectoryChip.vue';
 import AskSend from '../ask/AskSend.vue';
 import AskActivity from '../ask/AskActivity.vue';
@@ -20,7 +21,9 @@ import { useHome } from '../app/home.ts';
 import { useUi, message } from '../app/ui.ts';
 const { home } = useHome();
 const ask = useAsk(), { router } = useShell(), { drawing } = useDrawing(), { chat } = useChat(), { editor } = useEditor(), ui = useUi();
-const { shown, mode, note, summary, outcome, latest, compactDraft, dismiss } = useAskPresentation();
+const { shown, mode, note, summary, outcome, latest, compactDraft, dismiss, canvas } = useAskPresentation();
+/* Canvas collaboration BETA: HOME joins the workshops' corner islands (workspace mark, glass settings). */
+const beta = canvas.enabled;
 const tone = computed(() => mode.value === 'run' || mode.value === 'done' ? mode.value : compactDraft.value ? 'draft' : latest.value?.status === 'failed' || latest.value?.status === 'stopped' ? latest.value.status : 'ok');
 const dropping = shallowRef(false);
 defineProps<{ empty: boolean }>();
@@ -73,8 +76,9 @@ function key(event: KeyboardEvent) {
 }
 </script>
 <template>
-  <header class="home-head" :class="{ 'is-row': shown, 'is-empty': empty && !shown }">
+  <header class="home-head" :class="{ 'is-row': shown, 'is-empty': empty && !shown, 'is-beta': beta }">
     <div class="home-bar">
+      <div v-if="beta" class="home-switch"><WorkspaceSwitch workspace="home" compact /></div>
       <h1 class="home-brand" aria-label="Koma HOME"><WaveMark surface="home" /><span class="home-word"><span class="brand-title">Koma</span><span class="brand-subtitle">HOME</span></span></h1>
       <div id="homeEntryDock" v-show="shown"></div>
       <div class="home-settings"><DirectoryChip v-if="!shown" home /><i v-if="!shown" aria-hidden="true"></i><ThemeToggle /><button type="button" class="ibtn" aria-label="设置" title="设置" @click="router.openOverlay('settings')"><AppIcon name="i-settings" /></button></div>
@@ -135,7 +139,6 @@ function key(event: KeyboardEvent) {
 .home-entries button { display: inline-flex; align-items: center; justify-content: center; gap: 7px; height: 34px; font-size: var(--fz-sm); padding: 0 14px; color: var(--fg-2); border: 1px solid var(--line-2); border-radius: 18px; transition: color var(--t1) var(--e), background var(--t1) var(--e); }
 .home-entries button:hover { color: var(--fg); background: var(--hover); }
 .home-entries .ico { --ico: var(--ico-sm); color: var(--fg-3); }
-.home-entry-mark { width: var(--ico-sm); height: var(--ico-sm); fill: currentColor; color: var(--fg-3); }
 .short-label { display: none; }
 /* Wide screens centre the brand, question and entries; settings keep the right corner. */
 @media (min-width: 561px) {
@@ -165,7 +168,7 @@ function key(event: KeyboardEvent) {
   .wide-label { display: none; }
   .short-label { display: inline; }
 }
-@media (max-width: 360px) { .home-entries .ico, .home-entry-mark { display: none; } }
+@media (max-width: 360px) { .home-entries .ico { display: none; } }
 .is-row .home-bar { margin-bottom: 0; }
 .is-row .home-brand { margin-bottom: 0; }
 #homeEntryDock { margin-left: auto; }
@@ -215,4 +218,14 @@ function key(event: KeyboardEvent) {
   .home-head.is-empty .home-brand .wave-mark { width: 38px; height: 38px; }
   .home-head.is-empty .home-word .brand-title { font-size: 34px; }
 }
+/* Canvas collaboration BETA: the workspace mark and settings are glass islands in the corners.
+   The big brand stays only where it is centred (empty page, wide head); elsewhere the mark stands in. */
+.home-switch { display: flex; flex: none; }
+.is-beta .home-settings { height: 34px; padding: 0 3px; background: var(--glass-bg); border-radius: 10px; backdrop-filter: blur(var(--glass-blur)); }
+.is-beta .home-settings > .ibtn { border-radius: 7px; }
+.home-head.is-empty .home-switch { position: absolute; top: 32px; left: 0; }
+@media (max-width: 860px) { .home-head.is-empty .home-switch { top: 24px; } }
+@media (min-width: 561px) { .home-head.is-beta:not(.is-row, .is-empty) .home-switch { grid-column: 1; grid-row: 1; justify-self: start; } }
+.home-head.is-beta.is-row .home-brand { display: none; }
+@media (max-width: 560px) { .home-head.is-beta:not(.is-empty) .home-brand { display: none; } }
 </style>

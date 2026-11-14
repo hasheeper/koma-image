@@ -219,19 +219,11 @@ for (const connection of ['chat', 'claude']) test(`ASK image retry modes: ordina
   }finally{await context.close();}
 });
 
-test('ASK A1 S2: explicit two-picture selection, parameter diff, contact sheet, candidates and locate',async()=>{
+test('ASK A1 S2: explicit two-picture question, parameter diff, contact sheet, candidates and locate',async()=>{
  const {page,context,requests,errors,llm,calls}=await open('/#/image',{ready:'.switcher',ask:askSettings()});
  try{
-  await bind(page);const first=await addScene(page),second=await addScene(page,1);
-  await page.getByRole('button',{name:'对比',exact:true}).click();
-  await page.getByRole('button',{name:'选择 #h1 对比',exact:true}).click();
-  assert.equal(await page.getByRole('button',{name:'Ask Diff',exact:true}).isEnabled(),false);
-  await page.getByRole('button',{name:'选择 #h2 对比',exact:true}).click();
-  await page.waitForFunction(()=>document.querySelectorAll('.library-pick[aria-pressed="true"]').length===2);
-  assert.equal(await page.evaluate(()=>drawing.snapshot().current.id),second,'selecting does not replace viewing');
-  await page.waitForTimeout(100);
-
-  await page.getByRole('button',{name:'Ask Diff',exact:true}).click();
+  await bind(page);const first=await addScene(page);await addScene(page,1);
+  await page.evaluate(()=>ask.show({ anchor:'#h1', question:'对比 #h1 与 #h2，哪些参数和画面发生了变化？' }));
   assert.match(await page.locator('#askPrompt').inputValue(),/#h1.*#h2/);
   assert.equal(calls.length,0);
   llm.push(toolReply('d1','diff_meta',{a:'#h1',b:'#h2'}),toolReply('s1','view_sheet',{ids:['#h1','#h2']}),textReply('**#h2 增加了暖色光。** Scale 也从 5 改为 7；#h1 保留了蓝色。'));

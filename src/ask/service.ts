@@ -46,7 +46,7 @@ import { reasoningConnections } from "../config/connections.ts";
 import { ancestry } from "../domain/conversation.ts";
 import { names } from "../storage/names.ts";
 import { codecFor } from "./codec.ts";
-import { readAskSettings, withModel } from "./settings.ts";
+import { readAskSettings, withModel, modelParameters } from "./settings.ts";
 import { createProvider, ProviderError } from "./provider.ts";
 import type { AskMessage, AskUsage, AskRequest, AskEvent, ProviderErrorKind } from "./provider.ts";
 import { approxTokens, createSession, estimateRequest, estimateRequestBreakdown } from "./session.ts";
@@ -156,7 +156,8 @@ interface Conversation extends ConversationCore {
   preparing: number;
 }
 
-const MAX_OUTPUT = 4096;
+// Anthropic requires max_tokens; other protocols use the upstream default.
+const ANTHROPIC_OUTPUT_FALLBACK = 4096;
 type Mutable<T> = { -readonly [K in keyof T]: T[K] };
 type WorkingTurn = Mutable<Omit<AskTurnView, "items">> & {
   items: ({ kind: "text"; text: string } | { kind: "tools"; rows: Mutable<ToolRow>[] } | { kind: "pick"; ids: readonly string[] } | { kind: "retrospect"; value: Retrospect })[];
@@ -254,6 +255,14 @@ export function createAsk(deps: {
       root.style.setProperty("--ask-inline-left", `${Math.max(8, Math.min(innerWidth - width - 8, r.left))}px`);
       root.style.setProperty("--ask-inline-top", `${Math.max(8, Math.min(innerHeight - height - 8, r.bottom + 8))}px`);
     });
+  }
+  const revealListeners = new Set<() => void>();
+  const locateListeners = new Set<() => void>();
+  function located() { for (const listener of locateListeners) listener(); }
+  /** Explicit navigation can reveal ASK even when its conversation is already open. */
+  function reveal() {
+    open.value = true;
+    for (const listener of revealListeners) listener();
   }
   const open = shallowRef(false),
     entries = shallowRef<readonly AskEntry[]>([]),
@@ -392,13 +401,8 @@ export function createAsk(deps: {
           (c) => c.id === settings.value.connectionId,
         ) ?? null,
     ),
-    /** Picked IDs of each reasoning connection, for the composer's quick switch. */
-    picks = computed(() =>
-      reasoningConnections(routing.value).flatMap((c) => {
-        const ids = settings.value.models[c.id];
-        return ids?.length ? [{ id: c.id, name: c.name, ids }] : [];
-      }),
-    ),
+    /** The composer's quick switch stays within the selected reasoning connection. */
+    picks = computed(() => connection.value ? settings.value.models[connection.value.id] ?? [] : []),
     ready = computed<"local" | "connection" | "model" | "ok">(() =>
       connections.local && !reasoningConnections(routing.value).length
         ? "local"
@@ -1149,7 +1153,7 @@ export function createAsk(deps: {
     }
     try {
       const result = await runCompaction({ session: owner.session, provider,
-        request: { model: config.model, tools: toolList, system: system.value }, codec, signal: abort.signal,
+        request: { model: config.model, tools: toolList, system: system.value, parameters: modelParameters(config, config.connectionId, config.model) }, codec, signal: abort.signal,
         attachments: id => owner.scope.attachments.get(id), metadataOnly: !config.images, highWaterTokens: config.compaction.highWaterTokens,
         ...(owner.favorite ? { persist } : {}), observe(event) {
           if (event.type === "request") call = callLog.start({ conversation: owner.id, turn: 0, step: 1,
@@ -1345,7 +1349,7 @@ export function createAsk(deps: {
       for await (const event of run({
         stream: tracedStream,
         responseMode: config.responseMode,
-        request: { model: config.model, tools: toolList, system: system.value, maxTokens: MAX_OUTPUT },
+        request: { model: config.model, tools: toolList, system: system.value, maxTokens: ANTHROPIC_OUTPUT_FALLBACK, parameters: modelParameters(config, config.connectionId, config.model) },
         turn,
         tools,
         context: {
@@ -1619,7 +1623,7 @@ export function createAsk(deps: {
     const abort = new AbortController(), timeout = setTimeout(() => abort.abort(new ProviderError("timeout", "命名超时，请重试")), 60_000);
     namingController = abort; naming.value = target; activeNaming = job;
     try {
-      const request = namingRequest(choice.model, job.source);
+      const request = { ...namingRequest(choice.model, job.source), parameters: modelParameters(config, choice.connectionId, choice.model) };
       if (!reasoningConnections(routing.value).some(c => c.id === choice.connectionId) || !choice.model)
         throw new Error("请先在设置 → ASK 配置命名模型或当前 ASK 模型");
       const provider = createProvider(connections.context(choice.connectionId), deps.fetch),
@@ -1786,7 +1790,7 @@ export function createAsk(deps: {
     for (const layer of [...layers].reverse()) if (layer()) return;
     if (writingDraft.value) return;
     if (controller) stop();
-    else { open.value = false; dismissCompact(); }
+    else if (!root?.hasAttribute("data-collaboration")) { open.value = false; dismissCompact(); }
   }
   function onKey(event: KeyboardEvent) {
     if (event.isComposing || event.keyCode === 229) return;
@@ -1799,10 +1803,10 @@ export function createAsk(deps: {
     if ((event.metaKey || event.ctrlKey) && !event.shiftKey && !event.altKey && event.key.toLowerCase() === "k") {
       if (!(active instanceof HTMLTextAreaElement) || !["prompt", "negative", "chatPrompt"].includes(active.id) || controller || writingDraft.value) return;
       event.preventDefault();
-      if (draft.value) { inline.value = null; open.value = true; notice.value = canReviseDraft.value ? "可在输入框补充修改意见" : "请先应用或放弃当前草稿"; return; }
+      if (draft.value) { inline.value = null; reveal(); notice.value = canReviseDraft.value ? "可在输入框补充修改意见" : "请先应用或放弃当前草稿"; return; }
       inlineElement = active;
       inline.value = { target: active.id === "chatPrompt" ? "chat.composer" : active.id === "negative" ? "image.negative" : "image.prompt", text: (active.value.slice(active.selectionStart, active.selectionEnd) || active.value).slice(0, 24000) };
-      open.value = true;
+      reveal();
       void nextTick(() => { placeInline(); document.getElementById("askPrompt")?.focus(); });
       return;
     }
@@ -1829,7 +1833,8 @@ export function createAsk(deps: {
       if (editorOpen.value || modal()) return;
       event.preventDefault();
       inline.value = null;
-      open.value = !open.value;
+      if (root?.hasAttribute("data-collaboration") || !open.value) { reveal(); void nextTick(() => document.getElementById("askPrompt")?.focus()); }
+      else open.value = false;
       return;
     }
     if (event.key !== "Escape" || event.defaultPrevented || (!visible.value && !compact) || modal()) return;
@@ -1878,7 +1883,7 @@ export function createAsk(deps: {
       const entryId = ++sequence;
       entries.value = [...entries.value, { type: 'note', id: entryId, text: title }];
       draft.value = history.create({ title, baseHash: stateHash(base), question: '', base, steps: [step] }, conversations.current.id, entryId);
-      draftRevision.value++; saveFavorite(); open.value = true;
+      draftRevision.value++; saveFavorite(); reveal();
       return true;
     } catch (error) { notice.value = message(error); return false; }
   }
@@ -1891,7 +1896,7 @@ export function createAsk(deps: {
     if (owner && !fresh) selectConversation(owner.id);
     else { if (newConversation() !== true) { notice.value = '会话已达上限，请先关闭一个会话'; return false; } setSlateLink(conversations.current, id); const slate = deps.slates.get(id); if (slate) conversations.current.title = slate.title; listRevision.value++; }
     draftRevision.value++;
-    open.value = true; deps.slates.visible.value = false; saveFavorite();
+    reveal(); deps.slates.visible.value = false; saveFavorite();
     return true;
   }
   const restored = Promise.resolve(deps.slates?.restored).then(() => restoreFavorites());
@@ -1912,7 +1917,7 @@ export function createAsk(deps: {
       stash();
       const owner = conversations.list().find(c => c.entries.some(e => e.type === "note" && e.external?.origin.context === context && e.external.origin.draftId === id));
       if (!owner) return false;
-      selectConversation(owner.id); open.value = true; return true;
+      selectConversation(owner.id); reveal(); return true;
     },
     externalRecord(context: string, id: string) {
       stash();
@@ -1984,7 +1989,7 @@ export function createAsk(deps: {
     retrospects,
     evolutionTarget: computed(()=>{libraryRevision.value;return currentEvolutionTarget();}),
     evolutionName,
-    startEvolution() { if(!input.value.trim()) input.value='请整理当前创作的版本演进，结合提示词、参数、蒙版与实际编辑来源分析各阶段变化。';open.value=true; },
+    startEvolution() { if(!input.value.trim()) input.value='请整理当前创作的版本演进，结合提示词、参数、蒙版与实际编辑来源分析各阶段变化。';reveal(); },
     setEvolutionStatus(id: string, status: ReviewStatus) {
       try {
         const r = retrospects.get(id, currentEvolutionTarget());
@@ -2035,7 +2040,7 @@ export function createAsk(deps: {
         if(pool.read(owner.tray).filter(a=>a.kind==='image').length+prepared.length>ATTACHMENT_LIMITS.images)throw new Error('ASK 每轮最多 4 张图片，请先精简参考图');
         if([...scopes.values()].reduce((n,s)=>n+s.attachments.bytes,prepared.reduce((n,a)=>n+a.bytes,0))>ATTACHMENT_LIMITS.pageBytes)throw new Error('本页附件已超过 200 MB');
         const ids:string[]=[];
-        try{for(const a of prepared)ids.push(pool.add(a).id);setTray([...owner.tray,...ids],owner);selectAnchor(ids[0]);inline.value=null;open.value=true;}
+        try{for(const a of prepared)ids.push(pool.add(a).id);setTray([...owner.tray,...ids],owner);selectAnchor(ids[0]);inline.value=null;reveal();}
         catch(error){pool.release(ids);throw error;}
       });importing=work.catch(()=>{});
       try{await work;}finally{owner.preparing--;if(owner===conversations.current)preparing.value=owner.preparing;saveFavorite(owner);}
@@ -2063,7 +2068,7 @@ export function createAsk(deps: {
           frozen.references = references.map(({blob:_blob,...r},i)=>{ const attachment=pool.add(refAttachments[i]); added.push(attachment.id); return {...r,image:attachment.id}; });
           pool.annotate(original.id, { snapshot: frozen, guideId: marked.id });
           setTray([...owner.tray, ...added], owner);
-          selectAnchor(original.id); inline.value = null; open.value = true;
+          selectAnchor(original.id); inline.value = null; reveal();
         } catch (error) { pool.release(added); throw error; }
       });
       importing = work.catch(() => {});
@@ -2145,20 +2150,32 @@ export function createAsk(deps: {
       input.value = text;
       if (notice.value) notice.value = "";
     },
+    onReveal(listener: () => void) {
+      revealListeners.add(listener);
+      return () => { revealListeners.delete(listener); };
+    },
+    /** Presentation decides how to uncover a successfully located picture. */
+    onLocate(listener: () => void) {
+      locateListeners.add(listener);
+      return () => { locateListeners.delete(listener); };
+    },
     /** For workspaces (A1 entries): open with an image already referenced. */
     show(options: { anchor?: string; question?: string } = {}) {
       if (editorOpen.value) return;
       inline.value = null;
       if (options.anchor !== undefined) selectAnchor(options.anchor);
       if (options.question) input.value = input.value.trim() ? `${input.value}\n${options.question}` : options.question;
-      open.value = true;
+      reveal();
     },
     hide() {
+      if (root?.hasAttribute("data-collaboration")) return;
       open.value = false;
     },
     toggle() {
       inline.value = null;
-      if (!editorOpen.value) open.value = !open.value;
+      if (editorOpen.value) return;
+      if (root?.hasAttribute("data-collaboration") || !open.value) reveal();
+      else open.value = false;
     },
     clearAnchor() {
       selectAnchor(null);
@@ -2306,7 +2323,7 @@ export function createAsk(deps: {
     },
 
     openRetrospectAsk(recordId: string, node: RetrospectNode, baseline: RetrospectNode | null, noteKeys: readonly string[]) {
-      if (input.value.trim() || controller || writingDraft.value) { open.value = true; return; }
+      if (input.value.trim() || controller || writingDraft.value) { reveal(); return; }
       const record = retrospects.get(recordId);
       if (!record) throw new Error('演进已失效');
       const liveLibrary = evolutionPictures();
@@ -2315,12 +2332,12 @@ export function createAsk(deps: {
         return p && n.image_ids.includes(n.cover) && record.pictureRefs[n.cover]?.record_id === p.id ? liveLibrary.find(current => current.id === p.id) : undefined;
       };
       const source = isStaged(node) ? boundPicture(node.staged.base.tag, record.pictureRefs) : resolve(node);
-      if (!source) { open.value = true; return; }
+      if (!source) { reveal(); return; }
       const describe = (n: RetrospectNode) => `${n.id}（${isStaged(n) ? '待生成预设' : resolve(n)?.label ?? '原记录已失效'} · ${n.label}）`;
       const notes = [...new Set(noteKeys)].filter(key => record.notes[key]).map(key => `${key.startsWith('node:') ? key.slice(5) : key.slice(5).replace(':', ' → ')}：${record.notes[key]}`);
       selectAnchor(source.label);
       input.value = [`演进「${record.value.title}」`, `当前对照：${baseline ? `${describe(baseline)} → ` : ''}${describe(node)}`, ...(notes.length ? ['我的批注：', ...notes] : []), '请结合原始配方继续分析；涉及画板改动时，先提出草稿。'].join('\n');
-      open.value = true;
+      reveal();
     },
     locate(label: string, refs?: PictureRefs) {
       const item = boundPicture(label,refs);
@@ -2328,13 +2345,23 @@ export function createAsk(deps: {
       if (refs?.[label] && refs[label].record_id!==item.id) { notice.value="原图仍可预览，原记录参数已不可用"; return; }
       const editBoard = refs?.[label]?.scope.board_id ?? item.origins.find(o=>o.label===label && o.source==="edit")?.boardId;
       if (label.startsWith("#e") && item.origins.some(o=>o.source==="edit") && deps.editor?.locate(item.id,editBoard)) {
-        if (window.matchMedia("(max-width: 860px)").matches) open.value=false;
+        located();
         return;
       }
-      if (item.scope?.kind==="chat") { if(item.scope.turn_id&&item.scope.version_id)chat.locateImage(item.scope.id,item.scope.turn_id,item.scope.version_id,item.scope.asset_id!);else {const c=chat.snapshot().conversations.find(c=>c.id===item.scope!.id);if(c)chat.switchConversation(c);} router.switchWorkspace("chat"); return; }
+      if (item.scope?.kind === "chat") {
+        const scope = item.scope;
+        let found = false;
+        if (scope.turn_id && scope.version_id) found = chat.locateImage(scope.id, scope.turn_id, scope.version_id, scope.asset_id!);
+        else {
+          const conversation = chat.snapshot().conversations.find(c => c.id === scope.id);
+          if (conversation) { chat.switchConversation(conversation); found = true; }
+        }
+        router.switchWorkspace("chat");
+        if (found) located();
+        return;
+      }
       const d = drawing.snapshot(), record = [...d.history,...d.favorites].find(r=>r.id===item.id);
-      if (record) { router.switchWorkspace("image"); drawing.show(record,true); }
-      if (window.matchMedia("(max-width: 860px)").matches) open.value=false;
+      if (record) { router.switchWorkspace("image"); drawing.show(record,true); located(); }
     },
     pick(label: string, refs?: PictureRefs) {
       const item = boundPicture(label,refs);
@@ -2400,6 +2427,8 @@ export function createAsk(deps: {
       window.removeEventListener("keydown", onKey);
       for (const stopListening of stops) stopListening();
       layers.clear();
+      revealListeners.clear();
+      locateListeners.clear();
       callLog.clear();
       vision.dispose();
       for (const owner of ['evolution', 'drafts', 'running', 'draft-undo']) drawing.retainHistory(owner, new Set());

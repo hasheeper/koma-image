@@ -21,7 +21,7 @@ test('annotated ASK sends clean and marked images, crops clean #a coordinates im
   await submitAsk(page);await drawer(page).locator('.ask-turn[data-status="done"]').waitFor();
   assert.equal(imageBlocks(calls[0].body).length,2);assert.equal(imageBlocks(calls[1].body).length,3);
   assert.match(JSON.stringify(calls[0].body),/image_annotations/);assert.match(JSON.stringify(calls[0].body),/x=\\"0\.250\\" y=\\"0\.250\\"/);
-  assert.match(JSON.stringify(calls[0].body),/point n=\\"2\\" x=\\"0\.750\\" y=\\"0\.750\\"/);assert.match(JSON.stringify(calls[0].body),/点只标一个位置/);
+  assert.match(JSON.stringify(calls[0].body),/point n=\\"2\\" x=\\"0\.750\\" y=\\"0\.750\\"/);assert.match(JSON.stringify(calls[0].body),/只标示?位置/);
   assert.match(JSON.stringify(calls[0].body),/检查眼睛/);assert.doesNotMatch(await drawer(page).innerText(),/<image_annotations/);
   assert.equal(await drawer(page).locator('.ask-turn[data-status="failed"]').count(),0);
   assert.deepEqual(generation(requests),[]);assert.deepEqual(errors,[]);

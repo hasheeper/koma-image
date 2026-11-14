@@ -11,26 +11,18 @@ test('ASK open/close and workspace switches preserve the input and isolate the a
     await bind(page);
     await addImage(page, 'synthetic window layout');
     const launcher = page.locator('#askLauncher');
-    {
-      const [width, height] = [1440, 900];
-      await page.setViewportSize({ width, height });
-      await launcher.click();
-      await page.locator('#askPrompt').fill('输入和会话会在收起后保留');
-      if (width > 860) {
-        await drawer(page).getByRole('button', { name: '放大 ASK 窗口' }).click();
-        await drawer(page).getByRole('button', { name: '还原 ASK 窗口' }).click();
-      } else {
-        assert.equal(await drawer(page).getByRole('button', { name: /放大 ASK 窗口|还原 ASK 窗口/ }).count(), 0);
-        assert.equal(await drawer(page).locator('[data-ask-grip]').count(), 0);
-        assert.equal(await drawer(page).getAttribute('aria-modal'), 'true');
-        assert.equal(await page.locator('[data-workspace-root="image"]').getAttribute('inert'), '');
-      }
-      await drawer(page).getByRole('button', { name: '收起 ASK', exact: true }).click();
-      await drawer(page).waitFor({ state: 'hidden' });
-      assert.equal(await page.locator('[data-workspace-root="image"]').getAttribute('inert'), null);
-    }
-    await page.setViewportSize({ width: 390, height: 844 });
     await launcher.click();
+    await page.locator('#askPrompt').fill('输入和会话会在收起后保留');
+    await drawer(page).getByRole('button', { name: '放大 ASK 窗口' }).click();
+    await drawer(page).getByRole('button', { name: '还原 ASK 窗口' }).click();
+    await drawer(page).getByRole('button', { name: '收起 ASK', exact: true }).click();
+    await drawer(page).waitFor({ state: 'hidden' });
+    assert.equal(await page.locator('[data-workspace-root="image"]').getAttribute('inert'), null);
+    await page.setViewportSize({ width: 390, height: 844 });
+    await page.getByRole('button', { name: '继续桌面布局', exact: true }).click();
+    await launcher.click();
+    assert.equal(await drawer(page).getByRole('button', { name: /放大 ASK 窗口|还原 ASK 窗口/ }).count(), 0);
+    assert.equal(await drawer(page).getAttribute('aria-modal'), 'true');
     const identity = await page.locator('#askPrompt').elementHandle();
     for (const workspace of ['chat', 'edit', 'tags', 'home', 'image']) {
       await route(page, `#/${workspace}`);
@@ -185,5 +177,3 @@ test('ASK island: text, error and stop remain accessible from the collapsed resu
     assert.deepEqual(errors, []);
   } finally { await context.close(); }
 });
-
-// W6: exercise the native/window boundary and transient UI cleanup, not a benchmark.

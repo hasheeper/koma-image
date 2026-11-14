@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed, shallowRef, nextTick, watch } from "vue";
+import { computed, shallowRef, nextTick, onDeactivated, onBeforeUnmount, watch } from "vue";
 import { useShell } from "../../app/shell";
 import { useDrawing } from "../../app/drawing";
 import type { HistoryRecord } from "../../domain/drawing";
@@ -7,12 +7,40 @@ import { imageFileName } from "../../domain/drawing";
 import { names } from "../../storage/names";
 import HistoryRetrospectMenu from "../../ask/retrospect/HistoryRetrospectMenu.vue";
 import AppIcon from "../../shared/AppIcon.vue";
+import PopoverMenu from "../../shared/ui/PopoverMenu.vue";
 import WaveHost from "./WaveHost.vue";
 import { stripBar } from "./library-strip";
 import { useAsk } from "../../app/ask";
-const ask = useAsk(), comparing = shallowRef(false), selected = shallowRef<readonly string[]>([]);
-const { image, narrow } = useShell(),
-  { drawing, view } = useDrawing();
+const props = defineProps<{ horizontal?: boolean; mobile?: boolean; compact?: boolean; collapsed?: boolean; trayTarget?: HTMLElement | null }>();
+const emit = defineEmits<{ browse: []; expand: [open: boolean] }>();
+const { image } = useShell(), { drawing, view } = useDrawing();
+const expanded = computed(() => props.horizontal || image.historyOpen);
+const ask = useAsk();
+const folded = computed(() => props.horizontal ? !!props.collapsed || !!props.compact : !image.historyOpen);
+const mobileDialog = shallowRef<HTMLDialogElement | null>(null), mobileToggle = shallowRef<HTMLButtonElement | null>(null);
+const mobileHead = shallowRef<HTMLElement | null>(null), mobileActions = shallowRef<HTMLElement | null>(null), mobileTray = shallowRef<HTMLElement | null>(null);
+const trayHost = computed(() => props.mobile ? mobileTray.value : props.trayTarget);
+let dialogRevision = 0;
+watch([mobileDialog, () => props.mobile, folded], async ([dialog, mobile, closed]) => {
+  const revision = ++dialogRevision;
+  if (!mobile || closed) { dialog?.close(); return; }
+  await nextTick();
+  if (revision === dialogRevision && dialog?.isConnected && !dialog.open) {
+    dialog.showModal();
+    dialog.querySelector<HTMLElement>('[role="tab"][aria-selected="true"]')?.focus({ preventScroll: true });
+  }
+}, { flush: 'post' });
+async function closeBrowser() {
+  emit('expand', false);
+  await nextTick();
+  if (props.mobile && folded.value && !document.querySelector('dialog:modal')) mobileToggle.value?.focus({ preventScroll: true });
+}
+onBeforeUnmount(() => { dialogRevision++; mobileDialog.value?.close(); });
+function fold() {
+  if (props.horizontal) { emit('expand', folded.value); if (props.compact && folded.value) emit('browse'); }
+  else image.historyOpen = !image.historyOpen;
+  peek.value = null;
+}
 const tabs = ["history", "favorites"] as const;
 const olderOpen = shallowRef(false), olderCount = shallowRef(60);
 const recentCount = computed(() => view.value.form.historyLimit || view.value.history.length);
@@ -26,7 +54,6 @@ const olderOriginals = computed(() => older.value.filter(r => r.blob).length);
 const pending = computed(() =>
   image.library === "history" ? view.value.pending : null,
 );
-const showCompare = computed(() => !narrow.value || items.value.length > 1 || comparing.value);
 const showClear = computed(() => image.library === "history" && view.value.history.length > 0);
 /** The placeholder stands only for a picture still on its way; a landed one takes its slot while the stage reveals it. */
 const waiting = computed(() => {
@@ -43,28 +70,12 @@ const landing = computed(() =>
   pending.value && !waiting.value && !view.value.browsing ? showing.value : null,
 );
 function askLabel(id: string) { void ask.libraryRevision.value; return image.library === "favorites" ? ask.favoriteLabelFor(id) : ask.labelFor(id); }
-function choose(id: string) {
-  if (selected.value.includes(id)) selected.value = selected.value.filter((value) => value !== id);
-  else if (selected.value.length < 2) selected.value = [...selected.value, id];
-}
-function toggleCompare() {
-  comparing.value = !comparing.value;
-  if (!comparing.value) selected.value = [];
-}
 function askRetrospect() {
+  if (props.mobile) closeBrowser();
   const anchor = view.value.current ? askLabel(view.value.current.id) : null;
   ask.show({ ...(anchor ? { anchor } : {}), question: `请梳理${anchor ? ` ${anchor} 所属主题` : '当前画板'}刚才的配方演进，排除无关主题，整理分支并分析下一步如何调整。` });
-  if (narrow.value) image.menuOpen = false;
-}
-function askDiff() {
-  const labels = selected.value.map(askLabel).filter((v): v is string => !!v);
-  if (labels.length !== 2) return;
-  ask.show({ anchor: labels[0], question: `对比 ${labels[0]} 与 ${labels[1]}，哪些参数和画面发生了变化？` });
-  if (narrow.value) image.menuOpen = false;
 }
 watch(() => [view.value.history, view.value.favorites], () => {
-  const alive = new Set([...view.value.history, ...view.value.favorites].map((r) => r.id));
-  selected.value = selected.value.filter((id) => alive.has(id));
   if (peek.value) peek.value = [...view.value.history, ...view.value.favorites].find(r => r.id === peek.value?.id) ?? null;
 });
 const focus = computed(() =>
@@ -110,6 +121,9 @@ watch(() => view.value.current?.id, id => {
 const peek = shallowRef<HistoryRecord | null>(null),
   peekNode = shallowRef<HTMLElement | null>(null),
   gallery = shallowRef<HTMLElement | null>(null);
+onDeactivated(() => { peek.value = null; dialogRevision++; mobileDialog.value?.close(); });
+watch(() => [props.horizontal, props.mobile, props.compact, props.collapsed], () => { peek.value = null; });
+watch(() => image.library, () => { mobileTray.value?.scrollTo({ top: 0 }); });
 const has = (id: string) => view.value.favorites.some((r) => r.id === id),
   shape = (r: { width: number; height: number }) =>
     r.height / r.width > 1.2
@@ -119,12 +133,13 @@ const has = (id: string) => view.value.favorites.some((r) => r.id === id),
         : "square";
 function select(tab: "history" | "favorites") {
   image.library = tab;
-  image.historyOpen = true;
+  if (!props.horizontal) image.historyOpen = true;
+  else { emit('expand', true); if (props.compact) emit('browse'); }
   if (tab === "favorites" && view.value.favoritesError)
     void drawing.reloadFavorites();
 }
 function keydown(e: KeyboardEvent) {
-  if (!["ArrowLeft", "ArrowRight", "Home", "End"].includes(e.key)) return;
+  if (!["ArrowLeft", "ArrowRight", "Home", "End", ...(props.horizontal ? ["ArrowUp", "ArrowDown"] : [])].includes(e.key)) return;
   e.preventDefault();
   select(
     e.key === "Home"
@@ -166,7 +181,7 @@ function drag(e: DragEvent, item: HistoryRecord) {
   if (e.dataTransfer) e.dataTransfer.effectAllowed = "copy";
 }
 async function preview(item: HistoryRecord, e: Event) {
-  if (image.historyOpen || narrow.value) return;
+  if (props.mobile || e instanceof PointerEvent && e.pointerType === 'touch' || !props.horizontal && expanded.value) return;
   // currentTarget is cleared when the event handler yields.
   const target = e.currentTarget as HTMLElement;
   peek.value = item;
@@ -176,22 +191,29 @@ async function preview(item: HistoryRecord, e: Event) {
     !gallery.value ||
     !target.isConnected ||
     peek.value?.id !== item.id ||
-    image.historyOpen ||
-    narrow.value
+    !props.horizontal && (image.historyOpen)
   )
     return;
   const tile = target.getBoundingClientRect(),
     rail = gallery.value.getBoundingClientRect();
+  if (props.horizontal) {
+    peekNode.value.style.left = `${Math.max(8, Math.min(innerWidth - 248, tile.right + 8))}px`;
+    peekNode.value.style.top = `${Math.max(8, Math.min(innerHeight - peekNode.value.offsetHeight - 8, tile.top + tile.height / 2 - peekNode.value.offsetHeight / 2))}px`;
+    return;
+  }
+  peekNode.value.style.left = '';
   peekNode.value.style.top = `${Math.max(72, Math.min(rail.height - peekNode.value.offsetHeight - 8, tile.top + tile.height / 2 - rail.top - peekNode.value.offsetHeight / 2))}px`;
 }
 </script>
 <template>
-  <aside ref="gallery" class="gallery" id="gallery" aria-label="历史与收藏图片">
+  <aside ref="gallery" class="gallery" :class="{ 'filmstrip editor-tool-capsule': horizontal, 'mobile-library-trigger': mobile, 'mobile-library-open': mobile && !folded, 'filmstrip-compact': horizontal && (folded || !items.length && !pending) }" id="gallery" aria-label="历史与收藏图片">
+    <Teleport :to="mobileHead || 'body'" :disabled="!mobile || !mobileHead">
     <header class="library-head">
       <div
         class="library-tabs"
         role="tablist"
         aria-label="图片分类"
+        aria-orientation="horizontal"
         @keydown="keydown"
       >
         <button
@@ -204,39 +226,45 @@ async function preview(item: HistoryRecord, e: Event) {
           aria-controls="tray"
           :aria-selected="image.library === tab"
           :tabindex="image.library === tab ? 0 : -1"
-          :data-tip="narrow ? undefined : tab === 'history' ? '历史' : '收藏'"
+          :data-tip="mobile ? undefined : tab === 'history' ? '历史' : '收藏'"
           :aria-label="`${tab === 'history' ? '历史' : '收藏'}，${view[tab].length} 张`"
           @click="select(tab)"
         >
-          <AppIcon :name="tab === 'history' ? 'i-history' : 'i-star'" /><span v-if="narrow" class="library-tab-label">{{ tab === 'history' ? '历史' : '收藏' }}</span><b
+          <AppIcon v-if="!horizontal || mobile" :name="tab === 'history' ? 'i-history' : 'i-star'" /><span v-if="horizontal" class="library-tab-label">{{ tab === 'history' ? '历史' : '收藏' }}</span><b
             class="mono"
             >{{ view[tab].length > 99 ? "99+" : view[tab].length }}</b
           >
         </button>
       </div>
     </header>
+    </Teleport>
+    <Teleport :to="trayHost || 'body'" :disabled="!horizontal || !trayHost">
     <div
       class="tray"
+      :class="{ 'canvas-tray': horizontal, 'mobile-tray': mobile }"
+      v-show="!horizontal || !folded && (items.length || pending)"
       id="tray"
-      role="tabpanel"
-      :aria-labelledby="`${image.library}Tab`"
+      :role="horizontal ? 'region' : 'tabpanel'"
+      :aria-labelledby="horizontal ? undefined : `${image.library}Tab`"
+      :aria-label="horizontal ? `${image.library === 'history' ? '历史' : '收藏'}图片` : undefined"
       @keydown="tileKey"
       @pointerleave="peek = null"
       @focusout="peek = null"
+      @scroll="peek = null"
     >
       <button
-        v-if="view.pending && waiting"
+        v-if="pending && waiting"
         class="tile tile-pending"
         type="button"
-        :data-shape="shape(view.pending)"
-        :style="pendingBar"
+        :data-shape="shape(pending)"
+        :style="{ ...pendingBar, '--image-ratio': pending.width / pending.height }"
         :aria-current="!view.browsing"
         :aria-label="
-          view.pending.composing
+          pending.composing
             ? '正在合成对比图'
-            : `正在生成 ${view.pending.index}/${view.pending.total}，点击返回`
+            : `正在生成 ${pending.index}/${pending.total}，点击返回`
         "
-        @click="drawing.live"
+        @click="drawing.live(); emit('browse')"
       >
         <WaveHost small style="position: absolute; inset: 0" />
       </button>
@@ -244,8 +272,8 @@ async function preview(item: HistoryRecord, e: Event) {
       <button v-if="group.key === 'older'" class="history-section history-older" type="button" :aria-expanded="olderOpen" :title="`更早历史 ${older.length} 张 · ${olderOriginals} 张保留原图`" @click="olderOpen = !olderOpen">
         <AppIcon name="i-history" /><span>更早历史</span><small>{{ older.length }}</small>
       </button>
-      <div v-else-if="group.key === 'recent' && older.length && (image.historyOpen || narrow)" class="history-section"><span>最近历史</span><small>{{ group.items.length }}</small></div>
-      <div v-for="(item, index) in group.items" :key="item.id" class="library-item">
+      <div v-else-if="group.key === 'recent' && older.length && expanded && !horizontal" class="history-section"><span>最近历史</span><small>{{ group.items.length }}</small></div>
+      <div v-for="(item, index) in group.items" :key="item.id" class="library-item" :style="horizontal ? { '--image-ratio': item.size.width / item.size.height } : undefined">
       <button
         class="tile"
         type="button"
@@ -255,28 +283,28 @@ async function preview(item: HistoryRecord, e: Event) {
         :aria-current="showing === item.id"
         :data-landing="landing === item.id ? '' : undefined"
         :aria-label="`${has(item.id) ? '已收藏，' : ''}查看 ${imageFileName(item)}`"
+        :title="horizontal && !mobile ? askLabel(item.id) ?? undefined : undefined"
         :style="{
           '--thumb': `url('${drawing.url(item, true)}')`,
           '--image-ratio': item.size.width / item.size.height,
           ...bars[index + group.offset],
         }"
-        :draggable="item.params.tool !== 'upscale'"
+        :draggable="!mobile && item.params.tool !== 'upscale'"
         @dragstart="drag($event, item)"
         @click="
-          drawing.show(item, true);
-          if (narrow) image.menuOpen = false;
+          drawing.show(item, true); emit('browse');
         "
         @pointerenter="preview(item, $event)"
         @focus="preview(item, $event)"
       >
-        <span v-if="image.historyOpen || narrow" class="library-ask-id"><i v-if="item.params.boardColor" class="library-board-dot" :style="{ background: String(item.params.boardColor) }" :title="String(item.params.boardName || '画板')"></i>{{ askLabel(item.id) }}<small v-if="!item.blob">缩略图</small><small v-else-if="group.key === 'older'">原图</small></span>
+        <span v-if="expanded && !horizontal" class="library-ask-id"><i v-if="item.params.boardColor" class="library-board-dot" :style="{ background: String(item.params.boardColor) }" :title="String(item.params.boardName || '画板')"></i>{{ askLabel(item.id) }}<small v-if="!item.blob">缩略图</small><small v-else-if="group.key === 'older'">原图</small></span>
         <img :src="drawing.url(item, true)" alt="" decoding="async" /><span
-          v-if="image.library === 'history' && has(item.id)"
+          v-if="!horizontal && image.library === 'history' && has(item.id)"
           class="tile-favorite"
           aria-hidden="true"
           ><AppIcon name="i-star" /><small>{{ ask.favoriteLabelFor(item.id) }}</small></span
         ><span
-          v-if="image.library === 'history'"
+          v-if="!horizontal && image.library === 'history'"
           class="tile-x"
           role="button"
           tabindex="-1"
@@ -285,36 +313,39 @@ async function preview(item: HistoryRecord, e: Event) {
           >×</span
         >
       </button>
-      <button v-if="comparing && (image.historyOpen || narrow)" class="library-pick" type="button" :aria-label="`选择 ${askLabel(item.id)} 对比`" :aria-pressed="selected.includes(item.id)" :disabled="selected.length === 2 && !selected.includes(item.id)" @click="choose(item.id)">
-        <span>{{ selected.includes(item.id) ? selected.indexOf(item.id) + 1 : '' }}</span>
-      </button>
+
       </div>
       <button v-if="group.key === 'older' && olderOpen && olderCount < older.length" class="history-section history-more" type="button" @click="olderCount += 60">更多历史 · {{ older.length - olderCount }}</button>
       </template>
       <div
-        v-if="!image.historyOpen && !narrow && (items.length || pending)"
+        v-if="!expanded && (items.length || pending)"
         class="library-tail"
         aria-hidden="true"
       >
         <i v-for="(style, index) in tail" :key="index" :style="style"></i>
       </div>
     </div>
+    </Teleport>
+    <Teleport to="body" :disabled="!horizontal">
     <div
       ref="peekNode"
       class="library-peek"
-      :hidden="!peek || image.historyOpen || narrow"
+      :class="{ 'filmstrip-peek': horizontal }"
+      :hidden="!peek || !horizontal && expanded"
       aria-hidden="true"
     >
       <img v-if="peek" :src="drawing.url(peek, true)" alt="" decoding="async" />
       <p>
         <span>{{
           peek
-            ? `${new Date(peek.createdAt).toLocaleTimeString("zh-CN", { hour: "2-digit", minute: "2-digit" })} · ${peek.size.width}×${peek.size.height}`
+            ? `${horizontal ? askLabel(peek.id) : new Date(peek.createdAt).toLocaleTimeString("zh-CN", { hour: "2-digit", minute: "2-digit" })} · ${peek.size.width}×${peek.size.height}`
             : ""
         }}</span
         ><i :hidden="!peek || !has(peek.id)">★</i>
       </p>
     </div>
+    </Teleport>
+    <Teleport :to="mobileTray || 'body'" :disabled="!mobile || !mobileTray">
     <div
       class="tray-empty"
       id="trayEmpty"
@@ -323,14 +354,14 @@ async function preview(item: HistoryRecord, e: Event) {
       "
     >
       <div
-        v-show="image.library === 'history' && !narrow"
+        v-show="image.library === 'history' && !horizontal"
         class="tray-ghosts"
         aria-hidden="true"
       >
         <i></i><i></i><i></i><i></i>
       </div>
       <AppIcon
-        v-show="narrow || image.library === 'favorites'"
+        v-show="mobile || image.library === 'favorites'"
         class="ico-lg"
         :name="image.library === 'history' ? 'i-history' : 'i-star'"
       />
@@ -353,37 +384,46 @@ async function preview(item: HistoryRecord, e: Event) {
         }}</span>
       </p>
     </div>
-    <div v-if="comparing && (image.historyOpen || narrow)" class="library-diff" role="group" aria-label="图片对比选择">
-      <span>已选 {{ selected.length }} 张 · <button type="button" @click="selected = []">清空</button></span>
-      <button class="btn btn-quiet btn-sm" type="button" :disabled="selected.length !== 2" @click="askDiff">Ask Diff</button>
-    </div>
-    <footer v-if="!narrow || showCompare || showClear" class="library-foot">
+    </Teleport>
+    <footer class="library-foot">
+      <button v-if="mobile" ref="mobileToggle" id="canvasHistoryToggle" class="library-browse" type="button" aria-label="浏览历史与收藏" aria-haspopup="dialog" aria-controls="mobileImageLibrary" :aria-expanded="!folded" @click="fold">
+        <AppIcon :name="image.library === 'history' ? 'i-history' : 'i-star'" /><span>{{ image.library === 'history' ? '历史' : '收藏' }}</span><b>{{ view[image.library].length }}</b><AppIcon class="library-browse-caret" name="i-up" />
+      </button>
+      <Teleport :to="mobileActions || 'body'" :disabled="!mobile || !mobileActions">
+      <PopoverMenu v-if="horizontal" id="canvasLibraryOptions" label="图片历史选项" side="up" compact>
+        <template #trigger="{ open, toggle }">
+          <button class="library-more" type="button" aria-label="图片历史选项" aria-haspopup="menu" :aria-expanded="open" @click="toggle">
+            <span class="library-current">{{ image.library === 'history' ? '历史' : '收藏' }}<b>{{ view[image.library].length > 99 ? '99+' : view[image.library].length }}</b></span>
+            <AppIcon class="library-more-icon" name="i-more" /><AppIcon class="library-down-icon" name="i-down" />
+          </button>
+        </template>
+        <template #default="{ close }">
+          <div v-if="!mobile" class="canvas-library-choices">
+            <button v-for="tab in tabs" :key="tab" class="menu-item" type="button" role="menuitemradio" :aria-checked="image.library === tab" :aria-label="`${tab === 'history' ? '历史' : '收藏'}，${view[tab].length} 张`" @click="select(tab); close(true)">
+              <AppIcon :name="tab === 'history' ? 'i-history' : 'i-star'" /><span class="menu-label">{{ tab === 'history' ? '历史' : '收藏' }}</span><span class="menu-meta">{{ view[tab].length }}</span>
+            </button>
+          </div>
+          <button v-if="!mobile && (items.length || pending)" class="menu-item" type="button" role="menuitem" @click="fold(); close(true)"><AppIcon name="i-sidebar" /><span class="menu-label">{{ folded ? '展开图片栏' : '收起图片栏' }}</span></button>
+          <button v-if="image.library === 'history' && view.history.length > 1" class="menu-item" type="button" role="menuitem" @click="close(); askRetrospect()"><AppIcon name="i-branch" /><span class="menu-label">请 ASK 发起演进</span></button>
+          <button class="menu-item" type="button" role="menuitem" :disabled="!showClear" @click="close(); drawing.clear()"><AppIcon name="i-trash" /><span class="menu-label">清空历史，收藏仍保留</span></button>
+        </template>
+      </PopoverMenu>
+      </Teleport>
       <button
-        v-if="!narrow"
+        v-if="!horizontal"
         id="histToggle"
         class="ibtn library-fold"
         type="button"
         aria-controls="tray"
-        :aria-expanded="image.historyOpen"
-        :aria-label="image.historyOpen ? '收起图片栏' : '展开图片栏'"
-        @click="
-          image.historyOpen = !image.historyOpen;
-          peek = null;
-        "
+        :aria-expanded="!folded"
+        :aria-label="folded ? '展开图片栏' : '收起图片栏'"
+        :title="folded ? '展开图片栏' : '收起图片栏'"
+        @click="fold"
       >
-        <AppIcon name="i-sidebar" /></button
-      ><button
-        v-if="(image.historyOpen || narrow) && showCompare"
-        class="ibtn library-compare"
-        type="button"
-        :aria-pressed="comparing"
-        :aria-label="comparing ? '退出对比' : '对比'"
-        :data-tip="comparing ? '退出对比' : '对比'"
-        @click="toggleCompare"
-      >
-        <AppIcon name="i-compare" /></button
+        <AppIcon :name="horizontal ? 'i-chevron' : 'i-sidebar'" /></button
       ><button
         id="clearHist"
+        v-if="!horizontal"
         class="ibtn library-clear"
         type="button"
         :hidden="!showClear"
@@ -392,8 +432,16 @@ async function preview(item: HistoryRecord, e: Event) {
       >
         <AppIcon name="i-trash" />
       </button>
-      <HistoryRetrospectMenu v-if="image.library === 'history' && view.history.length > 1 && (image.historyOpen || narrow)" @start="askRetrospect" />
+      <HistoryRetrospectMenu v-if="!horizontal && image.library === 'history' && view.history.length > 1 && expanded" @start="askRetrospect" />
     </footer>
+    <dialog ref="mobileDialog" id="mobileImageLibrary" class="mobile-library" aria-label="历史与收藏" @cancel.prevent="closeBrowser" @close="mobile && !folded && closeBrowser()" @click.self="closeBrowser">
+      <div class="mobile-library-bar">
+        <div ref="mobileHead"></div>
+        <div ref="mobileActions" class="mobile-library-actions"></div>
+        <button class="ibtn mobile-library-close" type="button" aria-label="收起历史与收藏" @click="closeBrowser"><AppIcon name="i-close" /></button>
+      </div>
+      <div ref="mobileTray" class="mobile-library-scroll" :class="{ 'is-empty': !items.length && !pending }"></div>
+    </dialog>
   </aside>
 </template>
 <style scoped>
@@ -419,26 +467,60 @@ async function preview(item: HistoryRecord, e: Event) {
 @media (prefers-reduced-motion: reduce) {
   .tile[data-landing] > :is(img, .library-ask-id), .tile[data-landing]::before { animation: none; }
 }
-.library-pick { position: absolute; right: 0; bottom: 0; display: grid; place-items: center; width: 44px; height: 44px; }
-.library-pick span { display: grid; place-items: center; width: 24px; height: 24px; color: var(--a-ink); font-size: var(--fz-xs); background: var(--sunken); border: 1px solid var(--fg-3); border-radius: 50%; }
-.library-pick[aria-pressed="true"] span { background: var(--a); border-color: var(--a); }
-.library-pick:disabled { opacity: .35; }
-.library-diff { display: grid; flex: none; gap: 7px; justify-items: center; margin: 6px 8px; padding: 9px 6px; font-size: var(--fz-xs); background: var(--raised); border: 1px solid var(--line-2); border-radius: 10px; }
-.library-diff > span { color: var(--fg-3); }
-.library-diff .btn { min-height: 30px; padding: 0 8px; }
-/* Fold on the left; compare and clear share the right, clear at the edge. */
+/* The shared footer owns folding, clearing and evolution entry points. */
 .library-foot { justify-content: flex-end; gap: 2px; }
-.library-foot:has(.library-compare) .library-fold { margin-right: auto; }
-.library-foot .library-compare[aria-pressed="true"] { color: var(--a); }
 @media (min-width: 861px) {
-  :global(body[data-hist="off"]) .history-section > span { display: none; }
-  :global(body[data-hist="off"]) .library-item { display: contents; }
+  :global(body[data-hist="off"]) .gallery:not(.filmstrip) .history-section > span { display: none; }
+  :global(body[data-hist="off"]) .gallery:not(.filmstrip) .library-item { display: contents; }
 }
 @media (max-width: 860px) {
-  .gallery .library-foot :is(.library-clear, .library-compare) { flex: none; width: 44px; height: 44px; padding: 0; justify-content: center; }
+  .gallery .library-foot .library-clear { flex: none; width: 44px; height: 44px; padding: 0; justify-content: center; }
   .library-tab-label { font-size: var(--fz-xs); }
-  .library-diff { display: flex; justify-content: center; margin: 6px 0; }
   .library-ask-id { height: 22px; padding: 0 7px; font-size: var(--fz-xs); }
 }
 .library-board-dot { display: inline-block; width: 5px; height: 5px; border-radius: 50%; }
+.gallery.filmstrip { position: relative; display: flex; flex-direction: row; align-items: center; gap: 2px; width: max-content; max-width: 100%; height: 40px; padding: 4px; border: 0; border-radius: 999px; overflow: visible; }
+.filmstrip .library-head { padding: 0; flex: none; min-width: 0; }
+.filmstrip .library-tabs { display: flex; flex-direction: row; width: max-content; gap: 2px; padding: 0; border: 0; background: transparent; box-shadow: none; }
+.filmstrip .library-tabs .library-tab { flex-direction: row; justify-content: flex-start; gap: 5px; width: auto; height: 32px; padding: 0 10px; border: 0; border-radius: 999px; color: var(--fg-3); background: transparent; box-shadow: none; }
+.filmstrip .library-tabs .library-tab[aria-selected="true"] { color: var(--a); background: var(--a-dim); }
+.filmstrip .library-tabs .library-tab:hover { color: var(--fg); background: var(--glass-hover); }
+.filmstrip .library-tab b { font-size: var(--fz-2xs); color: var(--fg-3); }
+.filmstrip .library-tab-label { font-size: var(--fz-sm); }
+.canvas-tray { display: flex; flex-direction: column; align-items: stretch; gap: 4px; width: 100%; min-width: 0; height: 100%; min-height: 0; padding: 0; overflow: hidden auto; overscroll-behavior-y: contain; scrollbar-width: thin; }
+/* Spare space centers short desktop lists; overflowing lists keep their top reachable. */
+.canvas-tray:not(.mobile-tray) > :first-child { margin-top: auto; }
+.canvas-tray:not(.mobile-tray) > :last-child { margin-bottom: auto; }
+.canvas-tray .library-item { display: block; flex: none; width: 100%; height: auto; }
+.canvas-tray .tile { display: block; flex: none; width: 100%; height: auto; min-height: 0; padding: 2px; aspect-ratio: auto; border-radius: 6px; box-shadow: inset 0 0 0 1px var(--line-2); }
+.canvas-tray .tile:hover { transform: none; box-shadow: inset 0 0 0 1px var(--fg-3); }
+.canvas-tray .tile[aria-current="true"] { box-shadow: inset 0 0 0 2px var(--a); }
+.canvas-tray .tile::before { display: none; }
+.canvas-tray .tile-pending { aspect-ratio: var(--image-ratio, 1); }
+.canvas-tray .tile > img { position: static; display: block; width: 100%; height: auto; aspect-ratio: var(--image-ratio, 1); object-fit: contain; border-radius: 4px; }
+.filmstrip .library-foot { flex-direction: row; gap: 0; margin: 0; padding: 0; }
+.library-more { display: inline-flex; align-items: center; justify-content: center; gap: 6px; height: 32px; width: 32px; border-radius: 999px; color: var(--fg-2); --ico: var(--ico-md); }
+.library-more:is(:hover, [aria-expanded="true"]) { color: var(--fg); background: var(--glass-hover); }
+.library-current, .library-down-icon, .canvas-library-choices { display: none; }
+.library-current { align-items: baseline; gap: 5px; font-size: var(--fz-sm); }
+.library-current b { color: var(--fg-3); font-size: var(--fz-xs); font-weight: var(--fw-regular); font-variant-numeric: tabular-nums; }
+.filmstrip .tray-empty { display: none; }
+.canvas-tray .history-section { flex-direction: column; justify-content: center; padding: 6px; white-space: nowrap; }
+.filmstrip-peek { position: fixed; right: auto; z-index: var(--z-drawer); width: 240px; max-height: 300px; pointer-events: none; background: var(--glass-pop-bg); backdrop-filter: blur(var(--glass-blur)); }
+.filmstrip-peek img { max-height: 265px; object-fit: contain; }
+@container canvas-workspace (max-width: 820px) {
+  .filmstrip .library-head, .library-more-icon { display: none; }
+  .library-more { width: auto; min-width: 82px; padding: 0 9px; }
+  .library-current { display: inline-flex; }
+  .library-down-icon { display: inline-block; --ico: var(--ico-sm); }
+  .canvas-library-choices { display: flex; flex-direction: column; margin-bottom: 4px; }
+}
+.library-browse { display: inline-flex; align-items: center; justify-content: center; gap: 8px; min-height: 36px; padding: 0 12px; color: var(--fg-2); border-radius: 999px; font-size: var(--fz-sm); --ico: var(--ico-md); }
+.library-browse b { color: var(--fg-3); font-size: var(--fz-xs); font-weight: var(--fw-regular); font-variant-numeric: tabular-nums; }
+.library-browse-caret { color: var(--fg-3); --ico: var(--ico-sm); }
+.gallery.mobile-library-trigger { height: 44px; }
+.gallery.mobile-library-open { visibility: hidden; }
+.mobile-library-open > .library-foot { opacity: 0; }
 </style>
+
+<style scoped src="../../shared/canvas-history.css"></style>

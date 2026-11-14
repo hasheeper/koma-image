@@ -3,20 +3,39 @@ import type { InjectionKey } from "vue";
 import type { Ask } from "./service.ts";
 import type { AppRouter } from "../app/router.ts";
 import { summary as replySummary } from "./format.ts";
+import { createCanvasPresentation } from "./canvas-presentation.ts";
+import type { ApplicationServices } from "../services/application.ts";
 import { createHomeTransitions } from "../home/transition.ts";
 
 /** Tool rows in the conversation and the call inspector share one glyph per tool. */
 export const toolIcons: Readonly<Record<string, string>> = { get_state: "i-layers", search_history: "i-search", get_meta: "i-info", diff_meta: "i-layers", view_image: "i-image", view_sheet: "i-layers", search_tags: "i-search", propose_draft: "i-edit", get_chat_context: "i-layers", get_model_manual: "i-info", get_turn: "i-layers", read_ref: "i-file", save_ref: "i-download", slate_edit: "i-tasks", deliver: "i-image", get_recipe_clusters: "i-layers", show_retrospect: "i-branch", set_retrospect_status: "i-check" };
 
 /** One app-owned presentation, shared by the floating island and HOME's head. */
-export function createAskPresentation(ask: Ask, router: AppRouter) {
+export function createAskPresentation(ask: Ask, router: AppRouter, preferences: ApplicationServices["preferences"]) {
   const shown = shallowRef(ask.visible.value), homeSize = shallowRef<'half' | 'full'>('half');
   const viewport = shallowRef(innerWidth), home = computed(() => router.route.value.workspace === 'home' && !ask.retrospects.host.value);
+  const canvas = createCanvasPresentation(router, viewport, preferences);
+  const editCanvas = createCanvasPresentation(router, viewport, preferences, 'edit');
+  const chatCanvas = createCanvasPresentation(router, viewport, preferences, 'chat');
+  /* EDIT and CHAT lend the sidebar to an opened evolution, then take ASK back when it closes. */
+  const dockedCanvas = computed(() => canvas.active.value ? canvas : ask.retrospects.opened.value ? null : editCanvas.active.value ? editCanvas : chatCanvas.active.value ? chatCanvas : null);
+  onScopeDispose(ask.onReveal(() => { if (dockedCanvas.value) dockedCanvas.value.panel.value = 'ask'; }));
+  watch(dockedCanvas, active => {
+    if (active) {
+      const panel = active.panel.value;
+      ask.show(); active.panel.value = panel; shown.value = ask.visible.value;
+    }
+  }, { immediate: true });
   const mobile = computed(() => viewport.value <= 860);
+  onScopeDispose(ask.onLocate(() => {
+    const layout = dockedCanvas.value;
+    if (layout?.compact.value) layout.panel.value = null;
+    else if (!layout && mobile.value) ask.hide();
+  }));
   const canDock = computed(() => viewport.value >= 1280);
   const dockWidth = computed(() => Math.round(Math.min(480, Math.max(420, viewport.value * .32))));
   const dock = computed(() => !home.value || !shown.value ? 'off' : !canDock.value ? 'full' : homeSize.value);
-  const fullscreen = computed(() => shown.value && (home.value ? dock.value === 'full' : mobile.value));
+  const fullscreen = computed(() => !dockedCanvas.value && shown.value && (home.value ? dock.value === 'full' : mobile.value));
   const reserve = computed(() => home.value && shown.value && canDock.value ? dockWidth.value + 12 : 0);
   const dismissedTurn = shallowRef(0), dismissedApplied = shallowRef<object | null>(null);
   let measure = () => {};
@@ -76,7 +95,11 @@ export function createAskPresentation(ask: Ask, router: AppRouter) {
     else note.value = value;
   }, { flush: 'sync' });
   onScopeDispose(() => { transitions.cancel(); clearTimeout(doneTimer); window.removeEventListener('resize', resize); });
-  return { shown, mode, note, home, mobile, fullscreen, dock, canDock, dockWidth, reserve, homeSize, latest, tools, compactDraft, completed, activity, outcome, summary, dismiss,
+  return { canvas, editCanvas, chatCanvas, dockedCanvas, shown, mode, note, home, mobile, fullscreen, dock, canDock, dockWidth, reserve, homeSize, latest, tools, compactDraft, completed, activity, outcome, summary, dismiss,
+    selectCanvasPanel(layout: typeof canvas, panel: 'ask' | 'context') {
+      layout.panel.value = layout.panel.value === panel ? null : panel;
+      if (layout.panel.value === 'ask') ask.show();
+    },
     measureWith(callback: () => void) { measure = callback; return () => { if (measure === callback) measure = () => {}; }; },
     resizeHome() { homeSize.value = homeSize.value === 'half' ? 'full' : 'half'; } };
 }

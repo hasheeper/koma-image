@@ -5,6 +5,7 @@ import { message, useUi } from "../../app/ui";
 import { findModel } from "../../domain/models";
 import WorkspaceEvolutionEntry from '../../ask/retrospect/WorkspaceEvolutionEntry.vue';
 import BoardMenu from "../../shared/boards/BoardMenu.vue";
+defineProps<{ compact?: boolean }>();
 const { editor, view } = useEditor(), ui = useUi();
 const emit = defineEmits<{ openImage: [] }>();
 const menu = shallowRef<InstanceType<typeof BoardMenu>>();
@@ -26,7 +27,7 @@ async function remove(id: string) {
 defineExpose({ close: () => menu.value?.close() });
 </script>
 <template>
-  <BoardMenu ref="menu" id="editBoardMenu" action-prefix="editBoardActions" :items="items" :active-id="view.session.id" trigger-label="切换编辑画板" create-label="新建编辑画板" remove-label="关闭画板" :footer="footer"
+  <BoardMenu ref="menu" :compact="compact" id="editBoardMenu" action-prefix="editBoardActions" :items="items" :active-id="view.session.id" trigger-label="切换编辑画板" create-label="新建编辑画板" remove-label="关闭画板" :footer="footer"
     @select="id => run(() => editor.switchBoard(id))" @rename="(id, name) => run(() => editor.renameBoard(id, name))" @remove="remove"
     @create="run(() => editor.createBoard())" @action="id => id === 'open' ? emit('openImage') : run(() => editor.createBoard())"><template #currentActions><WorkspaceEvolutionEntry :available="view.session.versions.length > 1" /></template></BoardMenu>
 </template>

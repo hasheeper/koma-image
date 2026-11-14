@@ -46,7 +46,7 @@ test('Gemini native request: escaped arbitrary model path, header key, text-only
   assert.equal(calls[0].headers.Authorization, undefined);
   assert.equal(calls[0].redirect, 'error');
   assert.equal(JSON.stringify(traces).includes('synthetic-gemini-key'), false);
-  assert.deepEqual(calls[0].body.generationConfig, { maxOutputTokens: 4096, responseModalities: ['TEXT'] });
+  assert.deepEqual(calls[0].body.generationConfig, { responseModalities: ['TEXT'] });
   assert.deepEqual(calls[0].body.contents[0].parts[1], { inlineData: { mimeType: 'image/png', data: 'AAAA' } });
   assert.deepEqual(calls[0].body.tools[0].functionDeclarations[0].parametersJsonSchema, tool.schema);
   assert.equal(calls[0].body.model, undefined);

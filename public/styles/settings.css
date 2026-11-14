@@ -47,7 +47,6 @@
 .sp-sec-head { margin-bottom: 6px; }
 .sp-sec-head h3 { margin: 15px 0 0; font-size: var(--fz-md); font-weight: var(--fw-semibold); letter-spacing: -0.01em; }
 .sp-sec-head p { margin-top: 15px; font-size: var(--fz-xs); line-height: 1.6; color: var(--fg-3); }
-.sp-note { font-size: var(--fz-xs); color: var(--fg-3); }
 .set-ui input[type="text"] { height: 32px; padding: 5px 10px; font: var(--fz-xs)/1.4 var(--mono); }
 .set-ui .btn-xs { padding: 5px 10px; font-size: var(--fz-xs); }
 
@@ -117,12 +116,6 @@
 .set-ui .md-act[aria-pressed="true"] { color: color-mix(in srgb, var(--a) 85%, var(--fg-4)); }
 .set-ui .md-act-gap { width: 30px; flex: none; }
 .set-ui .md-miss { font-size: var(--fz-xs); color: var(--fg-4); }
-/* Quiet until hovered: a dozen unmatched rows shouldn't read as a dozen form fields. */
-.set-ui .md-map {
-  flex: none; width: auto; min-width: 100px; max-width: 100%; height: 32px; padding: 0 26px 0 8px; font-size: var(--fz-xs); color: var(--fg-3);
-  background-color: transparent; box-shadow: none; border-color: transparent; background-position: right 6px center; cursor: pointer;
-}
-.set-ui .md-map:hover, .set-ui .md-map:focus-visible { color: var(--fg); background-color: var(--hover); }
 
 /* ── Supported models and their sources ─────────────────────── */
 .set-ui .sm {
@@ -229,7 +222,6 @@
 .set-ui .lamp { --c: var(--ok); display: grid; place-items: center; width: 30px; height: 30px; flex: none; border-radius: 8px; }
 .set-ui .lamp[data-s="off"] { --c: var(--fg-4); }
 .set-ui .lamp:hover { background: var(--hover); }
-.set-ui .pl-as { flex: none; font-size: var(--fz-2xs); color: var(--fg-4); white-space: nowrap; }
 
 /* ── Connection cards ────────────────────────────────────────── */
 /* Three layers: who it is (name, status, one summary line), what is left, and its models.
@@ -388,3 +380,130 @@
   .plist .md-head { padding: 14px 10px 12px 14px; }
   .plist .md-tools, .plist .md-list { padding-left: 12px; padding-right: 12px; }
 }
+
+/* ── Canvas collaboration (BETA) ────────────────────────────────
+   The same table as IMAGE／EDIT／CHAT: the page is the stage, the bar
+   becomes floating islands (back, the shared section switch, appearance),
+   and switching sections lets the shown one rise into place. The shell is
+   chosen as settings opens (SettingsOverlay), never under the pointer. */
+.set-home { display: contents; }
+.settings.is-beta {
+  grid-template-rows: minmax(0, 1fr); grid-template-columns: minmax(0, 1fr);
+  padding: 8px; background: var(--canvas);
+}
+.settings.is-beta > * { grid-area: 1 / 1; }
+.settings.is-beta .set-bar {
+  position: relative; z-index: 3; align-self: start;
+  display: grid; grid-template-columns: minmax(0, 1fr) auto minmax(0, 1fr); align-items: center; gap: 8px;
+  height: auto; padding: 8px; background: none; border: 0; overflow: visible; pointer-events: none;
+}
+.settings.is-beta .set-bar > * { pointer-events: auto; }
+.settings.is-beta :is(.set-home, .theme-toggle) {
+  height: 34px; background: var(--glass-bg); border: 1px solid var(--line-2); border-radius: 10px;
+  box-shadow: var(--sh-1); backdrop-filter: blur(var(--glass-blur));
+}
+.settings.is-beta .set-home { display: flex; align-items: center; gap: 2px; justify-self: start; padding: 2px; }
+.settings.is-beta .set-back { width: 28px; height: 28px; margin: 0; border-radius: 7px; }
+.settings.is-beta .set-title .brand-mark { --m: 28px; background: none; box-shadow: none; }
+.settings.is-beta .set-switch { justify-self: center; }
+.settings.is-beta .set-bar .topbar-end { justify-self: end; margin: 0; }
+.settings.is-beta .theme-toggle { width: 34px; }
+.settings.is-beta .theme-toggle:hover { background: var(--hover); }
+.settings.is-beta .set-lay {
+  display: block; position: relative; min-height: 0; overflow: hidden; border-radius: 16px;
+  background: radial-gradient(120% 90% at 50% 0%, color-mix(in srgb, var(--stage-wash) 2.2%, transparent), transparent 62%), var(--stage);
+}
+/* Rows passing under the islands fade out instead of tangling with them. */
+.settings.is-beta .set-lay::before {
+  content: ""; position: absolute; top: 0; right: 0; left: 0; z-index: 2; height: 56px;
+  background: linear-gradient(to bottom, color-mix(in srgb, var(--stage) 65%, transparent), transparent); pointer-events: none;
+}
+.settings.is-beta .set-scroll { height: 100%; }
+.settings.is-beta .set-col { padding-top: 52px; }
+.settings.is-beta .set-col > * { animation: set-pane var(--t2) var(--e-out); }
+@keyframes set-pane { from { opacity: 0; transform: translateY(4px); } }
+
+/* Settings opens over the table as a layer arriving (like the phone pane) and fades on leaving.
+   The leave keeps the dialog shown and in the top layer only where both can transition;
+   elsewhere it closes at once, and focus return and routing never wait for it. */
+.settings.is-beta::backdrop { background: transparent; }
+.settings.is-beta[open] { transition: opacity var(--t2) var(--e-out), transform var(--t2) var(--e-out); }
+@starting-style { .settings.is-beta[open] { opacity: 0; transform: scale(.98); } }
+@supports (overlay: auto) {
+  .settings.is-beta:not([open]) {
+    opacity: 0; pointer-events: none;
+    transition: opacity var(--t1) var(--e), display var(--t1) allow-discrete, overlay var(--t1) allow-discrete;
+  }
+}
+
+@media (max-width: 1079px) {
+  .settings.is-beta[open] { transition-duration: var(--t3); }
+  .settings.is-beta :is(.set-home, .theme-toggle) { height: 40px; }
+  .settings.is-beta .theme-toggle { width: 40px; }
+  .settings.is-beta .set-back { width: 34px; height: 34px; border-radius: 8px; }
+  .settings.is-beta .set-title .brand-mark { --m: 34px; }
+  .settings.is-beta .set-lay::before { height: 64px; }
+  .settings.is-beta .set-col { padding-top: 56px; }
+}
+/* Phones: the switch keeps its icons (each section's own title names it) and the mark steps aside. */
+@media (max-width: 640px) {
+  .settings.is-beta {
+    padding: max(8px, env(safe-area-inset-top)) max(8px, env(safe-area-inset-right)) max(8px, env(safe-area-inset-bottom)) max(8px, env(safe-area-inset-left));
+  }
+  .settings.is-beta .set-bar { grid-template-columns: auto minmax(0, 1fr) auto; }
+  .settings.is-beta .set-title { display: none; }
+  .settings.is-beta .set-switch > button { min-width: 44px; padding-inline: 0; --ico: var(--ico-lg); }
+  .settings.is-beta .set-switch :is(.canvas-panel-label, .canvas-panel-meta) {
+    position: absolute; width: 1px; height: 1px; overflow: hidden; clip-path: inset(50%); white-space: nowrap;
+  }
+}
+@media (max-width: 360px) {
+  .settings.is-beta .set-bar { gap: 6px; }
+  .settings.is-beta .set-switch > button { min-width: 36px; }
+}
+/* Dialogs opened from BETA settings (inside it, or beside it with the class) float in the islands'
+   glass over a receding page, and arrive and leave like settings itself. Phones float them 8px
+   from the edges, as the tray pane does, instead of pinning them to the bottom. */
+.modal.set-ui:is(.canvas-collaboration, .settings.is-beta *) {
+  background: var(--glass-pop-bg); border-radius: 16px;
+  box-shadow: var(--glass-pop-shadow);
+  backdrop-filter: blur(var(--glass-blur)) saturate(var(--glass-saturation));
+}
+.modal.set-ui:is(.canvas-collaboration, .settings.is-beta *)::backdrop {
+  background: color-mix(in srgb, var(--scrim-neutral) 35%, transparent); backdrop-filter: blur(14px);
+}
+.modal.set-ui:is(.canvas-collaboration, .settings.is-beta *)[open] { transition: opacity var(--t2) var(--e-out), transform var(--t2) var(--e-out); }
+.modal.set-ui:is(.canvas-collaboration, .settings.is-beta *)[open]::backdrop { transition: opacity var(--t2) var(--e-out); }
+@starting-style {
+  .modal.set-ui:is(.canvas-collaboration, .settings.is-beta *)[open] { opacity: 0; transform: scale(.98); }
+  .modal.set-ui:is(.canvas-collaboration, .settings.is-beta *)[open]::backdrop { opacity: 0; }
+}
+@supports (overlay: auto) {
+  .modal.set-ui:is(.canvas-collaboration, .settings.is-beta *):not([open]) {
+    opacity: 0; pointer-events: none;
+    transition: opacity var(--t1) var(--e), display var(--t1) allow-discrete, overlay var(--t1) allow-discrete;
+  }
+  .modal.set-ui:is(.canvas-collaboration, .settings.is-beta *):not([open])::backdrop {
+    opacity: 0; transition: opacity var(--t1) var(--e), display var(--t1) allow-discrete, overlay var(--t1) allow-discrete;
+  }
+}
+@media (max-width: 1079px) {
+  .modal.set-ui:is(.canvas-collaboration, .settings.is-beta *)[open] { transition-duration: var(--t3); }
+}
+@media (max-width: 640px) {
+  .modal.set-ui:is(.canvas-collaboration, .settings.is-beta *) {
+    width: auto;
+    margin: auto max(8px, env(safe-area-inset-right)) max(8px, env(safe-area-inset-bottom)) max(8px, env(safe-area-inset-left));
+    border-bottom-width: 1px; border-radius: 16px; transform-origin: 50% 100%;
+  }
+  .modal.set-ui:is(.canvas-collaboration, .settings.is-beta *) .modal-foot { padding-bottom: 12px; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  @starting-style {
+    .settings.is-beta[open],
+    .modal.set-ui:is(.canvas-collaboration, .settings.is-beta *)[open] { transform: none; }
+  }
+  .settings.is-beta .set-col > * { animation-name: set-pane-fade; }
+}
+@keyframes set-pane-fade { from { opacity: 0; } }

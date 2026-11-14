@@ -10,6 +10,7 @@ export function createEditorCanvas(
     brush: () => number;
     compare: (value: boolean) => void;
     panel: (width: number | null) => void;
+    reserveWidth?: () => number;
   },
 ) {
   const box = root.querySelector<HTMLElement>("#editorViewport")!,
@@ -37,15 +38,18 @@ export function createEditorCanvas(
         w =
           box.clientWidth -
           parseFloat(css.paddingLeft) -
-          parseFloat(css.paddingRight),
+          parseFloat(css.paddingRight) - (deps.reserveWidth?.() ?? 0),
         h =
           box.clientHeight -
           parseFloat(css.paddingTop) -
           parseFloat(css.paddingBottom);
+      if (w <= 0 || h <= 0) return;
       scale = Math.max(0.05, Math.min(2, w / size.width, h / size.height));
     } else scale = zoom;
     stage.style.width = `${Math.round(size.width * scale)}px`;
     stage.style.height = `${Math.round(size.height * scale)}px`;
+    root.style.setProperty('--editor-display-width', `${Math.round(size.width * scale)}px`);
+    root.style.setProperty('--editor-display-height', `${Math.round(size.height * scale)}px`);
     zoomLabel.textContent = `${Math.round(scale * 100)}%`;
   }
   function zoomTo(next: number, anchor?: { x: number; y: number }) {
@@ -266,16 +270,10 @@ export function createEditorCanvas(
       },
       { signal },
     );
-    const foot = root.querySelector<HTMLElement>(".composer-foot")!;
     observer = new ResizeObserver(() => {
       if (zoom === null) layout();
-      root.style.setProperty(
-        "--editor-foot",
-        `${Math.ceil(foot.getBoundingClientRect().height - (foot.querySelector(".drawer-shell")?.getBoundingClientRect().height ?? 0))}px`,
-      );
     });
     observer.observe(box);
-    observer.observe(foot);
     layout();
     window.addEventListener(
       "blur",

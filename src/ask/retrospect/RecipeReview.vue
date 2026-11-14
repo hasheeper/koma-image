@@ -67,10 +67,5 @@ watch(() => [props.a?.id, props.a?.cover, props.b.id, props.b.cover], () => { cl
 .scrolled .review-head::after { content: ''; position: absolute; top: 100%; left: var(--sp-4); right: var(--sp-4); height: var(--sp-2); background: linear-gradient(var(--chrome), transparent); pointer-events: none; }
 .identical .recipe-group + .recipe-group { margin-top: var(--sp-3); }
 .unchanged .group-head strong { color: var(--fg-2); }
-@media (max-width: 860px) {
-  .recipe-review.flow-layout { flex: none; }
-  .flow-layout .review-scroll { overflow: visible; flex: none; }
-  .flow-layout .group-head { position: static; }
-  .flow-layout .group-head::after, .flow-layout .review-head::after { display: none; }
-}
+
 </style>

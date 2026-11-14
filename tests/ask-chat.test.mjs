@@ -134,7 +134,7 @@ test('ASK CHAT handoff: one step, whitelisted size values, deduplicated images w
  // The header names the new conversation; images are reference rows and the input is shown verbatim.
  const view=draftView(validateDraft(draft({images:['#h1','#c2.1'],options:{size:'1536x1024'},text:'参考 #h1，改成横版\n保留红色外套'}),base,{off:new Set()}));
  assert.deepEqual(view.destination,{label:'新对话',name:'GPT Image'});
- assert.deepEqual(view.fields[0].steps.map(s=>[s.kind,s.kind==='ref'?s.label:s.kind==='param'?s.icon:'']),[['ref','#h1'],['ref','#c2.1'],['param','i-frame']]);
+ assert.deepEqual(view.fields[0].steps.map(s=>[s.kind,s.kind==='ref'?s.label:s.kind==='param'?s.after:'']),[['ref','#h1'],['ref','#c2.1'],['param','横向']]);
  assert.equal(view.fields[1].full,null);assert.match(view.fields[1].steps[0].hunks[0][0].text,/参考 第 1 张图，改成横版\n保留红色外套/);
  assert.deepEqual(p.steps.filter(s=>s.id.startsWith('0:image:')).map(s=>[s.label,s.locked]),[['底图',true],['参考图 1',true]]);
  for(const [key,value] of Object.entries({quality:'high',complexity:'medium',watermark:'false',output_format:'png',native_markup:'true'}))

@@ -1,0 +1,28 @@
+/* Shared IMAGE and EDIT history browser surface; each consumer scopes these rules. */
+.mobile-library { position: fixed; inset: max(12px, env(safe-area-inset-top)) max(12px, env(safe-area-inset-right)) max(12px, env(safe-area-inset-bottom)) max(12px, env(safe-area-inset-left)); width: auto; height: auto; max-width: none; max-height: none; margin: 0; padding: 0; overflow: hidden; color: var(--fg); border: 0; outline: none; background: none; box-shadow: none; visibility: visible; }
+.mobile-library[open] { display: flex; flex-direction: column; gap: 16px; animation: library-appear var(--t2) var(--e-out); }
+.mobile-library::backdrop { background: color-mix(in srgb, var(--stage) 36%, transparent); }
+.mobile-library-bar { display: flex; flex: none; align-items: center; gap: 8px; }
+.mobile-library .library-head { display: block; padding: 0; }
+.mobile-library .library-tabs { display: flex; gap: 2px; height: 44px; padding: 3px; background: var(--glass-bg); border: 1px solid var(--line-2); border-radius: 999px; box-shadow: var(--sh-1); backdrop-filter: blur(var(--glass-blur)); }
+.mobile-library .library-tabs .library-tab { flex-direction: row; justify-content: center; gap: 6px; width: auto; height: 36px; padding: 0 12px; border: 0; border-radius: 999px; font-size: var(--fz-sm); --ico: var(--ico-md); }
+.mobile-library .library-tab b { font-size: var(--fz-xs); }
+.mobile-library-actions { margin-left: auto; }
+.mobile-library :is(.library-more, .mobile-library-close) { width: 44px; height: 44px; padding: 0; min-width: 0; border-radius: 50%; color: var(--fg-2); background: var(--glass-bg); border: 1px solid var(--line-2); backdrop-filter: blur(var(--glass-blur)); --ico: var(--ico-md); }
+.mobile-library :is(.library-current, .library-down-icon) { display: none; }
+.mobile-library .library-more-icon { display: inline-block; }
+.mobile-library-scroll { flex: 1; min-width: 0; min-height: 0; padding: 2px 2px 24px; overflow: hidden auto; overscroll-behavior: contain; scrollbar-width: none; }
+.mobile-library-scroll.is-empty { display: grid; place-items: center; padding-bottom: 60px; }
+/* Fit the available width without enlarging a sparse library into full-width pictures. */
+.mobile-tray { display: block; width: 100%; height: auto; padding: 0; overflow: visible; columns: 140px; column-gap: 10px; }
+.mobile-tray .library-item, .mobile-tray .tile-pending { break-inside: avoid; margin-bottom: 10px; }
+/* Column balancing needs each thumbnail's actual aspect, including off-screen items. */
+.mobile-tray .tile { padding: 3px; border-radius: 12px; background: var(--glass-layer); content-visibility: visible; }
+.mobile-tray .tile > img { border-radius: 9px; }
+.mobile-tray .history-section { column-span: all; flex-direction: row; width: 100%; margin-bottom: 8px; padding: 10px 4px; white-space: normal; }
+.mobile-library .tray-empty { display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 16px; min-height: 50%; padding: 24px; color: var(--fg-3); text-align: center; }
+.mobile-library .tray-empty[hidden] { display: none; }
+.mobile-library .tray-empty p { display: grid; gap: 6px; }
+.mobile-library .tray-empty span { color: var(--fg-3); }
+@keyframes library-appear { from { opacity: 0; transform: translateY(10px); } }
+@media (prefers-reduced-motion: reduce) { .mobile-library[open] { animation: none; } }

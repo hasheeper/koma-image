@@ -217,6 +217,8 @@ test('CHAT favorite saves the original and supports parameter import', async () 
         const shell = p[Object.getOwnPropertySymbols(p).find(k => k.description === 'app-shell')];
         if (shell.router.route.value.overlay) shell.router.closeOverlay();
       });
+      // At phone width the classic CHAT offers canvas collaboration first; keep the desktop table.
+      await page.getByRole('button', { name: '继续桌面布局', exact: true }).click();
       await page.waitForFunction(() => !document.querySelector('dialog[open]'));
       const art = page.locator('.chat-result').first(); await art.hover();
       const button = art.getByRole('button', { name: '收藏图片', exact: true }); await button.click();

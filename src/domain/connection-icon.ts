@@ -2,7 +2,7 @@ import type { Connection } from "../config/connections.ts";
 import { profileFor } from "../gateway/profile.ts";
 
 type ConnectionIcon = { family: "novelai" | "gemini" | "openai" | "volcengine"; label: string }
-  | { icon: "i-chat" | "i-image" | "i-swap"; label: string };
+  | { icon: "i-chat" | "i-image" | "i-swap" | "i-connection-multi"; label: string };
 
 /** Presentation only: hostname matching never selects a protocol or changes request routing. */
 function officialIcon(baseUrl: string): ConnectionIcon | undefined {
@@ -24,6 +24,7 @@ export function connectionIcon(connection?: Pick<Connection, "profileId" | "base
   if (!connection) return { icon: "i-swap", label: "连接" };
   const profile = profileFor(connection.profileId);
   if (profile.protocol === "novelai") return { family: "novelai", label: "NovelAI 官方" };
-  return officialIcon(connection.baseUrl) ?? (profile.reasoning
-    ? { icon: "i-chat", label: "文本连接" } : { icon: "i-image", label: "生图连接" });
+  return officialIcon(connection.baseUrl) ?? (profile.image && profile.reasoning
+    ? { icon: "i-connection-multi", label: "图像与文字连接" }
+    : profile.reasoning ? { icon: "i-chat", label: "文本连接" } : { icon: "i-image", label: "生图连接" });
 }

@@ -1,6 +1,5 @@
 <script setup lang="ts">
 import {
-  nextTick,
   watch,
   computed,
   onActivated,
@@ -57,7 +56,7 @@ function rowsFor(width: number, height: number, gap: number) {
   }
   return rows;
 }
-async function measure() {
+function measure() {
   const viewport = props.viewport;
   if (!active || !viewport || !home.value || view.value.state !== "empty")
     return;
@@ -94,22 +93,13 @@ async function measure() {
     );
     layout.value = { width, height, gap, rows: rowsFor(width, height, gap) };
   }
-  await nextTick();
-  if (!active || !home.value) return;
-  // This single CSS property is delegated to the native viewport sizing driver.
-  // Node creation and shelf contents remain Vue-owned.
-  if (narrow.value)
-    viewport.style.setProperty(
-      "--vp-h",
-      `${Math.ceil(Math.max(200, home.value.offsetHeight + padding))}px`,
-    );
-  else viewport.style.removeProperty("--vp-h");
+
 }
 watch(
   [() => view.value.favorites, () => view.value.state, narrow],
   () => {
     measured = "";
-    void measure();
+    measure();
   },
   { flush: "post" },
 );
@@ -132,11 +122,11 @@ onActivated(() => {
   active = true;
   observer = new ResizeObserver(() => {
     cancelAnimationFrame(measureFrame);
-    measureFrame = requestAnimationFrame(() => void measure());
+    measureFrame = requestAnimationFrame(() => measure());
   });
   if (props.viewport) observer.observe(props.viewport);
   if (home.value) observer.observe(home.value);
-  void measure();
+  measure();
 });
 onDeactivated(pause);
 onBeforeUnmount(pause);
@@ -191,7 +181,6 @@ onBeforeUnmount(pause);
         @click="
           image.library = 'favorites';
           image.historyOpen = true;
-          if (narrow) image.menuOpen = true;
         "
       >
         全部 {{ view.favorites.length }} 张<AppIcon name="i-chevron" />

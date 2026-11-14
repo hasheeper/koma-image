@@ -27,6 +27,7 @@ const { home, view } = useHome(), { drawing } = useDrawing(), { chat } = useChat
 const presentation = useAskPresentation(), { dock, reserve } = presentation, { editor } = useEditor();
 const empty = computed(() => view.value.loaded && view.value.firstUse);
 const welcome = computed(() => empty.value && dock.value === 'off');
+const dockedEmpty = computed(() => empty.value && dock.value === 'half');
 const dropping = shallowRef(false);
 let dragDepth = 0;
 function clearDrop() { dragDepth = 0; dropping.value = false; }
@@ -106,10 +107,10 @@ watch(() => view.value.finals, finals => { if (selected.value && !finals.some(f 
 watch(dock, clearDrop);
 </script>
 <template>
-  <div class="home-shell" :class="{ 'is-empty': welcome }" :data-ask="dock" :inert="dock === 'full'" :style="{ paddingRight: `${reserve}px`, '--home-reserve': `${reserve}px` }" @dragenter="drag" @dragover="drag" @dragleave="drag" @drop="drop">
-  <main ref="root" class="home-page" :class="{ 'is-empty': welcome }" data-workspace-root="home" tabindex="-1">
+  <div class="home-shell" :class="{ 'is-empty': welcome, 'canvas-collaboration': presentation.canvas.enabled.value }" :data-ask="dock" :inert="dock === 'full'" :style="{ paddingRight: `${reserve}px`, '--home-reserve': `${reserve}px` }" @dragenter="drag" @dragover="drag" @dragleave="drag" @drop="drop">
+  <main ref="root" class="home-page" :class="{ 'is-empty': welcome, 'is-docked-empty': dockedEmpty }" data-workspace-root="home" tabindex="-1">
     <HomeHead :empty="welcome" />
-    <HomeEmpty v-if="welcome" :dropping="dropping" />
+    <HomeEmpty v-if="welcome || dockedEmpty" :dropping="dropping" :docked="dockedEmpty" />
     <section v-if="lead" class="home-section" :class="{ 'is-single': alone }" aria-label="进行中">
       <div class="home-section-head"><h2>进行中 <span class="home-count">{{ view.lines.length }}</span></h2>
         <button v-if="activeSlate" type="button" class="home-slate" @click="slates.visible.value = true"><span>{{ activeSlate.title }}</span><i class="home-bars" aria-hidden="true"><i v-for="todo in activeSlate.todos.slice(0, 12)" :key="todo.id" :data-done="todo.status === 'done' || undefined" :data-now="todo.status === 'in_progress' || undefined"></i></i><small>{{ completed }}/{{ activeSlate.todos.length }}</small></button>
@@ -152,6 +153,7 @@ watch(dock, clearDrop);
   </main>
   </div>
 </template>
+<style scoped src="../shared/canvas-surface.css"></style>
 <style scoped>
 .home-shell { position: relative; isolation: isolate; min-height: 100dvh; overflow: clip; background: var(--page-bg); }
 .home-shell::before, .home-shell::after { z-index: -1; content: ''; pointer-events: none; }
@@ -162,6 +164,9 @@ watch(dock, clearDrop);
 .home-page.is-empty { position: relative; display: grid; grid-template-rows: minmax(48px, 2fr) auto 32px auto minmax(48px, 3fr); padding: 32px 0 36px; }
 .home-shell[data-ask="full"] { visibility: hidden; transition: visibility 0s .52s; }
 .home-page { width: min(84%, 1080px); min-height: 100dvh; margin: 0 auto; padding: var(--sp-6) 0 72px; outline: none; }
+.home-page.is-docked-empty { display: grid; grid-template-rows: auto minmax(240px, 1fr) auto; row-gap: 24px; padding-bottom: 24px; }
+.is-docked-empty .home-head { margin-bottom: 0; }
+.is-docked-empty .home-welcome { grid-row: 2; align-self: center; }
 .home-section + .home-section { margin-top: var(--sp-6); }
 /* One quiet line closing the page: the source repository. The empty page pins it to the bottom of its grid. */
 .home-footer { display: flex; justify-content: center; margin-top: 64px; }
@@ -169,6 +174,7 @@ watch(dock, clearDrop);
 .home-footer a:hover { color: var(--fg); }
 .home-footer .ico { --ico: var(--ico-sm); }
 .home-page.is-empty .home-footer { grid-row: 5; align-self: end; margin-top: 0; }
+.is-docked-empty .home-footer { grid-row: 3; align-self: end; margin-top: 0; }
 .home-section-head { display: flex; align-items: center; justify-content: space-between; gap: 12px; margin-bottom: 16px; }
 .home-section-head h2 { display: inline-flex; flex: none; align-items: center; gap: 10px; margin: 0; font-size: 18px; font-weight: var(--fw-semibold); line-height: 32px; }
 .home-count { display: inline-flex; align-items: center; justify-content: center; height: 22px; min-width: 22px; padding: 0 7px; color: var(--fg-2); margin-top: 2px; font: var(--fw-medium) var(--fz-xs)/1 var(--mono); background: var(--raised); border-radius: 11px; }

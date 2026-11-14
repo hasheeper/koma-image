@@ -276,6 +276,12 @@ function select(event: KeyboardEvent) {
 </template>
 
 <style scoped>
+.promptbox { container: image-prompt / inline-size; }
 .promptbox-body { position: relative; }
 .with-options :deep(.hl-wrap) { padding-bottom: 34px; }
+@container image-prompt (max-width: 280px) {
+  .promptbox-head { flex-wrap: wrap; }
+  .promptbox-head .tabs { flex: 1 0 100%; }
+  .promptbox-head .fld-actions { margin-left: auto; }
+}
 </style>

@@ -61,7 +61,7 @@ function blurred(event: FocusEvent) {
 }
 </script>
 <template>
-  <AskMenu id="askConvMenu" label="对话" side="left" :escape="cancel" @closed="confirming = ''; renaming = false">
+  <AskMenu id="askConvMenu" label="对话" side="left" kind="conversation" :escape="cancel" @closed="confirming = ''; renaming = false">
     <template #trigger="{ open, toggle }">
       <button class="ask-conv" type="button" aria-haspopup="menu" :aria-expanded="open" aria-controls="askConvMenu" :title="ask.heading.value.title" @click="toggle">
         <AppIcon v-if="ask.heading.value.favorite || ask.heading.value.fork" :name="ask.heading.value.favorite ? 'i-star' : 'i-branch'" class="ask-conv-fork" :class="{ starred: ask.heading.value.favorite }" />
@@ -77,7 +77,7 @@ function blurred(event: FocusEvent) {
       <hr role="separator" />
       <div ref="list" class="ask-conv-list" role="group" aria-label="ASK 对话">
         <div v-for="(c, i) in ask.conversations.value" :key="c.id" class="ask-conv-row" :class="{ confirming: confirming === c.id }" @pointerleave="left" @focusout="blurred">
-          <button class="menu-item" type="button" role="menuitemradio" :aria-checked="c.id === ask.conversationId.value" :disabled="!ask.canManage.value && c.id !== ask.conversationId.value" @click="choose(c.id, close)"><AppIcon :name="c.favorite ? 'i-star' : c.fork ? 'i-branch' : 'i-chat'" :class="{ starred: c.favorite }" /><span class="menu-label">{{ c.title }}</span><AppIcon name="i-check" class="menu-check ask-menu-check" /></button>
+          <button class="menu-item" type="button" role="menuitemradio" :title="c.title" :aria-checked="c.id === ask.conversationId.value" :disabled="!ask.canManage.value && c.id !== ask.conversationId.value" @click="choose(c.id, close)"><AppIcon :name="c.favorite ? 'i-star' : c.fork ? 'i-branch' : 'i-chat'" :class="{ starred: c.favorite }" /><span class="menu-label">{{ c.title }}</span><AppIcon name="i-check" class="menu-check ask-menu-check" /></button>
           <button class="ask-conv-del" type="button" :aria-label="confirming === c.id ? `确认删除 ${c.title}` : `删除 ${c.title}`" :title="confirming === c.id ? '再点一次删除' : '删除'" :disabled="!ask.canManage.value" @click="remove(c.id, i)"><template v-if="confirming === c.id">删除</template><AppIcon v-else name="i-close" /></button>
         </div>
       </div>
@@ -108,7 +108,7 @@ function blurred(event: FocusEvent) {
 .ask-conv-del:disabled { display: none; }
 .ask-conv-row.confirming .ask-conv-del { padding: 0 8px; color: var(--on-err); font-weight: var(--fw-semibold); background: var(--err); opacity: 1; }
 .ask-conv-row.confirming > .menu-item { padding-right: 60px; }
-.ask-conv-note { flex: none; margin-top: 4px; padding: 7px 10px 4px; color: var(--fg-3); font-size: var(--fz-xs); border-top: 1px solid var(--line); }
+.ask-conv-note { flex: none; margin-top: 4px; padding: 6px 8px 4px; color: var(--fg-3); font-size: var(--fz-2xs); white-space: normal; }
 /* Touch keeps both the selected check and an explicit delete target. */
 @media (hover: none) {
   .ask-conv-del { opacity: 1; }

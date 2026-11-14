@@ -2,6 +2,8 @@ import { object } from "../domain/value.ts";
 import { checkReplacement, checkWord } from "./codec.ts";
 import type { Replacement, WordEncoding } from "./codec.ts";
 import { DEFAULT_HIGH_WATER, highWater } from "./compact/trigger.ts";
+import { readAskParameters } from "./parameters.ts";
+import type { AskParameters } from "./parameters.ts";
 
 export interface TextAttachmentLimits { chars: number; totalChars: number }
 export const DEFAULT_TEXT_ATTACHMENT_LIMITS: Readonly<TextAttachmentLimits> = Object.freeze({ chars: 50_000, totalChars: 100_000 });
@@ -22,8 +24,10 @@ export interface AskSettings {
   naming?: { connectionId: string; model: string };
   /** Each new conversation gets one attempt; manual titles are preserved. */
   autoNaming: boolean;
-  /** IDs picked per reasoning connection, in the order picked; the composer switches among them. */
+  /** IDs picked per reasoning connection, in order; the composer switches within the selected connection. */
   models: Record<string, string[]>;
+  /** Optional overrides, isolated by connection and exact upstream model ID. */
+  parameters?: Record<string, Record<string, AskParameters>>;
   images: boolean;
   responseMode: "text" | "tool";
   textAttachments: TextAttachmentLimits;
@@ -37,6 +41,8 @@ export interface AskSettings {
 export const PREFERENCE_LIMIT = 300;
 export const MODEL_LIMIT = 20;
 const CONNECTION_LIMIT = 32;
+// Overrides also cover independent naming models and models no longer picked.
+const PARAMETER_MODEL_LIMIT = 128;
 export const defaultAskSettings = (): AskSettings => ({
   version: 1,
   connectionId: "",
@@ -94,6 +100,14 @@ export function readAskSettings(value: unknown): AskSettings {
     const ids = connectionKey(id) ? modelList(list) : [];
     if (ids.length) out.models[id] = ids;
   }
+  const parameters = Object.fromEntries(Object.entries(object(v.parameters)).filter(([id]) => connectionKey(id)).slice(0, CONNECTION_LIMIT).flatMap(([id, models]) => {
+    const entries = Object.entries(object(models)).slice(0, PARAMETER_MODEL_LIMIT).flatMap(([model, value]) => {
+      const params = readAskParameters(value), normalized = modelId(model);
+      return normalized && Object.keys(params).length ? [[normalized, params]] : [];
+    });
+    return entries.length ? [[id, Object.fromEntries(entries)]] : [];
+  }));
+  if (Object.keys(parameters).length) out.parameters = parameters;
   if (typeof v.images === "boolean") out.images = v.images;
   if (v.responseMode === "tool") out.responseMode = "tool";
   out.textAttachments = readTextAttachmentLimits(v.textAttachments);
@@ -134,3 +148,20 @@ export const withConnection = (s: AskSettings, connectionId: string): AskSetting
 /** Uses one picked ID, switching connection when it belongs to another. */
 export const withModel = (s: AskSettings, connectionId: string, id: string): AskSettings =>
   s.models[connectionId]?.includes(id) ? { ...s, connectionId, model: id } : s;
+
+export function modelParameters(s: AskSettings, connectionId: string, id: string): AskParameters {
+  const models = Object.hasOwn(s.parameters ?? {}, connectionId) ? s.parameters![connectionId] : {};
+  return readAskParameters(Object.hasOwn(models, id) ? models[id] : undefined);
+}
+
+/** Editing a model's overrides never selects it or discards other models' settings. */
+export function withParameters(s: AskSettings, connectionId: string, id: string, value: AskParameters): AskSettings {
+  const parameters = { ...s.parameters }, models = { ...(Object.hasOwn(parameters, connectionId) ? parameters[connectionId] : {}) };
+  const params = readAskParameters(value);
+  delete models[id];
+  if (Object.keys(params).length) Object.defineProperty(models, id, { value: params, enumerable: true, configurable: true, writable: true });
+  delete parameters[connectionId];
+  if (Object.keys(models).length) Object.defineProperty(parameters, connectionId, { value: models, enumerable: true, configurable: true, writable: true });
+  const { parameters: _previous, ...rest } = s;
+  return Object.keys(parameters).length ? { ...rest, parameters } : rest;
+}

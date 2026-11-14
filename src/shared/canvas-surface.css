@@ -1,0 +1,32 @@
+/* Canvas collaboration surfaces, shared by IMAGE, EDIT, CHAT, HOME, TAGS and settings; each owner scopes these rules.
+   Menus, popovers and hints opened from the floating islands use the islands' glass (the same
+   material as ASK menus) instead of the solid workshop menus. Elements teleported out of the
+   workspace root carry the class themselves. */
+.canvas-collaboration {
+  --menu-bg: var(--glass-pop-bg);
+  --menu-backdrop: blur(var(--glass-blur)) saturate(var(--glass-saturation));
+  --menu-shadow: var(--glass-pop-shadow);
+  --tip-bg: var(--glass-pop-bg);
+  --tip-backdrop: blur(var(--glass-blur));
+}
+
+/* The ⋯ options carry the account row (quota, balance, tools, appearance) rather than plain rows:
+   they size to it instead of the 224px item menu, and wrap before scrolling sideways. */
+.canvas-collaboration :deep(.canvas-options-menu) { width: max-content; max-width: calc(100vw - 16px); overflow-x: hidden; }
+
+/* Small screens: the phone pane's head row (close, fold, switch) folds into a slim handle, giving the
+   pane's own content that height; the handle unfolds it. Only the head's height animates. */
+.canvas-sheet-actions { display: flex; align-items: center; gap: 6px; }
+.canvas-fold .ico { transform: rotate(-90deg); }
+.canvas-head-handle { position: absolute; inset: 0; display: grid; place-items: center; width: 100%; padding: 0; border-radius: 8px; }
+.canvas-head-handle::before { content: ""; width: 36px; height: 4px; background: var(--line-2); border-radius: 2px; transition: background-color var(--t1) var(--e), width var(--t1) var(--e); }
+.canvas-head-handle:is(:hover, :focus-visible)::before { width: 44px; background: var(--fg-4); }
+@media (max-width: 1079px) {
+  .canvas-tray-head { position: relative; height: 48px; padding: 8px 8px 0 0; transition: height var(--t2) var(--e-out), padding-top var(--t2) var(--e-out); }
+  .canvas-tray-head > :not(.canvas-head-handle) { transition: opacity var(--t1) var(--e), visibility 0s; }
+  .canvas-tray-head.is-folded { height: 14px; padding-top: 0; }
+  .canvas-tray-head.is-folded > :not(.canvas-head-handle) { opacity: 0; visibility: hidden; transition: opacity var(--t1) var(--e), visibility 0s linear var(--t1); }
+}
+@media (prefers-reduced-motion: reduce) {
+  .canvas-tray-head, .canvas-tray-head > * { transition: none; }
+}

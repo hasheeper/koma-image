@@ -54,6 +54,9 @@
         <symbol id="i-layers" viewBox="0 0 24 24"><g transform="translate(12 12) scale(1.007) translate(-12.00 -10.50)">
           <path vector-effect="non-scaling-stroke" d="M12 3.5 21 8l-9 4.5L3 8l9-4.5Z" /><path vector-effect="non-scaling-stroke" d="m3 13 9 4.5L21 13" />
         </g></symbol>
+        <symbol id="i-connection-multi" viewBox="0 0 24 24">
+          <path vector-effect="non-scaling-stroke" d="M12 3l9 5-9 5-9-5Z" /><path vector-effect="non-scaling-stroke" d="M3 12.5l9 5 9-5M3 16.5l9 5 9-5" />
+        </symbol>
         <symbol id="i-star" viewBox="0 0 24 24"><g transform="translate(12 12) scale(0.907) translate(-12.00 -12.00)">
           <path vector-effect="non-scaling-stroke" d="m12 3 2.8 5.7 6.3.9-4.6 4.5 1.1 6.3-5.6-3-5.6 3 1.1-6.3L2.9 9.6l6.3-.9L12 3Z" />
         </g></symbol>

@@ -16,12 +16,10 @@ test("ASK settings: free creation off by default, empty vocabulary and replaceme
     // The word list lives in the adult group and stays absent until the gate is on.
     const adultGroup = page.getByRole("region", { name: "创作", exact: true });
     assert.equal(await page.getByRole("switch", { name: "自由创作", exact: true }).isChecked(), false);
-    assert.equal(await adultGroup.locator('.s-row').first().locator('p').count(), 0);
     assert.equal(await adultGroup.locator("#askAlwaysCodec").count(), 0);
     assert.equal(await page.getByRole("list", { name: "内置词条" }).count(), 0);
     assert.equal(await page.locator("#askImages").isChecked(), true);
     assert.equal(await page.getByRole("switch", { name: "发送图片给模型" }).isChecked(), true);
-    assert.equal(await page.locator(".set-nav button", { hasText: "ASK" }).locator("use").getAttribute("href"), "#i-ask");
 
     await page.locator("#askConnection").selectOption("claude");
     await page.waitForFunction(() => JSON.parse(localStorage.getItem("koma.ask.v1"))?.connectionId === "claude");
@@ -154,10 +152,9 @@ test("ASK compatibility: catalog and manual model IDs keep spaces/suffixes throu
       await page.locator("#askModels").click();
       const list = page.locator("#askModelDialog");
       if (id === modelIds[0]) {
-        // Catalogs carry no family: headings and icons follow the ID, the hand-kept pick sits under 其他.
+        // Catalogs carry no family: headings follow the ID, the hand-kept pick sits under 其他.
         await list.locator(`.lamp[aria-label="选用 ${id}"]`).waitFor();
         assert.deepEqual(await list.locator(".md-gtitle b").allTextContents(), ["Claude", "Gemini", "其他"]);
-        assert.deepEqual(await list.locator(".md-ghead .vtile use").evaluateAll((uses) => uses.map((u) => u.getAttribute("href"))), ["#v-claude-c", "#v-gemini-c", "#i-model"]);
       }
       if (modelIds.includes(id)) await list.locator(`.lamp[aria-label="选用 ${id}"]`).click();
       else {
@@ -202,8 +199,9 @@ test("ASK compatibility: catalog and manual model IDs keep spaces/suffixes throu
   } finally { await context.close(); }
 });
 
-test("ASK composer: the model chip switches among picks across connections; a running turn keeps its model", async () => {
-  const { page, context, llm, calls, requests, errors } = await open("/#/image", { ready: ".switcher", ask: askSettings({ models: { chat: ["reasoning-a", "reasoning-b"], claude: ["claude-x"] } }) });
+test("ASK composer: model picks follow the selected supplier; a running turn keeps its model", async () => {
+  const models = { chat: ["reasoning-a", "reasoning-b"], claude: ["reasoning-a", "claude-x"] };
+  const { page, context, llm, calls, requests, errors } = await open("/#/image", { ready: ".switcher", ask: askSettings({ models }) });
   let release;
   const messages = anthropic(
     { type: "message_start", message: { id: "synthetic", usage: { input_tokens: 50, output_tokens: 0 } } },
@@ -217,12 +215,25 @@ test("ASK composer: the model chip switches among picks across connections; a ru
     await drawer(page).waitFor();
     const chip = drawer(page).locator(".ask-model"), menu = page.locator("#askModelMenu");
     const send = async (question) => { await page.locator("#askPrompt").fill(question); await submitAsk(page); };
+    const selectSupplier = async (id) => {
+      await chip.click();
+      await menu.getByRole("menuitem", { name: "管理模型" }).click();
+      await page.locator("#askConnection").selectOption(id);
+      await page.waitForFunction((id) => JSON.parse(localStorage.getItem("koma.ask.v1")).connectionId === id, id);
+      await page.locator("#settingsPanel").getByRole("button", { name: "返回", exact: true }).click();
+      await page.locator("#settingsPanel").waitFor({ state: "hidden" });
+    };
     assert.equal((await chip.textContent()).trim(), "reasoning-a");
     await chip.click();
-    // With picks on more than one connection, each set sits under its connection's name.
-    assert.deepEqual(await menu.locator(".ask-menu-group").allTextContents(), ["推理 Chat", "推理 Messages"]);
-    assert.deepEqual(await menu.getByRole("menuitemradio").allTextContents(), ["reasoning-a", "reasoning-b", "claude-x"]);
+    // Saved picks on another supplier, including duplicate IDs, stay out of this menu.
+    assert.deepEqual(await menu.getByRole("menuitemradio").allTextContents(), models.chat);
     assert.equal(await menu.getByRole("menuitemradio", { name: "reasoning-a" }).getAttribute("aria-checked"), "true");
+    await menu.getByRole("menuitemradio", { name: "reasoning-b" }).click();
+    await page.waitForFunction(() => { const s = JSON.parse(localStorage.getItem("koma.ask.v1")); return s.connectionId === "chat" && s.model === "reasoning-b"; });
+    // Supplier changes happen in settings; both suppliers retain their model lists.
+    await selectSupplier("claude");
+    await chip.click();
+    assert.deepEqual(await menu.getByRole("menuitemradio").allTextContents(), models.claude);
     await menu.getByRole("menuitemradio", { name: "claude-x" }).click();
     await menu.waitFor({ state: "detached" });
     await page.waitForFunction(() => { const s = JSON.parse(localStorage.getItem("koma.ask.v1")); return s.connectionId === "claude" && s.model === "claude-x"; });
@@ -233,12 +244,15 @@ test("ASK composer: the model chip switches among picks across connections; a ru
     await send("第一问");
     await dispatched;
     await chip.click();
-    assert.equal(await menu.getByRole("menuitemradio", { name: "reasoning-b" }).isDisabled(), true);
+    assert.deepEqual(await menu.getByRole("menuitemradio").allTextContents(), models.claude);
+    for (const item of await menu.getByRole("menuitemradio").all()) assert.equal(await item.isDisabled(), true);
     await page.keyboard.press("Escape");
     await menu.waitFor({ state: "detached" });
     release();
     await drawer(page).locator('.ask-turn[data-status="done"]').waitFor();
+    await selectSupplier("chat");
     await chip.click();
+    assert.deepEqual(await menu.getByRole("menuitemradio").allTextContents(), models.chat);
     await menu.getByRole("menuitemradio", { name: "reasoning-b" }).click();
     await page.waitForFunction(() => JSON.parse(localStorage.getItem("koma.ask.v1")).model === "reasoning-b");
     await send("第二问");
@@ -248,11 +262,85 @@ test("ASK composer: the model chip switches among picks across connections; a ru
     await chip.click();
     await menu.getByRole("menuitem", { name: "管理模型" }).click();
     await page.waitForFunction(() => location.hash.endsWith("/settings/ask"));
+    assert.deepEqual((await stored(page, "koma.ask.v1")).models, models);
     assert.deepEqual(generation(requests), []);
     assert.deepEqual(errors, []);
   } finally {
     release?.();
     await context.close();
+  }
+});
+
+test("ASK menus toggle closed on repeated pointer clicks, touch taps and keyboard activation", async () => {
+  for (const touch of [false, true]) {
+    const { page, context, errors, calls } = await open("/#/image", {
+      ready: ".switcher", touch, width: touch ? 390 : 1440,
+      ask: askSettings({ models: { chat: ["reasoning-a", "reasoning-b"] } }),
+    });
+    try {
+      if (touch) await page.getByRole('button', { name: '继续桌面布局', exact: true }).click();
+      await page.keyboard.press("Control+j");
+      const window = drawer(page);
+      const pairs = [
+        [window.locator(".ask-model"), page.locator("#askModelMenu")],
+        [window.locator(".ask-conv"), page.locator("#askConvMenu")],
+        [window.getByRole("button", { name: "更多", exact: true }), page.locator("#askMoreMenu")],
+      ];
+      for (const [trigger, menu] of pairs) {
+        const activate = () => touch ? trigger.tap() : trigger.click();
+        await activate();
+        await menu.waitFor({ state: "visible" });
+        await activate();
+        await menu.waitFor({ state: "hidden" });
+        assert.equal(await trigger.getAttribute("aria-expanded"), "false");
+        await activate();
+        await menu.waitFor({ state: "visible" });
+        await page.locator("#askPrompt").click();
+        await menu.waitFor({ state: "hidden" });
+        await trigger.focus();
+        await trigger.press("Enter");
+        await menu.waitFor({ state: "visible" });
+        await page.keyboard.press("Escape");
+        await menu.waitFor({ state: "hidden" });
+        assert.equal(await trigger.evaluate(el => el === document.activeElement), true);
+        await trigger.press("Space");
+        await menu.waitFor({ state: "visible" });
+        await trigger.focus();
+        await trigger.press("Space");
+        await menu.waitFor({ state: "hidden" });
+      }
+      assert.deepEqual(errors, []);
+      assert.deepEqual(calls, []);
+    } finally { await context.close(); }
+  }
+});
+
+test("ASK HOME model menu: current supplier only; missing current picks open settings", async () => {
+  for (const connectionId of ["chat", "", "removed"]) {
+    const { page, context, requests, errors } = await open("/#/home", {
+      ready: ".home-head",
+      ask: askSettings({ connectionId, model: "", models: { claude: ["claude-x"] } }),
+    });
+    try {
+      const chip = page.locator(".home-ask .ask-model"), menu = page.getByRole("menu", { name: "切换模型", exact: true });
+      // Other suppliers' saved models cannot make an empty/unavailable selection switchable.
+      assert.equal(await chip.getAttribute("aria-haspopup"), null);
+      await chip.click();
+      await page.locator("#settingsPanel[open]").waitFor();
+      await page.locator("#askConnection").selectOption("claude");
+      await page.waitForFunction(() => JSON.parse(localStorage.getItem("koma.ask.v1")).connectionId === "claude");
+      await page.locator("#settingsPanel").getByRole("button", { name: "返回", exact: true }).click();
+      await page.locator("#settingsPanel").waitFor({ state: "hidden" });
+      await chip.click();
+      assert.deepEqual(await menu.getByRole("menuitemradio").allTextContents(), ["claude-x"]);
+      assert.equal(await menu.getByRole("menuitemradio", { name: "claude-x" }).getAttribute("aria-checked"), "true");
+      await chip.click();
+      await menu.waitFor({ state: "hidden" });
+      await chip.click();
+      await menu.waitFor({ state: "visible" });
+      assert.deepEqual(generation(requests), []);
+      assert.deepEqual(errors, []);
+    } finally { await context.close(); }
   }
 });
 
@@ -333,9 +421,6 @@ test("ASK settings leave image work alone: cards, model sources and the protocol
       assert.equal(await card(name).locator('[data-kind="image"]').count(), 0);
       assert.equal(await card(name).locator('.conn-meters').count(), 0);
     }
-    for (const name of ["推理 Chat", "推理 Messages"])
-      assert.match(await card(name).locator(".connection-avatar use").getAttribute("href"), /#i-chat$/);
-    assert.match(await card("图像连接").locator(".connection-avatar use").getAttribute("href"), /#i-image$/);
 
     assert.equal(await card("推理 Chat").locator(".conn-models").getAttribute("aria-label"), "文字模型，已选 0 个");
     // Every text entry counts picks, including the active ID; catalogs never become the count.
@@ -348,7 +433,6 @@ test("ASK settings leave image work alone: cards, model sources and the protocol
     await card("推理 Messages").locator(".conn-models").click();
     const list = page.locator("#askModelDialog");
     await list.locator(".lamp").first().waitFor();
-    assert.match(await list.locator(".connection-avatar use").getAttribute("href"), /#i-chat$/);
     assert.equal((await list.locator("#askModelTitle").textContent()).trim(), "推理 Messages 模型列表");
     assert.deepEqual(await list.locator(".lamp").evaluateAll((lamps) => lamps.map((l) => l.dataset.s)), ["off", "on"]);
     await list.getByRole("button", { name: "选用 reasoning-a", exact: true }).click();

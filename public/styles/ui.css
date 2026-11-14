@@ -166,8 +166,6 @@
 .sw-text small { overflow: hidden; text-overflow: ellipsis; font-size: var(--fz-2xs); font-weight: var(--fw-regular); color: var(--fg-4); }
 
 .topbar-menu { display: flex; align-items: center; margin-left: auto; flex: none; }
-.topbar-menu-toggle,
-.topbar-menu-backdrop,
 .topbar-action-label { display: none; }
 .topbar-end { display: flex; align-items: center; gap: 6px; flex: none; }
 /* Balances and appearance close the bar, after a hairline from the tools. The
@@ -175,7 +173,6 @@
 .topbar-account { display: flex; align-items: center; gap: 4px; flex: none; }
 /* Keep appearance at the end when task controls are teleported into the bar. */
 .topbar-account > .theme-toggle { order: 1; }
-.topbar-sep { width: 1px; height: 20px; margin: 0 11px 0 -4px; flex: none; background: var(--line-2); }
 
 .chip {
   padding: 3px 8px;
@@ -273,7 +270,6 @@ button.w-seg:hover { background: var(--ghost-hover); }
 @keyframes meterWait { 50% { opacity: 0.45; } }
 
 @media (max-width: 600px) {
-  .topbar .brand-wordmark { display: none; }
   .wallet { gap: 2px; }
   .w-seg { padding: 0 8px; }
   .w-free { padding-left: 5px; }
@@ -539,7 +535,6 @@ button.w-seg:hover { background: var(--ghost-hover); }
   transition: color var(--t1) var(--e), background var(--t1) var(--e),
     border-color var(--t1) var(--e), transform var(--t1) var(--e);
 }
-.ratio-box { display: grid; place-items: center; height: 20px; }
 .ratio i { display: block; border: 1.5px solid currentColor; border-radius: 2.5px; transition: border-color var(--t1) var(--e); }
 .ratio b { font: var(--fw-medium) var(--fz-2xs)/1 var(--mono); letter-spacing: 0; }
 /* 自定义 has no fixed shape, so its glyph is an outline still to be drawn. */
@@ -596,11 +591,6 @@ button.w-seg:hover { background: var(--ghost-hover); }
   border-radius: 20px;
 }
 .badge[hidden] { display: none; }
-.drawer-body {
-  display: grid; gap: var(--sp-3);
-  padding: var(--sp-1) var(--sp-3) var(--sp-3);
-  animation: drawerIn var(--t2) var(--e-out);
-}
 @keyframes drawerIn { from { opacity: 0; transform: translateY(-6px); } }
 /* Where the browser can animate to height:auto, the drawer slides open and
    shut instead of snapping, so whatever sits around it (the prompt box above
@@ -647,9 +637,6 @@ button.w-seg:hover { background: var(--ghost-hover); }
 .composer .drawer > summary:hover .section-ico { color: var(--a); transform: none; }
 .composer .drawer[open] > summary { background: none; box-shadow: none; }
 .composer .drawer[open] > summary:hover { background: var(--hover); }
-.composer .drawer-body { padding: var(--sp-2) 0 var(--sp-1); }
-/* With the scroll padding, the fade under the last open drawer is empty space. */
-.composer .drawer:last-of-type > .drawer-body { padding-bottom: var(--sp-2); }
 /* A tap leaves :hover stuck on touch screens; the heading should not stay lit. */
 @media (hover: none) { .composer .drawer > summary:hover { background: none; } }
 
@@ -698,7 +685,6 @@ button.w-seg:hover { background: var(--ghost-hover); }
   box-shadow: inset 0 0 0 1px var(--line-2), inset 0 -1px 0 rgb(var(--shadow-rgb) / calc(0.35 * var(--shadow-strength)));
 }
 .blank-keys .ico { --ico: var(--ico-xs); }
-.blank-drop { margin-top: -2px; font-size: var(--fz-xs); color: var(--fg-4); }
 @media (hover: none) { .blank-keyed { display: none; } }
 .blank .btn { margin-top: var(--sp-1); }
 
@@ -721,8 +707,6 @@ button.w-seg:hover { background: var(--ghost-hover); }
   overflow: hidden;
 }
 .gallery-head > span { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.gallery-title { font-weight: var(--fw-medium); color: var(--fg-3); }
-.gallery-title b { margin-left: 4px; font-weight: var(--fw-medium); color: var(--fg-4); }
 
 .gallery-head .btn-link { flex: none; }
 .gallery-head .btn-link[hidden] { display: none; }

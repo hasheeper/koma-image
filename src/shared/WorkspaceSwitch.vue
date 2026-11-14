@@ -7,7 +7,7 @@ import BrandMark from "./BrandMark.vue";
 import AppIcon from "./AppIcon.vue";
 import { menuKeys } from "./popover";
 
-const props = defineProps<{ workspace: WorkspaceId }>();
+const props = defineProps<{ workspace: WorkspaceId; compact?: boolean }>();
 const { router } = useShell();
 const button = shallowRef<HTMLButtonElement | null>(null);
 const menu = shallowRef<HTMLElement | null>(null);
@@ -38,13 +38,13 @@ onDeactivated(close);
 <template>
   <button
     ref="button"
-    class="brand switcher"
+    class="brand switcher" :class="{ compact }"
     type="button"
     :popovertarget="menuId"
     :aria-expanded="expanded"
     :aria-label="`Koma ${info.name}，切换工作区`"
   >
-    <BrandMark :surface="workspace" :subtitle="info.subtitle" />
+    <BrandMark :compact="compact" :surface="workspace" :subtitle="info.subtitle" />
     <AppIcon class="sw-caret" name="i-chevron" />
   </button>
   <nav
@@ -79,3 +79,9 @@ onDeactivated(close);
     </button>
   </nav>
 </template>
+
+<style scoped>
+.switcher.compact { width: 36px; height: 34px; min-height: 0; padding: 3px; background: var(--glass-bg); border: 1px solid var(--line-2); border-radius: 10px; box-shadow: var(--sh-1); backdrop-filter: blur(var(--glass-blur)); }
+.compact :deep(.brand-mark) { width: 28px; height: 28px; border: 0; background: none; box-shadow: none; }
+.compact .sw-caret { display: none; }
+</style>

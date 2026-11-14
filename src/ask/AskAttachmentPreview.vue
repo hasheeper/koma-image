@@ -23,7 +23,7 @@ onBeforeUnmount(() => { removeLayer(); document.removeEventListener("pointerdown
   </div>
 </template>
 <style scoped>
-.ask-attachment-peek { position: absolute; z-index: 5; right: 12px; bottom: 132px; left: 12px; display: grid; grid-template-rows: auto minmax(0, 1fr); gap: 6px; min-width: 0; max-height: 50%; padding: 10px 12px; overflow: hidden; color: var(--fg); background: color-mix(in srgb, var(--raised) 97%, transparent); border: 1px solid var(--line-2); border-radius: var(--r3); box-shadow: var(--sh-3), var(--sh-lip); backdrop-filter: blur(16px); outline: none; }
+.ask-attachment-peek { position: absolute; z-index: 5; right: 12px; bottom: 132px; left: 12px; display: grid; grid-template-rows: auto minmax(0, 1fr); gap: 6px; min-width: 0; max-height: 50%; padding: 10px 12px; overflow: hidden; color: var(--fg); background: var(--glass-pop-bg); border: 1px solid var(--line-2); border-radius: 10px; box-shadow: var(--glass-pop-shadow); backdrop-filter: blur(var(--glass-blur)) saturate(var(--glass-saturation)); outline: none; }
 .ask-peek-head { display: flex; align-items: baseline; justify-content: space-between; gap: 8px; min-width: 0; font-size: 13px; }
 .ask-peek-head b { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .ask-peek-head small { flex: none; color: var(--fg-3); font-size: 12px; }

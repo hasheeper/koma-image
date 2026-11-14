@@ -1,5 +1,8 @@
 <script setup lang="ts">
-import { computed, nextTick, onBeforeUnmount, onMounted, shallowRef, useId, useTemplateRef, watch } from 'vue';
+import { computed, nextTick, onBeforeUnmount, shallowRef, useId, useTemplateRef, watch } from 'vue';
+import { useRetrospectSurface } from './surface.ts';
+import { useDrawing } from '../../app/drawing.ts';
+import ImageResultActions from '../../workspaces/image/ImageResultActions.vue';
 import { useAsk } from '../../app/ask.ts';
 import { message } from '../../app/ui.ts';
 import AppIcon from '../../shared/AppIcon.vue';
@@ -22,14 +25,19 @@ import { isStaged, selectRetrospectSample, selectRetrospectBaseline } from './mo
 import type { ReviewPicture, ImageView, GraphObject, NoteTarget } from './view.ts';
 import { nodeNoteKey, edgeNoteKey } from './annotations.ts';
 
-const props = defineProps<{ value: Retrospect; pictureRefs: PictureRefs; recordId: string; initialVersion?: string }>();
-const emit = defineEmits(['close']);
+const props = defineProps<{ value: Retrospect; pictureRefs: PictureRefs; recordId: string; initialVersion?: string; embedded?: boolean; target?: HTMLElement | null; actionsTarget?: HTMLElement | null; detailTarget?: HTMLElement | null; detailVisible?: boolean; covered?: boolean; historyVisible?: boolean; visible?: boolean; canvasScene?: 'graph' | 'image' | 'node' }>();
+const emit = defineEmits<{ close: []; scene: [value: 'graph' | 'image']; historyHost: [host: HTMLElement | null]; detail: [visible: boolean] }>();
+const { view: drawingView } = useDrawing();
 const ask = useAsk(), titleId = useId(), dialog = useTemplateRef<HTMLDialogElement>('dialog');
 const askMount = useTemplateRef<HTMLElement>('askMount'), graphView = useTemplateRef<InstanceType<typeof VersionGraph>>('graphView');
 const graphDock = useTemplateRef<InstanceType<typeof StageDock>>('graphDock'), imageDock = useTemplateRef<InstanceType<typeof StageDock>>('imageDock');
-const detailId = useId(), detailOpened = shallowRef(!matchMedia('(max-width: 860px)').matches);
+const detailId = useId(), floatingDetails = shallowRef(!props.embedded && !matchMedia('(max-width: 860px)').matches);
+const detailOpened = computed({
+  get: () => props.embedded ? !!props.detailVisible : floatingDetails.value,
+  set: (visible: boolean) => { if (props.embedded) emit('detail', visible); else floatingDetails.value = visible; },
+});
 const detailMode = shallowRef<'floating' | 'sidebar'>('floating');
-const registry = ask.retrospects, askHost = registry.host;
+const registry = ask.retrospects;
 const noteTarget = shallowRef<NoteTarget | null>(null), graphSelection = shallowRef<readonly GraphObject[]>([]);
 const record = computed(() => registry.get(props.recordId, ask.evolutionTarget.value));
 const notes = computed(() => record.value?.notes ?? {});
@@ -54,8 +62,7 @@ watch(() => [props.value, props.pictureRefs] as const, (_, previous) => {
   noteTarget.value = null;
 });
 const askOpened = computed(() => !!ask.visible?.value);
-let previousHost: HTMLElement | null = null, closing = false;
-const returnFocus = document.activeElement;
+
 const openingBase = record.value?.final ?? record.value?.cursor;
 const selected = shallowRef(props.value.nodes.some(node => node.id === props.initialVersion) ? props.initialVersion! : openingBase?.nodeId ?? props.value.nodes.at(-1)!.id);
 const manualBaseline = shallowRef<string | null>(null);
@@ -63,9 +70,13 @@ const parentOf = (id: string) => props.value.edges.find(e => e.to === id)?.from 
 const baseline = computed(() => manualBaseline.value ?? parentOf(selected.value));
 const view = shallowRef<ImageView>('B'), activePane = shallowRef<'A' | 'B'>('B');
 const scene = shallowRef<'graph' | 'image'>('graph');
+watch(() => props.initialVersion, id => { const node = props.value.nodes.find(n => n.id === id); if (node) choose(node, false); });
+watch(() => props.canvasScene, value => { if (props.embedded && value === 'graph') scene.value = 'graph'; });
+watch(scene, value => { if (props.embedded) emit('scene', value); });
+useRetrospectSurface(ask, dialog, askMount, () => ({ embedded: !!props.embedded, visible: props.visible !== false, target: props.target }));
 function collapseDetails() {
   detailOpened.value = false;
-  void nextTick(() => (scene.value === 'graph' ? graphDock.value : imageDock.value)?.focusRecipe());
+  if (!props.embedded) void nextTick(() => (scene.value === 'graph' ? graphDock.value : imageDock.value)?.focusRecipe());
 }
 function toggleDetails() {
   if (detailOpened.value) { collapseDetails(); return; }
@@ -82,8 +93,8 @@ async function workshopAction(id: string, cancel = false) {
   try { if (cancel) await ask.cancelWorkshop(props.recordId, id); else await ask.openWorkshop(props.recordId, id); }
   catch (error) { feedback.value = error instanceof Error ? error.message : String(error); failed.value = true; }
 }
-const selectedSample = (node: RetrospectNode) => selectRetrospectSample(node, chosenSamples.value[node.id] ?? node.cover);
-const b = computed(() => selectedSample(props.value.nodes.find(n => n.id === selected.value)!));
+const selectedSample = (node: RetrospectNode) => selectRetrospectSample(node, node.image_ids.includes(chosenSamples.value[node.id]) ? chosenSamples.value[node.id] : node.cover);
+const b = computed(() => selectedSample(props.value.nodes.find(n => n.id === selected.value) ?? props.value.nodes.at(-1)!));
 const pending = computed(() => isStaged(b.value));
 const generatingNodes = computed(() => registry.generatingNodes(props.recordId));
 const generatingSelected = computed(() => generatingNodes.value.has(b.value.id));
@@ -114,6 +125,10 @@ const backPictures = computed(() => Object.fromEntries(props.value.nodes.map(nod
 })));
 const activeMark = computed(() => panes.value.length > 1 ? activePane.value : panes.value[0].mark);
 const toolPane = computed(() => panes.value.find(pane => pane.mark === activeMark.value) ?? panes.value[0]);
+const inspectedRecord = computed(() => {
+  const id = props.pictureRefs[toolPane.value.node.cover]?.record_id;
+  return [...drawingView.value.history, ...drawingView.value.favorites].find(r => r.id === id) ?? null;
+});
 const zoomLabel = computed(() => `${zoomLevels.value[activeMark.value] ?? 100}%`);
 function setImage(mark: string, instance: unknown) { if (instance) images.set(mark, instance as InstanceType<typeof StageImage>); else images.delete(mark); }
 function updateZoom(mark: string, value: number) { zoomLevels.value = { ...zoomLevels.value, [mark]: value }; }
@@ -139,13 +154,8 @@ function swap() {
 function selectSample(node: RetrospectNode, id: string) {
   if (node.image_ids.includes(id)) { chosenSamples.value = { ...chosenSamples.value, [node.id]: id }; feedback.value = ''; }
 }
-async function close() {
-  if (closing) return;
-  closing = true; noteTarget.value = null;
-  if (askHost.value === askMount.value) askHost.value = previousHost?.isConnected ? previousHost : null;
-  await nextTick(); dialog.value?.close(); emit('close');
-  if (returnFocus instanceof HTMLElement && returnFocus.isConnected) returnFocus.focus({ preventScroll: true });
-}
+function close() { noteTarget.value = null; emit('close'); }
+
 function actionNode(node = b.value) {
   return displayedSample(node);
 }
@@ -153,14 +163,20 @@ async function restore(node: RetrospectNode = b.value) {
   if (restoring.value) return;
   const target = actionNode(node); restoring.value = true; failed.value = false; feedback.value = '';
   try {
-    if (isStaged(target)) { await ask.loadEvolutionBranch(props.recordId, target.id); if (!detailOpened.value) feedback.value = `已载入 ${target.label} · 返回画板后手动生成`; }
+    if (isStaged(target)) { await ask.loadEvolutionBranch(props.recordId, target.id); if (!detailOpened.value) feedback.value = `已载入 ${target.label} · ${props.embedded ? '点击下方生成' : '返回画板后手动生成'}`; }
     else { await ask.restoreRetrospect(target, props.pictureRefs, props.recordId); feedback.value = recipeWorkspace(target.recipe) === 'image' ? '已恢复 IMAGE 配方' : '已定位原版本'; }
   }
   catch (error) { failed.value = true; feedback.value = message(error); }
   finally { restoring.value = false; }
 }
 async function continueOnBoard() {
-  try { ask.editEvolution(props.recordId); await close(); }
+  try {
+    ask.editEvolution(props.recordId);
+    if (props.embedded) {
+      if (props.covered) { emit('detail', false); await nextTick(); }
+      document.getElementById('goBtn')?.focus();
+    } else close();
+  }
   catch (error) { failed.value = true; feedback.value = message(error); }
 }
 async function finalize() {
@@ -183,7 +199,7 @@ const unavailable = computed(() => {
 const thumbnailOnly = computed(() => { void ask.libraryRevision.value; return !!ask.pictureInfo(b.value.cover, props.pictureRefs)?.thumbnailOnly; });
 watch(unavailable, missing => { if (missing) feedback.value = ''; });
 function followup() {
-  if (askOpened.value) { ask.hide(); return; }
+  if (askOpened.value && !props.embedded) { ask.hide(); return; }
   try {
     const keys = graphSelection.value.length ? graphSelection.value.map(o => o.key) : [
       ...(a.value ? [nodeNoteKey(a.value.id)] : []), nodeNoteKey(b.value.id),
@@ -208,54 +224,53 @@ function closeNote(key: string) { if (noteTarget.value?.key === key) noteTarget.
 function removeNote() { writeNote(null); }
 function cancel() {
   if (noteTarget.value) noteTarget.value = null;
-  else if (askOpened.value) ask.hide();
+  else if (askOpened.value && !props.embedded) ask.hide();
   else if (detailOpened.value) collapseDetails();
   else if (scene.value !== 'graph' || !graphView.value?.escape()) void close();
 }
 function keys(event: KeyboardEvent) {
   if ((event.target as Element).closest('#askIsland') || (event.metaKey || event.ctrlKey) && event.key.toLowerCase() === 'j') return;
+  if (props.embedded && (event.metaKey || event.ctrlKey) && event.key === 'Enter') return;
+  if (props.embedded && event.key === 'Escape') { event.preventDefault(); cancel(); }
   event.stopPropagation();
 }
 watch(scene, () => { noteTarget.value = null; });
-onMounted(() => {
-  dialog.value?.showModal(); previousHost = askHost.value;
-  ask.hide?.(); askHost.value = askMount.value;
-});
-onBeforeUnmount(() => {
-  if (askHost.value === askMount.value) askHost.value = previousHost?.isConnected ? previousHost : null;
-  images.clear(); dialog.value?.close();
-});
+onBeforeUnmount(() => { images.clear(); emit('historyHost', null); });
 </script>
 <template>
-  <Teleport to="body">
-    <dialog ref="dialog" class="modal stage-panel" :data-detail-open="detailOpened || undefined" :data-detail-mode="detailMode" :aria-labelledby="titleId" @cancel.prevent="cancel" @keydown="keys">
+  <Teleport :to="embedded && target ? target : 'body'">
+    <dialog ref="dialog" class="modal stage-panel" :class="{ embedded }" :role="embedded ? 'region' : 'dialog'" :aria-modal="embedded ? undefined : true" :data-scene="scene" :data-detail-open="detailOpened || undefined" :data-detail-mode="embedded ? 'floating' : detailMode" :aria-labelledby="titleId" @cancel.prevent="cancel" @keydown="keys">
       <h2 :id="titleId" class="sr-only">{{ value.title }}</h2>
-      <button class="ibtn stage-close" type="button" aria-label="关闭演进" data-tip="关闭演进" @click="close"><AppIcon name="i-close" /></button>
+      <button v-if="!embedded" class="ibtn stage-close" type="button" aria-label="关闭演进" data-tip="关闭演进" @click="close"><AppIcon name="i-close" /></button>
       <main class="stage-main">
-        <VersionGraph :workshops="workshopViews" @open-workshop="workshopAction($event)" @cancel-workshop="workshopAction($event, true)" ref="graphView" v-show="scene === 'graph'" :active="scene === 'graph'" :cursor="record?.status === 'active' ? record.cursor ?? undefined : undefined" :pending="nextNode" :cursor-picture="cursorPicture" :restore-disabled="restoring || !ask.canManage.value" :final-node="record?.final?.nodeId" :final-path="finalNodes" :graph="value" :generating-nodes="generatingNodes" :node-layout="record?.nodeLayout" :continuation-anchor="record?.continuationAnchor" :graph-camera="record?.graphCamera" :new-nodes="newNodes" :selected="selected" :baseline="baseline" :pictures="pictures" :back-pictures="backPictures" :notes="notes" :readonly="ended" @select="choose" @open="openImage" @sample="selectSample" @restore="restore" @continue="continueOnBoard" @arrange="registry.arrange(recordId, $event)" @arrange-continuation="registry.arrangeContinuation(recordId, $event, record?.boardId ?? undefined)" @remember-camera="registry.rememberCamera(recordId, $event)" @annotate="annotate" @selection="graphSelection = $event" @camera="noteTarget = null">
+        <VersionGraph :workshops="workshopViews" @open-workshop="workshopAction($event)" @cancel-workshop="workshopAction($event, true)" ref="graphView" v-show="scene === 'graph'" :active="visible !== false && !covered && scene === 'graph'" :cursor="record?.status === 'active' ? record.cursor ?? undefined : undefined" :pending="nextNode" :cursor-picture="cursorPicture" :restore-disabled="restoring || !ask.canManage.value" :final-node="record?.final?.nodeId" :final-path="finalNodes" :graph="value" :generating-nodes="generatingNodes" :node-layout="record?.nodeLayout" :continuation-anchor="record?.continuationAnchor" :graph-camera="record?.graphCamera" :new-nodes="newNodes" :selected="selected" :baseline="baseline" :pictures="pictures" :back-pictures="backPictures" :notes="notes" :readonly="ended" @select="choose" @open="openImage" @sample="selectSample" @restore="restore" @continue="continueOnBoard" @arrange="registry.arrange(recordId, $event)" @arrange-continuation="registry.arrangeContinuation(recordId, $event, record?.boardId ?? undefined)" @remember-camera="registry.rememberCamera(recordId, $event)" @annotate="annotate" @selection="graphSelection = $event" @camera="noteTarget = null">
           <template #toolbar="graph">
-            <StageDock ref="graphDock" scene="graph" :image-disabled="pending || !!a && isStaged(a)" :detail-id="detailId" :detail-opened="detailOpened" :ask-opened="askOpened" :ask-disabled="restoring" @scene="scene = $event" @detail="toggleDetails" @ask="followup">
-              <GraphTools :tool="graph.tool" :selection-mode="graph.selectionMode" :percent="graph.percent" :annotation-disabled="ended" @tool="graph.setTool" @mode="graph.setMode" @zoom="graph.zoom" @fit="graph.fit" />
-            </StageDock>
+            <Teleport :to="actionsTarget || 'body'" :disabled="!embedded || !actionsTarget || scene !== 'graph' || visible === false">
+              <StageDock :embedded="embedded" :inline="embedded && !!actionsTarget" ref="graphDock" scene="graph" :image-disabled="pending || !!a && isStaged(a)" :detail-id="detailId" :detail-opened="detailOpened" :ask-opened="askOpened" :ask-disabled="restoring" @scene="scene = $event" @detail="toggleDetails" @ask="followup">
+                <GraphTools :tool="graph.tool" :selection-mode="graph.selectionMode" :percent="graph.percent" :annotation-disabled="ended" @tool="graph.setTool" @mode="graph.setMode" @zoom="graph.zoom" @fit="graph.fit" />
+              </StageDock>
+            </Teleport>
           </template>
         </VersionGraph>
         <div v-show="scene === 'image'" class="stage-image-view">
           <div class="stage-panes" :class="{ paired: panes.length > 1 }">
             <figure v-for="pane in panes" :key="pane.mark" class="stage-pane" :class="{ active: activeMark === pane.mark }" :aria-label="`${pane.mark} ${pane.node.id} 图片`" @pointerdown="activePane = pane.mark" @focusin="activePane = pane.mark">
               <PaneIdentity :pane="pane" :picture="sampleOf(pane.node)" :active="activeMark === pane.mark" />
-              <StageImage :ref="instance => setImage(pane.mark, instance)" :active="scene === 'image'" :src="sampleOf(pane.node).url" :label="`${pane.node.id} ${sampleOf(pane.node).id} ${pane.node.label}`" @zoom="updateZoom(pane.mark, $event)" />
+              <StageImage :ref="instance => setImage(pane.mark, instance)" :active="visible !== false && !covered && scene === 'image'" :src="sampleOf(pane.node).url" :label="`${pane.node.id} ${sampleOf(pane.node).id} ${pane.node.label}`" :history-visible="embedded && historyVisible && pane.mark === panes[0].mark" @history-host="emit('historyHost', $event)" @zoom="updateZoom(pane.mark, $event)" />
             </figure>
           </div>
-          <StageDock ref="imageDock" scene="image" :detail-id="detailId" :detail-opened="detailOpened" :ask-opened="askOpened" :ask-disabled="restoring" @scene="scene = $event" @detail="toggleDetails" @ask="followup">
+          <StageDock :embedded="embedded" ref="imageDock" scene="image" :detail-id="detailId" :detail-opened="detailOpened" :ask-opened="askOpened" :ask-disabled="restoring" @scene="scene = $event" @detail="toggleDetails" @ask="followup">
             <StageTools :view="view" :has-baseline="!!a" :active-mark="activeMark" :zoom-label="zoomLabel" :samples="toolPane.node.image_ids.map(picture)" :selected-sample="sampleOf(toolPane.node).id" :version="toolPane.node.id" @view="view = $event" @image-action="imageAction" @sample="selectSample(toolPane.node, $event)" />
+            <Teleport v-if="embedded && visible !== false && scene === 'image' && inspectedRecord && actionsTarget" :to="actionsTarget"><ImageResultActions :item="inspectedRecord" compact /></Teleport>
           </StageDock>
         </div>
       </main>
-      <RecipeInspector v-show="detailOpened" :id="detailId" class="stage-detail" :mode="detailMode" :a="a" :b="b" :graph="value" :pictures="pictures" :automatic="manualBaseline === null" @baseline="setBaseline" @swap="swap" @placement="detailMode = detailMode === 'floating' ? 'sidebar' : 'floating'" @close="collapseDetails">
+      <Teleport :to="detailTarget || 'body'" :disabled="!embedded || !detailTarget">
+      <RecipeInspector v-show="detailOpened && (!embedded || visible !== false)" :id="detailId" :class="embedded ? 'canvas-detail' : 'stage-detail'" :hosted="embedded" :mode="embedded ? 'sidebar' : detailMode" :fixed-placement="embedded" :a="a" :b="b" :graph="value" :pictures="pictures" :automatic="manualBaseline === null" @baseline="setBaseline" @swap="swap" @placement="detailMode = detailMode === 'floating' ? 'sidebar' : 'floating'" @close="collapseDetails" @keydown="embedded && keys($event)">
         <template #status><small v-if="ended" class="retrospect-ended">{{ record?.final ? '已定稿' : '已解除' }}</small><RetrospectActions :record-id="recordId" /></template>
         <template #actions>
           <p v-if="feedback" class="stage-feedback" role="status" :class="{ failed }">{{ feedback }}</p><p v-else-if="unavailable && !ended" class="stage-feedback">{{ pending ? '预设基底已失效，可继续查看配方' : '原记录已失效' }}</p>
-          <p v-if="pending" class="branch-guidance" role="status">{{ generatingSelected ? '生成中 · 成功后图像会填入此处' : loaded ? '已载入 · 回画板调整后手动生成' : runtimeHint }}</p>
+          <p v-if="pending" class="branch-guidance" role="status">{{ generatingSelected ? '生成中 · 成功后图像会填入此处' : loaded ? covered ? '已载入 · 收起面板后生成' : embedded ? '已载入 · 点击下方生成' : '已载入 · 回画板调整后手动生成' : runtimeHint }}</p>
           <div v-else-if="thumbnailOnly" class="thumbnail-notice">仅缩略图 · 完整配方可对照与恢复</div>
           <div class="stage-action-buttons" :class="{ 'branch-action-row': pending }">
             <div v-if="pending || loadHistory.undo || loadHistory.redo" class="stage-secondary-actions">
@@ -264,7 +279,7 @@ onBeforeUnmount(() => {
               <button v-if="loadHistory.redo" class="ibtn" type="button" :aria-label="loadHistory.redoLabel" :title="loadHistory.redoLabel" :disabled="!loadHistory.canRedo || !ask.canManage.value" @click="ask.restoreDraft(loadHistory.redo)"><AppIcon name="i-redo" /></button>
             </div>
             <template v-if="pending">
-              <button v-if="loaded" class="btn btn-sm btn-primary" type="button" @click="continueOnBoard"><AppIcon name="i-back" />前往画板</button>
+              <button v-if="loaded" class="btn btn-sm btn-primary" type="button" @click="continueOnBoard"><AppIcon name="i-back" />{{ covered ? '返回画布' : embedded ? '已载入画板' : '前往画板' }}</button>
               <button v-else class="btn btn-sm btn-primary" type="button" :disabled="restoring || unavailable || generatingSelected || !ask.canManage.value" @click="restore()"><AppIcon name="i-pin" />载入画板</button>
             </template>
             <template v-else>
@@ -276,6 +291,7 @@ onBeforeUnmount(() => {
           </div>
         </template>
       </RecipeInspector>
+      </Teleport>
       <p v-if="feedback && !detailOpened" class="stage-restore-notice" :class="{ failed }" role="status">{{ feedback }}</p>
       <RetrospectNote v-if="noteTarget" :key="noteTarget.key" :target="noteTarget" :value="noteValue" :mixed="mixedNotes" @save="writeNote" @remove="removeNote" @close="closeNote" />
       <div ref="askMount" class="retrospect-ask-mount"></div>
@@ -320,4 +336,9 @@ onBeforeUnmount(() => {
   .stage-panes.paired { flex-direction: column; gap: var(--sp-3); }
   .stage-action-buttons > button { flex: 1; }
 }
+.stage-panel.embedded { position: absolute; inset: 0; width: 100%; height: 100%; max-width: none; max-height: none; margin: 0; padding: 0; border: 0; border-radius: 0; box-shadow: none; --detail-width: min(360px, calc(100% - 24px)); }
+.stage-panel.embedded[data-detail-open] { --stage-float-reserve: 0px; }
+.canvas-detail { width: 100%; height: 100%; }
+.embedded .stage-panes { padding-top: 56px; padding-bottom: var(--stage-dock-space); }
+.embedded .stage-restore-notice { top: 56px; max-width: calc(100% - 24px); text-align: center; line-height: 1.5; overflow-wrap: anywhere; }
 </style>

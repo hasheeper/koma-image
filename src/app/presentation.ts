@@ -34,8 +34,6 @@ export function usePresentation(shell: AppShell, ui: Ui) {
               ? "on"
               : "off"
             : undefined,
-        topbarMenu:
-          workspace === "image" && shell.image.menuOpen ? "open" : undefined,
         sidebar:
           workspace === "chat"
             ? shell.chat.sidebarOpen
@@ -74,7 +72,6 @@ export function usePresentation(shell: AppShell, ui: Ui) {
       "drop",
       "swap",
       "hist",
-      "topbarMenu",
       "sidebar",
       "rail",
       "tagCart",

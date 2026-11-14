@@ -57,6 +57,10 @@ test('Gemini native: enable ASK on an existing image connection, select any ID, 
     await list.getByRole('searchbox', { name: '搜索或填写模型 ID' }).fill(model);
     await list.getByRole('button', { name: `选用 ${model}`, exact: true }).click();
     await list.getByRole('button', { name: '关闭', exact: true }).click();
+    // The quick model menu lists only the current ASK supplier's picks.
+    await route(page, '#/image/settings/ask');
+    await page.locator('#askConnection').selectOption('gemini');
+    await page.waitForFunction(() => JSON.parse(localStorage.getItem('koma.ask.v1'))?.connectionId === 'gemini');
     await route(page, '#/image');
     await page.evaluate(() => ask.show());
     await page.locator("#askDrawer .ask-model").click();

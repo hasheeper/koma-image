@@ -12,6 +12,7 @@ import type {
   AskUsage,
 } from "../messages.ts";
 import type { SseEvent } from "./sse.ts";
+import { customParameters, samplingParameters } from "../parameters.ts";
 import { createResponseStream } from "../response-stream.ts";
 import type { ResponseEvent } from "../response-stream.ts";
 
@@ -65,8 +66,8 @@ function messages(message: AskMessage): Record<string, unknown>[] {
 }
 /**
  * Fixed key order with messages last, so consecutive requests share a byte
- * prefix. No output limit is sent: max_tokens and max_completion_tokens are
- * not accepted uniformly across compatible services.
+ * prefix. Optional sampling/output limits are sent only when configured;
+ * the output field is explicit because compatible services differ.
  */
 export function body(request: AskRequest): Record<string, unknown> {
   const system = request.system.filter(Boolean).join("\n\n");
@@ -74,6 +75,10 @@ export function body(request: AskRequest): Record<string, unknown> {
     model: request.model,
     stream: true,
     stream_options: { include_usage: true },
+    ...customParameters(request.parameters),
+    ...samplingParameters(request.parameters),
+    ...(request.parameters?.maxOutputTokens !== undefined
+      ? { [request.parameters.outputTokenField ?? "max_completion_tokens"]: request.parameters.maxOutputTokens } : {}),
     ...(request.tools.length
       ? {
           tools: request.tools.map((t) => ({

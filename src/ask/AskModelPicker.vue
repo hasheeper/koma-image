@@ -11,13 +11,13 @@ const ask = useAsk(), ui = useUi(), generatedId = useId();
 const menuId = computed(() => props.id ?? generatedId);
 const switchable = computed(() => ask.picks.value.length > 0);
 const modelTitle = computed(() => `${ask.estimate.value && !ask.running.value ? `本轮输入约 ${ask.estimate.value} tokens · ` : ''}点击切换模型`);
-async function useModel(connectionId: string, id: string, close: (refocus?: boolean) => void) {
+async function useModel(id: string, close: (refocus?: boolean) => void) {
   close(true);
-  try { await ask.useModel(connectionId, id); } catch (error) { ui.toast(message(error), 'err'); }
+  try { await ask.useModel(ask.settings.value.connectionId, id); } catch (error) { ui.toast(message(error), 'err'); }
 }
 </script>
 <template>
-          <AskMenu :id="menuId" label="切换模型" side="up">
+          <AskMenu :id="menuId" label="切换模型" side="up" kind="model">
             <template #trigger="{ open, toggle }">
               <button
                 class="ask-model"
@@ -34,20 +34,17 @@ async function useModel(connectionId: string, id: string, close: (refocus?: bool
               </button>
             </template>
             <template #default="{ close }">
-              <template v-for="c in ask.picks.value" :key="c.id">
-                <div v-if="ask.picks.value.length > 1" class="menu-group ask-menu-group" role="presentation">{{ c.name }}</div>
                 <button
-                  v-for="id in c.ids"
+                  v-for="id in ask.picks.value"
                   :key="id"
                   class="menu-item"
                   type="button"
                   role="menuitemradio"
-                  :aria-checked="ask.settings.value.connectionId === c.id && ask.settings.value.model === id"
+                  :aria-checked="ask.settings.value.model === id"
                   :disabled="ask.running.value"
                   :title="id"
-                  @click="useModel(c.id, id, close)"
+                  @click="useModel(id, close)"
                 ><ModelIcon :family="familyOf(id)" /><span class="menu-label">{{ id }}</span><AppIcon name="i-check" class="menu-check ask-menu-check" /></button>
-              </template>
               <hr role="separator" />
               <button class="menu-item" type="button" role="menuitem" @click="close(); ask.openSettings()"><AppIcon name="i-settings" /><span class="menu-label">管理模型</span></button>
             </template>

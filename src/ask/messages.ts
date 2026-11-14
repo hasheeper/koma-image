@@ -1,5 +1,6 @@
 import { object } from "../domain/value.ts";
 import { errorMessage } from "../gateway/transport.ts";
+import type { AskParameters } from "./parameters.ts";
 
 /** The one message shape the runner speaks; adapters translate it per protocol. */
 export interface AskTool {
@@ -64,6 +65,8 @@ export interface AskRequest {
   readonly messages: readonly AskMessage[];
   /** Sent where the protocol requires an output limit (Anthropic). */
   readonly maxTokens: number;
+  /** User overrides only; optional fields are otherwise omitted from the wire. */
+  readonly parameters?: AskParameters;
 }
 /** Token counts as reported upstream; input includes cached tokens. */
 export interface AskUsage {

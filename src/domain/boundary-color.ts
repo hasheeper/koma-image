@@ -1,6 +1,5 @@
 import type { MaskBitmap } from '../native/edit-input.ts';
 
-export const BOUNDARY_COLOR_VERSION = 1;
 export interface BoundaryMatchSummary { regions: number; matched: number }
 const linear = Float64Array.from({ length: 256 }, (_, n) => n / 255 <= .04045 ? n / 3294.6 : ((n / 255 + .055) / 1.055) ** 2.4);
 const clamp = (n: number, a: number, b: number) => Math.max(a, Math.min(b, n));

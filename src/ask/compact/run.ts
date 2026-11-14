@@ -12,7 +12,7 @@ import { extractCompletedMemo } from "./validate.ts";
 export interface CompactionOptions {
   readonly session: Session;
   readonly provider: Pick<ReturnType<typeof createProvider>, "stream">;
-  readonly request: Pick<AskRequest, "model" | "system" | "tools">;
+  readonly request: Pick<AskRequest, "model" | "system" | "tools" | "parameters">;
   readonly codec?: Codec;
   readonly signal: AbortSignal;
   readonly attachments: AttachmentReader;
@@ -35,7 +35,7 @@ export async function runCompaction(options: CompactionOptions) {
   try {
     const archived = [...tx.archive, ...tx.retained.slice(0, count)];
     const tail = compactionTail(archived, tx.retained.slice(count), tx.ledger, attachmentIndex(archived, options.attachments));
-    const request: AskRequest = { model: options.request.model, tools: options.request.tools, system: options.request.system,
+    const request: AskRequest = { ...options.request,
       maxTokens: 8192, messages: [...tx.messages, tail] };
     let text = "", stop: AskStop = "other", completed = false, hasTools = false;
     for await (const event of options.provider.stream(request, { codec: options.codec, signal, allowEmpty: true, observe(event) {

@@ -669,7 +669,7 @@ test("Board menu: compact footer, per-board actions, nested Escape", async () =>
     assert.equal(await page.evaluate(()=>drawing.snapshot().activeBoardId),second);
     assert.equal(await page.evaluate(id=>!!drawing.board(id),first),false,'deletes the row target, never the active board by accident');
     await page.evaluate(async()=>{for(let i=0;i<19;i++)await drawing.createBoard(false);});
-    await page.setViewportSize({width:390,height:700});await page.locator('.bd-switch').scrollIntoViewIfNeeded();await page.locator('.bd-switch').click();
+    await page.setViewportSize({width:390,height:700});await page.getByRole('dialog',{name:'当前窗口较窄',exact:true}).getByRole('button',{name:'切换到 BETA',exact:true}).click();await page.locator('.bd-switch').scrollIntoViewIfNeeded();await page.locator('.bd-switch').click();
     await main.locator('.bd-row').last().locator('.bd-more').click();
     await page.keyboard.press('Escape');await main.locator('.bd-list').evaluate(el=>el.scrollTop=el.scrollHeight);
     assert.equal(await main.evaluate(el=>el.matches(':popover-open')),true,'closing the last row submenu keeps the scrolled board list open');

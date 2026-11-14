@@ -24,6 +24,10 @@
 .tags-nav .switcher:hover,
 .tags-nav .theme-toggle:hover,
 .tags-nav .switcher[aria-expanded="true"] { background: var(--hover); }
+/* Canvas collaboration BETA: the compact workspace mark (its own glass) and a glass appearance island
+   matching the ASK launcher beside it (40px, 12px corners). */
+.tags-nav.is-beta .theme-toggle { width: 40px; height: 40px; background: var(--glass-bg); border-radius: 12px; backdrop-filter: blur(var(--glass-blur)); }
+.tags-nav.is-beta .theme-toggle:hover { background: var(--hover); }
 
 /* ── Layout ──────────────────────────────────────────────────── */
 /* The slot is reserved on the right and the column centres in what is left,

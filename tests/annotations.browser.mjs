@@ -22,12 +22,14 @@ async function bind(page){await page.waitForFunction(()=>!!document.body.__vue_a
 async function send(page,target){await page.locator('#editorSend').click();await page.getByRole('menuitem',{name:target==='ask'?/^问 ASK/:target==='new'?'CHAT 改图 · 新对话':/^CHAT 改图 · 来源对话 /}).click();}
 async function sendItems(page){await page.locator('#editorSend').click();const items=await page.locator('#editorSendMenu [role=menuitem]').evaluateAll(n=>n.map(e=>e.getAttribute('aria-label')||e.textContent.trim()));await page.keyboard.press('Escape');return items;}
 async function addPoint(page,text,x=.5){const b=await page.locator('#editorStage').boundingBox();await page.mouse.click(b.x+b.width*x,b.y+b.height*.5);const c=page.getByPlaceholder('添加批注…');await c.fill(text);await c.press('Enter');}
-async function setup(outputSize = [128, 128], maxContextImages = 3){
+async function setup(outputSize = [128, 128], maxContextImages = 3, { canvas = false } = {}){
  const context=await browser.newContext({viewport:{width:1280,height:900},reducedMotion:'reduce'}),page=await context.newPage(),errors=[],posts=[];
  page.on('pageerror',e=>errors.push(e.message));page.setDefaultTimeout(12000);
  await page.goto('about:blank');
  const output=await page.evaluate(([w,h])=>{const c=document.createElement('canvas');c.width=w;c.height=h;const g=c.getContext('2d');g.fillStyle='#2580ec';g.fillRect(0,0,w,h);return c.toDataURL().split(',')[1];},outputSize);
  await context.addInitScript(()=>{if(!location.protocol.startsWith('http')||localStorage.getItem('koma.routing.v1'))return;localStorage.setItem('koma.routing.v1',JSON.stringify({version:1,connections:{test:{id:'test',name:'Synthetic',baseUrl:'https://gateway.example.test',profileId:'koma-standard-v1',credentialRef:'key',revision:'one'}},links:{}}));sessionStorage.setItem('koma.session.keys',JSON.stringify({key:'synthetic-only-key'}));});
+ // Compact EDIT tools (one comparison menu) exist only in the canvas collaboration layout.
+ if(canvas)await context.addInitScript(()=>{if(location.protocol.startsWith('http')&&!localStorage.getItem('koma.image.layout.v1'))localStorage.setItem('koma.image.layout.v1',JSON.stringify({enabled:true,ratio:.4,filmstripOpen:true}));});
  await context.route('**/*',route=>{const u=new URL(route.request().url());if(u.origin===origin)return route.continue();if(u.hostname!=='gateway.example.test')return route.abort();if(u.pathname.endsWith('/image/models'))return route.fulfill({json:{...catalog,studio_features:{...catalog.studio_features,max_context_images:maxContextImages}}});if(u.pathname.endsWith('/media/quota'))return route.fulfill({json:{credits:{remaining:1000}}});if(u.pathname.endsWith('/estimate'))return route.fulfill({json:{cost:0}});if(u.pathname.endsWith('/token_stats_data'))return route.fulfill({json:{temp_limits:{is_temp:false}}});posts.push(route.request().postDataJSON());return route.fulfill({json:{data:[{b64_json:output}]}});});
  await page.goto(origin+'/#/chat');await page.waitForFunction(()=>!!document.body.__vue_app__?._instance);await bind(page);await page.waitForFunction(()=>chat.snapshot().ready);await page.evaluate(()=>chat.setModel('gpt-image-2'));
  return {context,page,posts,errors};
@@ -66,7 +68,7 @@ test('CHAT fusion launch returns a formal composite, persists settings and rejec
 });
 
 test('compact fusion tools share the comparison menu, keep apply explicit and launch the frozen Photopea task',async()=>{
- const t=await setup();try{
+ const t=await setup(undefined,undefined,{canvas:true});try{
   await t.page.setViewportSize({width:390,height:844});
   await t.page.evaluate(async()=>{
    await editor.open('image',await makeImage(),'compact.png');editor.setModel('gpt-image-2');editor.setMode('inpaint');editor.patch({prompt:'adjust boundary'});

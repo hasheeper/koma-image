@@ -1,6 +1,6 @@
 # 图片身份与引用
 
-更新：2026-11-13。维护 IMAGE、HOME、CHAT、EDIT、ASK 的图片身份、展示编号及外部引用规则。生成执行、参数和资源仍由原工作区持有；本文不授予 ASK 编辑或生成权限。
+更新：2026-11-14。维护 IMAGE、HOME、CHAT、EDIT、ASK 的图片身份、展示编号及外部引用规则。生成执行、参数和资源仍由原工作区持有；本文不授予 ASK 编辑或生成权限。
 
 ## 实体与记录
 
@@ -84,4 +84,4 @@ IMAGE 显示 `#h` 及已收藏的星标／`#f`；收藏与 HOME 显示固定 `#f
 
 ASK 输入 `#` 提供紧凑图片候选，方向键选择，Enter／Tab 插入，Esc 关闭；输入法组合不抢键，选择不发送、不清空正文。补全关闭时保持原有发送与草稿确认行为。
 
-核心实现为 `domain/image-identity.ts`、`services/image-identities.ts`、`ask/ids.ts`、`ask/edit-context.ts`、`ask/library.ts`、`ask/vision.ts`。[本地验收](../archive/image-identity/2026-10-28-image-identity-verification.md)使用合成图与模拟接口；真实供应商效果和额度不由本地通过结果代替。
+核心实现为 `domain/image-identity.ts`、`services/image-identities.ts`、`ask/ids.ts`、`ask/edit-context.ts`、`ask/library.ts`、`ask/vision.ts`。本地测试使用合成图与模拟接口，覆盖冻结引用、收藏与备份保号、同像素不同记录、视觉预算和 EDIT／Slate／Bridge 交接；真实供应商效果和额度不由本地通过结果代替。

@@ -160,4 +160,3 @@ export function createHomeStore(services: ApplicationServices, onError: (error: 
     },
   };
 }
-export type HomeStore = ReturnType<typeof createHomeStore>;

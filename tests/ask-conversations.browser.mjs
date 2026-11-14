@@ -24,6 +24,7 @@ test('long conversation headings leave header menus, resize and dismiss usable',
     await options();
     await window.getByRole('button', { name: '还原 ASK 窗口', exact: true }).click();
     await page.setViewportSize({ width: 390, height: 844 });
+    await page.getByRole('button', { name: '继续桌面布局', exact: true }).click();
     await options();
     const menu = await openConversations(page);
     await menu.getByRole('menuitem', { name: '重命名', exact: true }).click();

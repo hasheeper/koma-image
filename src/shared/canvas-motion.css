@@ -1,0 +1,51 @@
+/* Canvas collaboration motion, shared by IMAGE, EDIT and CHAT; each workspace scopes these rules.
+   The stage never animates its width: its column settles in one frame (before the tray enters,
+   after it leaves), so only the tray and its panes move. Direct manipulation stays unanimated. */
+
+/* The tray slides in from the right edge and retreats to it; v-show applies display:none
+   only after the leave transition, and the workspace releases the grid column then. */
+.canvas-tray-enter-active { transition: opacity var(--t2) var(--e-out), transform var(--t2) var(--e-out); }
+.canvas-tray-leave-active { transition: opacity var(--t1) var(--e), transform var(--t1) var(--e); pointer-events: none; }
+.canvas-tray-enter-from, .canvas-tray-leave-to { opacity: 0; transform: translateX(16px); }
+/* The switch island has already returned to the canvas head; the leaving pane's own head
+   (switch slot and close button, small screens only) must not linger over it. */
+.canvas-tray-leave-active > header { visibility: hidden; }
+
+/* Small screens: the same tray opens from the switch island as a near full-screen pane. */
+@media (max-width: 1079px) {
+  .canvas-tray-enter-active { transition-duration: var(--t3); }
+  .canvas-tray-leave-active { transition-duration: var(--t2); }
+  .canvas-tray-enter-from, .canvas-tray-leave-to { transform: scale(.98); transform-origin: top right; }
+}
+
+/* Switching panes keeps the shell still; the pane being shown rises 4px into place. */
+[data-pane-motion="a"] > * { animation: canvas-pane-a var(--t2) var(--e-out); }
+[data-pane-motion="b"] > * { animation: canvas-pane-b var(--t2) var(--e-out); }
+@keyframes canvas-pane-a { from { opacity: 0; transform: translateY(4px); } }
+@keyframes canvas-pane-b { from { opacity: 0; transform: translateY(4px); } }
+
+/* Small screens: what the tray or a browsing layer covers stays on the table and recedes —
+   the stage blurs and steps back, its floating islands fade. It never animates its size,
+   and the covered stage keeps its drivers paused. */
+.canvas-recede { transition: transform var(--t3) var(--e-out), filter var(--t3) var(--e-out), opacity var(--t3) var(--e-out); }
+.canvas-recede-hide { transition: opacity var(--t1) var(--e), visibility 0s; }
+[data-receded] .canvas-recede { transform: scale(.96); filter: blur(14px); opacity: .5; pointer-events: none; }
+[data-receded] .canvas-recede-hide { opacity: 0; visibility: hidden; pointer-events: none; transition: opacity var(--t1) var(--e), visibility 0s linear var(--t1); }
+
+/* A history or version groove, opened by the user, emerges from behind the picture's left edge.
+   The picture recentres in the same frame; closing is immediate with the layout. */
+[data-groove-motion] { animation: canvas-groove var(--t2) var(--e-out); }
+@keyframes canvas-groove { from { opacity: 0; transform: translateX(6px); } }
+
+@media (prefers-reduced-motion: reduce) {
+  .canvas-tray-enter-from, .canvas-tray-leave-to { transform: none; }
+  [data-receded] .canvas-recede { transform: none; }
+  /* A browsing layer's own offset of the stage lands at once; blur and fade still ease. */
+  .canvas-recede { transition-property: filter, opacity; }
+  [data-groove-motion] { animation-name: canvas-groove-fade; }
+  [data-pane-motion="a"] > * { animation-name: canvas-pane-fade-a; }
+  [data-pane-motion="b"] > * { animation-name: canvas-pane-fade-b; }
+}
+@keyframes canvas-pane-fade-a { from { opacity: 0; } }
+@keyframes canvas-pane-fade-b { from { opacity: 0; } }
+@keyframes canvas-groove-fade { from { opacity: 0; } }

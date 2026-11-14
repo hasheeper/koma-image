@@ -1,8 +1,8 @@
 <script setup lang="ts">
-defineProps<{ dropping: boolean }>();
+defineProps<{ dropping: boolean; docked?: boolean }>();
 </script>
 <template>
-  <section class="home-welcome" :class="{ 'is-over': dropping }" aria-label="开始创作">
+  <section class="home-welcome" :class="{ 'is-over': dropping, 'is-docked': docked }" aria-label="开始创作">
     <svg class="home-welcome-art" viewBox="0 0 64 64" width="80" height="80" aria-hidden="true">
       <g fill="var(--empty-mark-back)">
         <rect x="8" y="8" width="22" height="22" rx="6" />
@@ -22,6 +22,7 @@ defineProps<{ dropping: boolean }>();
 .home-welcome h2 { align-self: stretch; margin: 0; color: var(--fg-2); font-size: 15px; font-weight: var(--fw-medium); line-height: 20px; }
 .home-welcome p { align-self: stretch; margin: 0; color: var(--fg-3); font-size: 12px; line-height: 18px; }
 .welcome-stop { display: inline-block; inline-size: .5em; text-align: start; }
+.home-welcome.is-docked { width: min(100%, 520px); height: 208px; background: transparent; border-color: transparent; }
 .home-welcome.is-over { background-color: var(--a-dim); border-color: color-mix(in srgb, var(--a) 60%, transparent); }
 .home-welcome.is-over h2 { color: var(--a); }
 @media (max-width: 860px) { .home-welcome { height: 160px; padding: 10px 14px; } }

@@ -766,7 +766,8 @@ test('B3 concurrent pages reject stale task versions, monotonic undo versions an
 });
 
 test('B3 task capability works without any configured connection, key or directory API',async()=>{
-  const context=await browser.newContext({viewport:{width:390,height:900}}),errors=[],requests=[];
+  // The classic workspaces keep a desktop table; the task overview sits in the top bar.
+  const context=await browser.newContext({viewport:{width:1280,height:900}}),errors=[],requests=[];
   await context.addInitScript(()=>{window.showDirectoryPicker=undefined;localStorage.setItem('koma.prefs.v1',JSON.stringify({tagSuggest:false}));});
   await context.route('**/*',route=>{if(new URL(route.request().url()).origin===origin)return route.continue();requests.push(route.request().url());return route.abort();});
   const page=await context.newPage();page.on('pageerror',e=>errors.push(e.message));page.setDefaultTimeout(12000);
@@ -774,7 +775,6 @@ test('B3 task capability works without any configured connection, key or directo
     await page.goto(origin+'/#/image');await bind(page);
     assert.equal(await page.locator('dialog[open]').count(),0);
     assert.equal(await page.evaluate(()=>drawing.snapshot().models.length),0);const s=await createSlate(page,'无配置任务');assert.equal(s.title,'无配置任务');assert.equal(await page.evaluate(()=>ask.ready.value),'connection');
-    await page.getByRole('button',{name:'打开菜单',exact:true}).click();
     await page.getByRole('button',{name:'打开任务总览',exact:true}).click();assert.match(await page.locator('.slate-panel').textContent(),/无配置任务/);await page.getByRole('button',{name:'关闭任务总览',exact:true}).click();
     assert.deepEqual(requests,[]);assert.deepEqual(errors,[]);
   }finally{await context.close();}

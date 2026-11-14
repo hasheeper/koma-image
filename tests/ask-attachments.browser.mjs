@@ -183,7 +183,8 @@ test('ASK W5: file errors stay in one toast; preparing blocks send; deleting an 
 test('ASK W5: GIF sends its first frame as WebP; touch tray and history actions stay accessible',async()=>{
   const {page,context,llm,calls,errors}=await open('/#/image',{ready:'.switcher',ask:askSettings(),touch:true});
   try {
-    await page.setViewportSize({width:390,height:844});await bind(page);await page.evaluate(()=>ask.show());
+    await page.setViewportSize({width:390,height:844});await bind(page);
+    await page.getByRole('button',{name:'继续桌面布局',exact:true}).click();await page.evaluate(()=>ask.show());
     // Two 1px frames: red, then blue. This fixture is generated from GIF bytes, not a real image.
     const gif=Buffer.from('47494638396101000100800000ff00000000ff21f904000a0000002c000000000100010000020244010021f904000a0000002c00000000010001000002024c01003b','hex');
     await drawer(page).locator('input[type=file]').setInputFiles({name:'两帧.gif',mimeType:'image/gif',buffer:gif});

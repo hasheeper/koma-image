@@ -1,7 +1,6 @@
 import { readInpaintFocus } from "../domain/inpaint-focus.ts";
 import type { InpaintFocus } from "../domain/inpaint-focus.ts";
 import { dataUrl } from "../services/assets.ts";
-import { composeInpaint } from "./inpaint-result.ts";
 
 async function decode(url: string) {
   const bytes = Uint8Array.from(atob(url.slice(url.indexOf(",") + 1)), c => c.charCodeAt(0));
@@ -36,17 +35,4 @@ export async function prepareFocusedInpaint(source: string, mask: string, focus:
     };
     return { png: await crop(base, true), mask: await crop(selection, false) };
   } finally { for (const bitmap of bitmaps) bitmap.close(); }
-}
-
-export async function composeFocusedInpaint(source: string, mask: string, result: Blob, focus: InpaintFocus, signal: AbortSignal) {
-  const image = await createImageBitmap(result);
-  try {
-    signal.throwIfAborted();
-    if (!readInpaintFocus(focus) || image.width !== focus.targetWidth || image.height !== focus.targetHeight)
-      throw new Error("聚焦重绘结果尺寸不一致，未写入编辑版本，请勿重复提交");
-    const canvas = new OffscreenCanvas(focus.sourceWidth, focus.sourceHeight), context = canvas.getContext("2d")!;
-    context.imageSmoothingEnabled = true; context.imageSmoothingQuality = "high";
-    context.drawImage(image, focus.x, focus.y, focus.width, focus.height);
-    return await composeInpaint(source, mask, await canvas.convertToBlob({ type: "image/png" }), signal);
-  } finally { image.close(); }
 }

@@ -49,10 +49,11 @@ const emit = defineEmits<{
   </div>
 </template>
 <style scoped>
-.chat-result-tools { display: flex; align-items: center; padding: 1px; background: color-mix(in srgb, var(--fg) 4%, transparent); border-radius: var(--r2); transition: opacity var(--t1) var(--e); }
+.chat-result-tools { --ico: var(--ico-md); display: flex; align-items: center; padding: 1px; background: color-mix(in srgb, var(--fg) 4%, transparent); border-radius: var(--r2); transition: opacity var(--t1) var(--e); }
 .chat-result-tool-group { display: flex; align-items: center; gap: 2px; }
 .chat-result-tool-sep { flex: none; width: 1px; height: 14px; margin-inline: 4px; background: color-mix(in srgb, var(--fg) 18%, transparent); }
-.chat-result-tools .ibtn { width: var(--chat-result-tool-size); height: var(--chat-result-tool-size); --ico: var(--ico-md); border-radius: var(--r1); }
+.chat-result-tools :deep(.ibtn) { width: var(--chat-result-tool-size); height: var(--chat-result-tool-size); border-radius: var(--r1); }
+.chat-result-tools :deep(.ask-mark) { width: var(--chat-result-mark-size, 20px); height: var(--chat-result-mark-size, 20px); }
 .chat-result-tools .ibtn[aria-pressed="false"] { color: var(--fg-3); }
 .chat-result-tools .ibtn:hover { color: var(--fg); }
 .chat-result-tools .ibtn.is-on { color: var(--a); }

@@ -405,6 +405,7 @@ test('[core] ASK retrospective: semantic fork card, exact raw Diff, explicit res
 test('ASK retrospective: touch baseline selection and deleted sources retain Diff but cannot restore', async () => {
   const { page, context, llm, calls, errors } = await open('/#/image', { ready: '.switcher', standard: true, width: 390, touch: true, ask: askSettings({ images: false }) });
   try {
+    await page.getByRole('button', { name: '继续桌面布局', exact: true }).click();
     const ids = await seed(page);
     await page.evaluate(() => ask.show({ question: '梳理这几版的演进' }));
     llm.push(toolReply('clusters', 'get_recipe_clusters', {}), toolReply('graph', 'show_retrospect', graph), textReply('已整理。'));
@@ -425,6 +426,7 @@ test('ASK retrospective: touch baseline selection and deleted sources retain Dif
     await panel.getByRole('button', { name: '关闭演进' }).click();
     const owner = await page.evaluate(async () => { await ask.toggleFavorite(); return ask.conversationId.value; });
     await reloadAsk(page);
+    await page.getByRole('button', { name: '继续桌面布局', exact: true }).click();
     const newIds = await seed(page);
     await page.evaluate(async ({ owner, id }) => {
       // Same pixels in a new favorite may supply a preview, never the old recipe identity.

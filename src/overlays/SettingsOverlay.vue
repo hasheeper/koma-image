@@ -18,6 +18,9 @@ import { useDialog } from "./use-dialog";
 import BrandMark from "../shared/BrandMark.vue";
 import AppIcon from "../shared/AppIcon.vue";
 import ThemeToggle from "../shared/ThemeToggle.vue";
+import CanvasPanelSwitch from "../shared/ui/CanvasPanelSwitch.vue";
+import type { CanvasPanelOption } from "../shared/ui/CanvasPanelSwitch.vue";
+import { useAskPresentation } from "../ask/presentation.ts";
 import { useConnectionCatalogs } from "./settings/use-connection-catalogs";
 import ConnectionsSection from "./settings/ConnectionsSection.vue";
 import SupplierDialog from "./settings/SupplierDialog.vue";
@@ -55,6 +58,13 @@ const currentModel = computed(() => editorView.value.open
   ? editorView.value.upscaleOpen ? editorView.value.upscaleModel : editorView.value.model
   : router.route.value.workspace === "chat" ? chatView.value.model : drawingView.value.model);
 const local = connections.local;
+/* Canvas collaboration (BETA) gives settings the islands' shell. It is read as settings opens,
+   so turning BETA on or off from 通用 never moves the row under the pointer; the workspace
+   behind switches at once and settings follows on the next opening. Dialogs opened inside
+   settings inherit its glass menus and hints; the three opened beside it carry the class. */
+const { canvas } = useAskPresentation();
+const beta = shallowRef(canvas.enabled.value);
+watch(() => router.route.value.overlay === "settings", open => { if (open) beta.value = canvas.enabled.value; });
 const dialog = useTemplateRef<HTMLDialogElement>("dialog");
 const supplier = useTemplateRef<InstanceType<typeof SupplierDialog>>("supplier");
 const modelsSection =
@@ -84,6 +94,16 @@ const sections: { id: SettingsSection; label: string; icon: string }[] = [
   { id: "security", label: "安全与备份", icon: "lock" },
   { id: "ask", label: "ASK", icon: "ask" },
 ];
+const sectionOptions = computed<CanvasPanelOption[]>(() => sections.map(section => ({
+  value: section.id,
+  label: section.label,
+  icon: `i-${section.icon}`,
+  meta: section.id === "connections" ? String(Object.keys(routing.value.connections).length)
+    : section.id === "models" ? String(modelEntries.value.length) : undefined,
+})));
+function selectSection(id: string) {
+  if (!busy.value) router.selectSection(id as SettingsSection);
+}
 // Keep existing backup links usable within the combined settings page.
 const activeSection = computed(() =>
   router.route.value.section === "backup"
@@ -320,29 +340,40 @@ async function reveal(id: string) {
     ref="dialog"
     id="settingsPanel"
     class="settings set-ui"
+    :class="{ 'is-beta': beta, 'canvas-collaboration': beta }"
     aria-labelledby="settingsTitle"
     @cancel="cancelSettings"
     @close="closed"
   >
     <header class="topbar set-bar">
-      <button
-        class="ibtn set-back"
-        type="button"
-        aria-label="返回"
-        data-tip="返回 · Esc"
-        autofocus
-        :disabled="busy"
-        @click="goBack"
-      >
-        <AppIcon name="i-back" />
-      </button>
-      <h2 id="settingsTitle" class="brand set-title" aria-label="设置">
-        <BrandMark surface="settings" subtitle="SETTINGS" />
-      </h2>
+      <div class="set-home">
+        <button
+          class="ibtn set-back"
+          type="button"
+          aria-label="返回"
+          data-tip="返回 · Esc"
+          autofocus
+          :disabled="busy"
+          @click="goBack"
+        >
+          <AppIcon name="i-back" />
+        </button>
+        <h2 id="settingsTitle" class="brand set-title" aria-label="设置">
+          <BrandMark surface="settings" subtitle="SETTINGS" :compact="beta" />
+        </h2>
+      </div>
+      <CanvasPanelSwitch
+        v-if="beta"
+        class="set-switch"
+        :options="sectionOptions"
+        :selected="activeSection"
+        label="设置分组"
+        @select="selectSection"
+      />
       <div class="topbar-end"><ThemeToggle /></div>
     </header>
     <div class="set-lay">
-      <nav class="set-nav" aria-label="设置">
+      <nav v-if="!beta" class="set-nav" aria-label="设置">
         <button
           v-for="section in sections"
           :key="section.id"
@@ -498,8 +529,9 @@ async function reveal(id: string) {
       </div>
     </div>
   </dialog>
-  <SupplierDialog ref="supplier" :routing="routing" />
+  <SupplierDialog ref="supplier" :class="{ 'canvas-collaboration': beta }" :routing="routing" />
   <ModelListDialog
+    :class="{ 'canvas-collaboration': beta }"
     :connection="listConnection"
     :routing="routing"
     :raw="raw[listConnection ?? '']"
@@ -510,6 +542,7 @@ async function reveal(id: string) {
     @reveal="reveal"
   />
   <AskModelDialog
+    :class="{ 'canvas-collaboration': beta }"
     :purpose="askListPurpose"
     :connection="askList && routing.connections[askList] ? askList : null"
     :routing="routing"
@@ -521,3 +554,4 @@ async function reveal(id: string) {
     @change="saveAsk"
   />
 </template>
+<style scoped src="../shared/canvas-surface.css"></style>

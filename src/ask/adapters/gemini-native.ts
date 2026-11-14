@@ -4,6 +4,7 @@ import { classify, ProviderError, reportedCount } from "../messages.ts";
 import type { AskCall, AskImage, AskRequest, AskResult, AskStop, AskText, AskUsage, CacheUsage } from "../messages.ts";
 import type { ResponseEvent } from "../response-stream.ts";
 import type { SseEvent } from "./sse.ts";
+import { customParameters } from "../parameters.ts";
 
 type Part = Readonly<Record<string, unknown>>;
 const part = (block: AskText | AskImage): Part => block.type === "text"
@@ -66,7 +67,13 @@ export function body(request: AskRequest): Record<string, unknown> {
     ...(request.tools.length ? { tools: [{ functionDeclarations: request.tools.map(t => ({ name: t.name, description: t.description, parametersJsonSchema: sortKeys(t.schema) })) }] } : {}),
     ...(request.toolChoice ? { toolConfig: { functionCallingConfig: { mode: "NONE" } } } : {}),
     systemInstruction: { parts: request.system.filter(Boolean).map(text => ({ text })) },
-    generationConfig: { maxOutputTokens: request.maxTokens, responseModalities: ["TEXT"] },
+    generationConfig: {
+      responseModalities: ["TEXT"],
+      ...customParameters(request.parameters),
+      ...(request.parameters?.maxOutputTokens !== undefined ? { maxOutputTokens: request.parameters.maxOutputTokens } : {}),
+      ...(request.parameters?.temperature !== undefined ? { temperature: request.parameters.temperature } : {}),
+      ...(request.parameters?.topP !== undefined ? { topP: request.parameters.topP } : {}),
+    },
     contents,
   };
 }

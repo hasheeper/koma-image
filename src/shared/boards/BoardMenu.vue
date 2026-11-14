@@ -4,7 +4,7 @@ import AppIcon from "../AppIcon.vue";
 import { menuKeys, placeMenu } from "../popover";
 import { usePopover } from "../ui/use-popover";
 const props = defineProps<{
-  id: string; actionPrefix: string; activeId: string; createLabel: string; removeLabel: string; triggerLabel?: string;
+  compact?: boolean; id: string; actionPrefix: string; activeId: string; createLabel: string; removeLabel: string; triggerLabel?: string;
   items: { id: string; name: string; color: string; tags: string[]; removeDisabled?: boolean }[];
   footer: { id: string; label: string; icon: string }[];
 }>();
@@ -16,7 +16,7 @@ let actionScroll = 0;
 const current = computed(() => props.items.find(b => b.id === props.activeId)!);
 const index = computed(() => props.items.findIndex(b => b.id === props.activeId) + 1);
 // The menu is as wide as its longest row, between the footer's need and the pill.
-function fit(el: HTMLElement, r: DOMRect) { const max = Math.min(r.width, innerWidth - 16); Object.assign(el.style, { width: "", maxWidth: `${max}px`, minWidth: `${Math.min(216, max)}px` }); }
+function fit(el: HTMLElement, r: DOMRect) { const max = Math.min(props.compact ? Math.max(280, r.width) : r.width, innerWidth - 16); Object.assign(el.style, { width: "", maxWidth: `${max}px`, minWidth: `${Math.min(216, max)}px` }); }
 function hideActions() { menu.value?.querySelector<HTMLElement>('.bd-actions:popover-open')?.hidePopover(); actions.value = null; }
 function listScrolled(event: Event) {
   // A click can follow an automatic scroll before that scroll event is delivered.
@@ -85,13 +85,13 @@ function keys(event: KeyboardEvent) {
 defineExpose({ close });
 </script>
 <template>
-  <div class="bd" :data-open="open">
+  <div class="bd" :class="{ compact }" :data-open="open">
     <div ref="pill" class="bd-pill" role="group" aria-label="画板">
       <button class="bd-switch" type="button" :popovertarget="id" :aria-label="triggerLabel" aria-haspopup="menu" :aria-expanded="open" :title="current.name">
         <i class="bd-dot" :style="{ '--c': current.color }"></i><span class="bd-name">{{ current.name }}</span><span class="bd-count mono">{{ index }}/{{ items.length }}</span><AppIcon name="i-chevron" class="bd-caret" />
       </button>
       <slot name="currentActions" :id="current.id" />
-      <button class="bd-new" type="button" :title="createLabel" :aria-label="createLabel" @click="create"><AppIcon name="i-plus" /></button>
+      <button v-if="!compact" class="bd-new" type="button" :title="createLabel" :aria-label="createLabel" @click="create"><AppIcon name="i-plus" /></button>
     </div>
     <div :id="id" ref="menu" popover="auto" class="menu bd-menu" role="menu" aria-label="画板" @beforetoggle="beforeToggle" @toggle="toggle" @keydown="keys">
       <div class="bd-list" role="group" aria-label="画板列表" @scroll="listScrolled">
@@ -186,4 +186,8 @@ defineExpose({ close });
   .bd-row[data-selected="true"] { background: color-mix(in srgb, var(--fg) 4%, transparent); }
 }
 @media (max-width: 340px) { .bd-tags { display: none; } }
+.bd.compact { margin: 0; }
+.compact .bd-pill { height: 32px; border-radius: var(--r2); background: transparent; box-shadow: none; }
+.compact .bd-switch { gap: 7px; padding-inline: 10px; border-radius: inherit; font-size: var(--fz-xs); }
+.compact .bd-count { display: none; }
 </style>

@@ -9,6 +9,7 @@ export function createPreferences(
     names.theme,
     names.releaseSeen,
     names.home,
+    names.imageLayout,
     names.chatSettings,
     names.chatCurrent,
     names.chatRail,

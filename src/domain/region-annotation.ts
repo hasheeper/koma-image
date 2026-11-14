@@ -20,10 +20,6 @@ export function pointsBox(points: readonly UnitPoint[]): UnitRect {
   const x = Math.min(...xs), y = Math.min(...ys);
   return { x, y, w: Math.max(...xs) - x, h: Math.max(...ys) - y };
 }
-export function regionUnion(regions: readonly RegionAnnotation[]): UnitRect {
-  validateAnnotationAreas(regions);
-  return pointsBox(regions.flatMap(r => [r.bbox, { x: r.bbox.x + r.bbox.w, y: r.bbox.y + r.bbox.h }]));
-}
 export function moveRegion(region: RegionAnnotation, dx: number, dy: number): RegionAnnotation {
   const { bbox: b } = region;
   dx = Math.max(-b.x, Math.min(1 - b.x - b.w, dx)); dy = Math.max(-b.y, Math.min(1 - b.y - b.h, dy));

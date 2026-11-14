@@ -263,7 +263,6 @@ test("NovelAI V5 settings: independent usage, refreshed states without generatin
     const usage = page.locator(".conn-meter").filter({ hasText: "V5 额度" });
     const purchased = page.locator(".conn-meter").filter({ hasText: "V5 加购" });
     await usage.getByText("68%", { exact: true }).waitFor();
-    assert.equal(await page.locator(".conn-card .connection-avatar use").getAttribute("href"), "#v-novelai");
     assert.equal(await page.locator(".conn-meter").filter({ hasText: "Anlas" }).locator("b").textContent(), "8,150");
     assert.equal(await purchased.locator("b").textContent(), "20%");
     assert.equal(await usage.locator(".conn-meter-estimate").textContent(), "约 1,176 张");
@@ -304,7 +303,6 @@ test("NovelAI V5 settings: independent usage, refreshed states without generatin
     assert.match(await page.locator(".conn-card .st").textContent(), /^Key 有效/);
     await page.locator(".conn-models").click();
     await page.locator("#modelListDialog[open]").waitFor();
-    assert.equal(await page.locator("#modelListDialog .connection-avatar use").getAttribute("href"), "#v-novelai");
     assert.ok(t.requests.length > 0);
     assert.ok(t.requests.every(r => r.method === "GET" && r.url === "https://image.novelai.net/user/subscription"));
     assert.deepEqual(t.errors, []);

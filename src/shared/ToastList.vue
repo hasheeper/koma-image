@@ -185,10 +185,8 @@ onBeforeUnmount(() => {
 :is(.toasts, .editor-toasts):is(:hover, :focus-within) .toast-timer { animation-play-state: paused; }
 .toast-slot.in > .toast { animation: toastIn 280ms var(--e-out); }
 .toast-slot.out > .toast { animation: toastOut 200ms var(--e) forwards; }
-.toast.bump { animation: toastBump 260ms var(--e-out); }
 @keyframes toastIn { from { opacity: 0; transform: translateX(20px); } }
 @keyframes toastOut { to { opacity: 0; transform: translateX(20px); } }
-@keyframes toastBump { 40% { transform: scale(1.02); } }
 /* Phones: full width under the bar, so a long sentence still fits. */
 @media (max-width: 860px) {
   .toasts, .editor-toasts { left: 12px; right: 12px; width: auto; }

@@ -192,6 +192,9 @@
   --glass-hover: rgba(255, 255, 255, .055);
   --glass-edge: rgba(255, 255, 255, .06);
   --glass-edge-hover: rgba(255, 255, 255, .08);
+  /* ASK overlays keep the glass tint while screening text beneath them. */
+  --glass-pop-bg: color-mix(in srgb, var(--glass-bg) 40%, var(--chrome));
+  --glass-pop-shadow: inset 0 1px 0 var(--glass-edge), 0 10px 28px rgb(var(--shadow-rgb) / calc(.4 * var(--shadow-strength)));
 
   --brand-plate: radial-gradient(circle at 28% 18%, #2f2752, #18151f 72%);
   --brand-plate-shadow: inset 0 0 0 1px rgba(179, 161, 255, .2), 0 3px 10px -2px rgba(115, 54, 135, .35);
@@ -272,7 +275,6 @@
   --ring: 0 0 0 3px var(--a-dim);
 
   /* stacking contract — keep every layer in this table */
-  --z-action: 19;
   --z-sticky: 20;
   --z-drawer: 30;   /* ASK: over workspace rails, under tips, pops and modals */
   --z-tip: 40;
@@ -308,7 +310,6 @@
   --fz-md:  15px;  /* prompt, primary action */
   --fz-lg:  18px;  /* section titles */
   --fz-xl:  22px;  /* modal titles */
-  --fz-2xl: 28px;
 
   /* Four named weights; the rounded UI family uses static 400/500/700.
      Its 600 role maps to Bold, as declared in config/fonts.json. */
@@ -343,7 +344,6 @@
      Two names now, and the dependents reference --bar-h. */
   --bar-h: 60px;    /* topbar */
   --head-h: 48px;   /* gallery head (the stage status is sr-only, not a bar) */
-  --mobile-foot-h: 61px;
 
   /* The print's lift off the mat. */
   --print-shadow:

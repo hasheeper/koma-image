@@ -11,7 +11,6 @@ test("priority NAI: ordering, availability, actual source, wallet, quota fallbac
   const generated = () => t.requests.filter(r => r.method === "POST" && !r.path.endsWith("/estimate"));
   try {
     await page.waitForFunction(() => drawing.snapshot().model?.connection === "primary" && drawing.snapshot().quota?.image?.remaining === 174);
-    assert.equal(await page.locator("#meters:visible .w-free use").getAttribute("href"), "#v-novelai");
     await page.evaluate(() => location.hash = "#/image/settings/connections");
     await page.waitForFunction(() => [...document.querySelectorAll(".conn-card .st")].every(el => el.dataset.s === "ok"));
     const official = page.locator(".conn-card").filter({ hasText: "模拟协议" });

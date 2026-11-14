@@ -321,12 +321,7 @@ test('EDIT drawer and uploads: reference selection and stale imports cannot muta
     await root.getByRole('button',{name:'Vibe Transfer',exact:true}).click();
     await root.locator('.bottom-reference-body input[type=file]').first().setInputFiles({name:'synthetic.png',mimeType:'image/png',buffer:t.png});
     await page.waitForFunction(()=>editor.session.naiReferences.vibe.length===1);
-    {
-      const width = 1440;
-      await page.setViewportSize({width,height:900});
-      await root.locator('.reference-thumb').scrollIntoViewIfNeeded();
-      }
-    await page.setViewportSize({width:390,height:900});
+    await root.locator('.reference-thumb').scrollIntoViewIfNeeded();
     await page.locator('#editor-parametersToggle').click();
     await page.keyboard.press('Escape');
     assert.equal(await page.locator('#editor-parametersToggle').getAttribute('aria-expanded'),'false');

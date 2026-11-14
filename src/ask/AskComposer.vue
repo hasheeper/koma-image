@@ -186,7 +186,7 @@ defineExpose({
   </div>
 </template>
 <style scoped>
-.ask-references { position:absolute; right:0; bottom:calc(100% + 6px); left:0; z-index:4; max-height:250px; padding:4px; overflow:auto; background:var(--raised); border:1px solid var(--line-2); border-radius:10px; box-shadow:var(--sh-2); }
+.ask-references { position:absolute; right:0; bottom:calc(100% + 6px); left:0; z-index:4; max-height:250px; padding:4px; overflow:auto; background:var(--glass-pop-bg); border:1px solid var(--line-2); border-radius:10px; box-shadow:var(--glass-pop-shadow); backdrop-filter:blur(var(--glass-blur)) saturate(var(--glass-saturation)); }
 .ask-references button { display:flex; align-items:center; gap:8px; width:100%; min-height:34px; padding:4px 8px; text-align:left; border-radius:6px; }
 .ask-references button[aria-selected="true"] { background:var(--hover); }
 .ask-references img { width:28px; height:28px; object-fit:contain; background:var(--image-checker); border-radius:4px; }
@@ -220,7 +220,7 @@ defineExpose({
 .ask-context-track { opacity: .28; }
 .ask-context:hover { color: var(--fg); }
 .ask-context:focus-visible { color: var(--fg-2); outline: 1px solid var(--a); outline-offset: 1px; }
-.ask-context-tip { position: absolute; right: -4px; bottom: calc(100% + 6px); z-index: 5; box-sizing: border-box; width: 200px; max-width: calc(100vw - 64px); padding: 10px 12px; color: var(--fg-2); font: var(--fw-regular) 12px/16px var(--sans); font-variant-numeric: tabular-nums; text-align: left; background: color-mix(in srgb, var(--sunken) 88%, transparent); border: 1px solid var(--line-2); border-radius: var(--r3); box-shadow: var(--sh-2); backdrop-filter: blur(16px); animation: ask-context-in .12s ease-out; }
+.ask-context-tip { position: absolute; right: -4px; bottom: calc(100% + 6px); z-index: 5; box-sizing: border-box; width: 188px; max-width: calc(100vw - 64px); padding: 8px 10px; color: var(--fg-2); font: var(--fw-regular) 12px/16px var(--sans); font-variant-numeric: tabular-nums; text-align: left; background: var(--glass-pop-bg); border: 1px solid var(--line-2); border-radius: 10px; box-shadow: var(--glass-pop-shadow); backdrop-filter: blur(var(--glass-blur)) saturate(var(--glass-saturation)); animation: ask-context-in .12s ease-out; }
 .ask-context-tip::after { position: absolute; right: 0; bottom: -7px; left: 0; height: 7px; content: ""; }
 .ask-context-head { display: flex; flex-wrap: wrap; align-items: baseline; justify-content: space-between; gap: 4px 8px; }
 .ask-context-label { color: var(--fg-2); }

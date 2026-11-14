@@ -6,7 +6,7 @@ import { readRetrospect, selectRetrospectSample, selectRetrospectBaseline, remap
 import { createRecipeReader } from '../src/ask/retrospect/tools.ts';
 import { recipeDiff, textDiff } from '../src/ask/retrospect/diff.ts';
 import { textHunks } from '../src/ask/retrospect/text-diff.ts';
-import { restoreRecipe } from '../src/ask/retrospect/restore.ts';
+import { prepareRecipe } from '../src/ask/retrospect/restore.ts';
 import { groupsOf } from '../src/ask/retrospect/groups.ts';
 
 const params = (prompt = 'ocean', extra = {}) => ({ ...structuredClone(DEFAULTS), basePrompt: prompt, baseNegative: 'lowres', prompt: `${prompt}, compiled quality`, negative_prompt: 'lowres, compiled negative', localCharacters: [], boardId: 'board-1', ...extra });
@@ -197,23 +197,15 @@ test('parameter comparisons retain raw differences when formatted values look id
   assert.deepEqual([missing.before, missing.after, missing.changed], ['未记录', 'null', true]);
 });
 
-test('retrospect restore keeps seed/batch, validates completeness and conflicts through existing writer', async () => {
-  let form = { ...structuredClone(DEFAULTS), prompt: 'current', seed: '123', batchCount: 8 }, writes = 0;
-  const model = { id: DEFAULTS.model, name: 'NAI V5', profileId: 'koma-standard-v1' };
-  const drawing = {
-    snapshot: () => ({ activeBoardId: 'board-1', boards: [{ id: 'board-1', nextCharacterId: 10, form }], form, models: [model] }),
-    samplersFor: () => [DEFAULTS.sampler],
-    writeDraft: async (changes, expected, boardId) => { assert.equal(boardId, 'board-1'); assert.equal(form.prompt, expected.prompt); form = { ...form, ...changes }; writes++; },
-  };
-  const references = { ready: async () => {}, cachedCost: () => 0 };
+test('recipe preparation keeps seed/batch and validates complete supported fields', () => {
+  const form = { ...structuredClone(DEFAULTS), prompt: 'current', seed: '123', batchCount: 8 };
+  const state = { form, nextCharacterId: 10, models: [{ id: DEFAULTS.model, name: 'NAI V5', profileId: 'koma-standard-v1' }], samplersFor: () => [DEFAULTS.sampler] };
   const recipe = recipeOf(params('restore', { localCharacters: [{ id: 'c1', on: true, prompt: 'hair', negative: '', centers: [] }] }));
-  await restoreRecipe(recipe, drawing, references, () => true);
-  assert.equal(form.prompt, 'restore'); assert.equal(form.seed, '123'); assert.equal(form.batchCount, 8); assert.equal(form.characters[0].id, 'c10');
-  assert.equal(writes, 1);
-  await assert.rejects(restoreRecipe({ ...recipe, prompt: null }, drawing, references, () => true), /不完整/);
-  await assert.rejects(restoreRecipe(recipe, drawing, references, () => false), /失效/);
-  await assert.rejects(restoreRecipe({ ...recipe, params: { ...recipe.params, sampler: 'invalid' } }, drawing, references, () => true), /不支持/);
-  assert.equal(writes, 1);
+  const prepared = prepareRecipe(recipe, state).form;
+  assert.equal(prepared.prompt, 'restore'); assert.equal(prepared.seed, '123'); assert.equal(prepared.batchCount, 8); assert.equal(prepared.characters[0].id, 'c10');
+  assert.equal(form.prompt, 'current');
+  assert.throws(() => prepareRecipe({ ...recipe, prompt: null }, state), /不完整/);
+  assert.throws(() => prepareRecipe({ ...recipe, params: { ...recipe.params, sampler: 'invalid' } }, state), /不支持/);
 });
 
 test('review notes preserve unrelated comments, validate targets, and append mixed selections atomically', async () => {

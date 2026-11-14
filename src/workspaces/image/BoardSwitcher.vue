@@ -6,6 +6,7 @@ import { findModel } from "../../domain/models";
 import BoardMenu from "../../shared/boards/BoardMenu.vue";
 import BoardRetrospectEntry from "../../ask/retrospect/BoardRetrospectEntry.vue";
 import AiNameButton from "../../shared/AiNameButton.vue";
+defineProps<{ compact?: boolean }>();
 const { drawing, view } = useDrawing(), ui = useUi();
 const items = computed(() => view.value.boards.map(board => ({
   id: board.id, name: board.name, color: board.color,
@@ -21,9 +22,9 @@ async function remove(id: string) {
 }
 </script>
 <template>
-  <BoardMenu id="boardMenu" action-prefix="boardActions" :items="items" :active-id="view.activeBoardId" create-label="新建空白画板" remove-label="删除画板" :footer="footer"
+  <BoardMenu :compact="compact" id="boardMenu" action-prefix="boardActions" :items="items" :active-id="view.activeBoardId" create-label="新建空白画板" remove-label="删除画板" :footer="footer"
     @select="id => run(() => drawing.switchBoard(id))" @rename="(id, name) => run(() => drawing.renameBoard(id, name))" @remove="remove"
     @create="run(() => drawing.createBoard(false))" @action="id => run(() => drawing.createBoard(id === 'copy'))">
-    <template #currentActions="{ id }"><BoardRetrospectEntry /><AiNameButton class="bd-ai" kind="board" :id="id" /></template>
+    <template #currentActions="{ id }"><BoardRetrospectEntry v-if="!compact" /><AiNameButton v-if="!compact" class="bd-ai" kind="board" :id="id" /></template>
   </BoardMenu>
 </template>

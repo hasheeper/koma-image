@@ -7,6 +7,7 @@ const emit = defineEmits<{ closed: []; opened: [] }>();
 defineSlots<{ trigger(props: { open: boolean; toggle: (event?: Event) => void }): unknown; default(props: { close: (refocus?: boolean) => void }): unknown }>();
 const visible = shallowRef(false), wrap = shallowRef<HTMLElement>(), menu = shallowRef<HTMLElement>();
 let revision = 0, focusMenuOnOpen = false;
+let closingTrigger: HTMLElement | undefined;
 function place() {
   const el = menu.value, anchor = wrap.value?.getBoundingClientRect(); if (!el || !anchor) return;
   // Layout size stays stable while the consumer animates its surface with transform.
@@ -40,6 +41,18 @@ function close(refocus = false) {
   popover.close(); closed();
   if (wasVisible && refocus) wrap.value?.querySelector<HTMLElement>("[aria-haspopup]")?.focus({ preventScroll: true });
 }
+function triggerPointerDown(event: PointerEvent) {
+  const target = event.target instanceof Element ? event.target.closest<HTMLElement>('[aria-haspopup]') : null;
+  closingTrigger = visible.value && target && !menu.value?.contains(target) ? target : undefined;
+}
+function triggerClick(event: MouseEvent) {
+  const target = closingTrigger;
+  closingTrigger = undefined;
+  // Native light-dismiss runs before click. Preserve the second click's close
+  // intent instead of letting its handler reopen the now-hidden popover.
+  if (!event.detail || !target?.contains(event.target as Node)) return;
+  event.preventDefault(); event.stopPropagation(); close();
+}
 async function toggle(event?: Event) {
   if (visible.value) return close();
   // Pointer opening can focus the menu shell without making its first action look selected.
@@ -65,7 +78,7 @@ onBeforeUnmount(() => close());
 defineExpose({ close, escape });
 </script>
 <template>
-  <span ref="wrap" class="popover-menu-host">
+  <span ref="wrap" class="popover-menu-host" @pointerdown.capture="triggerPointerDown" @pointercancel="closingTrigger = undefined" @click.capture="triggerClick">
     <slot name="trigger" :open="visible" :toggle="toggle" />
     <!-- Retained native popovers can finish CSS display/overlay exit transitions. -->
     <div v-if="visible || retainOnClose" :id="id" ref="menu" class="menu popover-menu" :class="[side, menuClass, { compact }]" popover="auto" role="menu" :aria-orientation="orientation" :tabindex="pointerFocus === 'menu' ? -1 : undefined" :aria-label="label" @beforetoggle="popover.beforeToggle" @toggle="popover.toggled" @keydown="keys"><slot :close="close" /></div>

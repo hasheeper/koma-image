@@ -29,6 +29,8 @@ import ChatResultTools from "./ChatResultTools.vue";
 import EvolutionAction from '../../ask/retrospect/EvolutionAction.vue';
 import { evolutionTarget } from '../../domain/evolution-input.ts';
 import WaveHost from "../image/WaveHost.vue";
+import { useAsk, AskMark } from "../../app/ask";
+import { useAskPresentation } from "../../ask/presentation";
 const annotations=useAnnotations(), showRaw=shallowRef<ReadonlySet<string>>(new Set());
 function displayed(id:string){ return showRaw.value.has(id) ? id : version.value.composites?.[id] ?? id; }
 function toggleRaw(id:string){const next=new Set(showRaw.value);if(next.has(id))next.delete(id);else next.add(id);showRaw.value=next;}
@@ -44,6 +46,9 @@ const { chat, view } = useChat(),
   { editor } = useEditor();
 const { drawing, view: drawings } = useDrawing();
 const saving = shallowRef<ReadonlySet<string>>(new Set());
+const ask = useAsk(), { chatCanvas } = useAskPresentation();
+/* Canvas collaboration keeps ASK beside the stream, so a picture can be cited from where it sits. */
+function askAbout(assetId: string) { const label = ask.labelFor(favoriteId(assetId)); if (label) ask.show({ anchor: label }); }
 const favoriteId = (id: string) => chatImageId(view.value.current.id, props.turn.id, version.value.id, id);
 const favorite = (id: string) => drawings.value.favorites.some(f => f.id === favoriteId(id));
 const favoriteBusy = (id: string) => drawings.value.favoritesLoading || saving.value.has(favoriteId(id)) || drawings.value.favoritePending.includes(favoriteId(id));
@@ -316,7 +321,7 @@ const filename = (id: string) =>
               @favorite="toggleFavorite(displayed(b.assetId))"
               @edit="openEdit(displayed(b.assetId))"
               @retry="chat.execute(turn)"
-            ><EvolutionAction :record-id="favoriteId(displayed(b.assetId))" :target="evolutionTarget('chat', view.current.id)" :disabled="version.status !== 'done'" /></ChatResultTools>
+            ><button v-if="chatCanvas.active.value" class="ibtn chat-result-ask" type="button" aria-label="Ask 这张图" data-tip="Ask" :disabled="version.status !== 'done'" @click="askAbout(displayed(b.assetId))"><AskMark /></button><EvolutionAction :record-id="favoriteId(displayed(b.assetId))" :target="evolutionTarget('chat', view.current.id)" :disabled="version.status !== 'done'" /></ChatResultTools>
             <div v-if="turn.snapshot.annotation && canMaskAnnotations(turn.snapshot.annotation.snapshot.regions)" class="chat-annotation-review">
               <button class="btn btn-sm btn-quiet" @click="review(b.assetId)"><AppIcon name="i-mask" />{{ version.composites?.[b.assetId] ? '重新审核' : '审核并应用蒙版' }}</button>
               <button v-if="version.composites?.[b.assetId]" class="btn btn-sm btn-quiet" :aria-pressed="showRaw.has(b.assetId)" @click="toggleRaw(b.assetId)">{{ showRaw.has(b.assetId) ? '查看回贴图' : '查看模型直出' }}</button>

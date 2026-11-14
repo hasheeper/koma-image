@@ -18,6 +18,8 @@
 
 .editor > #editorPositionLayer { position: absolute; width: 0; height: 0; z-index: 8; }
 .editor { display: grid; grid-template-rows: auto minmax(0, 1fr); }
+.editor:not(.edit-collaboration) { overflow-x: auto; }
+.editor:not(.edit-collaboration) > .editor-bar, .editor:not(.edit-collaboration) > .editor-shell { min-width: 1080px; }
 .editor [hidden] { display: none !important; } /* stylelint-disable-line declaration-no-important -- Hidden state must override editor layout rules. */
 .editor[data-rail="off"] { --editor-rail: 0px; }
 
@@ -402,98 +404,6 @@
   --ico: var(--ico-xs);
   color: var(--a-ink); background: var(--a);
   border-radius: 5px;
-}
-
-@media (min-width: 861px) and (max-width: 1080px) {
-  .editor { --editor-rail: 112px; }
-}
-
-/* ── Phones and small tablets: one scrolling column ─────────── */
-@media (max-width: 860px) {
-  .editor { overflow-y: auto; overscroll-behavior: contain; }
-  .editor { display: block; }
-  .editor-bar { position: sticky; top: 0; }
-  .editor-empty-sheet { width: 100px; height: 64px; grid-template-columns: 1fr 30px; margin-bottom: 16px; }
-  .editor-empty .editor-empty-open { min-width: 156px; min-height: 44px; padding-inline: 20px; }
-  .editor-shell { display: flex; flex-direction: column; padding-bottom: var(--editor-foot, 64px); }
-  .editor .splitter { display: none; }
-
-  /* Picture first, then its versions, then the controls — as on the workspace. */
-  .editor .stage { order: 1; }
-  .editor-mat { height: clamp(320px, 58svh, 640px); }
-  .editor-viewport { padding: 60px var(--sp-3) calc(var(--editor-toolbar-height, 40px) + 24px); }
-  .editor-info { justify-content: flex-start; gap: 10px; padding: 0 var(--sp-3); }
-  .editor-info-meta { flex: 1; }
-  .editor-info-meta .mono { display: none; }
-  /* The phone launcher sits 12px from the edge; the capsule keeps its 8px gap. */
-  .editor .editor-info > .editor-send { margin-right: 48px; }
-  /* With result options showing, the segments name the result; the caption keeps only the reference. */
-  .editor-info:has(.director-variants) .editor-info-kind { display: none; }
-  .editor .editor-fullscreen-toggle {
-    --ico: var(--ico-lg);
-    --ico-stroke: var(--ico-stroke-strong);
-    width: 40px; height: 40px; padding: 0;
-    color: var(--fg-2); background: var(--raised);
-    border: 1px solid var(--line-2); border-radius: var(--r3);
-    box-shadow: var(--sh-lip);
-    -webkit-tap-highlight-color: transparent;
-  }
-  .editor-fullscreen-toggle::before { content: ""; position: absolute; inset: -2px; }
-  .editor .editor-fullscreen-toggle[aria-pressed="true"] { color: var(--fg); }
-  @media (hover: hover) {
-    .editor .editor-fullscreen-toggle:hover { color: var(--fg); background: var(--hover); }
-  }
-  /* Keep the capsules on the canvas; no separate dock or backing panel. */
-  .editor-toolbar {
-    bottom: 12px;
-    max-width: calc(100% - 16px);
-  }
-  .editor-zoom-step { display: none; }
-  .editor-size { flex: none; width: 82px; padding-inline: 5px; gap: 4px; }
-  .editor-size output { min-width: 20px; }
-  .editor-toolbar [data-tip]::after { display: none; }
-
-  .editor-rail { order: 2; border-left: 0; border-top: 1px solid var(--line); }
-  .editor[data-rail="off"] .editor-rail { display: none; }
-  .editor-rail .gallery-head { display: none; }
-  .editor-rail .tray { flex-direction: row; gap: var(--sp-2); padding: var(--sp-2) var(--sp-3); overflow-x: auto; overflow-y: hidden; }
-  .editor-rail .tile { width: 64px; }
-  .editor-rail .tile[data-base="true"] { margin: 0 var(--sp-2) 0 0; }
-
-  .editor .composer { order: 3; display: block; border-right: 0; border-top: 1px solid var(--line); }
-  .editor .composer-scroll { overflow: visible; padding: var(--sp-4) var(--sp-3); }
-  .editor .fld-hero { min-height: 0; }
-  .editor .fld-hero .hl-wrap { height: auto; min-height: 128px; max-height: 42dvh; }
-  /* The primary action belongs to the viewport, not the scroll position. */
-  .editor .composer-foot {
-    position: fixed; left: 0; right: 0; bottom: 0; z-index: 6;
-    padding: var(--sp-2) var(--sp-3) calc(var(--sp-2) + env(safe-area-inset-bottom));
-    background: color-mix(in srgb, var(--chrome) 65%, var(--raised));
-    backdrop-filter: none;
-    box-shadow: 0 -10px 28px -20px rgb(var(--shadow-rgb) / calc(0.9 * var(--shadow-strength)));
-  }
-  .editor .composer-foot :is(.btn-go, .btn-stop) { height: 44px; }
-  .editor .go-keys { display: none; }
-
-  .editor[data-canvas-fullscreen] { display: grid; grid-template-rows: minmax(0, 1fr); overflow: hidden; }
-  .editor[data-canvas-fullscreen] > .editor-bar,
-  .editor[data-canvas-fullscreen] .editor-shell > :is(.composer, .editor-rail) { display: none; }
-  .editor[data-canvas-fullscreen] .editor-shell { min-height: 0; padding-bottom: 0; }
-  .editor[data-canvas-fullscreen] .stage { flex: 1; min-height: 0; }
-  .editor[data-canvas-fullscreen] .editor-mat { flex: 1; min-height: 0; height: 100%; }
-  .editor[data-canvas-fullscreen] .editor-viewport { padding-top: calc(60px + env(safe-area-inset-top)); }
-  .editor[data-canvas-fullscreen] .editor-info { top: env(safe-area-inset-top); }
-  .editor[data-canvas-fullscreen] .editor-toolbar { bottom: calc(12px + env(safe-area-inset-bottom)); }
-}
-@media (max-width: 600px) {
-  .editor-bar { gap: var(--sp-2); padding-inline: var(--sp-2); }
-  /* Two fingers pan and pinch on touch screens, so the hand tool can go. */
-  #editorHand { display: none; }
-}
-@media (max-width: 360px) {
-  .editor-zoom { min-width: 42px; }
-  .editor-secondary-tools { gap: 6px; }
-  .editor-size { width: 66px; }
 }
 
 /* EDIT references share the existing compact thumbnail overlay. */

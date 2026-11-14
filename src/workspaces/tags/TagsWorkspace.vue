@@ -36,7 +36,7 @@ import TagResult from "./TagResult.vue";
 const { router, tags: shellTags, narrow } = useShell(),
   { tags: search, preferences } = useServices(),
   ask = useAsk(),
-  { shown: askShown, fullscreen: askFullscreen } = useAskPresentation(),
+  { shown: askShown, fullscreen: askFullscreen, canvas: collaboration } = useAskPresentation(),
   ui = useUi();
 const query = ref(new URLSearchParams(location.search).get("q") ?? "");
 const filters = ref(
@@ -325,11 +325,11 @@ function turn(next: number) {
 }
 </script>
 <template>
-  <header class="tags-nav" :inert="askFullscreen">
-    <WorkspaceSwitch workspace="tags" />
+  <header class="tags-nav" :class="{ 'is-beta': collaboration.enabled.value, 'canvas-collaboration': collaboration.enabled.value }" :inert="askFullscreen">
+    <WorkspaceSwitch workspace="tags" :compact="collaboration.enabled.value" />
     <ThemeToggle />
   </header>
-  <main class="tags-main" data-workspace-root="tags" :data-state="view" :data-side="side" :inert="askFullscreen">
+  <main class="tags-main" :class="{ 'canvas-collaboration': collaboration.enabled.value }" data-workspace-root="tags" :data-state="view" :data-side="side" :inert="askFullscreen">
     <div class="tags-content">
       <p class="sr-only" role="status">{{ status }}</p>
       <section class="tags-hero">
@@ -579,3 +579,4 @@ function turn(next: number) {
     @click="shellTags.cartOpen = false"
   ></button>
 </template>
+<style scoped src="../../shared/canvas-surface.css"></style>

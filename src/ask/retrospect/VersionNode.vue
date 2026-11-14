@@ -1,13 +1,13 @@
 <script setup lang="ts">
 import { isStaged } from './model.ts';
 import type { RetrospectNode } from './model.ts';
-import type { ReviewPicture, GraphTool, SelectionMode } from './view.ts';
+import type { ReviewPicture, GraphTool } from './view.ts';
 import { computed } from 'vue';
 import AppIcon from '../../shared/AppIcon.vue';
 import { recipeWorkspace } from './recipe.ts';
 import { recipeDiff } from './diff.ts';
 
-const props = defineProps<{ node: RetrospectNode; fresh?: boolean; cursor?: boolean; generating?: boolean; restoreDisabled?: boolean; final?: boolean; onFinalPath?: boolean; picture: ReviewPicture; backs: readonly ReviewPicture[]; selected: boolean; baseline: boolean; summary: string; note?: string; picked: boolean; tool: GraphTool; selectionMode: SelectionMode }>();
+const props = defineProps<{ node: RetrospectNode; fresh?: boolean; cursor?: boolean; generating?: boolean; restoreDisabled?: boolean; final?: boolean; onFinalPath?: boolean; picture: ReviewPicture; backs: readonly ReviewPicture[]; selected: boolean; baseline: boolean; summary: string; note?: string; picked: boolean; tool: GraphTool }>();
 const emit = defineEmits<{ select: [event: MouseEvent]; open: []; sample: [id: string]; restore: [] }>();
 const workshop = computed(() => recipeWorkspace(props.node.recipe) !== 'image');
 const rejected = computed(() => props.node.delivery?.samples[props.picture?.id ?? props.node.cover]?.kind === 'rejected');

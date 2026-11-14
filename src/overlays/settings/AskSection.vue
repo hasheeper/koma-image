@@ -6,6 +6,7 @@ import { useUi, message } from "../../app/ui";
 import AppIcon from "../../shared/AppIcon.vue";
 import BridgeSettings from "../../bridge/BridgeSettings.vue";
 import ModelIcon from "../../shared/ModelIcon.vue";
+import AskParametersDialog from "./AskParametersDialog.vue";
 import type { Connection, Routing } from "../../config/connections.ts";
 import { reasoningConnections } from "../../config/connections.ts";
 import { profileFor } from "../../gateway/profile.ts";
@@ -35,6 +36,7 @@ const read = () => readAskSettings(preferences.get(names.ask, null)),
 const settings = shallowRef<AskSettings>(read()),
   adult = ref(readAdult()),
   preference = ref(settings.value.preference);
+const parameterTarget = ref<{ connectionId: string; model: string } | null>(null);
 const sources = computed(() => reasoningConnections(props.routing)),
   selected = computed(() =>
     sources.value.find((c) => c.id === settings.value.connectionId),
@@ -170,8 +172,8 @@ async function removeReplacement(rule: Replacement) {
               去添加
             </button>
           </div>
-          <div v-else class="s-row">
-            <div>
+          <div v-else class="s-row ask-connection">
+            <div class="ask-connection-info">
               <b><label for="askConnection">连接</label></b>
               <p v-if="selected" class="s-meta">
                 <span class="type">{{ protocol(selected) }}</span
@@ -208,11 +210,12 @@ async function removeReplacement(rule: Replacement) {
             </div>
             <ul class="ask-picks" aria-label="已选模型">
               <li v-for="id in picked" :key="id">
-                <button type="button" :title="id" :aria-current="id === settings.model || undefined" @click="id !== settings.model && save(withModel(settings, selected.id, id))">
+                <button class="ask-pick-model" type="button" :title="id" :aria-current="id === settings.model || undefined" @click="id !== settings.model && save(withModel(settings, selected.id, id))">
                   <span class="vtile"><ModelIcon :family="familyOf(id)" /></span
                   ><b>{{ id }}</b
-                  ><AppIcon v-if="id === settings.model" class="ask-current" name="i-check" />
+                  ><span class="ask-current" aria-hidden="true"><AppIcon v-if="id === settings.model" name="i-check" /></span>
                 </button>
+                <button class="ibtn ask-parameter-button" type="button" :aria-label="`设置 ${id} 的参数`" :title="`${id} · 模型参数`" @click="parameterTarget = { connectionId: selected.id, model: id }"><AppIcon name="i-settings" /></button>
               </li>
             </ul>
           </div>
@@ -255,6 +258,7 @@ async function removeReplacement(rule: Replacement) {
                 <option v-for="c in sources" :key="c.id" :value="c.id">{{ c.name }}</option>
               </select>
               <button v-if="settings.naming" class="ask-link" type="button" :title="settings.naming.model || undefined" :disabled="!namingReady" @click="emit('models', settings.naming.connectionId, 'naming')"><span>{{ settings.naming.model || "选择模型" }}</span><AppIcon name="i-chevron" /></button>
+              <button v-if="settings.naming?.model && namingReady" class="ibtn" type="button" aria-label="设置命名模型参数" @click="parameterTarget = { connectionId: settings.naming.connectionId, model: settings.naming.model }"><AppIcon name="i-settings" /></button>
             </div>
           </div>
           <div class="s-row">
@@ -439,11 +443,12 @@ async function removeReplacement(rule: Replacement) {
       </section>
     </template>
     <BridgeSettings />
+    <AskParametersDialog :target="parameterTarget" :routing="routing" @close="parameterTarget = null" />
   </div>
 </template>
 <style scoped>
 /* Shared settings rows; vocabulary and replacement editors belong to ASK. */
-.ask-sections { display: grid; gap: var(--sp-6); }
+.ask-sections { --ask-action-size: 32px; display: grid; gap: var(--sp-6); }
 .ask-sec-head { display: flex; align-items: baseline; justify-content: space-between; }
 /* Picked from a list, a value stands flush in its row with a surface under the
    pointer; typed in, it sits in a field one notch below the row. */
@@ -464,20 +469,30 @@ async function removeReplacement(rule: Replacement) {
 .ask-link .ico { position: absolute; top: 50%; right: 9px; translate: 0 -50%; --ico: var(--ico-sm); color: var(--fg-3); }
 .ask-link:disabled, .ask-link:disabled .ico { color: var(--fg-4); cursor: default; }
 .ask-reset { height: 28px; padding: 0 8px; font-size: var(--fz-xs); color: var(--fg-3); }
+.ask-connection-info { display: grid; gap: var(--sp-1); }
+.ask-connection-info > b { line-height: 20px; }
+.ask-connection .ask-pick > select { field-sizing: content; height: var(--ask-action-size); padding-right: calc((var(--ask-action-size) + 11px) / 2 + 6px); background-position: right calc((var(--ask-action-size) - 11px) / 2) center; }
+.ask-connection .s-meta { margin-top: 0; font-size: var(--fz-2xs); }
+.ask-connection .s-meta .type { flex: none; }
 /* The connection's picked models, the current one checked. */
-.s-row.s-block.ask-models { gap: 4px; padding-bottom: 8px; }
+.s-row.s-block.ask-models { gap: var(--sp-1); padding-top: var(--sp-2); padding-bottom: var(--sp-2); }
 .ask-models .s-head { align-items: center; min-height: 32px; }
-.ask-models .s-head .ask-link { margin-left: auto; }
-.ask-picks { display: grid; margin: 0 -4px 0 -6px; padding: 0; list-style: none; }
-.ask-picks button {
-  display: flex; align-items: center; gap: 10px; width: 100%; height: 38px; padding: 0 12px 0 6px;
+.ask-models .s-head small { font-variant-numeric: tabular-nums; }
+.ask-models .s-head .ask-link { height: var(--ask-action-size); margin-left: auto; padding-right: var(--ask-action-size); }
+.ask-models .s-head .ask-link .ico { right: calc((var(--ask-action-size) - var(--ico-sm)) / 2); }
+.ask-picks { display: grid; margin: 0 0 0 -6px; padding: 0; list-style: none; }
+.ask-picks li { display: flex; align-items: center; gap: var(--sp-2); min-width: 0; }
+.ask-pick-model {
+  display: flex; align-items: center; gap: var(--sp-3); width: 100%; height: 36px; padding: 0 0 0 6px;
   font-size: var(--fz-sm); color: var(--fg-2); text-align: left; border-radius: var(--r2);
   transition: color var(--t1) var(--e), background-color var(--t1) var(--e);
 }
-.ask-picks button:hover:not([aria-current]) { color: var(--fg); background-color: var(--hover); }
-.ask-picks button[aria-current] { color: var(--fg); cursor: default; }
-.ask-picks button b { flex: 1; min-width: 0; overflow: hidden; font-weight: var(--fw-regular); text-overflow: ellipsis; white-space: nowrap; }
-.ask-current { --ico: var(--ico-sm); flex: none; color: var(--a); }
+.ask-pick-model { flex: 1; min-width: 0; }
+.ask-pick-model:hover:not([aria-current]) { color: var(--fg); background-color: var(--hover); }
+.ask-pick-model[aria-current] { color: var(--fg); cursor: default; }
+.ask-pick-model b { flex: 1; min-width: 0; overflow: hidden; font-weight: var(--fw-regular); text-overflow: ellipsis; white-space: nowrap; }
+.ask-parameter-button { width: var(--ask-action-size); height: var(--ask-action-size); flex: none; color: var(--fg-3); --ico: var(--ico-sm); }
+.ask-current { display: grid; place-items: center; width: 20px; flex: none; --ico: var(--ico-sm); color: var(--a); }
 .ask-limit { position: relative; width: 128px; }
 .ask-limit input { height: 32px; padding: 0 44px 0 10px; color: var(--fg); text-align: right; box-shadow: inset 0 1px 2px rgb(var(--shadow-rgb) / calc(0.28 * var(--shadow-strength))); }
 .ask-limit input:focus { box-shadow: var(--ring); }
@@ -511,6 +526,8 @@ async function removeReplacement(rule: Replacement) {
 .ask-replace-fields { display: grid; grid-template-columns: minmax(0, 1fr) auto minmax(0, 1fr); align-items: center; flex: 1; gap: 8px; min-width: 0; }
 .ask-replace-fields input { width: 100%; min-width: 0; height: 32px; }
 @media (width <= 640px) {
+  .ask-sections { --ask-action-size: 44px; }
+  .ask-pick-model { height: var(--ask-action-size); }
   .ask-replace-form, .ask-rules li { align-items: stretch; flex-direction: column; }
   /* One value stays on the right; a connection and its model drop under the label. */
   .s-row:has(> .s-field.ask-pick) { flex-wrap: nowrap; }

@@ -372,7 +372,6 @@ test("settings: empty network default, connection/key input, model source contro
     );
     await page.locator("#settingsPanel .conn-models").click();
     await page.waitForSelector("#modelListDialog[open]");
-    assert.match(await page.locator("#modelListDialog .connection-avatar use").getAttribute("href"), /#i-image$/);
     await page.getByRole("searchbox", { name: "搜索模型" }).fill("custom");
     assert.equal(await page.locator("#modelListDialog .md-row").count(), 1);
     await page.getByRole("button", { name: "关闭", exact: true }).click();
@@ -591,6 +590,48 @@ test("settings: generating without a connection offers settings; connections ren
     await clean(t);
   } catch (e) {
 
+    await t.context.close();
+    throw e;
+  }
+});
+
+test("settings BETA: the section island, dialogs beside and inside settings, and BETA changes applying on the next opening", async () => {
+  const t = await open();
+  try {
+    const { page } = t;
+    await page.evaluate(() => localStorage.setItem("koma.image.layout.v1", JSON.stringify({ enabled: true, ratio: 0.4, filmstripOpen: true })));
+    await page.reload();
+    await page.waitForSelector("[data-workspace-root]");
+    // The supplier dialog opens beside settings and saves as before.
+    await addConnection(page);
+    const sections = page.locator("#settingsPanel").getByRole("group", { name: "设置分组", exact: true });
+    assert.equal(await page.locator("#settingsPanel .set-nav").count(), 0);
+    assert.equal(await sections.getByRole("button", { name: /^连接/ }).getAttribute("aria-pressed"), "true");
+    assert.equal((await sections.getByRole("button", { name: /^连接/ }).textContent()).trim(), "连接1");
+    await sections.getByRole("button", { name: /^模型/ }).click();
+    await page.waitForFunction(() => location.hash === "#/image/settings/models");
+    assert.equal(await sections.getByRole("button", { name: /^模型/ }).getAttribute("aria-pressed"), "true");
+    assert.equal(await page.getByRole("button", { name: "展开 GPT Image 2 的来源", exact: true }).isVisible(), true);
+    // A dialog inside settings closes on Escape and leaves settings open.
+    await page.getByRole("button", { name: "新增 GPT 模型", exact: true }).click();
+    await page.waitForSelector("dialog.model-entry-dialog[open]");
+    await page.keyboard.press("Escape");
+    await page.locator("dialog.model-entry-dialog").waitFor({ state: "hidden" });
+    assert.equal(await page.locator("#settingsPanel[open]").count(), 1);
+    assert.equal(new URL(page.url()).hash, "#/image/settings/models");
+    // Turning BETA off keeps the open settings as they are; the next opening uses the classic shell.
+    await sections.getByRole("button", { name: "通用", exact: true }).click();
+    await page.locator('.s-toggle[title="画布协创 BETA"]').click();
+    await page.waitForFunction(() => JSON.parse(localStorage.getItem("koma.image.layout.v1")).enabled === false);
+    assert.equal(await sections.count(), 1);
+    assert.equal(await page.getByRole("switch", { name: "画布协创 BETA", exact: true }).isChecked(), false);
+    await page.locator("#settingsPanel .set-back").click();
+    await page.waitForFunction(() => location.hash === "#/image");
+    await settings(page, "general");
+    assert.equal(await sections.count(), 0);
+    assert.equal(await page.locator(".set-nav button").filter({ hasText: "通用" }).getAttribute("aria-current"), "true");
+    await clean(t);
+  } catch (e) {
     await t.context.close();
     throw e;
   }

@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed, shallowRef, watch, onDeactivated, nextTick } from "vue";
+import { computed, shallowRef, watch, onActivated, onDeactivated, nextTick } from "vue";
 import { useChat } from "../../app/chat";
 import { useShell } from "../../app/shell";
 import { useUi } from "../../app/ui";
@@ -12,7 +12,12 @@ import {
 import { placeMenu, menuKeys } from "../../shared/popover";
 import { names } from "../../storage/names";
 import AppIcon from "../../shared/AppIcon.vue";
-const emit = defineEmits<{ view: [id: string] }>();
+import { useAsk, AskMark } from "../../app/ask";
+/* Embedded: canvas collaboration hosts the same floors in its sidebar, open
+   while that panel is chosen; closing hands the choice back to the page. */
+const props = defineProps<{ embedded?: boolean; open?: boolean }>();
+const emit = defineEmits<{ view: [id: string]; close: [] }>();
+const ask = useAsk();
 const { chat, view } = useChat(),
   shell = useShell(),
   ui = useUi();
@@ -82,16 +87,29 @@ function label(id: string) {
 }
 function close() {
   menu.value?.hidePopover();
+  if (props.embedded) { emit("close"); return; }
   dialog.value?.close();
   shell.chat.contextOpen = false;
+}
+/* Embedded, the sidebar choice shows the dialog by its attribute: show() would run the
+   dialog focusing steps and ring the first button whenever the pane is switched to. */
+function sync() {
+  if (!props.embedded || !dialog.value) return;
+  if (props.open) dialog.value.setAttribute("open", "");
+  else if (dialog.value.open) { menu.value?.hidePopover(); dialog.value.removeAttribute("open"); }
+}
+/* Only fills ASK's input; the user still sends it, and any change returns as a draft to confirm. */
+function askContext(kind: "tidy" | "rewrite") {
+  ask.show({ question: kind === "tidy"
+    ? "请检查 CHAT 当前分支的上下文：哪些历史文字或图片与下一轮无关、重复或互相冲突？需要调整时提出草稿。"
+    : "请结合 CHAT 当前上下文，改写或补写输入框里的本轮描述，使要求更明确，以草稿提出。" });
 }
 function toggle() {
   if (dialog.value?.open) {
     close();
     return;
   }
-  if (shell.narrow.value) dialog.value?.showModal();
-  else dialog.value?.show();
+  dialog.value?.show();
   shell.chat.contextOpen = true;
 }
 function tile(id: string, e: MouseEvent) {
@@ -165,8 +183,13 @@ async function reset() {
       true,
     );
 }
-watch(shell.narrow, close);
-onDeactivated(close);
+watch(() => props.embedded, (embedded, was) => {
+  if (was && !embedded) { menu.value?.hidePopover(); dialog.value?.removeAttribute("open"); }
+  void nextTick(sync);
+});
+watch(() => props.open, () => void nextTick(sync), { immediate: true });
+onActivated(sync);
+onDeactivated(() => { menu.value?.hidePopover(); if (props.embedded) dialog.value?.removeAttribute("open"); else { dialog.value?.close(); shell.chat.contextOpen = false; } });
 defineExpose({ toggle, close });
 </script>
 <template>
@@ -174,8 +197,9 @@ defineExpose({ toggle, close });
     ref="dialog"
     id="contextPanel"
     class="context-panel"
+    :data-embedded="embedded || undefined"
     aria-labelledby="contextTitle"
-    @close="shell.chat.contextOpen = false"
+    @close="!embedded && (shell.chat.contextOpen = false)"
     @keydown.esc="
       (e) => {
         if (!menu?.matches(':popover-open')) {
@@ -197,6 +221,7 @@ defineExpose({ toggle, close });
         >
           <AppIcon name="i-eraser" /></button
         ><button
+          v-if="!embedded"
           class="ibtn"
           type="button"
           aria-label="关闭上下文"
@@ -229,6 +254,10 @@ defineExpose({ toggle, close });
           ></span
         >
       </p>
+      <div v-if="embedded" class="context-ask" role="group" aria-label="交给 ASK">
+        <button class="btn btn-quiet btn-sm" type="button" :disabled="!turns.length" @click="askContext('tidy')"><AskMark />整理上下文</button>
+        <button class="btn btn-quiet btn-sm" type="button" @click="askContext('rewrite')"><AskMark />改写本轮描述</button>
+      </div>
     </header>
     <div
       class="context-body"

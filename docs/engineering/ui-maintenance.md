@@ -1,6 +1,6 @@
 # 界面工程：样式与字体维护
 
-更新：2026-11-09。维护现行级联、主题材质、组件责任与字体配置／重建；G0–G4 过程、大小对比和验收见[归档](../archive/2026-10-25/README.md)。视觉标准见[设计语言](../product/design-language.md)，检查规则集中在本文[样式检查](#样式检查)。
+更新：2026-11-14。维护现行级联、主题材质、组件责任与字体配置／重建。视觉标准见[设计语言](../product/design-language.md)，检查规则集中在本文[样式检查](#样式检查)。
 
 ## 基础入口与级联
 
@@ -16,7 +16,7 @@ fonts/index.css
 
 `styles.css` 首行的重复 `@import "./ui.css"` 已删除；没有新增运行时导入链、级联层、预处理器或依赖。字体入口继续由 `config/fonts.json` 生成，字体资源与映射不变。
 
-`presentation.ts` 及三个工作区 stylesheet 的 ID／media 开关保持不变：绘图启用 image，对话启用 chat，词典启用 image＋tags。HOME 不启用这三个工作区样式，仅使用公共 tokens／控件和 `src/home/*.vue` 的 scoped 样式。词典仍需绘图样式中的原有顶栏与移动布局；这些工作区依赖仍然保留。
+`presentation.ts` 及三个工作区 stylesheet 的 ID／media 开关保持不变：绘图启用 image，对话启用 chat，词典启用 image＋tags。HOME 不启用这三个工作区样式，仅使用公共 tokens／控件和 `src/home/*.vue` 的 scoped 样式。词典仍复用绘图样式的公共顶栏与控件，自己的小屏布局归 tags.css；不再依赖传统 IMAGE 的手机外壳。
 
 ## 主题与材质变量
 
@@ -34,7 +34,7 @@ fonts/index.css
 | 卡片与分组 | `--card-bg/shadow`、`--group-bg/line`、历史栏空槽 `--ghost-tile-bg/ring`；亮色按明度分层，`--canvas` 最低、`--chrome` 高一级，白色只给控件与浮起表面 |
 | 设置子弹窗 | `--settings-dialog-bg` 统一供应商、模型目录、条目、来源参数与排序弹窗；暗色复用 `--chrome`，亮色复用白色 `--raised`。输入使用 `--sunken`，聚焦保留原底色、只改变边界；规则归 `settings.css` |
 | 共享菜单 | `--menu-*` 管表面、边界、磨砂与交互状态；暗色保持实底，亮色用接近实色的白色玻璃与浅紫选中底 |
-| ASK 玻璃、输入、悬停及高光边缘 | `--glass-*`；`AskDrawer.vue` 保留 `--ask-*` 别名和 HOME／手机实色覆盖 |
+| ASK 玻璃、输入、悬停及高光边缘 | `--glass-*`；`--glass-pop-bg/shadow` 统一 ASK 浮层遮盖度与阴影，菜单宽度变体归 `AskMenu.vue`；上下文、候选、预览、草稿菜单及调用调试在各自 scoped 样式消费同一材质。`AskDrawer.vue` 保留 `--ask-*` 别名和 HOME／手机实色覆盖 |
 | 遮罩、阴影及表面叠色 | `--scrim*`、`--lightbox-bg`、`--shadow-rgb/strength`、`--surface-tint`、`--specular` |
 | 品牌字标、主按钮与加载效果 | `--brand-fill` 可为纯色或渐变，其他材质取 `--brand-*`、`--action-*`（含各状态阴影及价格、快捷键胶囊）、`--bar-ink`、`--sheen-ink`、`--a-shine`；方块标识的半格／淡格不透明度取 `--mark-mid/faint`，sprite `mk-*`、`WaveMark.vue` 与 `AskMark.vue` 共用；HOME 五格空状态图形使用 `--empty-mark-back/front` |
 | 草稿差异、Tag 分类、权重高亮 | `--diff-*`、`--tag-*`、`--weight-*` |
@@ -62,7 +62,7 @@ Koma 字标在亮色中为纯墨蓝，方块保留品牌紫，形状与字体不
 
 共享呈现不取得其他工作区服务。NAI 组合控件通过 `app/nai-composer.ts` 接收所在工作区的端口与 ID 前缀；`DrawingBottomPanel.vue` 的参数内容由工作区插槽提供，IMAGE 保留 `DrawingParameters.vue`，EDIT 保留 `EditorParameters.vue`。画板组件只发出 select／rename／remove／create／action，不处理持久化、任务锁或确认弹窗。
 
-`usePopover` 不统一所有焦点规则：NAI 选择器仅键盘打开时聚焦选项；操作菜单支持 Escape／Tab 返回触发器；画板子菜单先处理自身 Escape，保留父菜单。当前采用者为画板、NAI 选择器、设置连接菜单和 `PopoverMenu`。自动补全、编辑参数面板、带选择状态的 CHAT 专用菜单仍由本专题所属组件管理，不为迁移而扩张通用 API。新增普通菜单优先使用基础层；特殊策略在消费者中明确声明。
+`usePopover` 不统一所有焦点规则：NAI 选择器仅键盘打开时聚焦选项；操作菜单支持 Escape／Tab 返回触发器；`PopoverMenu` 在指针按下时保留触发按钮的收起意图，避免原生 light-dismiss 先关闭、随后 click 又重新打开，键盘激活沿用当前开关状态；画板子菜单先处理自身 Escape，保留父菜单。当前采用者为画板、NAI 选择器、设置连接菜单和 `PopoverMenu`。自动补全、编辑参数面板、带选择状态的 CHAT 专用菜单仍由本专题所属组件管理，不为迁移而扩张通用 API。新增普通菜单优先使用基础层；特殊策略在消费者中明确声明。
 
 ### 开发预览
 
@@ -79,7 +79,8 @@ Koma 字标在亮色中为纯墨蓝，方块保留品牌紫，形状与字体不
 | `settings/ConnectionsSection.vue` | 单连接卡、状态、额度、用途入口与生图顺位展示；仅通过事件请求业务操作 |
 | `settings/ConnectionOrderDialog.vue` | 生图连接顺序弹层、上下移动事件与关闭清理，复用原生 dialog |
 | `settings/ModelMappingMenu.vue` | 目录 ID 的模型关联菜单，复用 `PopoverMenu` 并完整显示模型名与参数参考 |
-| `settings/ModelParametersDialog.vue` | 按模型与来源编辑标量参数覆盖，目录刷新保留手动修改，复用设置页弹窗与配色 |
+| `settings/AskSection.vue` | ASK 设置分组；连接区采用左侧标题与协议／地址、右侧下拉整体居中的两栏布局，收紧行间距与下拉文字／箭头间距；模型列表预留选中勾位置，连接箭头、管理箭头与参数齿轮共用右侧图标槽宽度，窄屏保留触控热区。布局与控件样式归组件 |
+| `settings/ModelParametersDialog.vue`、`settings/AskParametersDialog.vue` | 图像来源参数与 ASK 每模型参数分别保存，共用 `shared/ModelParameterInput.vue` 值输入。两处均在标题下显示供应商／参数来源两个胶囊，保留表头与底栏分隔线，参数行之间不加横线，底部留白收紧，保留启用开关。图像参数样式归原组件；ASK 使用 `shared/ModelParameterDialogContent.vue`、`ModelParameterKey.vue` 和 `ModelParameterType.vue`，参数行样式归 `AskParametersDialog.vue` |
 | `shared/ModelParameterInput.vue` | CHAT／EDIT 按字段类型呈现选项或输入，空值跟随接口，校验用户输入 |
 | `settings/ConnectionMenu.vue` | 单张连接卡的菜单、唯一 ID 与关闭清理 |
 | `settings/use-connection-catalogs.ts` | 目录／额度读取、请求取消、陈旧响应丢弃、变更局部失效与订阅释放 |
@@ -126,7 +127,7 @@ NAI 提示词内底栏归 `NaiPromptOptions.vue`，档位菜单归 `NaiSelect.vu
 
 组件私有规则归对应 Vue，不保留第二份全局副本。
 
-通用菜单的表面、行高、状态、分组标题、右侧附注、分隔线与入场写在 `controls.css`；`switch-menu`（ui）、`conv-menu`／`model-panel`（chat）、`conn-menu`（settings）与各组件菜单只保留宽度、定位和特殊部件，例如画板行内 ⋯ 与底栏、模型分组、编辑参数输入。EDIT 画布工具弹窗的玻璃材质例外统一归 `editor.css` 的 `.editor-flyout`，与底部工具胶囊共用表面。ASK 与原有任务菜单在触屏保持 32px 行的例外由 `PopoverMenu.vue` 的 `compact` 属性启用。
+通用菜单的表面、行高、状态、分组标题、右侧附注、分隔线与入场写在 `controls.css`；`switch-menu`（ui）、`conv-menu`／`model-panel`（chat）、`conn-menu`（settings）与各组件菜单只保留宽度、定位和特殊部件，例如画板行内 ⋯ 与底栏、模型分组、编辑参数输入。EDIT 画布工具弹窗的玻璃材质例外统一归 `editor.css` 的 `.editor-flyout`，与底部工具胶囊共用表面。ASK 浮层以 `--glass-pop-*` 替换普通菜单表面，行状态仍取共享规则；ASK 与原有任务菜单在触屏保持 32px 行的例外由 `PopoverMenu.vue` 的 `compact` 属性启用。
 
 外部协同目录标签归 `src/bridge/DirectoryChip.vue`，锚定菜单的定位和焦点清理归 `shared/ui/PopoverMenu.vue`；ASK 内通过 `AskMenu.vue` 注册关闭层，HOME 直接使用通用菜单，材质取共享菜单；手动 JSON 兜底归 `BridgeSettings.vue`，在已有设置 ASK 页面内复用共享设置行。无资料选择或独立导出弹窗。
 
@@ -134,7 +135,7 @@ NAI 提示词内底栏归 `NaiPromptOptions.vue`，档位菜单归 `NaiSelect.vu
 
 任务与配方审阅归 `DraftSlate.vue`，文件紧凑行与可读详情归 `DraftFiles.vue`；共用 DraftCard 的图标槽、缩进和颜色变量。完成记录复用 `AskToolGroup.vue`，外部来源以同行小字显示，详细来源按需展开；不添加全局补丁或独立草稿卡。
 
-连接图标由 `src/shared/ConnectionAvatar.vue` 统一展示，`src/domain/connection-icon.ts` 按官方 Profile／已识别官方地址选择 Logo，按 Profile 能力选择通用图标，复用已有模型 Logo 和站内 sprite；设置卡片和供应商模型列表标题的图标容器、尺寸仍归 `settings.css`；模型页来源行不重复图标。
+连接图标由 `src/shared/ConnectionAvatar.vue` 统一展示，`src/domain/connection-icon.ts` 优先按官方 Profile／已识别官方地址选择 Logo，其余按 Profile 能力选择通用图标：仅图像为图片框，仅文字为气泡，同时启用图像与文字为三层叠层符号（`i-connection-multi`）。统一复用模型 Logo 和站内 sprite；设置卡片和供应商模型列表标题的图标容器、尺寸仍归 `settings.css`；模型页来源行不重复图标。
 
 连接卡内的图像／文字用途行、已启用／已选计数、只读生图顺位和模型页的分组、来源、主题及响应式布局归 `settings.css`。模型页由 `ModelsSection.vue` 维护分组、标题右侧来源「＋」与保存，`ModelSourceRow.vue` 维护 ID 原位编辑、恢复自动匹配和开关交互，`ModelSourceAdd.vue` 维护按需显示的紧凑来源添加表单，`ModelEntryDialog.vue` 维护名称／默认参数与新增表单；生图排序弹层复用共享 `.modal`，列表专属样式归 `ConnectionOrderDialog.vue` 的 scoped 样式。顶栏实际来源的 Logo 与同行张数估算归 `ui.css`，不增加下方注释行。
 
@@ -184,7 +185,7 @@ npm run styles:check
 npm run check
 ```
 
-`stylelint.config.mjs` 为唯一样式检查配置，精确锁定 Stylelint 17.16.0 和 Vue 样式解析器 postcss-html 2.0.0。`styles:check` 检查 `public/styles/**/*.css` 与 `src/**/*.vue` 的样式块，不解析 Vue 的脚本、模板事件或动态样式值。
+`stylelint.config.mjs` 为唯一样式检查配置，精确锁定 Stylelint 17.16.0 和 Vue 样式解析器 postcss-html 2.0.0。`styles:check` 检查 `public/styles/**/*.css`、`src/**/*.css` 与 `src/**/*.vue` 的样式块，不解析 Vue 的脚本、模板事件或动态样式值。
 
 `check` 仅执行严格类型、纯逻辑单元测试和构建；样式与字体检查为按需命令。CI 额外只跑少量业务冒烟，不对 CSS 值、尺寸、动画或视口间距做断言。纯样式调整目视核对涉及页面即可，不要求全量浏览器回归。
 
@@ -214,7 +215,7 @@ npm run check
 
 按变更运行 `styles:check` 或完整 `check`；UI 基础视口为 320／390／768／1440px。跨工作区共享控件、Teleport、普通样式块和词典依赖必须按归属文档维护，不为消除选择器而改业务或外观。
 
-历史 G4 审计记录中的开发依赖问题见归档；不把当时的漏洞数量或「零告警」作为当前审计结果。检查只使用仓库固定模式，不接受用户输入，工具依赖不进入静态产物或无需安装依赖的本地包。若更新检查依赖，核验锁文件并复验规则，不强制降级或放宽检查来消除告警。
+依赖安全结论须注明版本和检查时间，不沿用历史漏洞数量或「零告警」作为当前结果。检查只使用仓库固定模式，不接受用户输入，工具依赖不进入静态产物或无需安装依赖的本地包。若更新检查依赖，核验锁文件并复验规则，不强制降级或放宽检查来消除告警。
 
 ## 字体配置与重建
 
@@ -275,3 +276,36 @@ npm run check
 ## 演进
 
 `src/ask/retrospect/` 持有演进界面私有样式。`RecipeInspector` 统一正式与静态预览的配方外壳、停靠／关闭控件和操作插槽，`ComparePair` 复用 PopoverMenu 与 `CompareIdentity`；局部下拉箭头使用专属类名，不复用全局抽屉的 `.caret`。`RecipeReview`／`GroupBody` 持有浅槽连续分组与现有 Diff token，不在宿主另写一套正文覆盖。关系图与大图由 `StageDock` 统一承载底部胶囊，复用 EDIT 材质与按钮，`GraphTools`／`StageTools` 只提供当前视图工具；`StageDock` 测量自身高度供窄屏配方浮窗避让，隐藏视图不覆盖有效测量，卸载清理 Observer。画布不为工具栏裁切留白，工具宿主透传指针事件，仅胶囊恢复交互。选择复用 EditToolMode，批注编辑条沿用区域批注呈现；配方开合／停靠状态和画布避让归 `RetrospectPanel`。`VersionGraph` 在原生相机绘制中同步更新局部 CSS 圆点背景的尺寸、偏移与密度淡化，以及节点控件反向缩放变量和细节档位，不增加监听器、动画循环或全局样式。`EvolutionAction` 共用 PopoverMenu、AppIcon 与现有图片操作栏，承载单图提拔和工坊交付，不另起工具栏；`WorkshopNode` 的轻量待交付挂件只参与场景布局，沿用同一指针驱动与曲线，状态区分待交付、已停止与目标失效。`VersionNode` 持有图外标题、相册下方的短圆角状态浮片、唯一选中边界及右侧图钉，复用 `i-pin`；图钉和分页为独立按钮，隔离指针与双击事件，恢复经宿主复用原端口。`node-chrome.ts` 共用上下文字预留、状态行尺寸与缩放档位，供画布命中和渲染使用。节点拖动的原生 rAF、Pointer Capture 和取消清理由 `VersionGraph` 持有；`continuation.ts` 共用连线与后继放置计算，手动锚点与画布镜头在本页 store 保存，不进入演进修订号；指针过程由原生驱动，离开关系图或卸载时才提交镜头快照。实际新增版本继承预留锚点，重开不重新布局或适应全图。`RetrospectHost` 负责唯一 ASK 浮窗的 Teleport，主外壳仍只挂一个实例。字段规则、选择／批注与状态生命周期仅在[演进专题](../workspaces/recipe-retrospect.md)维护，原型方案仍在 `.local/`，不打包未选分支。
+
+## IMAGE／EDIT／CHAT 协创布局
+
+共享交互与断点只在 [ASK UI](../ask/ui.md#12-画布协创beta) 维护，材质与动效见[设计语言](../product/design-language.md#画布协创beta)。代码按以下归属修改，不重新加入传统手机布局的全局覆盖：
+
+| 入口 | 责任 |
+| --- | --- |
+| `ask/canvas-presentation.ts` | 共用偏好、各工作区面板选择、紧凑覆盖状态、面板头折叠与过渡状态；不持有第二份业务数据 |
+| `ask/presentation.ts`、`RetrospectHost.vue` | 选择唯一 ASK 的宿主；`selectCanvasPanel` 统一切换并在显式打开时调用 `ask.show()`，`onLocate` 协调定位后的面板收起；显式 reveal、快捷键与引用复用同一状态 |
+| `shared/ui/CanvasPanelSwitch.vue` | 分段切换、滑块测量与 `data-ready`；Observer 随 KeepAlive 暂停／恢复／清理，工作区只传选项和选择 |
+| `shared/canvas-surface.css` | 托盘、面板头与玻璃变量；普通控件仍在 `controls.css` 读取 `--menu-*`／`--tip-*`，Teleport 弹层自身也挂协创作用域 |
+| `shared/canvas-motion.css`、`shared/ui/use-transient-mark.ts` | 托盘／内胆与画布退后动效；凹槽短时标记只在用户展开时触发，自动出现或返回页面不重播 |
+| `shared/canvas-history.css` | IMAGE 历史与 EDIT 版本的手机浏览层、自适应列和材质；由各工作区 scoped 载入 |
+| `native/canvas-splitter.ts` | 分隔条逐帧仅写委托的 CSS 变量，结束保存比例；监听及 VisualViewport 更新随工作区暂停和清理 |
+| `ImageWorkspace.vue`、`ImageLibrary.vue` | IMAGE 视图／表单／配方与底部操作宿主；同一历史列表 Teleport 到图片贴边槽或手机浏览层，分类及原生 dialog 焦点归列表组件 |
+| `ImageStage.vue`、`retrospect/StageImage.vue` | 在原适应尺寸计算中预留桌面历史槽宽，手机取消预留；图片和凹槽作为一组排布，不覆盖原图 |
+| `ImageResultActions.vue`、`use-image-actions.ts`、`ImageResultDetails.vue` | 大图与演进检视共用原收藏、下载、交接及参数复制路径；操作沿用 EDIT 工具胶囊 |
+| `retrospect/surface.ts`、`RetrospectPanel.vue` | 同一 dialog 的模态／嵌入生命周期及查看状态；同一 `StageDock` 进入生成按钮旁宿主，`RecipeInspector` 进入侧栏，不增加第三栏 |
+| `EditWorkspace.vue`、`edit-canvas.css` | EDIT 宿主和 scoped 私有布局；原画布驱动预留版本槽宽，不承担已删除的旧底栏测量 |
+| `ChatWorkspace.vue`、`chat-canvas.css` | CHAT 宿主、悬浮入口、会话抽屉和台面滤罩；`ContextPanel.vue` 的 embedded 模式由 `open` 属性控制，不触发模态聚焦；楼层内容仍归 `chat.css` |
+| `CompactLayoutNotice.vue` | 应用级窄屏建议，读取同一模式偏好；不刷新、复制工作区或叠加已有模态层 |
+| `HomeHead.vue`、`TagsWorkspace.vue`、`AskDrawer.vue` | HOME／TAGS 读取同一 BETA 偏好，用根作用域与 `data-beta` 切换角落岛及停靠材质，保持各自布局 |
+| `SettingsOverlay.vue`、`settings.css` 末尾「Canvas collaboration (BETA)」 | 打开设置时读取 BETA 偏好（`beta` 快照）并挂 `is-beta`／`canvas-collaboration`；`.set-home` 平时 `display: contents`，BETA 时成为返回岛；分组岛复用 `CanvasPanelSwitch`（`meta` 显示数量）；scoped 载入 `canvas-surface.css` 提供玻璃变量，设置旁的三个弹窗由宿主传入类，设置内的弹窗继承；弹窗材质与进出按 `.modal.set-ui:is(.canvas-collaboration, .settings.is-beta *)` 归设置样式 |
+
+`panel` 管按钮选中、焦点和 Esc；`shownPanel` 在退场期间保留原内胆，`trayHeld` 延后释放列宽。同一拍内选中又恢复的面板不留下记录；切出时已关闭则直接释放。`trayMotion` 跳过开关 BETA／切页的过渡，`paneMotion` 在结束后清除，KeepAlive 插回不重播。ASK 的 `data-arriving` 同样只跳过该次内容入场。设置的进场用 `@starting-style`，退场只在 `@supports (overlay: auto)` 下以 display／overlay 离散过渡延后隐藏，不推迟 `close()`；分组入场依赖 v-show 由隐藏变为显示时 CSS 动画自然重播，不另设标记。
+
+`covered` 只隔离被覆盖的画布：台面保留显示并标记 `data-receded`／`inert`，不对包含侧栏的整个工作区应用隔离。IMAGE 用 `paused` 暂停观察器、揭示和波浪；EDIT 暂停画笔与工具栏测量；收起恢复原驱动。演进嵌入时不测量浮层避让高度，返回浮窗恢复 Observer 并负责清理。生成任务不会因切页取消。
+
+手机面板头使用 `headFolded`／`toggleHead()` 与 `canvas-tray-head`，内容高度由共享样式调整；EDIT 包含块的偏移在自身 scoped 样式处理。选项菜单用 `menu-class="canvas-options-menu"`、`pointer-focus="menu"`，不将初始焦点环落到首按钮。
+
+IMAGE 底部换行按画布容器宽度，相关阈值归工作区样式；浮动操作宿主透传空白处的指针，具体工具恢复交互。历史折叠选择器明确排除 `.filmstrip`，不通过修改全局历史偏好伪装布局。表单滚动与参数区保持面板内部，不恢复页面固定脚栏。传统外壳仍分别归 `styles.css`、`editor.css`、`chat.css`。
+
+Stylelint 检查 `src/` 下 Vue 和 CSS。相关浏览器用例等待实际隐藏／恢复、选图、画笔、草稿与生成结果，不断言过渡帧、控件坐标或材质数值。

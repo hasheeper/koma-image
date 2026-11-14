@@ -1,6 +1,6 @@
 # 网关、数据与调度
 
-更新：2026-10-28。本文描述当前共享服务；阶段设计和验收见[归档](../archive/README.md)。协议能力见[图像协议](../integrations/image-protocols.md)与[ASK 运行契约](../ask/runtime.md)。
+更新：2026-11-14。本文描述当前共享服务。协议能力见[图像协议](../integrations/image-protocols.md)与[ASK 运行契约](../ask/runtime.md)。
 
 ## 服务与依赖
 

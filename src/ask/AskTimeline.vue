@@ -108,7 +108,7 @@ onBeforeUnmount(() => { stay(); removeLayer(); resized.disconnect(); });
 .ask-timeline-rail button:is(.inspecting, :hover, :focus-visible) { color: var(--fg); }
 .ask-timeline-rail button:is(.inspecting, :hover, :focus-visible) span { width: 22px; background: currentcolor; }
 .ask-timeline-rail button:focus-visible { outline: 1px solid var(--a); outline-offset: -2px; }
-.ask-timeline-preview { position: absolute; left: max(38px, calc(var(--ask-reading-inset, 16px) + 2px)); width: min(300px, calc(100% - max(38px, var(--ask-reading-inset, 16px)) - 16px)); max-height: 100%; padding: 12px 14px; overflow: hidden; color: var(--fg); background: var(--menu-bg); border: 1px solid var(--line-2); border-radius: 14px; box-shadow: 0 0 0 2px var(--canvas), 0 0 10px 2px var(--canvas), var(--sh-2); backdrop-filter: blur(20px); pointer-events: auto; }
+.ask-timeline-preview { position: absolute; left: max(38px, calc(var(--ask-reading-inset, 16px) + 2px)); width: min(280px, calc(100% - max(38px, var(--ask-reading-inset, 16px)) - 16px)); max-height: 100%; padding: 10px 12px; overflow: hidden; color: var(--fg); background: var(--glass-pop-bg); border: 1px solid var(--line-2); border-radius: 10px; box-shadow: var(--glass-pop-shadow); backdrop-filter: blur(var(--glass-blur)) saturate(var(--glass-saturation)); pointer-events: auto; }
 .ask-timeline-preview small { display: block; margin-bottom: 5px; color: var(--fg-3); font: 11px/1.5 var(--sans); }
 .ask-timeline-preview p { display: -webkit-box; overflow: hidden; -webkit-box-orient: vertical; overflow-wrap: anywhere; }
 .ask-timeline-question { -webkit-line-clamp: 2; font: var(--fw-medium) 13px/1.6 var(--sans); }

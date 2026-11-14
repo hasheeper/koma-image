@@ -238,8 +238,9 @@ test("M7 production local settings: readonly credentials, isolated model prefere
     await p
       .getByRole("button", { name: "展开 GPT Image 2 的来源", exact: true })
       .click();
+    // A source turns off with its switch; the mapping stays for later.
     await p
-      .getByRole("button", { name: "移除 本地网关 来源", exact: true })
+      .getByRole("switch", { name: "GPT Image 2 · 本地网关 来源", exact: true })
       .click();
     await p.waitForFunction(
       () =>

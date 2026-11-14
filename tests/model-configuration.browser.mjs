@@ -97,6 +97,8 @@ test('manual model CRUD: absent aliases, edited defaults, exact request, history
       assert.ok((await page.locator('#modelListDialog').textContent()).includes(alias));
       await page.getByRole('button', { name: '关闭', exact: true }).click();
       await page.locator('#settingsPanel .set-back').click(); await dismissNotices(page);
+      // At phone width the classic CHAT offers canvas collaboration first; keep the desktop table.
+      if (gemini) await page.getByRole('button', { name: '继续桌面布局', exact: true }).click();
       await page.locator('#chatPrompt').fill('合成图片模拟请求');
       await page.getByRole('button', { name: '发送绘图请求', exact: true }).click();
       await page.waitForFunction(() => !chat.snapshot().busy && chat.snapshot().current.turns[0]?.versions[0].status === 'done');
@@ -340,6 +342,8 @@ test('source parameters UI: add typed fields, keep unsaved edits on refresh, per
       await page.waitForFunction(id => chat.snapshot().models.some(m => m.id === id), id);
       await page.evaluate(id => chat.setModel(id), id);
       await page.locator('#settingsPanel .set-back').click(); await dismissNotices(page);
+      // At phone width the classic CHAT offers canvas collaboration first; keep the desktop table.
+      if (gemini) await page.getByRole('button', { name: '继续桌面布局', exact: true }).click();
       await page.locator('.param-button:visible').click();
       const params = page.getByRole('dialog', { name: '参数', exact: true });
       await params.locator(`[id="chatOption-${key}"]`).fill('2');
@@ -355,4 +359,36 @@ test('source parameters UI: add typed fields, keep unsaved edits on refresh, per
       assert.deepEqual(t.errors, []);
     } finally { await t.context.close(); }
   }
+});
+
+test('image model parameters: activation switches persist and reset restores reference fields', async () => {
+  const t = await open('openai-images-v1'), { page } = t;
+  try {
+    await settings(page);
+    await page.getByRole('button', { name: '展开 GPT Image 1.5 的来源', exact: true }).click();
+    const edit = () => page.getByRole('button', { name: 'GPT Image 1.5 · 模拟协议 参数', exact: true }).click();
+    const dialog = page.getByRole('dialog', { name: '来源参数', exact: true });
+    const save = async () => { await dialog.getByRole('button', { name: '保存参数', exact: true }).click(); await dialog.waitFor({ state: 'hidden' }); };
+    const saved = () => page.evaluate(() => services.connections.configuration.links.test['gpt-image-1.5']?.parameters);
+    const quality = dialog.getByRole('group', { name: 'quality', exact: true });
+    const toggle = quality.getByRole('switch', { name: '启用 quality', exact: true });
+    await edit();
+    await toggle.locator('..').click();
+    assert.equal(await toggle.isChecked(), false);
+    assert.equal(await quality.getByLabel('默认值', { exact: true }).isDisabled(), true);
+    await save();
+    assert.equal((await saved()).quality, null);
+    await page.reload(); await bind(page);
+    await page.getByRole('button', { name: '展开 GPT Image 1.5 的来源', exact: true }).click();
+    await edit();
+    assert.equal(await toggle.isChecked(), false);
+    await save();
+    assert.equal((await saved()).quality, null);
+    await edit();
+    await dialog.getByRole('button', { name: '恢复预设', exact: true }).click();
+    assert.equal(await toggle.isChecked(), true);
+    await save();
+    assert.equal((await saved())?.quality, undefined);
+    assert.deepEqual(t.errors, []);
+  } finally { await t.context.close(); }
 });

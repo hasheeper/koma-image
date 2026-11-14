@@ -4,15 +4,15 @@ import ComparePair from './ComparePair.vue';
 import RecipeReview from './RecipeReview.vue';
 import type { Retrospect, RetrospectNode } from './model.ts';
 import type { ReviewPicture } from './view.ts';
-defineProps<{ mode: 'floating' | 'sidebar'; a: RetrospectNode | null; b: RetrospectNode; graph: Retrospect; pictures: Record<string, ReviewPicture>; automatic: boolean }>();
+defineProps<{ fixedPlacement?: boolean; hosted?: boolean; mode: 'floating' | 'sidebar'; a: RetrospectNode | null; b: RetrospectNode; graph: Retrospect; pictures: Record<string, ReviewPicture>; automatic: boolean }>();
 const emit = defineEmits<{ baseline: [id: string | null]; swap: []; placement: []; close: [] }>();
 </script>
 <template>
-  <aside class="recipe-inspector" :data-mode="mode" aria-label="原始配方对比">
+  <aside class="recipe-inspector" :class="{ hosted }" :data-mode="mode" aria-label="原始配方对比">
     <header class="inspector-head">
       <ComparePair :a="a" :b="b" :graph="graph" :pictures="pictures" :automatic="automatic" @baseline="emit('baseline', $event)" @swap="emit('swap')">
         <template #controls>
-          <button class="ibtn placement" type="button" :aria-label="mode === 'floating' ? '切换为侧栏' : '切换为悬浮窗'" :title="mode === 'floating' ? '切换为侧栏' : '切换为悬浮窗'" :aria-pressed="mode === 'sidebar'" @click="emit('placement')"><AppIcon :name="mode === 'floating' ? 'i-sidebar' : 'i-layers'" /></button>
+          <button v-if="!fixedPlacement" class="ibtn placement" type="button" :aria-label="mode === 'floating' ? '切换为侧栏' : '切换为悬浮窗'" :title="mode === 'floating' ? '切换为侧栏' : '切换为悬浮窗'" :aria-pressed="mode === 'sidebar'" @click="emit('placement')"><AppIcon :name="mode === 'floating' ? 'i-sidebar' : 'i-layers'" /></button>
           <button class="ibtn" type="button" aria-label="关闭配方" title="关闭配方" @click="emit('close')"><AppIcon name="i-close" /></button>
         </template>
         <template v-if="$slots.status" #aside><slot name="status" /></template>
@@ -33,5 +33,9 @@ const emit = defineEmits<{ baseline: [id: string | null]; swap: []; placement: [
 .inspector-foot { flex: none; padding: var(--sp-3) var(--sp-4); border-top: 1px solid var(--line-2); }
 .inspector-foot :deep(.btn) { min-height: 32px; white-space: nowrap; }
 .recipe-inspector[data-mode="sidebar"] { border-radius: 0; box-shadow: -1px 0 0 var(--line-2); }
+.recipe-inspector.hosted { border-radius: 16px; background: transparent; box-shadow: none; }
+.hosted :deep(.recipe-review) { background: transparent; }
+.hosted .inspector-foot { background: var(--glass-layer); }
+.hosted :deep(.stage-action-buttons) { flex-wrap: wrap; }
 @media (max-width: 860px) { .recipe-inspector[data-mode] { border-radius: 18px; } .placement { display: none; } }
 </style>

@@ -5,71 +5,53 @@ import {
   onActivated,
   onBeforeUnmount,
   onDeactivated,
+  onMounted,
   shallowRef,
   watch,
 } from "vue";
-import { useAnnotations } from "../../app/annotations.ts";
-import { useEditor } from "../../app/editor";
-import { useServices } from "../../app/services";
-import { createHandoff } from "../../services/handoff";
 import { useDrawing } from "../../app/drawing";
 import { useShell } from "../../app/shell";
 import { useUi, message } from "../../app/ui";
 import { imageFileName, samplerName } from "../../domain/drawing";
 import AppIcon from "../../shared/AppIcon.vue";
-import EvolutionAction from '../../ask/retrospect/EvolutionAction.vue';
+import ImageResultActions from "./ImageResultActions.vue";
+import { useImageActions } from "./use-image-actions.ts";
 import EmptyStage from "./EmptyStage.vue";
 import WaveHost from "./WaveHost.vue";
 import { useAsk, AskMark } from "../../app/ask";
+const props = defineProps<{ visible?: boolean; paused?: boolean; compact?: boolean; historyVisible?: boolean; actionsTarget?: HTMLElement | null }>();
+/* `paused`: still displayed (receded behind a canvas collaboration pane) but its drivers stop. */
+const running = computed(() => props.visible !== false && !props.paused);
+const emit = defineEmits<{ historyHost: [host: HTMLElement | null] }>();
+const historyHost = shallowRef<HTMLElement | null>(null);
+watch(historyHost, host => emit('historyHost', host), { flush: 'post' });
 const ask = useAsk();
-const annotations = useAnnotations();
-async function annotate() {
-  const item=current.value;if(!item?.blob)return;
-  shell.zoom=false;
-  try { await annotations.open({blob:item.blob,name:imageFileName(item),recordId:item.id,settings:item.params,workspace:"image"}); } catch(e) { ui.toast(message(e),"err"); }
-}
-const { drawing, view } = useDrawing(),
-  { narrow, image: shell } = useShell(),
-  ui = useUi();
-const { editor } = useEditor();
-const services = useServices();
-const { router } = useShell();
-async function resultAction(id: string) {
-  const item = current.value;
-  if (!item?.blob) return;
-  try {
-    if (id === "annotateBtn") {
-      await annotate();
-    } else if (id === "chatBtn") {
-      const ticket = await createHandoff(services).queue(
-        item.blob,
-        imageFileName(item),
-        { recordId: item.id, entityKey: item.entity_key },
-      );
-      const url = new URL(location.href);
-      url.searchParams.set("image", ticket);
-      history.replaceState(history.state, "", url);
-      router.switchWorkspace("chat");
-      ui.imageDelivery.value++;
-    } else
-      await editor.open("image", item.blob, imageFileName(item), {
-        mode: "img2img",
-        settings: item.params,
-        sourceId: `history:${item.id}`,
-      });
-  } catch (e) {
-    ui.toast(message(e), "err");
-  }
-}
+const { drawing, view } = useDrawing(), { narrow, image: shell, router } = useShell(), ui = useUi();
 const viewport = shallowRef<HTMLElement | null>(null),
   wave = shallowRef<InstanceType<typeof WaveHost> | null>(null),
   timer = shallowRef<HTMLElement | null>(null),
   panel = shallowRef<HTMLElement | null>(null);
-const current = computed(() => view.value.current),
-  params = computed(() => current.value?.params ?? {}),
-  saved = computed(() =>
-    view.value.favorites.some((r) => r.id === current.value?.id),
-  );
+const current = computed(() => view.value.current), params = computed(() => current.value?.params ?? {});
+const bounds = shallowRef<{ width: number; height: number } | null>(null);
+// Only viewport bounds are measured. Both image frames derive from the live
+// record/task sizes so a new landscape task cannot reuse a portrait frame.
+const frameStyle = computed(() => {
+  const area = bounds.value;
+  if (!area) return {};
+  const fit = (size: { width: number; height: number } | null | undefined) => {
+    if (!size) return area;
+    const ratio = Math.min(area.width / size.width, area.height / size.height, 1);
+    return { width: Math.floor(size.width * ratio), height: Math.floor(size.height * ratio) };
+  };
+  const picture = fit(current.value?.size), pending = fit(view.value.pending);
+  const displayed = view.value.state === 'busy' ? pending : picture;
+  return {
+    '--fit-w': `${picture.width}px`, '--fit-h': `${picture.height}px`,
+    '--sk-w': `${pending.width}px`, '--sk-h': `${pending.height}px`,
+    '--display-w': `${displayed.width}px`,
+  };
+});
+const { annotate } = useImageActions(current);
 let observer: ResizeObserver | undefined,
   frame = 0,
   active = false,
@@ -81,33 +63,10 @@ function measure() {
   const css = getComputedStyle(vp),
     px = parseFloat(css.paddingLeft) + parseFloat(css.paddingRight),
     py = parseFloat(css.paddingTop) + parseFloat(css.paddingBottom);
-  const width = Math.floor(vp.clientWidth - px),
-    height = Math.floor(
-      (narrow.value
-        ? parseFloat(css.maxHeight) || vp.clientHeight
-        : vp.clientHeight) - py,
-    );
+  const width = Math.floor(vp.clientWidth - px - (props.historyVisible ? 76 : 0)),
+    height = Math.floor(vp.clientHeight - py);
   if (width <= 0 || height <= 0) return;
-  for (const [kind, size] of [
-    ["fit", current.value?.size],
-    ["sk", view.value.pending],
-  ] as const) {
-    if (!size) continue;
-    const ratio = Math.min(width / size.width, height / size.height, 1);
-    vp.style.setProperty(`--${kind}-w`, `${Math.floor(size.width * ratio)}px`);
-    vp.style.setProperty(`--${kind}-h`, `${Math.floor(size.height * ratio)}px`);
-  }
-  if (narrow.value && view.value.state !== "empty") {
-    const size =
-      view.value.state === "busy" ? view.value.pending : current.value?.size;
-    const h =
-      view.value.state === "error"
-        ? 320
-        : size
-          ? Math.min(height, (width * size.height) / size.width)
-          : 320;
-    vp.style.setProperty("--vp-h", `${Math.ceil(h + py)}px`);
-  } else if (!narrow.value) vp.style.removeProperty("--vp-h");
+  if (bounds.value?.width !== width || bounds.value?.height !== height) bounds.value = { width, height };
 }
 function schedule() {
   cancelAnimationFrame(frame);
@@ -130,6 +89,7 @@ watch(
     () => view.value.current,
     () => view.value.pending,
     narrow,
+    () => props.historyVisible,
   ],
   () => {
     schedule();
@@ -147,7 +107,8 @@ function pause() {
   tick = undefined;
   drawing.setReveal(undefined);
 }
-onActivated(() => {
+function activate() {
+  if (active || !running.value || router.route.value.workspace !== "image") return;
   active = true;
   observer = new ResizeObserver(schedule);
   if (viewport.value) observer.observe(viewport.value);
@@ -170,7 +131,7 @@ onActivated(() => {
         requestAnimationFrame(() => {
           shell.swap = false;
           wave.value?.reset();
-          if (panel.value && !narrow.value) {
+          if (panel.value && !narrow.value && !props.compact) {
             const p = panel.value,
               cs = getComputedStyle(p);
             p.animate(
@@ -199,7 +160,10 @@ onActivated(() => {
       /* A hidden or disposed stage does not invalidate a decoded result. */
     }
   });
-});
+}
+onMounted(activate);
+onActivated(activate);
+watch(running, value => { if (!value) { pause(); shell.zoom = false; } else activate(); }, { flush: "post" });
 onDeactivated(pause);
 onBeforeUnmount(pause);
 async function copy(value: unknown, label: string) {
@@ -226,33 +190,26 @@ function scrollParams(event: WheelEvent) {
   event.preventDefault();
   strip.scrollLeft = next;
 }
-function save() {
-  if (!current.value?.blob) return;
-  const a = document.createElement("a");
-  a.href = drawing.url(current.value);
-  a.download = imageFileName(current.value);
-  a.click();
-}
 const seed = computed(() =>
   params.value.isComparison ? params.value.seedStart : params.value.seed,
 );
 const askId = computed(() => { void ask.libraryRevision.value; return current.value ? ask.labelFor(current.value.id) : null; });
-function openAsk() {
-  if (askId.value) ask.show({ anchor: askId.value });
-}
 </script>
 <template>
-  <section class="stage">
+  <section v-show="visible !== false" class="stage" :class="{ 'compact-stage': compact }">
     <div class="stage-status" role="status" aria-live="polite">
       <strong id="stageTitle">{{ view.title }}</strong
       ><span id="stageSub">{{ view.subtitle }}</span>
     </div>
-    <div ref="viewport" class="viewport" id="viewport">
+    <div ref="viewport" class="viewport" id="viewport" :style="frameStyle">
+      <div class="stage-presentation" :class="{ 'with-history': historyVisible }">
+        <div ref="historyHost" v-show="historyVisible" class="history-slot"></div>
+        <div class="stage-layers">
       <div class="layer center" data-layer="empty">
         <EmptyStage :viewport="viewport" />
       </div>
       <div class="layer center" data-layer="busy">
-        <WaveHost ref="wave" class="print skeleton" id="skeleton" />
+        <WaveHost :active="running" ref="wave" class="print skeleton" id="skeleton" />
         <div class="skeleton-info sr-only">
           <p ref="timer" class="mono" id="timer">0.0s</p>
           <p class="skeleton-note">
@@ -291,8 +248,14 @@ function openAsk() {
           />
         </figure>
       </div>
+        </div>
+      </div>
+      <Teleport v-if="compact && visible !== false && view.state === 'done' && actionsTarget" :to="actionsTarget">
+        <ImageResultActions :item="current" compact legacy-ids />
+      </Teleport>
     </div>
     <footer
+      v-if="!compact"
       ref="panel"
       class="result-panel"
       id="resultPanel"
@@ -350,60 +313,7 @@ function openAsk() {
             >透明底</span
           >
         </div>
-        <div class="result-actions" role="group" aria-label="图片操作">
-          <div class="result-group result-group-ask">
-            <button class="btn btn-sm result-ask" type="button" :disabled="!current" aria-label="Ask 这张图" @click="openAsk"><AskMark />Ask</button>
-          </div>
-          <div class="result-group">
-            <EvolutionAction v-if="current" :record-id="current.id" />
-            <button
-              v-for="action in [
-                { id: 'editBtn', label: '编辑这张图', icon: 'i-edit' },
-                { id: 'annotateBtn', label: '批注这张图', icon: 'i-annotate' },
-                { id: 'chatBtn', label: '在对话中改这张图', icon: 'i-chat' },
-              ]"
-              :key="action.id"
-              :id="action.id"
-              class="ibtn"
-              type="button"
-              :aria-label="action.label"
-              :data-tip="!current?.blob ? '原图已释放，仅保留缩略图和配方' : action.label"
-              :disabled="!current?.blob"
-              :title="!current?.blob ? '仅保留缩略图和配方，原图已释放' : undefined"
-              @click="resultAction(action.id)"
-            >
-              <AppIcon :name="action.icon" />
-            </button>
-          </div>
-          <div class="result-group">
-            <button
-              class="ibtn"
-              id="favoriteBtn"
-              type="button"
-              :data-tip="!current?.blob ? '原图已释放，无法收藏原图' : saved ? '取消收藏' : '收藏'"
-              :aria-label="saved ? '取消收藏' : '收藏图片'"
-              :aria-pressed="saved"
-              :disabled="
-                !current?.blob || view.favoritesLoading ||
-                view.favoritePending.includes(current?.id || '')
-              "
-              @click="drawing.toggleFavorite()"
-            >
-              <AppIcon name="i-star" /></button
-            ><button
-              class="ibtn"
-              :class="{ 'ibtn-accent': current?.blob }"
-              id="saveBtn"
-              type="button"
-              :data-tip="!current?.blob ? '原图已释放，无法下载原图' : '下载'"
-              aria-label="下载"
-              :disabled="!current?.blob"
-              @click="save"
-            >
-              <AppIcon name="i-download" />
-            </button>
-          </div>
-        </div>
+        <ImageResultActions :item="current" legacy-ids />
       </div>
     </footer>
   </section>
@@ -432,26 +342,21 @@ function openAsk() {
 <style scoped>
 .lightbox-annotate { position: absolute; bottom: 24px; left: 50%; transform: translateX(-50%); }
 .result-panel { position: relative; }
-/* Ask leads the action row as its own group: flat like the icons, accent like its mark. */
-.result-ask { height: 36px; padding: 0 10px 0 8px; gap: 6px; color: var(--result-ask-ink); font-weight: var(--fw-semibold); background: transparent; border: 1px solid transparent; }
-.result-ask:not(:disabled):hover { background: var(--result-ask-hover); border-color: var(--result-ask-line); }
+.compact-stage { grid-template-rows: minmax(0, 1fr); background: transparent; }
+.compact-stage .viewport { padding: 16px 24px; background: transparent; }
+.compact-stage .print img { width: var(--fit-w); height: var(--fit-h); object-fit: contain; }
+.stage-presentation, .stage-layers { display: contents; }
+.stage-presentation.with-history { display: grid; grid-template-columns: 72px minmax(0, 1fr); grid-template-rows: minmax(0, 1fr); gap: 4px; width: calc(var(--display-w) + 76px); height: 100%; }
+.with-history .stage-layers { display: grid; min-width: 0; min-height: 0; }
+.history-slot { min-width: 0; min-height: 0; }
 .result-ask-id { color: var(--a); background: var(--result-id-bg); }
 .result-ask-id:hover { background: var(--hover); }
 .ask-why { margin-top: 8px; color: var(--a); }
-@media (max-width: 860px) {
-  .result-ask { height: 44px; }
-}
 /* A narrow stage keeps its width for the parameters; Ask returns to the title row. */
 @container image-stage (max-width: 640px) {
-  .result-copy { padding-right: 90px; }
-  .result-group-ask { position: absolute; top: 10px; right: 12px; }
-  .result-group-ask + .result-group::before { display: none; }
-  .result-ask { height: 32px; }
-}
-@media (max-width: 860px) {
-  @container image-stage (max-width: 640px) {
-    .result-group-ask { top: 5px; }
-    .result-ask { height: 40px; }
-  }
+  .stage:not(.compact-stage) .result-copy { padding-right: 90px; }
+  .stage:not(.compact-stage) :deep(.result-group-ask) { position: absolute; top: 10px; right: 12px; }
+  .stage:not(.compact-stage) :deep(.result-group-ask + .result-group)::before { display: none; }
+  .stage:not(.compact-stage) :deep(.result-ask) { height: 32px; }
 }
 </style>

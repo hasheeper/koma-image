@@ -20,7 +20,7 @@ test('HOME dock keeps one ASK; viewport preference, focus, scroll and floating w
   assert.equal(await page.locator('#askPrompt').inputValue(),'尚未发送的两行\n第二行');
   const identity=await page.locator('#askPrompt').elementHandle();
 
-  assert.equal(await page.locator('.home-settings .directory-chip').count(),0);assert.equal(await page.locator('.home-entries button').count(),4);
+  assert.equal(await page.locator('.home-settings .directory-chip').count(),0);
   assert.equal(await page.locator('#askDrawer [data-ask-grip]').count(),0);
   await page.getByRole('button',{name:'放大 ASK 窗口'}).click();await page.waitForSelector('#askIsland[data-home="full"]');
   assert.equal(await page.locator('.home-shell').getAttribute('inert'),'');

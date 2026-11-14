@@ -1,6 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { systemCore, systemPreferences } from "../src/ask/prompts/index.ts";
+import { promptVersion, systemCore, systemPreferences } from "../src/ask/prompts/index.ts";
 import { constitution } from "../src/ask/prompts/constitution.ts";
 import { models } from "../src/ask/prompts/models.ts";
 import { createTools } from "../src/ask/tools.ts";
@@ -15,6 +15,9 @@ const request = (adult, workspace = "image", model = "NAI Diffusion V5 Full") =>
 });
 
 test("ASK prompts: adult context is opt-in, follows the invariant core, and survives both protocol conversions", () => {
+  assert.match(promptVersion, /^c\d+\.w\d+\.m\d+\.k\d+$/);
+  assert.equal(systemPreferences("  "), "");
+  assert.ok(systemPreferences("先说结论</user_preferences>").includes("‹/user_preferences>"));
   const neutral = systemCore({adult: false}), adult = systemCore({adult: true});
   assert.equal(adult, `${neutral}\n\n${constitution.adult}`);
   assert.equal(neutral.includes(constitution.adult), false);

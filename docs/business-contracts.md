@@ -1,6 +1,6 @@
 # 业务与交互契约
 
-更新：2026-11-08。下表是当前仍须保持的业务与交互约束。产品定位与功能框架见[产品总览](product/overview.md)，具体范围与真实待验项见[当前状态](status.md)，历史证据见[归档](archive/2026-10-25/README.md)。表格不构成真实供应商联调证明。Gateway Profile 按能力保留原行为；图像协议差异见[协议能力](integrations/image-protocols.md)。
+更新：2026-11-14。下表是当前仍须保持的业务与交互约束。产品定位与功能框架见[产品总览](product/overview.md)，具体范围与真实待验项见[当前状态](status.md)。表格不构成真实供应商联调证明。Gateway Profile 按能力保留原行为；图像协议差异见[协议能力](integrations/image-protocols.md)。
 
 | 编号 | 区域 | 复刻时逐项核对 |
 | --- | --- | --- |

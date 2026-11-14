@@ -1,6 +1,6 @@
 # ASK 的 NAI 基础感知
 
-更新：2026-11-04。EA0 已接入 IMAGE，并由 [EDIT](edit.md)复用；本文维护现行读取与计算口径。获批方案见[规划归档](../archive/ask/2026-10-29-ask-nai-awareness-plan.md)，本地验证与真实待验边界见[验收记录](../archive/ask/2026-10-29-ask-edit-verification.md)。
+更新：2026-11-14。EA0 已接入 IMAGE，并由 [EDIT](edit.md)复用；本文维护现行读取与计算口径。本地模拟覆盖只读能力、预算和费用投影及无报价／生成请求；真实模型理解、参考效果和实际消耗仍见[待办](../status.md#仍待真实验证)。
 
 ## 数据来源与权限
 

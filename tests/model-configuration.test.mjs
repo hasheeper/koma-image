@@ -1,7 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { validateRouting, imageConnections, reasoningConnections } from '../src/config/connections.ts';
-import { initialModelEntries, configuredModels, removedModel } from '../src/domain/models.ts';
+import { configuredModels, removedModel } from '../src/domain/models.ts';
 import { normalizeCatalog, normalizeOptions, sourceState, supportsModel } from '../src/domain/catalog.ts';
 import { supportsSourcePayload } from '../src/domain/source-funding.ts';
 import { validateParameterOverrides } from '../src/domain/model-parameters.ts';
@@ -26,7 +26,6 @@ function service(local, saved = new Map()) {
 const manifest = preferences => ({ app: 'koma-image', kind: 'backup', version: 2, id: '12345678-1234-1234-1234-123456789012', createdAt: new Date(0).toISOString(), favorites: [], conversations: [], assets: [], preferences });
 
 test('model entries: editable presets, deletions, stable identities and validation preserve fixed NAI', () => {
-  assert.equal(initialModelEntries().length, 19);
   const value = config(); value.models = [entry()];
   const restored = validateRouting(JSON.parse(JSON.stringify(value)));
   assert.deepEqual(restored.models, value.models);

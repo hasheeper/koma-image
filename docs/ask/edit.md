@@ -1,6 +1,6 @@
 # ASK 感知与操作 EDIT 工作区
 
-更新：2026-11-13。EA1–EA3 及通用图像编辑的基础感知／参数草稿已接入，依赖 [NAI 基础感知](nai-awareness.md)与[统一图片身份](../engineering/image-identity.md)。本文维护编辑现场、草稿与交接；获批[实施方案](../archive/ask/2026-10-29-ask-edit-plan.md)和[本地验收](../archive/ask/2026-10-29-ask-edit-verification.md)已单独归档。
+更新：2026-11-14。EA1–EA3 及通用图像编辑的基础感知／参数草稿已接入，依赖 [NAI 基础感知](nai-awareness.md)与[统一图片身份](../engineering/image-identity.md)。本文维护编辑现场、草稿与交接；本地模拟验证配置写入、冲突／撤销、交接及不自动生成边界，真实图片理解与供应商行为仍见[待办](../status.md#仍待真实验证)。
 
 ## 入口与权限
 

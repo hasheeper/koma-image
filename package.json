@@ -1,6 +1,6 @@
 {
   "name": "koma-image",
-  "version": "0.6.0",
+  "version": "0.7.0",
   "private": true,
   "type": "module",
   "license": "SEE LICENSE IN LICENSE",
@@ -15,7 +15,7 @@
     "typecheck": "vue-tsc --noEmit",
     "fonts:build": "node scripts/build-font-css.mjs",
     "fonts:check": "node scripts/build-font-css.mjs --check",
-    "styles:check": "stylelint \"public/styles/**/*.css\" \"src/**/*.vue\" --max-warnings 0",
+    "styles:check": "stylelint \"public/styles/**/*.css\" \"src/**/*.{vue,css}\" --max-warnings 0",
     "build": "npm run fonts:build && vite build && node -e \"require('node:fs').copyFileSync('LICENSE', 'dist/LICENSE')\"",
     "preview": "vite preview --host 127.0.0.1 --port 3217 --strictPort",
     "check": "npm run typecheck && npm run test:unit && npm run build",

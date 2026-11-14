@@ -124,4 +124,3 @@ export function naiAwareness(input: NaiAwarenessInput, counter = countNaiTokens)
     } catch { return {...snapshot,input_budget:budget('error',undefined,'本地分词暂不可用')}; }
   } };
 }
-export type NaiAwareness = ReturnType<typeof naiAwareness>['snapshot'];

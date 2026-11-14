@@ -17,6 +17,7 @@ import ChatWorkspace from "../workspaces/chat/ChatWorkspace.vue";
 import TagsWorkspace from "../workspaces/tags/TagsWorkspace.vue";
 import EditWorkspace from "../workspaces/edit/EditWorkspace.vue";
 import ConfirmSheet from "../shared/ConfirmSheet.vue";
+import CompactLayoutNotice from "./CompactLayoutNotice.vue";
 import ToastList from "../shared/ToastList.vue";
 import ModelLogos from "../shared/ModelLogos.vue";
 import IconSymbols from "../shared/IconSymbols.vue";
@@ -75,7 +76,7 @@ const PhotopeaPanel=defineAsyncComponent(()=>import("../overlays/PhotopeaPanel.v
 const annotations = createAnnotations({ ask, editor, chat, router });
 provide(annotationsKey, annotations);
 onScopeDispose(() => annotations.dispose());
-provide(askPresentationKey, createAskPresentation(ask, router));
+provide(askPresentationKey, createAskPresentation(ask, router, services.preferences));
 function syncHomeActivity() {
   const plan = ask.draftPlan.value, activity: HomeActivity[] = [];
   if (plan?.changes.length || plan?.newBoardName || plan?.handoff) {
@@ -152,6 +153,7 @@ const workspaces = {
   <EditWorkspace v-if="editCreated" v-show="router.route.value.workspace === 'edit'" />
   <PhotopeaPanel v-if="photopea.created.value" v-show="!!photopea.task.value" :start="photopea.task.value" :title="photopea.task.value?.title ?? 'Photopea'" @close="photopea.task.value && photopea.close(photopea.task.value.id)" />
   <ConfirmSheet />
+  <CompactLayoutNotice />
   <ToastList />
   <ModelLogos />
 </template>

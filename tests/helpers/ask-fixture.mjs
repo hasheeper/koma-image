@@ -16,7 +16,7 @@ const hosts = { image: "gateway.example.test", chat: "chat.example.test", claude
 
 const reasoning = /^\/v1\/(?:chat\/completions|messages)$/;
 
-async function open(hash, { ready = "#settingsPanel[open]", ask = null, standard = false, chatModel = false, touch = false, motion = "reduce", width = 1440 } = {}) {
+async function open(hash, { ready = "#settingsPanel[open]", ask = null, standard = false, chatModel = false, editModels = false, touch = false, motion = "reduce", width = 1440 } = {}) {
   const context = await browser.newContext({ viewport: { width, height: 900 }, reducedMotion: motion, hasTouch: touch });
   const page = await context.newPage(), requests = [], errors = [], llm = [], calls = [];
   page.setDefaultTimeout(12000);
@@ -45,6 +45,7 @@ async function open(hash, { ready = "#settingsPanel[open]", ask = null, standard
       if (url.pathname.endsWith("/image/models")) return route.fulfill({ json: {
         studio_features: { version: 2, max_cost: true }, valid_samplers: ["k_euler_ancestral", "k_euler"],
         models: { "nai-diffusion-5-full": { name: "NAI V5", provider: "novelai", max_resolution: 2200000, quota_group: "novelai" }, "nai-diffusion-4-5-full": { name: "NAI V4.5", provider: "novelai", max_resolution: 1048576, quota_group: "novelai" },
+          ...(editModels ? Object.fromEntries(['nai-diffusion-5-full', 'nai-diffusion-4-5-full'].map(id => [id, { name: id.includes('4-5') ? 'NAI V4.5' : 'NAI V5', provider: 'novelai', editor_family: 'novelai', operations: ['generate', 'edit'], tools: ['img2img', 'inpaint', 'upscale'], max_resolution: 2200000, quota_group: 'novelai' }])) : {}),
           ...(chatModel ? { "gpt-image-2": { name: "GPT Image 2", provider: "openai", operations: ["generate", "edit"], tools: ["image-edit"], quota_group: "openai",
             image_capabilities: { fields: { quality: { options: ["auto", "low", "high"], default: "auto" }, size: { options: ["1024x1024", "1536x1024"], default: "1024x1024" } } } } } : {}) },
       } });

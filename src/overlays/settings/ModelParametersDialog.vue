@@ -229,14 +229,14 @@ defineExpose({ open, close });
 .mp-heading h2 { display: flex; align-items: start; gap: var(--sp-2); line-height: 1.4; overflow-wrap: anywhere; }
 .mp-heading h2 .vl { width: var(--ico-lg); height: var(--ico-lg); flex: none; margin-top: 3px; }
 .mp-head-actions { display: flex; flex: none; align-items: center; gap: var(--sp-1); margin-top: -4px; }
-.modal-body { display: grid; gap: var(--sp-4); }
+.modal-body { display: grid; gap: var(--sp-4); padding-bottom: var(--sp-3); }
 .mp-tags { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; min-width: 0; }
 .mp-tags .type { max-width: 100%; height: auto; min-height: 18px; white-space: normal; overflow-wrap: anywhere; }
 .mp-fields { min-width: 0; }
 .mp-columns, .mp-row { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 144px) 36px; align-items: center; gap: var(--sp-2); }
-.mp-columns { padding-block: 0 var(--sp-2); color: var(--fg-3); font-size: var(--fz-2xs); }
+.mp-columns { padding-block: 0 var(--sp-2); border-bottom: 1px solid var(--line-2); color: var(--fg-3); font-size: var(--fz-2xs); }
 .mp-column-title { display: flex; align-items: center; gap: var(--sp-1); }
-.mp-field { min-width: 0; border-top: 1px solid var(--line-2); }
+.mp-field { min-width: 0; }
 .mp-row { min-height: 48px; padding-block: var(--sp-2); }
 .mp-name { display: flex; align-items: center; gap: var(--sp-2); min-width: 0; padding-block: var(--sp-1); text-align: left; color: var(--fg-2); }
 .mp-name code { min-width: 0; font-size: var(--fz-xs); line-height: 1.5; overflow-wrap: anywhere; }

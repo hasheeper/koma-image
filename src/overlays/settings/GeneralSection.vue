@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import { computed } from "vue";
 import { useDrawing } from "../../app/drawing";
+import { useAskPresentation } from "../../ask/presentation";
 import { themeChoices, useTheme } from "../../app/theme";
 import type { ThemeChoice } from "../../app/theme";
 import { message, useUi } from "../../app/ui";
@@ -10,6 +11,7 @@ defineProps<{ version: string; unread: boolean }>();
 defineEmits<{ updates: [] }>();
 const { drawing, view } = useDrawing();
 const theme = useTheme(), ui = useUi();
+const { canvas } = useAskPresentation();
 const form = computed(() => view.value.form);
 function setTheme(choice: ThemeChoice) {
   theme.set(choice).catch((error: unknown) => ui.toast(message(error), "err"));
@@ -49,6 +51,18 @@ function change(
             /><span>{{ item.label }}</span></label
           >
         </div>
+      </div>
+    </div>
+    <div class="sp-group">
+      <div class="s-row">
+        <div>
+          <b><label for="canvasCollaboration">画布协创 <span class="type">BETA</span></label></b>
+          <p>IMAGE / EDIT / CHAT · 桌面双栏，手机单面板</p>
+        </div>
+        <label class="s-toggle" title="画布协创 BETA">
+          <input id="canvasCollaboration" type="checkbox" role="switch" :checked="canvas.enabled.value" @change="canvas.setEnabled(($event.target as HTMLInputElement).checked)" />
+          <span class="switch" aria-hidden="true"></span>
+        </label>
       </div>
     </div>
     <div class="sp-group">

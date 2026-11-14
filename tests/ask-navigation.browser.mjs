@@ -157,11 +157,13 @@ for (const screen of [{ name: 'mobile', width: 390, touch: true, route: '/#/imag
     const f = await open(screen.route, { ...screen, ask: askSettings({ images: false }) });
     const { page, context, errors } = f;
     try {
+      if (screen.name === 'mobile') await page.getByRole('dialog', { name: '当前窗口较窄', exact: true }).getByRole('button', { name: '切换到 BETA', exact: true }).click();
       await history(f, 3);
       await clickTick(page);
       await page.getByRole('button', { name: '回到最近', exact: true }).click(); await bottom(page);
       await clickTick(page);
-      await drawer(page).getByRole('button', { name: '收起 ASK', exact: true }).click();
+      if (screen.name === 'mobile') await page.getByRole('group', { name: '侧栏内容', exact: true }).getByRole('button', { name: 'ASK', exact: true }).click();
+      else await drawer(page).getByRole('button', { name: '收起 ASK', exact: true }).click();
       await page.evaluate(() => ask.show()); await bottom(page);
       if (screen.name === 'HOME') {
         await drawer(page).getByRole('button', { name: '放大 ASK 窗口', exact: true }).click();
