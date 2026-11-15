@@ -6,7 +6,7 @@ import { useAskFixture, submitAsk, hosts, reasoning, open, openai, text, tool, e
 
 useAskFixture();
 
-test("ASK creation settings: independent export/import preserves other settings, validates atomically and edits long lists", async () => {
+test("ASK creation settings: independent import/export, duplicate merging, long lists and confirmed bulk clearing", async () => {
   const { page, context, requests, errors } = await open("/#/image/settings/ask", {
     ask: askSettings({ preference: "keep local preference", words: ["original word"], replacements: [{ from: "original", to: "substitute" }] }),
   });
@@ -35,11 +35,16 @@ test("ASK creation settings: independent export/import preserves other settings,
       replacements: [{ from: long, to: "long replacement" }, ...Array.from({ length: 240 }, (_, i) => ({ from: `source ${i}`, to: `target ${i}` }))],
       connectionId: "must-not-import", adult: true,
     } };
-    await upload(imported);
+    const withDuplicates = { ...imported, settings: { ...imported.settings,
+      words: [...imported.settings.words, "WORD_0", "word 1"],
+      replacements: [...imported.settings.replacements, { from: "source 0", to: "updated target 0" }, { from: "source 1", to: "target 1" }],
+    } };
+    imported.settings.replacements[1] = { from: "source 0", to: "updated target 0" };
+    await upload(withDuplicates);
     const confirm = page.locator("#confirmSheet");
     await confirm.getByRole("button", { name: "取消", exact: true }).click();
     assert.deepEqual(await stored(page, "koma.ask.v1"), initial);
-    await upload(imported);
+    await upload(withDuplicates);
     await confirm.getByRole("button", { name: "导入", exact: true }).click();
     await page.waitForFunction(() => JSON.parse(localStorage.getItem("koma.ask.v1"))?.replacements?.length === 241);
     assert.equal(await creation.getByRole("switch", { name: "自由创作", exact: true }).isChecked(), false);
@@ -61,6 +66,33 @@ test("ASK creation settings: independent export/import preserves other settings,
     await creation.getByRole("list", { name: "文本替换", exact: true }).waitFor();
     assert.equal((await stored(page, "koma.ask.v1")).replacements[0].to, "新的长替换".repeat(100));
     assert.equal((await stored(page, "koma.ask.v1")).words.length, 240);
+    const beforeClear = await stored(page, "koma.ask.v1"), clearWords = creation.getByRole("button", { name: "清空词表", exact: true }),
+      clearRules = creation.getByRole("button", { name: "清空文本替换", exact: true });
+    await clearWords.click();
+    await confirm.getByRole("heading", { name: "清空词表？", exact: true }).waitFor();
+    assert.deepEqual(await stored(page, "koma.ask.v1"), beforeClear);
+    await confirm.getByRole("button", { name: "取消", exact: true }).click();
+    assert.deepEqual(await stored(page, "koma.ask.v1"), beforeClear);
+    await clearWords.click();
+    await confirm.getByRole("button", { name: "清空", exact: true }).click();
+    await page.waitForFunction(() => JSON.parse(localStorage.getItem("koma.ask.v1"))?.words?.length === 0);
+    assert.deepEqual(await stored(page, "koma.ask.v1"), { ...beforeClear, words: [] });
+    assert.equal(await clearWords.isDisabled(), true);
+    await creation.getByRole("button", { name: `编辑替换 ${long}`, exact: true }).click();
+    await clearRules.click();
+    await confirm.getByRole("heading", { name: "清空文本替换？", exact: true }).waitFor();
+    await confirm.getByRole("button", { name: "取消", exact: true }).click();
+    assert.deepEqual((await stored(page, "koma.ask.v1")).replacements, beforeClear.replacements);
+    assert.equal(await creation.getByRole("textbox", { name: "原文 A", exact: true }).inputValue(), long);
+    await clearRules.click();
+    await confirm.getByRole("button", { name: "清空", exact: true }).click();
+    await page.waitForFunction(() => JSON.parse(localStorage.getItem("koma.ask.v1"))?.replacements?.length === 0);
+    assert.equal(await creation.getByRole("textbox", { name: "原文 A", exact: true }).inputValue(), "");
+    await page.reload();
+    await clearRules.waitFor();
+    assert.equal(await clearRules.isDisabled(), true);
+    assert.equal(await clearWords.isDisabled(), true);
+    assert.deepEqual(await stored(page, "koma.ask.v1"), { ...beforeClear, words: [], replacements: [] });
     assert.deepEqual(generation(requests), []);
     assert.deepEqual(errors, []);
   } finally { await context.close(); }

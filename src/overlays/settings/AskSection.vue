@@ -124,6 +124,18 @@ async function addWord() {
   wordError.value = "";
   if (await save({ words: [...settings.value.words, result.word] })) word.value = "";
 }
+async function clearWords() {
+  if (!await ui.confirm({
+    title: "清空词表？", message: `将清空全部 ${settings.value.words.length} 个自定义词条。`, confirmLabel: "清空", tone: "danger",
+  })) return;
+  if (await save({ words: [] })) wordError.value = "";
+}
+async function clearReplacements() {
+  if (!await ui.confirm({
+    title: "清空文本替换？", message: `将清空全部 ${settings.value.replacements.length} 条替换规则。`, confirmLabel: "清空", tone: "danger",
+  })) return;
+  if (await save({ replacements: [] })) clearReplacement();
+}
 function clearReplacement() {
   replacementFrom.value = replacementTo.value = replacementError.value = "";
   editingFrom.value = null;
@@ -400,9 +412,12 @@ async function importCreation(event: Event) {
               </div>
             </div>
             <div class="s-row s-block">
-              <div class="s-head">
-                <b>自定义词条</b
-                ><small>{{ settings.words.length }}/{{ wordLimits.count }}</small>
+              <div class="s-head ask-list-head">
+                <b>自定义词条</b>
+                <span class="ask-list-actions">
+                  <small>{{ settings.words.length }}/{{ wordLimits.count }}</small>
+                  <button class="ibtn ibtn-xs" type="button" aria-label="清空词表" title="清空词表" :disabled="!settings.words.length" @click="clearWords"><AppIcon name="i-trash" /></button>
+                </span>
               </div>
               <ul
                 v-if="settings.words.length"
@@ -439,8 +454,12 @@ async function importCreation(event: Event) {
               </p>
             </div>
             <div class="s-row s-block">
-              <div class="s-head">
-                <b>文本替换</b><small>{{ settings.replacements.length }}/{{ replacementLimits.count }}</small>
+              <div class="s-head ask-list-head">
+                <b>文本替换</b>
+                <span class="ask-list-actions">
+                  <small>{{ settings.replacements.length }}/{{ replacementLimits.count }}</small>
+                  <button class="ibtn ibtn-xs" type="button" aria-label="清空文本替换" title="清空文本替换" :disabled="!settings.replacements.length" @click="clearReplacements"><AppIcon name="i-trash" /></button>
+                </span>
               </div>
               <ul v-if="settings.replacements.length" class="ask-rules" aria-label="文本替换">
                 <li v-for="rule in settings.replacements" :key="rule.from">
@@ -487,6 +506,8 @@ async function importCreation(event: Event) {
 .ask-sections { --ask-action-size: 32px; display: grid; gap: var(--sp-6); }
 .ask-sec-head { display: flex; align-items: baseline; justify-content: space-between; }
 .ask-creation-actions { display: flex; gap: var(--sp-2); }
+.s-head.ask-list-head { align-items: center; }
+.ask-list-actions { display: flex; align-items: center; gap: var(--sp-2); margin-left: auto; }
 /* Picked from a list, a value stands flush in its row with a surface under the
    pointer; typed in, it sits in a field one notch below the row. */
 .s-ctl.s-field.ask-pick { width: auto; max-width: 55%; gap: 2px; }

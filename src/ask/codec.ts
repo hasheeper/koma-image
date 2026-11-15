@@ -52,8 +52,6 @@ export interface Codec {
   stream(): { push(chunk: string): string; flush(): string };
   /** Static transport guidance only; never includes local words or replacement pairs. */
   instructions(): string;
-  /** Detect originals left in fields that cannot safely be rewritten (IDs, schemas, signatures). */
-  containsOriginal(text: string): boolean;
 }
 const same = <T>(value: T) => value;
 export const identityCodec: Codec = Object.freeze({
@@ -64,7 +62,6 @@ export const identityCodec: Codec = Object.freeze({
   decodeDeep: same,
   stream: () => ({ push: same, flush: () => "" }),
   instructions: () => "",
-  containsOriginal: () => false,
 });
 /** Explicit pairs follow free creation; automatic aliases have their own switch. */
 export function codecFor(options: {
@@ -139,7 +136,6 @@ export function createCodec(custom: readonly string[], rules: readonly Replaceme
       .join("|"),
     "g",
   );
-  const originalPattern = new RegExp(pattern.source, "i");
   const targets = [...reverse.keys()].sort((a, b) => b.length - a.length);
   const literalTargets = new Set(replacements.map((r) => r.to));
   const reversePattern = new RegExp(targets.map((s) =>
@@ -201,6 +197,5 @@ export function createCodec(custom: readonly string[], rules: readonly Replaceme
       };
     },
     instructions: () => instructions,
-    containsOriginal: (text: string) => originalPattern.test(text),
   });
 }

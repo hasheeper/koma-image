@@ -93,7 +93,7 @@ test("creation settings: portable round-trip isolates the group and rejects inva
     assert.equal(JSON.stringify(file).includes(key), false);
   assert.deepEqual(importCreationSettings(exportCreationSettings(defaultAskSettings())).words, []);
   for (const patch of [
-    { words: ["Soft_Light", "soft light"] }, { words: [null] }, { words: Array.from({ length: wordLimits.count + 1 }, (_, i) => `word ${i}`) },
+    { words: [null] }, { words: Array.from({ length: wordLimits.count + 1 }, (_, i) => `word ${i}`) },
     { replacements: [{ from: "valid", to: "pair" }, { from: "other", to: "pair" }] }, { replacements: [{ from: "A", to: "@t_1000" }] },
     { replacements: [{ from: "A", to: "B".repeat(replacementLimits.chars + 1) }] }, { replacements: [null] },
     { replacements: Array.from({ length: replacementLimits.count + 1 }, (_, i) => ({ from: `a${i}`, to: `b${i}` })) },
@@ -102,6 +102,18 @@ test("creation settings: portable round-trip isolates the group and rejects inva
   for (const invalid of [null, [], { ...file, version: 2 }, { ...file, kind: "routing" }, { ...file, settings: {} }])
     assert.throws(() => importCreationSettings(invalid));
   assert.deepEqual(importCreationSettings({ ...file, settings: { ...file.settings, connectionId: "ignored", adult: true } }), restored);
+});
+
+test("creation settings: duplicates merge, later source rules win and limits count unique entries", () => {
+  const file = exportCreationSettings(defaultAskSettings());
+  const restored = importCreationSettings({ ...file, settings: { ...file.settings,
+    words: [...Array(wordLimits.count + 1).fill("Soft_Light"), " soft light ", "ＦＲＥＥ", "free"],
+    replacements: [...Array(replacementLimits.count + 1).fill({ from: "coat", to: "old target" }),
+      { from: "coat", to: "@t_001" }, { from: " coat ", to: "new target" }, { from: "hat", to: "old target" }],
+  } });
+  assert.deepEqual(restored.words, ["soft light", "free"]);
+  assert.deepEqual(restored.replacements, [{ from: "coat", to: "new target" }, { from: "hat", to: "old target" }]);
+  assert.deepEqual(readAskSettings(restored).replacements, restored.replacements);
 });
 
 test("codec: expanded limits survive settings, portable files and streamed restoration", () => {

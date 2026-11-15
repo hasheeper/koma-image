@@ -126,16 +126,18 @@ test('Gemini codec decodes visible output and tool inputs without rewriting opaq
   assert.deepEqual(events.at(-1).gemini.parts, native);
 });
 
-test('Gemini codec refuses plaintext originals in signed replay rather than changing signed parts', async () => {
+test('Gemini codec sends signed replay unchanged even when its text matches the local vocabulary', async () => {
   const codec = createCodec(['velvet motif']), calls = [];
   const native = [{ text: 'velvet motif', thoughtSignature: 'opaque-signature' }];
   const replay = { ...request, messages: [...request.messages,
     { role: 'assistant', content: [{ type: 'text', text: 'velvet motif' }], gemini: { model: request.model, parts: native } },
     { role: 'user', content: [{ type: 'text', text: '继续' }] },
   ] };
-  const p = provider([], calls);
-  await assert.rejects(collect(p.stream(replay, { codec })), e => e.kind === 'config');
-  assert.equal(calls.length, 0);
+  const p = provider([reply(frame([{ text: '继续说明' }], 'STOP'))], calls);
+  const events = await collect(p.stream(replay, { codec }));
+  assert.equal(events.find(e => e.type === 'text').text, '继续说明');
+  assert.equal(calls.length, 1);
+  assert.deepEqual(calls[0].body.contents[1].parts, native);
   assert.equal(native[0].text, 'velvet motif');
   const encodedParts = [{ ...native[0], text: '@t_001' }];
   const encodedReplay = { ...replay, messages: replay.messages.map(m => m.gemini ? { ...m, gemini: { ...m.gemini, parts: encodedParts } } : m) };

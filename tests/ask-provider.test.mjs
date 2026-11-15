@@ -287,22 +287,34 @@ for (const profile of [chat, anthropic, gemini]) test("local codec dictionaries 
   assert.deepEqual(wireBody(profile, request, codec), body, "another request does not mutate the codec");
 });
 
-for (const profile of [chat, anthropic, gemini]) test("codec blocks residual originals before " + profile.id + " dispatch", async () => {
-  let calls = 0;
-  const { provider } = await setup(profile, async () => { calls++; throw new Error("must not fetch"); });
-  const codec = createCodec(["velvet motif"]);
-  for (const request of [
-    { ...turn1, model: "velvet motif" },
-    { ...turn1, tools: [{ name: "get_state", description: "velvet motif", schema: {} }] },
-    { ...turn1, tools: [{ name: "get_state", description: "读取", schema: { properties: { "velvet motif": {} } } }] },
-    { ...turn1, messages: [user("{}", "Velvet Motif")] },
-  ]) {
-    assert.throws(() => wireBody(profile, request, codec), e => e.kind === "config" && /已停止发送/.test(e.message));
-    await assert.rejects(collect(provider.stream(request, { codec })), e => e.kind === "config");
-  }
-  const unsafeReplacement = createCodec([], [{ from: "red coat", to: "a red coat with trim" }]);
-  await assert.rejects(collect(provider.stream({ ...turn1, messages: [user("{}", "red coat")] }, { codec: unsafeReplacement })), e => e.kind === "config");
-  assert.equal(calls, 0, "no request, including no automatic retry");
+for (const profile of [chat, anthropic, gemini]) test("codec transforms content without blocking protocol fields or replacement targets in " + profile.id, async () => {
+  const calls = [], codec = createCodec(["velvet motif", "text", "aaaa"], [{ from: "red coat", to: "a red coat with trim" }]);
+  const request = { ...turn1, model: "velvet motif",
+    tools: [{ name: "get_state", description: "velvet motif", schema: { type: "object", properties: { "velvet motif": { type: "string" } } } }],
+    messages: [
+      user("{}", "历史 velvet motif"),
+      { role: "assistant", content: [{ type: "text", text: "Velvet Motif" }] },
+      { role: "user", content: [{ type: "text", text: "red coat, text" }, { type: "image", mime: "image/png", data: "AAAA" }] },
+    ],
+  }, saved = structuredClone(request);
+  const { provider } = await setup(profile, async (_url, init) => {
+    calls.push(JSON.parse(init.body));
+    return stream(profile === chat ? sse({ choices: [{ delta: { content: "收到" }, finish_reason: "stop" }] }, "[DONE]")
+      : profile === anthropic ? named({ type: "content_block_start", index: 0, content_block: { type: "text", text: "收到" } },
+        { type: "message_delta", delta: { stop_reason: "end_turn" } }, { type: "message_stop" })
+        : sse({ candidates: [{ content: { role: "model", parts: [{ text: "收到" }] }, finishReason: "STOP" }] }));
+  });
+  const body = wireBody(profile, request, codec), raw = JSON.stringify(body);
+  assert.match(raw, /a red coat with trim/);
+  assert.match(raw, /@t_001/);
+  assert.match(raw, /@t_002/);
+  assert.match(raw, /Velvet Motif/);
+  assert.match(raw, /AAAA/);
+  assert.deepEqual(body.tools, wireBody(profile, request).tools);
+  const events = await collect(provider.stream(request, { codec }));
+  assert.equal(events.filter(e => e.type === "text").map(e => e.text).join(""), "收到");
+  assert.deepEqual(calls, [body]);
+  assert.deepEqual(request, saved);
 });
 
 for (const profile of [chat, anthropic]) test("Unicode word encoding survives " + profile.id + " JSON transport and streamed tool output", async () => {

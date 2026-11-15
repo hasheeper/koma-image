@@ -39,23 +39,9 @@ export function encodeRequest(request: AskRequest, codec: Codec): AskRequest {
     messages: request.messages.map((m) => ({ ...m, content: m.content.map(encode) })),
   };
 }
-/** The exact, checked JSON body shared by previews and actual dispatch. */
+/** The exact JSON body shared by previews and actual dispatch. */
 export function wireBody(profile: GatewayProfile, request: AskRequest, codec: Codec = identityCodec) {
-  const body = adapterFor(profile).body(encodeRequest(request, codec));
-  if (codec.active) {
-    const containsOriginal = (value: unknown): boolean => {
-      if (typeof value === "string") return codec.containsOriginal(value);
-      if (Array.isArray(value)) return value.some(containsOriginal);
-      return !!value && typeof value === "object" && Object.entries(value).some(([key, item]) =>
-        codec.containsOriginal(key) || containsOriginal(item));
-    };
-    // Never rewrite protocol identifiers or signed Gemini parts. Fail before fetch
-    // if those fields, a replacement target, or any other payload still has originals.
-    // Gemini places the model in its URL, so check it even when absent from the body.
-    if (codec.containsOriginal(request.model) || containsOriginal(body))
-      throw new ProviderError("config", "请求仍含启用词表或替换规则的原词，已停止发送。请检查替换目标、协议字段或历史记录。");
-  }
-  return body;
+  return adapterFor(profile).body(encodeRequest(request, codec));
 }
 
 export type ProviderTrace =
