@@ -372,6 +372,8 @@ test("[core] M5 chat UI: ordered response, exact context, consumption, version/b
     await p.waitForSelector(".chat-turn");
     await bind(p);
     assert.equal(await p.locator("#chatPrompt").inputValue(), "保留草稿");
+    await p.locator('.chat-result img').first().scrollIntoViewIfNeeded();
+    await p.waitForFunction(() => document.querySelector('.chat-result img').naturalWidth > 0);
     assert.equal(
       await p
         .locator(".chat-result img")
@@ -589,15 +591,15 @@ test("chat sidebar and starters: unsent conversation is the new row, starters on
     await send(t, "雨夜街头");
     assert.equal(await p.locator(".conversation-group").textContent(), "今天");
     const forest = p.locator(".conversation-item", { hasText: "蓝色森林" });
+    await p.waitForFunction(() => [...document.querySelectorAll('.conversation-item')].find(el => el.textContent.includes('蓝色森林'))?.querySelector('img')?.naturalWidth > 0);
     assert.equal(
       await forest.locator(".conversation-thumb img").getAttribute("src"),
       await p.evaluate(
-        () =>
-          chat.assets.assets.get(
-            chat.snapshot().conversations.find((c) => c.title === "蓝色森林")
-              .turns[1].versions[0].blocks.find((b) => b.type === "image")
-              .assetId,
-          ).url,
+        async () => {
+          const id = chat.snapshot().conversations.find(c => c.title === '蓝色森林').turns[1].versions[0].blocks.find(b => b.type === 'image').assetId;
+          const lease = chat.assets.preview(id), url = await lease.url;
+          lease.release(); return url;
+        },
       ),
     );
     await p.getByRole("button", { name: "搜索对话" }).click();
@@ -881,6 +883,71 @@ test("M6 toolbar separates native/external upscale without generating on selecti
     assert.equal(posts(t).length, 1);assert.equal(posts(t)[0].payload.model, 'fal-upscale');
     assert.equal(posts(t)[0].payload.tool, 'image-edit');
     assert.equal(posts(t)[0].payload.prompt, 'keep linework');
+  } finally { await t.close(); }
+});
+
+test('CHAT long histories load visible previews and retain originals for inspection, download and shared asset leases', async () => {
+  const t = await open(), p = t.page;
+  try {
+    await p.evaluate(async () => {
+      const { beginTurn, contextSnapshot, completeVersion } = await import('/src/domain/conversation.ts');
+      const images = [];
+      for (let i = 0; i < 12; i++) {
+        const canvas = new OffscreenCanvas(2048, 1024), ctx = canvas.getContext('2d');
+        ctx.fillStyle = `hsla(${i * 28},50%,50%,.5)`; ctx.fillRect(0, 0, 2048, 1024);
+        images.push(await chat.assets.add(await canvas.convertToBlob({ type: 'image/png' }), `sample-${i}.png`, { width: 2048, height: 1024 }));
+      }
+      chat.mutate(c => { for (const image of images) {
+        const { turn, version } = beginTurn(c, contextSnapshot(c), image.name, c.settings);
+        completeVersion(c, turn, version, [{ type: 'image', assetId: image.id }], null, c.selectionRevision);
+      } });
+    });
+    await p.locator('.chat-print').last().waitFor();
+    await p.locator('#chatScroll').evaluate(el => { el.scrollTop = 0; });
+    const first = p.locator('.chat-print img').first(), last = p.locator('.chat-print img').last();
+    await p.waitForFunction(() => document.querySelector('.chat-print img').naturalWidth === 1280);
+    const url = await first.getAttribute('src');
+    assert.equal(await last.getAttribute('src'), null, 'far-away result images do not keep a display URL');
+    assert.deepEqual(await first.evaluate(async image => {
+      const bitmap = await createImageBitmap(await (await fetch(image.src)).blob()), canvas = new OffscreenCanvas(bitmap.width, bitmap.height), ctx = canvas.getContext('2d');
+      ctx.drawImage(bitmap, 0, 0); bitmap.close();
+      return [image.naturalWidth, image.naturalHeight, ctx.getImageData(10, 10, 1, 1).data[3]];
+    }), [1280, 640, 128]);
+    const original = await p.evaluate(() => {
+      const c = chat.snapshot().current, id = c.turns[0].versions[0].blocks.find(b => b.type === 'image').assetId;
+      return chat.assets.get(id).url;
+    });
+    assert.notEqual(url, original);
+    assert.equal(await p.locator('.chat-result-tools').first().getByRole('link', { name: '下载图片' }).getAttribute('href'), original);
+    await first.click();
+    const full = p.locator('.chat-lightbox img');
+    await full.waitFor();
+    assert.equal(await full.getAttribute('src'), original);
+    await p.waitForFunction(() => document.querySelector('.chat-lightbox img').naturalWidth === 2048);
+    await p.getByRole('button', { name: '关闭图片', exact: true }).click();
+    await p.locator('#chatScroll').evaluate(el => { el.scrollTop = el.scrollHeight; });
+    await p.waitForFunction(() => !document.querySelector('.chat-print img').hasAttribute('src') && [...document.querySelectorAll('.chat-print img')].at(-1).naturalWidth === 1280);
+    assert.equal(await p.evaluate(url => liveImageUrls.has(url), url), false, 'leaving the viewport releases the display URL');
+    assert.equal(await p.evaluate(url => liveImageUrls.has(url), original), true, 'originals retain their conversation ownership');
+    const leases = await p.evaluate(async () => {
+      const { AssetStore, dataUrl } = await import('/src/services/assets.ts');
+      const store = new AssetStore(), source = [...chat.assets.assets.values()][0];
+      const a = await store.add(source.blob, 'shared.png', { width: source.width, height: source.height });
+      const one = store.preview(a.id), two = store.preview(a.id), [u1, u2] = await Promise.all([one.url, two.url]);
+      one.release(); const kept = liveImageUrls.has(u1);
+      two.release(); const released = !liveImageUrls.has(u1);
+      const encoded = (await store.encode([a.id]))[0] === await dataUrl(source.blob);
+      const record = store.record(a.id), cleanRecord = record.blob === source.blob && !('url' in record) && !('preview' in record);
+      const cancelled = store.preview(a.id, 1280); cancelled.release();
+      const noLateUrl = await cancelled.url === undefined;
+      const reload = store.preview(a.id, 1280); store.clear(); store.adopt(record);
+      const noResurrection = await reload.url === undefined; reload.release();
+      const next = store.preview(a.id), current = await next.url;
+      store.collect([]); next.release();
+      return { shared: u1 === u2, kept, released, encoded, cleanRecord, noLateUrl, noResurrection, collected: !liveImageUrls.has(current) && !liveImageUrls.has(a.url) };
+    });
+    assert.deepEqual(leases, { shared: true, kept: true, released: true, encoded: true, cleanRecord: true, noLateUrl: true, noResurrection: true, collected: true });
+    assert.equal(posts(t).length, 0);
   } finally { await t.close(); }
 });
 

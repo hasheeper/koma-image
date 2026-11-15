@@ -12,6 +12,7 @@ import {
 import { placeMenu, menuKeys } from "../../shared/popover";
 import { names } from "../../storage/names";
 import AppIcon from "../../shared/AppIcon.vue";
+import ChatImage from "./ChatImage.vue";
 /* Embedded: canvas collaboration hosts the same floors in its sidebar, open
    while that panel is chosen; closing hands the choice back to the page. */
 const props = defineProps<{ embedded?: boolean; open?: boolean }>();
@@ -26,7 +27,6 @@ const c = computed(() => view.value.current),
   full = computed(() => contextSnapshot(c.value)),
   turns = computed(() => branchTurns(c.value));
 const cap = computed(() => view.value.model?.maxImages ?? Infinity);
-const url = (id: string) => chat.assets.assets.get(id)?.url;
 /* Each picture sits on the floor where it first appeared — the turn that sent
    or made it — so a turn's text and pictures read together. A picture with no
    floor on this branch (an upload not yet sent, one from the drawing page or
@@ -307,8 +307,8 @@ defineExpose({ toggle, close });
                 "
                 @click="tile(id, $event)"
               >
-                <img
-                  :src="url(id)"
+                <ChatImage
+                  :asset-id="id"
                   alt=""
                   width="96"
                   height="96"

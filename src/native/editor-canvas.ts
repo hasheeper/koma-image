@@ -30,6 +30,46 @@ export function createEditorCanvas(
     pinch: { x: number; y: number; distance: number; scale: number } | null =
       null;
   const touches = new Map<number, { x: number; y: number }>();
+  // Compose every input in client coordinates, then measure and write once per frame.
+  // Keeping both ends of an anchor also preserves wheel deltas at changing pointers.
+  let viewFrame = 0;
+  let pending: { scale: number; zooming: boolean; from: { x: number; y: number }; to: { x: number; y: number } } | null = null;
+  function cancelView() {
+    if (viewFrame) cancelAnimationFrame(viewFrame);
+    viewFrame = 0;
+    pending = null;
+  }
+  function flushView() {
+    const next = pending;
+    cancelView();
+    if (!next || !deps.size()) return;
+    if (!next.zooming) {
+      box.scrollLeft -= next.to.x - next.from.x;
+      box.scrollTop -= next.to.y - next.from.y;
+      return;
+    }
+    const before = stage.getBoundingClientRect();
+    const fx = before.width ? (next.from.x - before.left) / before.width : .5;
+    const fy = before.height ? (next.from.y - before.top) / before.height : .5;
+    zoom = next.scale;
+    layout();
+    const after = stage.getBoundingClientRect();
+    box.scrollLeft += after.left + fx * after.width - next.to.x;
+    box.scrollTop += after.top + fy * after.height - next.to.y;
+  }
+  function queueView(at: { x: number; y: number }, nextScale?: number, dx = 0, dy = 0) {
+    pending ??= { scale, zooming: false, from: { ...at }, to: { ...at } };
+    pending.to.x += dx;
+    pending.to.y += dy;
+    if (nextScale !== undefined) {
+      const value = Math.max(.05, Math.min(8, nextScale)), ratio = value / pending.scale;
+      pending.to.x = at.x + (pending.to.x - at.x) * ratio;
+      pending.to.y = at.y + (pending.to.y - at.y) * ratio;
+      pending.scale = value;
+      pending.zooming = true;
+    }
+    if (!viewFrame) viewFrame = requestAnimationFrame(flushView);
+  }
   function layout() {
     const size = deps.size();
     if (!size) return;
@@ -54,19 +94,10 @@ export function createEditorCanvas(
   }
   function zoomTo(next: number, anchor?: { x: number; y: number }) {
     if (!deps.size()) return;
-    const rect = box.getBoundingClientRect(),
-      before = stage.getBoundingClientRect(),
-      x = anchor ? anchor.x - rect.left : rect.width / 2,
-      y = anchor ? anchor.y - rect.top : rect.height / 2;
-    const fx = before.width
-        ? (x + rect.left - before.left) / before.width
-        : 0.5,
-      fy = before.height ? (y + rect.top - before.top) / before.height : 0.5;
-    zoom = Math.max(0.05, Math.min(8, next));
-    layout();
-    const after = stage.getBoundingClientRect();
-    box.scrollLeft += after.left + fx * after.width - (rect.left + x);
-    box.scrollTop += after.top + fy * after.height - (rect.top + y);
+    flushView();
+    const rect = anchor ? undefined : box.getBoundingClientRect();
+    queueView(anchor ?? { x: rect!.left + rect!.width / 2, y: rect!.top + rect!.height / 2 }, next);
+    flushView();
   }
   function setHand(value: boolean) {
     hand = value;
@@ -108,6 +139,7 @@ export function createEditorCanvas(
     cursor.style.transform = `translate(${e.clientX - host.left - size / 2}px,${e.clientY - host.top - size / 2}px)`;
   }
   function pause() {
+    flushView();
     events?.abort();
     events = undefined;
     observer?.disconnect();
@@ -132,6 +164,7 @@ export function createEditorCanvas(
         if (e.pointerType === "touch" || !(hand || space || e.button === 1))
           return;
         e.preventDefault();
+        flushView();
         pan = { id: e.pointerId, x: e.clientX, y: e.clientY };
         box.setPointerCapture(e.pointerId);
         root.dataset.panning = "on";
@@ -142,8 +175,7 @@ export function createEditorCanvas(
       "pointermove",
       (e) => {
         if (pan?.id !== e.pointerId) return;
-        box.scrollLeft -= e.clientX - pan.x;
-        box.scrollTop -= e.clientY - pan.y;
+        queueView(pan, undefined, e.clientX - pan.x, e.clientY - pan.y);
         pan.x = e.clientX;
         pan.y = e.clientY;
       },
@@ -151,6 +183,7 @@ export function createEditorCanvas(
     );
     const end = (e: PointerEvent) => {
       if (pan?.id === e.pointerId) {
+        flushView();
         pan = null;
         delete root.dataset.panning;
       }
@@ -163,6 +196,7 @@ export function createEditorCanvas(
         if (e.pointerType !== "touch") return;
         touches.set(e.pointerId, { x: e.clientX, y: e.clientY });
         if (touches.size === 2) {
+          flushView();
           mask.cancel();
           deps.focus?.cancel();
           pinch = { ...pinchState(), scale };
@@ -178,15 +212,14 @@ export function createEditorCanvas(
         touches.set(e.pointerId, { x: e.clientX, y: e.clientY });
         if (!pinch || touches.size < 2) return;
         const now = pinchState();
-        box.scrollLeft -= now.x - pinch.x;
-        box.scrollTop -= now.y - pinch.y;
-        zoomTo((pinch.scale * now.distance) / pinch.distance, now);
+        queueView(now, (pinch.scale * now.distance) / pinch.distance, now.x - pinch.x, now.y - pinch.y);
         pinch.x = now.x;
         pinch.y = now.y;
       },
       { capture: true, signal },
     );
     const lift = (e: PointerEvent) => {
+      if (touches.has(e.pointerId)) flushView();
       touches.delete(e.pointerId);
       if (touches.size < 2) pinch = null;
     };
@@ -200,10 +233,10 @@ export function createEditorCanvas(
       (e) => {
         if (!(e.ctrlKey || e.metaKey) || !deps.size()) return;
         e.preventDefault();
-        zoomTo(scale * Math.exp(-e.deltaY * 0.0025), {
+        queueView({
           x: e.clientX,
           y: e.clientY,
-        });
+        }, (pending?.scale ?? scale) * Math.exp(-e.deltaY * 0.0025));
       },
       { passive: false, signal },
     );
@@ -271,6 +304,7 @@ export function createEditorCanvas(
       { signal },
     );
     observer = new ResizeObserver(() => {
+      flushView();
       if (zoom === null) layout();
     });
     observer.observe(box);
@@ -278,6 +312,10 @@ export function createEditorCanvas(
     window.addEventListener(
       "blur",
       () => {
+        flushView();
+        pan = pinch = null;
+        touches.clear();
+        delete root.dataset.panning;
         setSpace(false);
         deps.compare(false);
         mask.cancel();
@@ -287,15 +325,21 @@ export function createEditorCanvas(
     );
   }
   return {
-    snapshot: () => ({ zoom, hand, left: box.scrollLeft, top: box.scrollTop }),
+    snapshot: () => { flushView(); return { zoom, hand, left: box.scrollLeft, top: box.scrollTop }; },
     restore(value?: { zoom: number | null; hand: boolean; left: number; top: number }) {
+      cancelView();
+      pan = pinch = null; touches.clear();
+      delete root.dataset.panning;
       zoom = value?.zoom ?? null; setHand(value?.hand ?? false); layout();
       box.scrollLeft = value?.left ?? 0; box.scrollTop = value?.top ?? 0;
     },
-    layout,
+    layout: () => { flushView(); layout(); },
     zoomTo,
-    step: (d: number) => zoomTo(d > 0 ? scale * 1.25 : scale / 1.25),
+    step: (d: number) => { flushView(); zoomTo(d > 0 ? scale * 1.25 : scale / 1.25); },
     fit: () => {
+      cancelView();
+      pan = pinch = null; touches.clear();
+      delete root.dataset.panning;
       zoom = null;
       layout();
     },

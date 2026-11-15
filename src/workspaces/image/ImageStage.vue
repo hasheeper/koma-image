@@ -21,12 +21,12 @@ import WaveHost from "./WaveHost.vue";
 import { useAsk, AskMark } from "../../app/ask";
 const props = defineProps<{ visible?: boolean; paused?: boolean; compact?: boolean; historyVisible?: boolean; actionsTarget?: HTMLElement | null }>();
 /* `paused`: still displayed (receded behind a canvas collaboration pane) but its drivers stop. */
-const running = computed(() => props.visible !== false && !props.paused);
+const running = computed(() => props.visible !== false && !props.paused && workspaceVisible.value);
 const emit = defineEmits<{ historyHost: [host: HTMLElement | null] }>();
 const historyHost = shallowRef<HTMLElement | null>(null);
 watch(historyHost, host => emit('historyHost', host), { flush: 'post' });
 const ask = useAsk();
-const { drawing, view } = useDrawing(), { narrow, image: shell, router } = useShell(), ui = useUi();
+const { drawing, view } = useDrawing(), { narrow, workspaceVisible, image: shell, router } = useShell(), ui = useUi();
 const viewport = shallowRef<HTMLElement | null>(null),
   wave = shallowRef<InstanceType<typeof WaveHost> | null>(null),
   timer = shallowRef<HTMLElement | null>(null),

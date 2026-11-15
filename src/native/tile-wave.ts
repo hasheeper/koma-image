@@ -33,6 +33,7 @@ export interface TileWave {
 interface LiveWave extends TileWave {
   canvas: HTMLCanvasElement;
   visible: boolean | null;
+  suspend(): void;
 }
 interface ScaledImage { canvas: HTMLCanvasElement; source: CanvasImageSource }
 
@@ -61,17 +62,30 @@ function swell(now: number, x: number, y: number): number {
    or hidden (the stage's busy layer between jobs) are not drawn at all. */
 const live = new Set<LiveWave>();
 const byCanvas = new WeakMap<Element, LiveWave>();
-let ticking = false;
+let frameId = 0, paused = false;
+/** Full workspace covers and hidden documents stop presentation, never the task. */
+export function setTileWavesPaused(value: boolean) {
+  if (paused === value) return;
+  paused = value;
+  if (paused) {
+    cancelAnimationFrame(frameId); frameId = 0;
+    for (const wave of live) wave.suspend();
+  } else {
+    for (const wave of [...live]) if (wave.canvas.isConnected) wave.resize();
+    wake();
+  }
+}
 function tick(now: number) {
+  frameId = 0;
+  if (paused) return;
   for (const wave of live) {
     if (wave.canvas.isConnected) wave.draw(now);
     else live.delete(wave);
   }
-  ticking = live.size > 0;
-  if (ticking) requestAnimationFrame(tick);
+  wake();
 }
 function wake() {
-  if (!ticking && live.size) { ticking = true; requestAnimationFrame(tick); }
+  if (!paused && !frameId && live.size) frameId = requestAnimationFrame(tick);
 }
 const seen = new IntersectionObserver(entries => {
   for (const entry of entries) {
@@ -125,7 +139,9 @@ export function tileWave(
   const wave: LiveWave = {
     // null until the observer first reports; reveal() measures it itself then.
     canvas, visible: null,
+    suspend() { settle?.(false); },
     resize() {
+      if (paused) return;
       const box = canvas.getBoundingClientRect();
       if (!box.width || !box.height) return;
       dpr = Math.min(2, devicePixelRatio || 1);
@@ -148,6 +164,7 @@ export function tileWave(
       wave.draw(performance.now()); wake();
     },
     draw(now) {
+      if (paused) return;
       if (finished) { live.delete(wave); return; }
       if (!w || !edge) return;
       g.setTransform(dpr, 0, 0, dpr, 0, 0);
@@ -168,6 +185,7 @@ export function tileWave(
        skipped (reduced motion, a hidden tab, a frame scrolled out of view),
        in which case the caller should present the result its usual way. */
     reveal(source) {
+      if (paused) return Promise.resolve(false);
       // A frame created this task has not been observed or measured yet.
       if (!w) wave.resize();
       if (wave.visible === null) wave.visible = onScreen(canvas);

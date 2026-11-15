@@ -1,6 +1,6 @@
 # 架构规范
 
-更新：2026-11-14。描述当前核心技术、模块结构与所有权。产品定位和功能见[产品总览](product/overview.md)，功能状态和真实待验项见[当前状态](status.md)，UI 标准见[设计语言](product/design-language.md)，行为约束见[业务契约](business-contracts.md)。
+更新：2026-11-15。描述当前核心技术、模块结构与所有权。产品定位和功能见[产品总览](product/overview.md)，功能状态和真实待验项见[当前状态](status.md)，UI 标准见[设计语言](product/design-language.md)，行为约束见[业务契约](business-contracts.md)。
 
 ## 核心技术
 
@@ -35,6 +35,8 @@
 Vue 创建、包裹、移动和销毁节点。高亮组件在模板中声明 mirror 与 textarea，移动宿主使用 Teleport。原生 dialog／popover 保留焦点、Esc 和顶层语义。
 
 Canvas、指针、逐帧进度和明确委托的高频样式由原生驱动管理，结束时同步必要业务状态。Blob、ImageBitmap、DOM、数据库、AbortController 和 CryptoKey 不进入深层 reactive。监听器、Observer、rAF 与 Object URL 有明确的激活、暂停、引用和销毁责任。
+
+App Shell 提供工作区可见信号，设置覆盖和文档隐藏时暂停 IMAGE 舞台测量／计时；App 同时协调共享 `tile-wave` 时钟，在设置、Photopea 覆盖或文档隐藏时停帧，返回后恢复。进入暂停时结束揭图动画的等待，生成任务与解码／结果处理继续，不因展示层占住任务槽。
 
 EDIT 由应用级服务持有独立画板、源版本、蒙版与任务归属。蒙版与手动聚焦框在同板同尺寸版本间沿用；聚焦重绘由客户端裁切／放大后单次请求，再仅合成原尺寸蒙版区域；手动结果与生成结果分型，原始出处及来源配方独立记录，结果留在 EDIT，经收藏与 Slate 交付。Director Tools 使用独立官方工具协议，输入取当前查看版本，去背景三种结果成组展示、保留透明通道与来源配方；所有输出解码与版本处理完成后释放同一任务槽。后台结果归发起画板，不抢占当前页；详见[编辑工作区](workspaces/edit.md)。
 

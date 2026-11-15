@@ -1,14 +1,25 @@
 <script setup lang="ts">
-import { computed, h } from "vue";
+import { computed, h, onBeforeUnmount, shallowRef, watch } from "vue";
 import type { FunctionalComponent, VNodeChild } from "vue";
 import type { PictureRefs } from "./edit-context.ts";
 import AskReference from "./AskReference.vue";
 import { blocks, inline } from "./format.ts";
 import type { Block, Inline } from "./format.ts";
 
-const props = defineProps<{ text: string; inlineOnly?: boolean; lead?: boolean; pictureRefs?: PictureRefs }>();
-const content = computed(() => props.inlineOnly ? [] : blocks(props.text));
-const parts = computed(() => props.inlineOnly ? inline(props.text) : []);
+const props = defineProps<{ text: string; inlineOnly?: boolean; lead?: boolean; pictureRefs?: PictureRefs; streaming?: boolean; active?: boolean }>();
+const displayed = shallowRef(props.text);
+let pending: ReturnType<typeof setTimeout> | undefined;
+function flush() { clearTimeout(pending); pending = undefined; displayed.value = props.text; }
+// Long live replies need not rebuild their full Markdown tree for every stream chunk.
+// Final text is immediate; hidden ASK windows catch up only when shown again.
+watch(() => [props.text, props.streaming, props.active], (_, previous) => {
+  if (props.active === false) { clearTimeout(pending); pending = undefined; return; }
+  if (!props.streaming || props.text.length < 4000 || previous?.[2] === false) flush();
+  else pending ??= setTimeout(flush, 80);
+});
+onBeforeUnmount(() => clearTimeout(pending));
+const content = computed(() => props.inlineOnly ? [] : blocks(displayed.value));
+const parts = computed(() => props.inlineOnly ? inline(displayed.value) : []);
 
 // Only explicit Vue nodes are created; Markdown HTML never enters innerHTML.
 function renderInline(parts: readonly Inline[]): VNodeChild[] {

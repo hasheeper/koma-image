@@ -8,6 +8,7 @@ import { createAnnotations } from "../services/annotations.ts";
 import { annotationsKey } from "./annotations.ts";
 import { createRouter } from "./router";
 import { createShell, shellKey } from "./shell";
+import { setTileWavesPaused } from "../native/tile-wave.ts";
 import { usePresentation } from "./presentation";
 import HomeWorkspace from "../home/HomeWorkspace.vue";
 import type { HomeActivity } from "../home/derive.ts";
@@ -66,6 +67,8 @@ provide(homeNavigationKey, createHomeNavigation({ router, home, drawing, chat, e
 onScopeDispose(() => { void home.dispose(); });
 const photopea=createPhotopea();
 provide(photopeaKey,photopea);
+watch(() => !shell.workspaceVisible.value || !!photopea.task.value, setTileWavesPaused, { immediate: true, flush: 'sync' });
+onScopeDispose(() => setTileWavesPaused(true));
 const ask = createAsk({ services, router, drawing, chat, ui, slates, home, editor, photopea });
 provide(askKey, ask);
 watch(photopea.task,task=>{if(task)ask.hide();});

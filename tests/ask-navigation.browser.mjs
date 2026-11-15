@@ -133,21 +133,65 @@ test('ASK navigation: long histories, attachment-only turns and conversation swi
     });
     await bottom(page);
     assert.equal(await ticks(page).count(), 40);
+    assert.equal(await page.locator('.ask-turn').count(), 10, 'older bodies are unmounted, not merely hidden');
+    const entries = await page.evaluate(() => JSON.stringify(ask.entries.value));
+    await page.getByRole('button', { name: '展开第 21–30 楼', exact: true }).click();
+    assert.equal(await page.locator('.ask-turn').count(), 20);
+    await page.getByRole('button', { name: '收起较早楼层', exact: true }).click();
+    assert.equal(await page.locator('.ask-turn').count(), 10);
     await ticks(page).last().focus();
     assert.match(await page.getByRole('tooltip').textContent(), /模拟连接中断/);
     await page.keyboard.press('Home');
     assert.equal(await ticks(page).first().evaluate(el => document.activeElement === el), true);
     assert.match(await page.getByRole('tooltip').textContent(), /角色资料.txt/);
     await page.keyboard.press('Enter');
-    await page.waitForFunction(() => document.querySelector('.ask-stream').scrollTop < 4);
+    await page.waitForFunction(() => document.querySelector('.ask-timeline-rail [aria-current]')?.dataset.id === '1000');
+    assert.equal(await page.locator('.ask-turn[data-turn-id="1000"]').getByRole('button', { name: '查看 角色资料.txt', exact: true }).count(), 1, 'opening an old floor restores its attachment');
+    assert.equal(await page.locator('.ask-turn').count(), 20, 'navigation mounts the target batch without opening every intervening floor');
     await page.keyboard.press('End'); await page.keyboard.press('Enter');
     await page.waitForFunction(() => document.querySelector('.ask-timeline-rail [aria-current]')?.dataset.id === '1039');
+    assert.equal(await page.evaluate(() => JSON.stringify(ask.entries.value)), entries, 'folding does not change stored turns');
     const previous = await page.evaluate(() => { const id = ask.conversationId.value; ask.newConversation(); return id; });
     await page.locator('.ask-start').waitFor();
     assert.equal(await ticks(page).count(), 0);
     assert.equal(await page.getByRole('button', { name: '回到最近', exact: true }).count(), 0);
     await page.evaluate(id => ask.selectConversation(id), previous); await bottom(page);
     assert.equal(await ticks(page).count(), 40);
+    assert.equal(await page.locator('.ask-turn').count(), 10);
+    assert.deepEqual(errors, []);
+  } finally { await context.close(); }
+});
+
+test('ASK long live replies restore complete Markdown after hiding and finishing, without losing the final chunk', async () => {
+  const f = await open('/#/image', { ready: '#prompt', ask: askSettings({ images: false }) });
+  const { page, context, errors } = f;
+  try {
+    await history(f, 1);
+    await page.evaluate(() => {
+      const source = ask.entries.value[0].turn;
+      window.longReply = '保留**正文**与图片引用。\n\n'.repeat(400);
+      ask.live.value = { ...source, id: 9000, status: 'running', items: [{ kind: 'text', text: longReply }] };
+    });
+    const reply = page.locator('.ask-turn[data-turn-id="9000"] > .ask-markdown');
+    await reply.waitFor();
+    await drawer(page).getByRole('button', { name: '收起 ASK', exact: true }).click();
+    await page.evaluate(() => { longReply += '\n\n### 隐藏期间的完整内容'; ask.live.value = { ...ask.live.value, items: [{ kind: 'text', text: longReply }] }; });
+    await page.evaluate(() => ask.show());
+    await reply.getByRole('heading', { name: '隐藏期间的完整内容', exact: true }).waitFor();
+    await page.evaluate(() => {
+      // A terminal update in the same turn must supersede any pending display timer.
+      for (let i = 0; i < 8; i++) { longReply += `\n\n新增段落 ${i}`; ask.live.value = { ...ask.live.value, items: [{ kind: 'text', text: longReply }] }; }
+      longReply += '\n\n| 最后内容 | 结果 |\n| --- | --- |\n| **完整** | 已完成 |';
+      ask.entries.value = [...ask.entries.value, { type: 'turn', id: 9000, turn: { ...ask.live.value, status: 'done', items: [{ kind: 'text', text: longReply }] } }];
+      ask.live.value = null;
+    });
+    await reply.getByRole('table').waitFor();
+    assert.match(await reply.innerText(), /新增段落 7[\s\S]*完整[\s\S]*已完成/);
+    assert.equal(await page.evaluate(() => ask.entries.value.at(-1).turn.items[0].text === longReply), true);
+    const previous = await page.evaluate(() => { const id = ask.conversationId.value; ask.newConversation(); return id; });
+    await page.locator('.ask-start').waitFor();
+    await page.evaluate(id => ask.selectConversation(id), previous);
+    await reply.getByRole('table').waitFor();
     assert.deepEqual(errors, []);
   } finally { await context.close(); }
 });

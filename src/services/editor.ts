@@ -68,7 +68,7 @@ import type { DirectorSettings, DirectorTool, DirectorVariant } from "../domain/
 import { prepareDirectorImage, consumeDirector } from "../native/director-tools.ts";
 import type { EditReference, ReferenceImage } from '../domain/edit-references.ts';
 import { validateEditReferences, editReferenceCapacity } from '../domain/edit-references.ts';
-import { decodeImage } from './image-response.ts';
+import { decodeImage, makeThumb } from './image-response.ts';
 export const modeNames = {
   img2img: "图生图",
   inpaint: "重绘",
@@ -90,6 +90,8 @@ export interface EditorVersion {
   mode?: EditorMode;
   blob: Blob;
   url: string;
+  thumbBlob: Blob | null;
+  thumbUrl: string;
   width: number;
   height: number;
   name: string;
@@ -652,26 +654,27 @@ export function createEditor(
   }
   async function addVersion(
     s: EditorSession,
-    data: Omit<EditorVersion, "id" | "url" | "sequence" | "recordId" | "createdAt" | "entity_key">,
+    data: Omit<EditorVersion, "id" | "url" | "thumbBlob" | "thumbUrl" | "sequence" | "recordId" | "createdAt" | "entity_key">,
   ) {
     if (disposed) throw new DOMException("编辑器已关闭", "AbortError");
     const grouped = data.director && s.versions.find(v => v.director?.group === data.director!.group);
     const sequence = grouped ? grouped.sequence : s.nextSequence++;
     const sourceId = data.kind === "source" ? data.sourceId?.replace(/^(?:record|history|favorite):/, "") : undefined;
     const candidate = data.sourceRecord ?? (sourceId ? drawing.original(sourceId) : undefined);
-    const entity_key = await imageEntity(data.blob);
+    const [entity_key, thumbBlob] = await Promise.all([imageEntity(data.blob), makeThumb(data.blob)]);
     const sourceRecord = candidate && (candidate.entity_key ?? await imageEntity(candidate.blob)) === entity_key ? candidate : undefined;
     const recordId = sourceRecord?.id ?? `edit:${s.id}:${s.nextId}`;
     if (disposed || !sessions.has(s.id)) throw new DOMException("编辑画板已关闭", "AbortError");
     const parent = s.versions.find(v => v.id === data.parentId);
     const via: ImageLineage["via"] = data.kind === "manual" ? "edit:photopea" : !!data.director ? "edit:director" : data.params?.enhance ? "edit:enhance" : data.mode === "inpaint" ? "edit:inpaint" : data.mode === "upscale" ? "edit:upscale" : data.kind === "source" ? "upload" : "edit:img2img";
     const lineage: ImageLineage = data.kind === "source" ? sourceRecord?.lineage ?? {via:s.origin === "chat" ? "chat" : "upload"} : { via, ...(parent ? { parent_record_id: parent.recordId, parent_entity_key: parent.entity_key } : {}), ...(data.director ? { tool_detail: `${data.director.tool}${data.director.variant ? `:${data.director.variant}` : ""}` } : data.params?.inpaintFocus ? { tool_detail: "focused-inpaint" } : {}) };
+    const url = URL.createObjectURL(data.blob);
     const v: EditorVersion = {
       ...data, configuration:data.configuration??(data.kind==='source'?configuration(s):undefined), entity_key, lineage, sourceRecord,
       ...(data.comparison ? { comparison: { ...data.comparison, rawId: data.comparison.rawId ?? s.nextId } } : {}),
       sourceId: data.sourceId ?? `${data.kind === "source" ? "source" : "edit"}:${String(data.params?.editId ?? crypto.randomUUID())}`,
       id: s.nextId++, sequence, recordId, createdAt: Date.now(),
-      url: URL.createObjectURL(data.blob),
+      url, thumbBlob, thumbUrl: thumbBlob ? URL.createObjectURL(thumbBlob) : url,
     };
     v.params = { ...v.params, editBoardId: s.id, editBoardName: s.name, editBoardSeq: s.boardSeq, editVersion: sequence,
       ...(v.director?.variant ? { editVariant: v.director.variant } : {}) };
@@ -679,6 +682,10 @@ export function createEditor(
     s.versions.push(v);
     trimVersions(s);
     return v;
+  }
+  function releaseVersion(v: EditorVersion) {
+    URL.revokeObjectURL(v.url);
+    if (v.thumbUrl !== v.url) URL.revokeObjectURL(v.thumbUrl);
   }
   let retainedRecords: ReadonlySet<string> = new Set();
   function trimVersions(s: EditorSession) {
@@ -699,7 +706,7 @@ export function createEditor(
       const removed = old.director ? s.versions.filter(p => p.director?.group === old.director!.group)
         : old.comparison ? s.versions.filter(p => p.comparison?.rawId === old.comparison!.rawId) : [old];
       s.versions = s.versions.filter(p => !removed.includes(p));
-      for (const item of removed) URL.revokeObjectURL(item.url);
+      for (const item of removed) releaseVersion(item);
       if (old.director) delete s.directorChoices[old.director.group];
       if (s.mask && removed.some(item => s.mask!.anchor === item.id || s.mask!.strokes.some(e => "bitmap" in e && e.baseId === item.id))) {
         s.mask = { ...s.mask, anchor:undefined, strokes:s.mask.strokes.map(e => "bitmap" in e ? {bitmap:e.bitmap} : e) };
@@ -789,8 +796,8 @@ export function createEditor(
   }
   /** EDIT owns the transient version; favoriting copies it through the existing data lease. */
   function record(s: EditorSession, v: EditorVersion): ImageRecord {
-    if (v.sourceRecord) return { ...v.sourceRecord };
-    return { id: v.recordId, entity_key: v.entity_key, lineage: v.lineage, createdAt: v.createdAt, blob: v.blob, thumbBlob: null,
+    if (v.sourceRecord) return { ...v.sourceRecord, thumbBlob: v.thumbBlob ?? v.sourceRecord.thumbBlob };
+    return { id: v.recordId, entity_key: v.entity_key, lineage: v.lineage, createdAt: v.createdAt, blob: v.blob, thumbBlob: v.thumbBlob,
       params: { ...v.params, ...originOf(s, v), editBoardSeq: s.boardSeq,
         editVersion: v.sequence, ...(s.versions[0]?.sourceId ? { editOriginId: s.versions[0].sourceId } : {}) },
       size: { width: v.width, height: v.height }, quote: v.quote as Fields | undefined };
@@ -1276,12 +1283,12 @@ export function createEditor(
       Object.assign(s,config);s.name=target.name;s.sourceKey=`record:${record.id}`;s.provenance=imageOrigin(record.params);s.initialized=true;
       sessions.set(s.id,s);draftPaused.add(s);askPanels.set(s,{upscaleOpen:_up,directorOpen:_dt});
       try {const v=await addVersion(s,{kind:'source',sourceRecord:record,blob:record.blob,name:s.name,...size,parentId:0,params:record.params,sourceId:`record:${record.id}`});s.baseId=s.viewId=v.id;emit();}
-      catch(error){sessions.delete(s.id);for(const v of s.versions)URL.revokeObjectURL(v.url);throw error;}
+      catch(error){sessions.delete(s.id);for(const v of s.versions)releaseVersion(v);throw error;}
     },
     removeAskBoard(id:string) {
       const s=sessions.get(id);if(!s||s.versions.length!==1||s.maskRevision||photopeaUsed.has(s)||s.externalPending||taskOwner===s)return false;
       if(current===s){const next=[...sessions.values()].find(b=>b!==s)??session(crypto.randomUUID(),'edit',undefined,nextBoard++);sessions.set(next.id,next);draftPaused.add(next);current=next;upscaleOpen=false;directorOpen=false;for(const key of ['edit','upscale','director'] as const)cancelQuote(key);}
-      sessions.delete(id);for(const v of s.versions)URL.revokeObjectURL(v.url);emit();return true;
+      sessions.delete(id);for(const v of s.versions)releaseVersion(v);emit();return true;
     },
     gotoAskBoard(id:string) { if(switchBoard(id)){const source=base();if(source)evolution.move(evolutionTarget('edit',id),source.recordId);router.switchWorkspace('edit');} },
     writeAskDraft(id:string,before:EditConfiguration,after:EditConfiguration,baseChange?:{before:number;after:number}) {
@@ -1563,7 +1570,7 @@ export function createEditor(
         else { if (!createBoard()) return false; }
       }
       sessions.delete(id);
-      for (const v of s.versions) URL.revokeObjectURL(v.url);
+      for (const v of s.versions) releaseVersion(v);
       s.mask = undefined; s.versions = []; collectReferences(); emit(); return true;
     },
     beginExternalEdit,
@@ -1859,7 +1866,7 @@ export function createEditor(
       }
       current.versions = current.versions.filter(item => !removed.includes(item));
       for (const item of current.versions) if (item.comparison && removed.some(r => r.id === item.comparison!.compositeId)) delete item.comparison.compositeId;
-      for (const item of removed) URL.revokeObjectURL(item.url);
+      for (const item of removed) releaseVersion(item);
       if (v.director) delete current.directorChoices[v.director.group];
       if (current.mask && removed.some(item => current.mask!.anchor === item.id || current.mask!.strokes.some(e => "bitmap" in e && e.baseId === item.id))) {
         current.mask = { ...current.mask, anchor: undefined, strokes: current.mask.strokes.map(e => "bitmap" in e ? { bitmap: e.bitmap } : e) };
@@ -1909,7 +1916,7 @@ export function createEditor(
       unregister();
       window.removeEventListener("beforeunload", leave);
       for (const s of sessions.values())
-        for (const v of s.versions) URL.revokeObjectURL(v.url);
+        for (const v of s.versions) releaseVersion(v);
       external = undefined;
       sessions.clear();
       for (const item of referencePool.values()) URL.revokeObjectURL(item.url); referencePool.clear();

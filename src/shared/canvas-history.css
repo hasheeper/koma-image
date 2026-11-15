@@ -2,7 +2,7 @@
 .mobile-library { position: fixed; inset: max(12px, env(safe-area-inset-top)) max(12px, env(safe-area-inset-right)) max(12px, env(safe-area-inset-bottom)) max(12px, env(safe-area-inset-left)); width: auto; height: auto; max-width: none; max-height: none; margin: 0; padding: 0; overflow: hidden; color: var(--fg); border: 0; outline: none; background: none; box-shadow: none; visibility: visible; }
 .mobile-library[open] { display: flex; flex-direction: column; gap: 16px; animation: library-appear var(--t2) var(--e-out); }
 /* Blur the whole covered surface, including an open form sheet. */
-.mobile-library::backdrop { background: color-mix(in srgb, var(--stage) 36%, transparent); backdrop-filter: blur(14px); }
+.mobile-library::backdrop { background: color-mix(in srgb, var(--stage) 36%, transparent); backdrop-filter: blur(8px); }
 .mobile-library-bar { display: flex; flex: none; align-items: center; gap: 8px; }
 .mobile-library .library-head { display: block; padding: 0; }
 .mobile-library .library-tabs { display: flex; gap: 2px; height: 44px; padding: 3px; background: var(--glass-bg); border: 1px solid var(--line-2); border-radius: 999px; box-shadow: var(--sh-1); backdrop-filter: blur(var(--glass-blur)); }

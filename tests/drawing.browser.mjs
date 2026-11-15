@@ -416,6 +416,31 @@ test("M4 failure and cancellation stop remaining requests; browsing and workspac
   }
 });
 
+test('generation survives settings cover, completes behind it and releases the task slot', async () => {
+  const t = await open({ cost: 1, holdAt: 1 }), p = t.page;
+  try {
+    await p.emulateMedia({ reducedMotion: 'no-preference' });
+    await p.locator('#goBtn').click();
+    while (!t.state.hold) await p.waitForTimeout(20);
+    await p.evaluate(() => { location.hash = '#/image/settings'; });
+    await p.locator('#settingsPanel[open]').waitFor();
+    await p.keyboard.press('Escape');
+    await p.waitForURL('**/#/image');
+    assert.equal(await p.evaluate(() => drawing.snapshot().busy), true, 'closing settings resumes the same pending generation');
+    await p.evaluate(() => { location.hash = '#/image/settings'; });
+    await p.locator('#settingsPanel[open]').waitFor();
+    t.state.hold();
+    await p.waitForFunction(() => !drawing.snapshot().busy);
+    assert.equal(await p.evaluate(() => drawing.snapshot().history.length), 1);
+    await p.keyboard.press('Escape');
+    await p.waitForURL('**/#/image');
+    await p.waitForFunction(() => { const image = document.querySelector('#image'); return image?.complete && image.naturalWidth > 0; });
+    await run(t);
+    assert.equal(t.state.generations, 2, 'presentation must not retain the global generation slot');
+    assert.equal(await p.evaluate(() => drawing.snapshot().history.length), 2);
+  } finally { await t.close(); }
+});
+
 test("M4 batch count ignores the daily quota; strict limits and restored preferences", async () => {
   const t = await open({ cost: 2, left: 1 }),
     p = t.page;

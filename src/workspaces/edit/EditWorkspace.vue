@@ -193,6 +193,7 @@ const tab = ref<"prompt" | "negative_prompt">("prompt"),
 const summaryModel = computed(() => view.value.model?.name ?? '未配置模型');
 const summaryModelShort = computed(() => summaryModel.value.replace(/^NAI Diffusion\s+/, ''));
 const versionsBeside = computed(() => coCreate.value && !layout.compact.value && rail.value && view.value.session.versions.length > 0);
+const versionsVisible = computed(() => view.value.open && (coCreate.value && layout.compact.value ? versionBrowserOpen.value : rail.value));
 const comparisonMode = shallowRef<'source' | 'raw' | 'composite'>('raw'), previewImage = shallowRef<EditorVersion>();
 const colorMatch=shallowRef(true);
 const previewBusy = shallowRef(false), previewError = shallowRef('');
@@ -1488,7 +1489,7 @@ async function copyReference(v: EditorVersion) {
             @click="browseVersion(v.id)"
             @dblclick="(!coCreate || !layout.compact.value) && editor.setBase(v.id)"
           >
-            <img :src="v.url" alt="" decoding="async" draggable="false" /><span class="tile-id" role="button" tabindex="0" :aria-label="`复制 ${editor.reference(v)}`" @click.stop="copyReference(v)" @keydown.enter.stop.prevent="copyReference(v)" @keydown.space.stop.prevent="copyReference(v)">{{ editor.label(v) }}</span><span
+            <img :src="versionsVisible ? v.thumbUrl : undefined" :width="v.width" :height="v.height" alt="" loading="lazy" decoding="async" draggable="false" /><span class="tile-id" role="button" tabindex="0" :aria-label="`复制 ${editor.reference(v)}`" @click.stop="copyReference(v)" @keydown.enter.stop.prevent="copyReference(v)" @keydown.space.stop.prevent="copyReference(v)">{{ editor.label(v) }}</span><span
               v-if="groupIsBase(v.id)"
               class="tile-pin"
               ><AppIcon name="i-pin" /></span

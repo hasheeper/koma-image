@@ -191,6 +191,16 @@ function openNode(node: RetrospectNode) { if (!isStaged(node) && !suppressClick 
 let scale = props.graphCamera?.scale ?? 1, fitted = props.graphCamera?.fitted ?? 1, x = props.graphCamera?.x ?? 0, y = props.graphCamera?.y ?? 0;
 let initialized = !!props.graphCamera, manualCamera = !!props.graphCamera, overviewCamera = props.graphCamera?.overview ?? false;
 let observer: ResizeObserver | undefined;
+let cameraFrame = 0, cameraRect: DOMRect | undefined;
+function cancelCameraFrame() {
+  if (cameraFrame) cancelAnimationFrame(cameraFrame);
+  cameraFrame = 0; cameraRect = undefined;
+}
+function schedulePaint() { if (props.active && !cameraFrame) cameraFrame = requestAnimationFrame(paint); }
+function flushPaint() { if (cameraFrame) paint(); }
+function styleValue(style: CSSStyleDeclaration, name: string, value: string) {
+  if (style.getPropertyValue(name) !== value) style.setProperty(name, value);
+}
 function rememberCamera() { if (initialized) emit('rememberCamera', { x, y, scale, fitted, overview: overviewCamera }); }
 const pointers = new Map<number, Point>();
 let previous: Point | null = null, boxDrag: { pointer: number; start: Point; end: Point; base: string[] } | null = null, panStart: { x: number; y: number; blank: boolean } | null = null, suppressClick = false;
@@ -203,21 +213,22 @@ function paintGrid() {
   const blend = transition * transition * (3 - 2 * transition);
   const visibility = Math.max(0, Math.min(1, (scale - .15) / .15));
   const dpr = window.devicePixelRatio || 1, atX = Math.round(x * dpr) / dpr, atY = Math.round(y * dpr) / dpr;
-  style.backgroundSize = `${fine}px ${fine}px, ${coarse}px ${coarse}px`;
-  style.backgroundPosition = `${atX - fine / 2}px ${atY - fine / 2}px, ${atX - coarse / 2}px ${atY - coarse / 2}px`;
-  style.setProperty('--grid-fine-visibility', `${(1 - blend) * visibility * 100}%`);
-  style.setProperty('--grid-coarse-visibility', `${blend * visibility * 100}%`);
+  styleValue(style, 'background-size', `${fine}px ${fine}px, ${coarse}px ${coarse}px`);
+  styleValue(style, 'background-position', `${atX - fine / 2}px ${atY - fine / 2}px, ${atX - coarse / 2}px ${atY - coarse / 2}px`);
+  styleValue(style, '--grid-fine-visibility', `${(1 - blend) * visibility * 100}%`);
+  styleValue(style, '--grid-coarse-visibility', `${blend * visibility * 100}%`);
 }
 function paint() {
-  const host = frameArea.value, scene = world.value;
-  if (!host || !scene || !host.clientWidth || !host.clientHeight) return;
+  cancelCameraFrame();
+  const scene = world.value;
+  if (!props.active || !scene) return;
   emit('camera');
-  scene.style.transform = `translate(${x}px, ${y}px) scale(${scale})`;
+  styleValue(scene.style, 'transform', `translate(${x}px, ${y}px) scale(${scale})`);
   const chrome = nodeChrome(scale);
-  scene.style.setProperty('--graph-scale', String(scale));
-  scene.style.setProperty('--node-ui-scale', String(chrome.compensation));
-  scene.style.setProperty('--node-status-height', `${chrome.statusHeight}px`);
-  scene.style.setProperty('--node-status-gap', `${chrome.statusGap}px`);
+  styleValue(scene.style, '--graph-scale', String(scale));
+  styleValue(scene.style, '--node-ui-scale', String(chrome.compensation));
+  styleValue(scene.style, '--node-status-height', `${chrome.statusHeight}px`);
+  styleValue(scene.style, '--node-status-gap', `${chrome.statusGap}px`);
   if (scene.dataset.detailLevel !== chrome.level) scene.dataset.detailLevel = chrome.level;
   paintGrid();
   const next = Math.round(scale * 100); if (percent.value !== next) percent.value = next;
@@ -248,12 +259,12 @@ function frame() {
 function fit() { overviewCamera = true; frame(); }
 function zoom(next: number, clientX?: number, clientY?: number) {
   const host = viewport.value; if (!host || !initialized) return;
-  const rect = host.getBoundingClientRect();
+  const rect = cameraRect ??= host.getBoundingClientRect();
   const atX = clientX == null ? (frameArea.value?.clientWidth ?? rect.width) / 2 : clientX - rect.left;
   const atY = clientY == null ? (frameArea.value?.clientHeight ?? rect.height) / 2 : clientY - rect.top;
   const nextScale = Math.max(Math.min(fitted, .25), Math.min(2, next)), ratio = nextScale / scale;
   x = atX - (atX - x) * ratio; y = atY - (atY - y) * ratio;
-  scale = nextScale; manualCamera = true; paint();
+  scale = nextScale; manualCamera = true; schedulePaint();
 }
 function wheel(event: WheelEvent) { if (!boxDrag) { zoom(scale * Math.exp(-event.deltaY * .002), event.clientX, event.clientY); if (nodeDrag?.started) scheduleNodeDrag(); } }
 function toolZoom(value: string) { zoom(value === 'actual' ? 1 : scale * (value === 'in' ? 1.25 : .8)); }
@@ -410,8 +421,9 @@ function move(event: PointerEvent) {
   pointers.set(event.pointerId, { x: event.clientX, y: event.clientY });
   const next = gesture();
   suppressClick ||= pointers.size > 1 || Math.hypot(event.clientX - panStart!.x, event.clientY - panStart!.y) > 4;
-  if (previous?.distance && next.distance) zoom(scale * next.distance / previous.distance, next.x, next.y);
-  if (previous) { x += next.x - previous.x; y += next.y - previous.y; manualCamera = true; paint(); }
+  // Scale around the previous midpoint, then move that same anchor with the fingers.
+  if (previous?.distance && next.distance) zoom(scale * next.distance / previous.distance, previous.x, previous.y);
+  if (previous) { x += next.x - previous.x; y += next.y - previous.y; manualCamera = true; schedulePaint(); }
   previous = next;
 }
 function up(event: PointerEvent) {
@@ -444,9 +456,11 @@ function up(event: PointerEvent) {
       y = Math.max(visibleY - bounds.bottom * scale, Math.min(roomH - visibleY - bounds.top * scale, y)); paint();
     }
   }
+  flushPaint();
   if (viewport.value?.hasPointerCapture(event.pointerId)) viewport.value.releasePointerCapture(event.pointerId);
 }
 function releaseGesture() {
+  flushPaint();
   finishNodeDrag(true);
   const host = viewport.value, ids = [...pointers.keys(), ...(boxDrag ? [boxDrag.pointer] : [])];
   pointers.clear(); boxDrag = null; previous = null; panStart = null; dragging.value = false; spacePan.value = false;
@@ -479,7 +493,7 @@ function keys(event: KeyboardEvent) {
   }
 }
 async function visibility() {
-  observer?.disconnect(); releaseGesture();
+  observer?.disconnect(); releaseGesture(); cancelCameraFrame();
   if (!props.active) { rememberCamera(); return; }
   await nextTick(); if (!props.active || !frameArea.value) return;
   observer?.observe(frameArea.value);
@@ -504,7 +518,7 @@ onMounted(() => {
   paintScene(); visibility(); window.addEventListener('blur', releaseGesture);
 });
 onUpdated(paintScene);
-onBeforeUnmount(() => { observer?.disconnect(); releaseGesture(); rememberCamera(); window.removeEventListener('blur', releaseGesture); });
+onBeforeUnmount(() => { observer?.disconnect(); releaseGesture(); cancelCameraFrame(); rememberCamera(); window.removeEventListener('blur', releaseGesture); });
 </script>
 <template>
   <section ref="surface" class="version-graph" aria-label="版本关系图" @keydown="keys" @keyup.space="spacePan = false">

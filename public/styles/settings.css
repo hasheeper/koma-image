@@ -461,13 +461,15 @@
   .settings.is-beta .set-bar { gap: 6px; }
   .settings.is-beta .set-switch > button { min-width: 36px; }
 }
-/* Dialogs opened from BETA settings (inside it, or beside it with the class) float in the islands'
-   glass over a receding page, and arrive and leave like settings itself. Phones float them 8px
-   from the edges, as the tray pane does, instead of pinning them to the bottom. */
+/* Dialogs opened from BETA settings float in the islands' glass. Only their entrance animates:
+   close() immediately releases the modal, its fields/selection and the backdrop together. Keeping
+   a closed dialog painted would expose its cleared contents and the lost [open] flex layout.
+   Phones float them 8px from the edges instead of pinning them to the bottom. */
 .modal.set-ui:is(.canvas-collaboration, .settings.is-beta *) {
   background: var(--glass-pop-bg); border-radius: 16px;
   box-shadow: var(--glass-pop-shadow);
-  backdrop-filter: blur(var(--glass-blur)) saturate(var(--glass-saturation));
+  /* The backdrop already blurs the covered page; do not filter that result again. */
+  backdrop-filter: none;
 }
 .modal.set-ui:is(.canvas-collaboration, .settings.is-beta *)::backdrop {
   background: color-mix(in srgb, var(--scrim-neutral) 35%, transparent); backdrop-filter: blur(14px);
@@ -478,17 +480,14 @@
   .modal.set-ui:is(.canvas-collaboration, .settings.is-beta *)[open] { opacity: 0; transform: scale(.98); }
   .modal.set-ui:is(.canvas-collaboration, .settings.is-beta *)[open]::backdrop { opacity: 0; }
 }
-@supports (overlay: auto) {
-  .modal.set-ui:is(.canvas-collaboration, .settings.is-beta *):not([open]) {
-    opacity: 0; pointer-events: none;
-    transition: opacity var(--t1) var(--e), display var(--t1) allow-discrete, overlay var(--t1) allow-discrete;
-  }
-  .modal.set-ui:is(.canvas-collaboration, .settings.is-beta *):not([open])::backdrop {
-    opacity: 0; transition: opacity var(--t1) var(--e), display var(--t1) allow-discrete, overlay var(--t1) allow-discrete;
-  }
-}
 @media (max-width: 1079px) {
   .modal.set-ui:is(.canvas-collaboration, .settings.is-beta *)[open] { transition-duration: var(--t3); }
+  .modal.set-ui:is(.canvas-collaboration, .settings.is-beta *)::backdrop { backdrop-filter: blur(8px); }
+  /* Avoid scaling a full-screen page and its nested backdrop surfaces on phones. */
+  @starting-style {
+    .settings.is-beta[open],
+    .modal.set-ui:is(.canvas-collaboration, .settings.is-beta *)[open] { transform: none; }
+  }
 }
 @media (max-width: 640px) {
   .modal.set-ui:is(.canvas-collaboration, .settings.is-beta *) {

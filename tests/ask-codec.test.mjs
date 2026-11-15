@@ -1,7 +1,8 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { checkReplacement, checkWord, codecFor, createCodec, identityCodec } from "../src/ask/codec.ts";
+import { checkReplacement, checkWord, codecFor, createCodec, identityCodec, replacementLimits, wordLimits } from "../src/ask/codec.ts";
 import { defaultAskSettings, readAskSettings } from "../src/ask/settings.ts";
+import { exportCreationSettings, importCreationSettings } from "../src/ask/creation-settings.ts";
 
 test("codec: defaults have no vocabulary, replacement rules or codebook", () => {
   const settings = defaultAskSettings();
@@ -76,11 +77,51 @@ test("codec: explicit A → B is literal, longest-first and single-pass, then re
 test("codec: pair settings validate structure and mapping collisions, preserving exact case and spelling", () => {
   const rules = [{ from: "Red_Coat", to: "替身 B" }];
   assert.deepEqual(checkReplacement(" Red_Coat ", " 替身 B ", []), { replacement: rules[0] });
-  for (const [from, to] of [["", "B"], ["A", "A"], ["A\nB", "C"], ["A", "@t_001"], ["A".repeat(201), "B"], ["Red_Coat", "other"], ["other", "替身 B"]])
+  for (const [from, to] of [["", "B"], ["A", "A"], ["A\nB", "C"], ["A", "@t_001"], ["A".repeat(replacementLimits.chars + 1), "B"], ["Red_Coat", "other"], ["other", "替身 B"]])
     assert.ok("error" in checkReplacement(from, to, rules), `${from} → ${to}`);
   const settings = readAskSettings({ replacements: [rules[0], { from: "Red_Coat", to: "other" }, { from: "other", to: "替身 B" }, null, 5, { from: "原文", to: "新文" }] });
   assert.deepEqual(settings.replacements, [...rules, { from: "原文", to: "新文" }]);
   assert.deepEqual(readAskSettings(JSON.parse(JSON.stringify(settings))), settings);
+});
+
+test("creation settings: portable round-trip isolates the group and rejects invalid rules atomically", () => {
+  const settings = { ...defaultAskSettings(), connectionId: "private-connection", model: "private-model", preference: "local preference", adult: true,
+    words: ["soft light"], wordEncoding: "unicode", replacements: [{ from: "red coat", to: "azure dress" }], alwaysCodec: true, responseMode: "tool" };
+  const file = exportCreationSettings(settings), restored = importCreationSettings(JSON.parse(JSON.stringify(file)));
+  assert.deepEqual(restored, { words: ["soft light"], wordEncoding: "unicode", replacements: [{ from: "red coat", to: "azure dress" }], alwaysCodec: true, responseMode: "tool" });
+  for (const key of ["connectionId", "model", "preference", "adult"])
+    assert.equal(JSON.stringify(file).includes(key), false);
+  assert.deepEqual(importCreationSettings(exportCreationSettings(defaultAskSettings())).words, []);
+  for (const patch of [
+    { words: ["Soft_Light", "soft light"] }, { words: [null] }, { words: Array.from({ length: wordLimits.count + 1 }, (_, i) => `word ${i}`) },
+    { replacements: [{ from: "valid", to: "pair" }, { from: "other", to: "pair" }] }, { replacements: [{ from: "A", to: "@t_1000" }] },
+    { replacements: [{ from: "A", to: "B".repeat(replacementLimits.chars + 1) }] }, { replacements: [null] },
+    { replacements: Array.from({ length: replacementLimits.count + 1 }, (_, i) => ({ from: `a${i}`, to: `b${i}` })) },
+    { wordEncoding: ["unicode"] }, { responseMode: "unknown" }, { alwaysCodec: "true" },
+  ]) assert.throws(() => importCreationSettings({ ...file, settings: { ...file.settings, ...patch } }));
+  for (const invalid of [null, [], { ...file, version: 2 }, { ...file, kind: "routing" }, { ...file, settings: {} }])
+    assert.throws(() => importCreationSettings(invalid));
+  assert.deepEqual(importCreationSettings({ ...file, settings: { ...file.settings, connectionId: "ignored", adult: true } }), restored);
+});
+
+test("codec: expanded limits survive settings, portable files and streamed restoration", () => {
+  const words = Array.from({ length: wordLimits.count }, (_, i) => `word ${i}`),
+    replacements = Array.from({ length: replacementLimits.count }, (_, i) => ({ from: `原文${i}`, to: `替文${i}` }));
+  replacements[0] = { from: "原".repeat(replacementLimits.chars), to: "替".repeat(replacementLimits.chars) };
+  const restored = importCreationSettings(exportCreationSettings({ ...defaultAskSettings(), words, replacements }));
+  const settings = readAskSettings(restored);
+  assert.equal(settings.words.length, words.length);
+  assert.deepEqual(settings.replacements, replacements);
+  assert.ok("error" in checkWord("overflow", words));
+  assert.ok("error" in checkReplacement("overflow", "target", replacements));
+  const codec = createCodec(words, replacements), source = `${words.at(-1)}, ${replacements[0].from}, ${replacements.at(-1).from}`,
+    encoded = codec.encode(source);
+  assert.ok(encoded.startsWith(`@t_${String(words.length).padStart(3, "0")}`));
+  assert.equal(codec.decode(encoded), source);
+  const stream = codec.stream();
+  let decoded = "";
+  for (let i = 0; i < encoded.length; i += 127) decoded += stream.push(encoded.slice(i, i + 127));
+  assert.equal(decoded + stream.flush(), source);
 });
 
 test("codec: free creation gates pairs, while automatic aliases retain their own enable/retry switch", () => {

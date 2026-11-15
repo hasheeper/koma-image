@@ -63,16 +63,30 @@ test('ASK EDIT, CHAT and attachment previews survive IMAGE pruning and release w
     await page.evaluate(() => chat.warm());
     await seedAskChat(page);
     await page.evaluate(async () => {
-      const canvas = new OffscreenCanvas(128, 192), g = canvas.getContext('2d');
-      g.fillStyle = '#675390'; g.fillRect(0, 0, 128, 192);
+      const canvas = new OffscreenCanvas(2048, 1024), g = canvas.getContext('2d');
+      g.fillStyle = '#675390'; g.fillRect(0, 0, 1024, 1024);
       const blob = await canvas.convertToBlob({ type: 'image/png' });
       await editor.open('edit', blob, '合成编辑图.png');
       window.previewBoard = editor.session.id;
+      window.originalUrl = editor.snapshot().viewed.url;
       await ask.addFiles([new File([blob], '合成附件.png', { type: 'image/png' })]);
       window.previewUrls = ['#e1', '#c1.1', '#a1'].map(label => ask.pictureInfo(label).url);
       ask.pictureCandidates('#');
       await drawing.patch({ prompt: 'only updates IMAGE' });
     });
+    const pixels = await page.evaluate(async () => {
+      const original = await (await fetch(originalUrl)).blob();
+      const preview = await createImageBitmap(await (await fetch(previewUrls[0])).blob());
+      try {
+        const c = new OffscreenCanvas(preview.width, preview.height), g = c.getContext('2d');
+        g.drawImage(preview, 0, 0);
+        return { bounded: Math.max(preview.width, preview.height) <= 768, ratio: preview.width / preview.height,
+          transparent: g.getImageData(preview.width - 1, 0, 1, 1).data[3],
+          separate: previewUrls[0] !== originalUrl,
+          original: await original.text() === await editor.snapshot().viewed.blob.text() };
+      } finally { preview.close(); }
+    });
+    assert.deepEqual(pixels, { bounded: true, ratio: 2, transparent: 0, separate: true, original: true }, 'preview keeps aspect and alpha while the source bytes stay intact');
     await addScene(page);
     const loaded = await page.evaluate(async () => Promise.all(previewUrls.map(async url => {
       const image = new Image(); image.src = url;
@@ -82,11 +96,11 @@ test('ASK EDIT, CHAT and attachment previews survive IMAGE pruning and release w
     const removed = await page.evaluate(async () => {
       editor.removeBoard(previewBoard);
       ask.removeAttachment('#a1');
-      return Promise.all([previewUrls[0], previewUrls[2]].map(async url => {
+      return Promise.all([previewUrls[0], previewUrls[2], originalUrl].map(async url => {
         try { await fetch(url); return false; } catch { return true; }
       }));
     });
-    assert.deepEqual(removed, [true, true], 'removing EDIT/attachment resources releases their preview URLs');
+    assert.deepEqual(removed, [true, true, true], 'removing EDIT/attachment resources releases both preview and original URLs');
     assert.deepEqual(generation(requests), []);
     assert.deepEqual(errors, []);
   } finally { await context.close(); }

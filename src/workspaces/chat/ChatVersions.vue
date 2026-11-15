@@ -6,6 +6,7 @@ import type {
 } from "../../storage/records";
 import { useChat } from "../../app/chat";
 import AppIcon from "../../shared/AppIcon.vue";
+import ChatImage from "./ChatImage.vue";
 const props = defineProps<{ turn: ConversationTurn }>();
 const { chat, view } = useChat();
 const host = shallowRef<HTMLElement | null>(null);
@@ -45,7 +46,7 @@ watch(
 );
 function preview(version: ConversationVersion) {
   const image = version.blocks.find((block) => block.type === "image");
-  return image && chat.assets.assets.get(version.composites?.[image.assetId] ?? image.assetId)?.url;
+  return image && (version.composites?.[image.assetId] ?? image.assetId);
 }
 </script>
 <template>
@@ -66,7 +67,7 @@ function preview(version: ConversationVersion) {
       :aria-pressed="selected === i"
       @click="chat.mutate(() => (turn.selectedVersion = i), true)"
     >
-      <img v-if="preview(v)" :src="preview(v)" alt="" />
+      <ChatImage v-if="preview(v)" :asset-id="preview(v)!" alt="" />
       <AppIcon
         v-else
         :name="

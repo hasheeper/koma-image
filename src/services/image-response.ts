@@ -84,11 +84,11 @@ export async function consumeImage(
   if (!result) throw new Error("上游未返回有效图片");
   return result;
 }
-export async function makeThumb(blob: Blob): Promise<Blob | null> {
+export async function makeThumb(blob: Blob, maxEdge = 768): Promise<Blob | null> {
   try {
     const bitmap = await createImageBitmap(blob);
     try {
-      const scale = Math.min(1, 768 / Math.max(bitmap.width, bitmap.height)),
+      const scale = Math.min(1, maxEdge / Math.max(bitmap.width, bitmap.height)),
         canvas = new OffscreenCanvas(
           Math.max(1, Math.round(bitmap.width * scale)),
           Math.max(1, Math.round(bitmap.height * scale)),

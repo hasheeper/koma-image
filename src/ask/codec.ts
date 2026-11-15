@@ -1,5 +1,5 @@
-export const wordLimits = Object.freeze({ count: 200, chars: 64 });
-export const replacementLimits = Object.freeze({ count: 200, chars: 200 });
+export const wordLimits = Object.freeze({ count: 1000, chars: 64 });
+export const replacementLimits = Object.freeze({ count: 1000, chars: 2000 });
 export interface Replacement {
   from: string;
   to: string;
@@ -32,7 +32,7 @@ export function checkReplacement(
   if (!from || !to) return { error: "请填写原文与替换文本" };
   if (from.length > replacementLimits.chars || to.length > replacementLimits.chars)
     return { error: "替换文本过长" };
-  if (/[\p{Cc}\p{Zl}\p{Zp}]/u.test(from + to) || /@[tT]_\d{3}u?/.test(from + to))
+  if (/[\p{Cc}\p{Zl}\p{Zp}]/u.test(from + to) || /@[tT]_\d{3,}u?/.test(from + to))
     return { error: "替换文本含有无效字符或保留代号" };
   if (from === to) return { error: "原文与替换文本不能相同" };
   if (existing.some((r) => r.from === from)) return { error: "原文已存在" };
@@ -154,7 +154,17 @@ export function createCodec(custom: readonly string[], rules: readonly Replaceme
   const instructions = !words.length ? "" : wordEncoding === "unicode"
     ? "文本中的 \\uXXXX 是 Unicode 转义，按原字符理解；回复和草稿中可保留转义写法。"
     : "文本中形如 @t_001 的代号代表用户的本地保留标签（@T_ 为全大写，末尾 u 为下划线写法）；请根据上下文语境理解其作用，并在回复与草稿中原样保留该代号，客户端会自动还原。";
-  const prefixes = new Set(targets.flatMap((s) => Array.from({ length: s.length }, (_, i) => s.slice(0, i + 1))));
+  // Keep complete targets only: long rules must not allocate every prefix.
+  const prefixTargets = [...new Set(wordEncoding === "unicode" ? [...targets, ...targets.map((s) => s.toLowerCase())] : targets)].sort();
+  const isPrefix = (text: string) => {
+    let low = 0, high = prefixTargets.length;
+    while (low < high) {
+      const mid = (low + high) >>> 1;
+      if (prefixTargets[mid]! < text) low = mid + 1;
+      else high = mid;
+    }
+    return prefixTargets[low]?.startsWith(text) ?? false;
+  };
   const longest = Math.max(...targets.map((s) => s.length));
   return Object.freeze({
     active: true,
@@ -169,7 +179,7 @@ export function createCodec(custom: readonly string[], rules: readonly Replaceme
           const text = held + chunk;
           let cut = text.length;
           for (let n = Math.min(longest, text.length); n > 0; n--)
-            if (prefixes.has(text.slice(-n)) || wordEncoding === "unicode" && prefixes.has(text.slice(-n).toLowerCase())) { cut -= n; break; }
+            if (isPrefix(text.slice(-n)) || wordEncoding === "unicode" && isPrefix(text.slice(-n).toLowerCase())) { cut -= n; break; }
           // Match against the full chunk so alias boundaries and overlapping
           // literal pairs behave exactly like decoding a complete response.
           let out = "", cursor = 0;

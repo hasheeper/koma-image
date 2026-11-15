@@ -24,6 +24,7 @@ import { copyText } from "../../shared/files";
 import AppIcon from "../../shared/AppIcon.vue";
 import ModelIcon from "../../shared/ModelIcon.vue";
 import ChatPrint from "./ChatPrint.vue";
+import ChatImage from "./ChatImage.vue";
 import ChatVersions from "./ChatVersions.vue";
 import ChatResultTools from "./ChatResultTools.vue";
 import EvolutionAction from '../../ask/retrospect/EvolutionAction.vue';
@@ -197,7 +198,7 @@ const filename = (id: string) =>
           :aria-label="`查看${i === 0 ? '底图' : `参考 ${i}`}：${asset(id)?.name || '图片'}`"
           @click="emit('view', id)"
         >
-          <img :src="url(id)" :alt="asset(id)?.name" width="40" height="40" />
+          <ChatImage :asset-id="id" :alt="asset(id)?.name" width="40" height="40" />
         </button>
       </div>
       <AnnotationCard v-if="turn.snapshot.annotation" :regions="turn.snapshot.annotation.snapshot.regions" :references="turn.snapshot.annotation.snapshot.references" :preview="url(turn.snapshot.annotation.guideAssetId)" sent />
@@ -273,7 +274,6 @@ const filename = (id: string) =>
             <div class="chat-art">
               <ChatPrint
                 :key="`${version.id}:${b.assetId}`"
-                :url="url(displayed(b.assetId))!"
                 :alt="turn.prompt.slice(0, 160)"
                 :width="asset(displayed(b.assetId))!.width"
                 :height="asset(displayed(b.assetId))!.height"

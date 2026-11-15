@@ -1,9 +1,70 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
+import { readAskSettings } from "../src/ask/settings.ts";
 
 import { useAskFixture, submitAsk, hosts, reasoning, open, openai, text, tool, end, anthropic, askSettings, generation, drawer, route, stored } from "./helpers/ask-fixture.mjs";
 
 useAskFixture();
+
+test("ASK creation settings: independent export/import preserves other settings, validates atomically and edits long lists", async () => {
+  const { page, context, requests, errors } = await open("/#/image/settings/ask", {
+    ask: askSettings({ preference: "keep local preference", words: ["original word"], replacements: [{ from: "original", to: "substitute" }] }),
+  });
+  try {
+    const creation = page.getByRole("region", { name: "创作", exact: true }),
+      initial = await stored(page, "koma.ask.v1"), fileInput = creation.getByLabel("导入创作配置", { exact: true });
+    const downloaded = page.waitForEvent("download");
+    await creation.getByRole("button", { name: "导出", exact: true }).click();
+    const download = await downloaded;
+    assert.equal(download.suggestedFilename(), "koma-ask-creation.json");
+    const stream = await download.createReadStream();
+    let content = "";
+    for await (const chunk of stream) content += chunk.toString();
+    const file = JSON.parse(content);
+    assert.deepEqual(file, { app: "koma-image", kind: "ask-creation", version: 1, settings: {
+      words: ["original word"], wordEncoding: "alias", replacements: [{ from: "original", to: "substitute" }], alwaysCodec: false, responseMode: "text",
+    } });
+    const upload = (value) => fileInput.setInputFiles({ name: "creation.json", mimeType: "application/json", buffer: Buffer.from(typeof value === "string" ? value : JSON.stringify(value)) });
+    await upload("invalid json");
+    await page.getByText("创作配置不是有效的 JSON", { exact: true }).waitFor();
+    await upload({ ...file, settings: { ...file.settings, replacements: [{ from: "A", to: "B" }, { from: "C", to: "B" }] } });
+    await page.getByText("替换 2：替换文本已被其他规则使用", { exact: true }).waitFor();
+    assert.deepEqual(await stored(page, "koma.ask.v1"), initial);
+    const long = "用于验证长替换文本".repeat(80), imported = { ...file, settings: {
+      words: Array.from({ length: 240 }, (_, i) => `word ${i}`), wordEncoding: "unicode", alwaysCodec: true, responseMode: "tool",
+      replacements: [{ from: long, to: "long replacement" }, ...Array.from({ length: 240 }, (_, i) => ({ from: `source ${i}`, to: `target ${i}` }))],
+      connectionId: "must-not-import", adult: true,
+    } };
+    await upload(imported);
+    const confirm = page.locator("#confirmSheet");
+    await confirm.getByRole("button", { name: "取消", exact: true }).click();
+    assert.deepEqual(await stored(page, "koma.ask.v1"), initial);
+    await upload(imported);
+    await confirm.getByRole("button", { name: "导入", exact: true }).click();
+    await page.waitForFunction(() => JSON.parse(localStorage.getItem("koma.ask.v1"))?.replacements?.length === 241);
+    assert.equal(await creation.getByRole("switch", { name: "自由创作", exact: true }).isChecked(), false);
+    const saved = await stored(page, "koma.ask.v1"), { connectionId: _ignored, adult: _adult, ...creationSettings } = imported.settings;
+    assert.deepEqual(saved, { ...readAskSettings(initial), ...creationSettings });
+    await page.setViewportSize({ width: 390, height: 844 });
+    await creation.locator('label[for="askAdult"]').click();
+    const rules = creation.getByRole("list", { name: "文本替换", exact: true });
+    await rules.waitFor();
+    assert.equal(await rules.locator("li").count(), 241);
+    await creation.getByRole("button", { name: `编辑替换 ${long}`, exact: true }).click();
+    assert.equal(await creation.getByRole("textbox", { name: "原文 A", exact: true }).inputValue(), long);
+    await creation.getByRole("textbox", { name: "替换为 B", exact: true }).fill("新的长替换".repeat(100));
+    await creation.getByRole("button", { name: "保存替换", exact: true }).click();
+    await page.waitForFunction(() => JSON.parse(localStorage.getItem("koma.ask.v1"))?.replacements?.[0]?.to.length > 200);
+    await creation.getByRole("button", { name: "删除替换 source 239", exact: true }).click();
+    await page.waitForFunction(() => JSON.parse(localStorage.getItem("koma.ask.v1"))?.replacements?.length === 240);
+    await page.reload();
+    await creation.getByRole("list", { name: "文本替换", exact: true }).waitFor();
+    assert.equal((await stored(page, "koma.ask.v1")).replacements[0].to, "新的长替换".repeat(100));
+    assert.equal((await stored(page, "koma.ask.v1")).words.length, 240);
+    assert.deepEqual(generation(requests), []);
+    assert.deepEqual(errors, []);
+  } finally { await context.close(); }
+});
 
 test("ASK settings: free creation off by default, empty vocabulary and replacement editor; add/edit/delete", async () => {
   const { page, context, requests, errors } = await open("/#/image/settings/ask");

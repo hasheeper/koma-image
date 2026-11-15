@@ -1,5 +1,5 @@
 import { MAX_INPUT_BYTES, MAX_TOTAL_BYTES } from "../domain/media.ts";
-import { decodeImage } from "./image-response";
+import { decodeImage, makeThumb } from "./image-response";
 import { assetRefs } from "../storage/records";
 import type { AssetRecord, ConversationRecord } from "../storage/records";
 export const dataUrl = (blob: Blob) =>
@@ -9,8 +9,16 @@ export const dataUrl = (blob: Blob) =>
     reader.onerror = () => reject(new Error("读取图片失败"));
     reader.readAsDataURL(blob);
   });
+interface Preview {
+  users: number;
+  blob?: Blob | null;
+  url?: string;
+  ready: Promise<void>;
+}
 export class AssetStore {
   private disposed = false;
+  private previews = new Map<string, Map<number, Preview>>();
+  private previewQueue = Promise.resolve();
   readonly assets = new Map<string, AssetRecord & { url: string }>();
   get(id: string) {
     const a = this.assets.get(id);
@@ -63,10 +71,54 @@ export class AssetStore {
     const { url, ...record } = this.get(id);
     return record;
   }
+  /** Display-only copies: never stored, encoded for a request, or returned as originals. */
+  preview(id: string, maxEdge: 256 | 1280 = 256) {
+    const asset = this.get(id);
+    let sizes = this.previews.get(id);
+    if (!sizes) { sizes = new Map(); this.previews.set(id, sizes); }
+    let entry = sizes.get(maxEdge);
+    if (!entry) {
+      entry = { users: 0, ready: Promise.resolve() };
+      sizes.set(maxEdge, entry);
+    }
+    const preview = entry;
+    const current = () => this.assets.get(id) === asset && this.previews.get(id)?.get(maxEdge) === preview;
+    preview.users++;
+    if (preview.blob === undefined && preview.users === 1) {
+      // Only visible consumers request work. Serialize large decodes and skip stale queued work.
+      preview.ready = this.previewQueue.then(async () => {
+        if (!current() || !preview.users || preview.blob !== undefined) return;
+        const blob = await makeThumb(asset.blob, maxEdge);
+        if (current()) preview.blob = blob;
+      });
+      this.previewQueue = preview.ready.catch(() => {});
+    }
+    let released = false;
+    return {
+      url: preview.ready.then(() => {
+        if (released || !current()) return undefined;
+        return preview.url ??= preview.blob ? URL.createObjectURL(preview.blob) : asset.url;
+      }),
+      release: () => {
+        if (released) return;
+        released = true;
+        if (--preview.users === 0) {
+          if (preview.url && preview.blob) URL.revokeObjectURL(preview.url);
+          preview.url = undefined;
+        }
+      },
+    };
+  }
+  private dropPreviews(id: string) {
+    for (const preview of this.previews.get(id)?.values() ?? [])
+      if (preview.url && preview.blob) { URL.revokeObjectURL(preview.url); preview.url = undefined; }
+    this.previews.delete(id);
+  }
   collect(conversations: ConversationRecord[]) {
     const used = assetRefs(conversations);
     for (const [id, a] of this.assets)
       if (!used.has(id)) {
+        this.dropPreviews(id);
         URL.revokeObjectURL(a.url);
         this.assets.delete(id);
       }
@@ -76,7 +128,7 @@ export class AssetStore {
     this.clear();
   }
   clear() {
-    for (const a of this.assets.values()) URL.revokeObjectURL(a.url);
+    for (const a of this.assets.values()) { this.dropPreviews(a.id); URL.revokeObjectURL(a.url); }
     this.assets.clear();
   }
 }

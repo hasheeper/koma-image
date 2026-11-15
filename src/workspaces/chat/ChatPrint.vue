@@ -1,14 +1,13 @@
 <script setup lang="ts">
 import {
-  onMounted,
   onBeforeUnmount,
   onDeactivated,
   ref,
   shallowRef,
 } from "vue";
 import { tileWave } from "../../native/tile-wave.ts";
+import ChatImage from "./ChatImage.vue";
 const props = defineProps<{
-    url: string;
     alt: string;
     width: number;
     height: number;
@@ -18,34 +17,33 @@ const props = defineProps<{
   }>(),
   emit = defineEmits<{ view: [] }>();
 const nativeHost = shallowRef<HTMLElement | null>(null),
-  img = shallowRef<HTMLImageElement | null>(null),
   revealing = ref(false),
   crest = ref(false),
   entering = ref(false);
 let wave: ReturnType<typeof tileWave> | undefined,
-  revision = 0;
+  revision = 0, attempted = false;
 function pause() {
   revision++;
   wave?.destroy();
   wave = undefined;
   revealing.value = false;
 }
-onMounted(async () => {
+async function reveal(img: HTMLImageElement) {
   if (
-    !props.fresh ||
+    attempted || !props.fresh ||
     !nativeHost.value ||
-    !img.value ||
-    !img.value.getClientRects().length
+    !img.getClientRects().length
   )
     return;
+  attempted = true;
   const token = ++revision;
   wave = tileWave(nativeHost.value);
   revealing.value = true;
   try {
-    await img.value.decode();
+    await img.decode();
     if (token !== revision) return;
     crest.value = true;
-    const played = await wave.reveal(img.value);
+    const played = await wave.reveal(img);
     if (token === revision && !played) entering.value = true;
   } catch {
   } finally {
@@ -55,7 +53,7 @@ onMounted(async () => {
       revealing.value = false;
     }
   }
-});
+}
 onDeactivated(pause);
 onBeforeUnmount(pause);
 </script>
@@ -69,19 +67,20 @@ onBeforeUnmount(pause);
     :data-new="entering ? 'true' : undefined"
     @animationend="entering = false"
   >
-    <img
-      ref="img"
-      :src="url"
+    <ChatImage
+      :asset-id="assetId"
+      :max-edge="1280"
       :alt="alt"
       :width="width"
       :height="height"
-      decoding="async"
       tabindex="0"
       role="button"
       aria-label="查看完整图片"
       @click="emit('view')"
       @keydown.enter.prevent="emit('view')"
       @keydown.space.prevent="emit('view')"
+      @ready="reveal"
+      @unload="pause"
     /><span
       ref="nativeHost"
       style="position: absolute; inset: 0; pointer-events: none"

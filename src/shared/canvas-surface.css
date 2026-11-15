@@ -9,6 +9,11 @@
   --tip-bg: var(--glass-pop-bg);
   --tip-backdrop: blur(var(--glass-blur));
 }
+/* Phone surfaces share a smaller blur kernel instead of the desktop glass's 18–20px.
+   Keep it scoped to collaboration, including teleported menus that carry this class. */
+@media (max-width: 1079px) {
+  .canvas-collaboration { --glass-blur: 8px; --glass-saturation: 1; }
+}
 
 /* The ⋯ options carry the account row (quota, balance, tools, appearance) rather than plain rows:
    they size to it instead of the 224px item menu, and wrap before scrolling sideways. */

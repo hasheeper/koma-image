@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed, onBeforeUnmount, onMounted, shallowRef, watch } from "vue";
+import { computed, nextTick, onBeforeUnmount, onMounted, shallowRef, watch } from "vue";
 import { useAsk } from "../app/ask";
 import { useUi } from "../app/ui";
 import AppIcon from "../shared/AppIcon.vue";
@@ -28,6 +28,32 @@ const content = shallowRef<HTMLElement | null>(null);
 const turns = computed(() => all.value.flatMap(entry => entry.type === "turn" ? [entry.turn] : []));
 const currentTurn = shallowRef<number | null>(null), away = shallowRef(false);
 const editing = shallowRef<number | null>(null);
+const RECENT_TURNS = 10;
+const expanded = shallowRef<ReadonlySet<number>>(new Set());
+type Fold = { type: "fold"; id: string; ids: number[]; first: number; last: number; memory: boolean };
+const visible = computed(() => {
+  const result: (AskEntry | Fold)[] = [];
+  const cutoff = turns.value.length - RECENT_TURNS;
+  let floor = 0, fold: Fold | undefined;
+  for (const entry of all.value) {
+    if (entry.type === "turn" && ++floor <= cutoff && !expanded.value.has(entry.id) && editing.value !== entry.id) {
+      if (!fold) { fold = { type: "fold", id: `fold-${entry.id}`, ids: [], first: floor, last: floor, memory: false }; result.push(fold); }
+      fold.ids.push(entry.id); fold.last = floor;
+      fold.memory ||= !!ask.memory.value && entry.turn.turnId === ask.memory.value.after;
+    } else { fold = undefined; result.push(entry); }
+  }
+  return result;
+});
+async function expand(ids: readonly number[]) {
+  follow = false;
+  expanded.value = new Set([...expanded.value, ...ids]);
+  await nextTick();
+  jump(ids[0]);
+}
+function collapse() {
+  expanded.value = new Set();
+  void nextTick(() => latest(true));
+}
 function edit(id: number) {
   if (!ask.canManage.value) return;
   follow = false;
@@ -142,7 +168,16 @@ function returnToLatest() {
   if (document.activeElement?.closest(".ask-latest")) scroller.value?.focus({ preventScroll: true });
   latest();
 }
-function jump(id: number) {
+async function jump(id: number) {
+  const conversation = ask.conversationId.value;
+  follow = false;
+  const hidden = visible.value.find((entry): entry is Fold => entry.type === "fold" && entry.ids.includes(id));
+  if (hidden) {
+    const start = Math.floor(hidden.ids.indexOf(id) / RECENT_TURNS) * RECENT_TURNS;
+    expanded.value = new Set([...expanded.value, ...hidden.ids.slice(start, start + RECENT_TURNS)]);
+    await nextTick();
+  }
+  if (ask.conversationId.value !== conversation) return;
   const el = scroller.value, node = content.value?.querySelector<HTMLElement>(`[data-turn-id="${id}"]`);
   if (!el || !node) return;
   follow = false;
@@ -169,12 +204,13 @@ watch(ask.running, (on) => {
   wake();
 });
 watch(ask.live, value => { if (value) editing.value = null; });
-watch([ask.live, ask.entries, ask.memory, ask.compacting], changed, { flush: "post" });
+watch([visible, ask.memory, ask.compacting], changed, { flush: "post" });
 // Another conversation opens at its end, without the follow animation.
 watch(ask.conversationId, () => {
   editing.value = null;
+  expanded.value = new Set();
   dirty = true;
-  latest(true);
+  void nextTick(() => latest(true));
 }, { flush: "post" });
 // Observe both viewport and content: attachments and expanded tools can grow later.
 const resized = new ResizeObserver(changed);
@@ -219,8 +255,13 @@ onBeforeUnmount(() => { resized.disconnect(); cancelAnimationFrame(frame); clear
         <button v-for="s in starters" :key="s.icon" class="ask-starter" type="button" @click="emit('start', s.text)"><AppIcon :name="s.icon" /><span>{{ s.text }}</span></button>
       </div>
     </div>
-    <template v-for="entry in all" :key="entry.id">
-      <template v-if="entry.type === 'note'">
+    <button v-if="expanded.size" class="ask-history-toggle" type="button" @click="collapse"><AppIcon name="i-up" /><span>收起较早楼层</span></button>
+    <template v-for="entry in visible" :key="entry.id">
+      <template v-if="entry.type === 'fold'">
+        <button class="ask-history-toggle" type="button" :aria-label="`展开第 ${Math.max(entry.first, entry.last - RECENT_TURNS + 1)}–${entry.last} 楼`" @click="expand(entry.ids.slice(-RECENT_TURNS))"><AppIcon name="i-down" /><span>{{ entry.first === entry.last ? `第 ${entry.first} 楼` : `第 ${entry.first}–${entry.last} 楼` }}已折叠</span><span>展开</span></button>
+        <AskMemory v-if="entry.memory" :key="`${ask.conversationId.value}-${ask.memory.value?.through}`" />
+      </template>
+      <template v-else-if="entry.type === 'note'">
         <details v-if="entry.compactRetry" class="ask-compaction-failure">
           <summary class="ask-compaction-line"><AppIcon name="i-alert" /><span>压缩未完成</span><span class="ask-compaction-rule" aria-hidden="true"></span><button type="button" :disabled="!!ask.compaction.value.reason" :title="ask.compaction.value.reason || undefined" @click.stop.prevent="ask.compactContext()">重试压缩</button></summary>
           <p>{{ entry.text }}</p>
@@ -234,7 +275,7 @@ onBeforeUnmount(() => { resized.disconnect(); cancelAnimationFrame(frame); clear
       </template>
       <section
         v-else
-        v-memo="[entry, ask.adult.value, codecAvailable, ask.codecActive.value, ask.settings.value.images, ask.libraryRevision.value, copied.slice(1) === String(entry.id) && copied, revealed === entry.id, editing === entry.id, ask.undoId.value, ask.redoId.value, ask.writingDraft.value, ask.running.value]"
+        v-memo="[entry, active, ask.adult.value, codecAvailable, ask.codecActive.value, ask.settings.value.images, ask.libraryRevision.value, copied.slice(1) === String(entry.id) && copied, revealed === entry.id, editing === entry.id, ask.undoId.value, ask.redoId.value, ask.writingDraft.value, ask.running.value]"
         class="ask-turn"
         :class="{ revealed: revealed === entry.id }"
         :data-status="entry.turn.status"
@@ -265,7 +306,7 @@ onBeforeUnmount(() => { resized.disconnect(); cancelAnimationFrame(frame); clear
             </button>
           </div>
           <RetrospectCard :turn-id="entry.id" v-else-if="item.kind === 'retrospect'" :value="item.value" :picture-refs="entry.turn.pictureRefs" :ready="entry.turn.status === 'done'" />
-          <AskMarkdown v-else :text="item.text" :picture-refs="entry.turn.pictureRefs" :lead="i === leadOf(entry.turn)" />
+          <AskMarkdown v-else :text="item.text" :picture-refs="entry.turn.pictureRefs" :lead="i === leadOf(entry.turn)" :streaming="entry.turn === ask.live.value" :active="active" />
         </template>
         <p v-if="entry.turn.truncated" class="ask-meta">回复已达输出上限</p>
         <div v-if="entry.turn.status === 'failed' || entry.turn.status === 'stopped'" class="ask-fail">
@@ -314,10 +355,14 @@ onBeforeUnmount(() => { resized.disconnect(); cancelAnimationFrame(frame); clear
 </template>
 <style scoped>
 .ask-stream-area { position: relative; display: flex; flex: 1; min-height: 0; }
-.ask-stream { flex: 1; min-width: 0; min-height: 0; overflow: auto; overscroll-behavior: contain; padding: 2px var(--ask-reading-inset, 16px) 16px; scrollbar-width: none; color: color-mix(in srgb, var(--fg) 78%, var(--fg-2)); font: var(--fw-regular) 13px/1.72 var(--sans); outline: none; }
+.ask-stream { flex: 1; min-width: 0; min-height: 0; overflow: auto; overscroll-behavior: contain; padding: 16px var(--ask-reading-inset, 16px) 16px; scrollbar-width: none; color: color-mix(in srgb, var(--fg) 78%, var(--fg-2)); font: var(--fw-regular) 13px/1.72 var(--sans); outline: none; }
 .ask-stream-content { position: relative; display: flow-root; min-height: 100%; }
 .ask-stream-content:has(> .ask-empty, > .ask-start) { display: flex; flex-direction: column; }
 .ask-stream-content > :is(.ask-empty, .ask-start) { flex: 1; }
+.ask-history-toggle { display: flex; align-items: center; justify-content: center; gap: 8px; width: 100%; min-height: 32px; margin: 10px 0 20px; color: var(--fg-3); font-size: 12px; }
+.ask-history-toggle .ico { --ico: var(--ico-sm); }
+.ask-history-toggle:hover { color: var(--fg); }
+.ask-history-toggle:focus-visible { outline: 1px solid var(--a); border-radius: var(--r1); }
 .ask-latest { position: absolute; z-index: 2; bottom: 10px; left: 50%; display: grid; place-items: center; width: 34px; height: 34px; color: var(--fg-2); background: var(--ask-glass, var(--glass-bg)); border: 1px solid var(--line-2); border-radius: 50%; box-shadow: var(--sh-1); backdrop-filter: blur(16px); transform: translateX(-50%); }
 .ask-latest .ico { --ico: var(--ico-md); }
 .ask-latest:hover { color: var(--fg); background: var(--ask-hover, var(--hover)); }

@@ -83,6 +83,49 @@ test('independent route, settings return and viewport survive workspace navigati
   assert.deepEqual(errors,[]);
 });
 
+test('EDIT wheel and pinch preserve source anchors, discard the first-finger stroke and retain the final view', {timeout:30000}, async t => {
+  const { page, errors } = await setup(t);
+  await page.evaluate(async () => {
+    await editor.open('image', await makeImage('#445566', 2048, 1536), 'large.png'); editor.setMode('inpaint');
+  });
+  await page.getByRole('button', { name: '缩放到 100%', exact: true }).click();
+  const area = await page.locator('#editorViewport').boundingBox();
+  const at = { x: area.x + area.width / 2, y: area.y + area.height / 2 };
+  await page.mouse.click(at.x, at.y);
+  const first = await page.evaluate(() => editor.session.mask.strokes.at(-1).points[0]);
+  await page.locator('#editorViewport').evaluate((el, at) => {
+    for (let i = 0; i < 24; i++) el.dispatchEvent(new WheelEvent('wheel', { ctrlKey: true, deltaY: -5, clientX: at.x, clientY: at.y, bubbles: true, cancelable: true }));
+  }, at);
+  await page.waitForFunction(() => document.getElementById('editorZoomValue').textContent === '135%');
+  await page.mouse.click(at.x, at.y);
+  const second = await page.evaluate(() => editor.session.mask.strokes.at(-1).points[0]);
+  assert.ok(Math.abs(first.x - second.x) < 2 && Math.abs(first.y - second.y) < 2, 'wheel keeps the brush on the same source pixels');
+  const committed = await page.evaluate(() => JSON.stringify(editor.session.mask));
+  const cdp = await page.context().newCDPSession(page);
+  const touch = (type, points) => cdp.send('Input.dispatchTouchEvent', { type, touchPoints: points.map(([id, x, y]) => ({ id, x, y })) });
+  await touch('touchStart', [[1, at.x - 40, at.y]]);
+  await touch('touchStart', [[1, at.x - 40, at.y], [2, at.x + 40, at.y]]);
+  for (let i = 1; i <= 8; i++) await touch('touchMove', [[1, at.x - 40 - i * 2, at.y + i], [2, at.x + 40 + i * 2, at.y + i]]);
+  await touch('touchEnd', []);
+  assert.equal(await page.evaluate(() => JSON.stringify(editor.session.mask)), committed, 'the second finger cancels the uncommitted brush stroke');
+  const zoom = await page.locator('#editorZoomValue').innerText();
+  assert.ok(parseInt(zoom) > 135, 'pinch changes the current view');
+  // Hide immediately after another input burst, before its scheduled display callback.
+  await page.locator('#editorViewport').evaluate((el, at) => {
+    for (let i = 0; i < 8; i++) el.dispatchEvent(new WheelEvent('wheel', { ctrlKey: true, deltaY: -5, clientX: at.x, clientY: at.y, bubbles: true, cancelable: true }));
+    app_shell.router.switchWorkspace('image');
+  }, at);
+  await page.locator('#imageEditor').waitFor({ state: 'hidden' });
+  const saved = await page.evaluate(() => ({ ...editor.session.viewport }));
+  assert.ok(saved.zoom > parseInt(zoom) / 100);
+  await page.evaluate(() => app_shell.router.switchWorkspace('edit'));
+  await page.waitForFunction(() => document.getElementById('editorZoomValue').textContent === `${Math.round(editor.session.viewport.zoom * 100)}%`);
+  assert.deepEqual(await page.evaluate(() => editor.session.viewport), saved);
+  assert.equal(await page.evaluate(() => JSON.stringify(editor.session.mask)), committed);
+  await cdp.detach();
+  assert.deepEqual(errors, []);
+});
+
 test('EDIT identities survive board switches, trimming, removed versions and direct Slate delivery without #h', {timeout:60000}, async t => {
   const {page, errors} = await setup(t);
   const result = await page.evaluate(async () => {

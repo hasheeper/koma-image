@@ -79,7 +79,7 @@ Koma 字标在亮色中为纯墨蓝，方块保留品牌紫，形状与字体不
 | `settings/ConnectionsSection.vue` | 单连接卡、状态、额度、用途入口与生图顺位展示；仅通过事件请求业务操作 |
 | `settings/ConnectionOrderDialog.vue` | 生图连接顺序弹层、上下移动事件与关闭清理，复用原生 dialog |
 | `settings/ModelMappingMenu.vue` | 目录 ID 的模型关联菜单，复用 `PopoverMenu` 并完整显示模型名与参数参考 |
-| `settings/AskSection.vue` | ASK 设置分组；连接区采用左侧标题与协议／地址、右侧下拉整体居中的两栏布局，收紧行间距与下拉文字／箭头间距；模型列表预留选中勾位置，连接箭头、管理箭头与参数齿轮共用右侧图标槽宽度，窄屏保留触控热区。布局与控件样式归组件 |
+| `settings/AskSection.vue` | ASK 设置分组；连接区采用左侧标题与协议／地址、右侧下拉整体居中的两栏布局，收紧行间距与下拉文字／箭头间距；模型列表预留选中勾位置，连接箭头、管理箭头与参数齿轮共用右侧图标槽宽度，窄屏保留触控热区。创作标题旁承载独立导入／导出；词条和替换列表有视口相关最大高度及内部滚动，编辑区在滚动列表外，长规则预览三行。布局与控件样式归组件，文件字段与校验归 `ask/creation-settings.ts` |
 | `settings/ModelParametersDialog.vue`、`settings/AskParametersDialog.vue` | 图像来源参数与 ASK 每模型参数分别保存，共用 `shared/ModelParameterInput.vue` 值输入。两处均在标题下显示供应商／参数来源两个胶囊，保留表头与底栏分隔线，参数行之间不加横线，底部留白收紧，保留启用开关。图像参数样式归原组件；ASK 使用 `shared/ModelParameterDialogContent.vue`、`ModelParameterKey.vue` 和 `ModelParameterType.vue`，参数行样式归 `AskParametersDialog.vue` |
 | `shared/ModelParameterInput.vue` | CHAT／EDIT 按字段类型呈现选项或输入，空值跟随接口，校验用户输入 |
 | `settings/ConnectionMenu.vue` | 单张连接卡的菜单、唯一 ID 与关闭清理 |
@@ -288,7 +288,7 @@ npm run check
 | `shared/ui/CanvasPanelSwitch.vue` | 分段切换、滑块测量与 `data-placed`／`data-ready`；Observer 随 KeepAlive 暂停／恢复／清理，工作区只传选项和选择 |
 | `shared/canvas-surface.css` | 托盘、面板头与玻璃变量；普通控件仍在 `controls.css` 读取 `--menu-*`／`--tip-*`，Teleport 弹层自身也挂协创作用域 |
 | `shared/canvas-motion.css`、`shared/ui/use-transient-mark.ts` | 托盘／内胆与画布退后动效；凹槽短时标记只在用户展开时触发，自动出现或返回页面不重播 |
-| `shared/canvas-history.css` | IMAGE 历史与 EDIT 版本的手机浏览层、自适应列和材质；由各工作区 scoped 载入。虚化放在 dialog 的 `::backdrop`，覆盖图片和已打开的表单；画布本身只放大偏移，不重复叠加滤镜 |
+| `shared/canvas-history.css` | IMAGE 历史与 EDIT 版本的手机浏览层、自适应列和材质；由各工作区 scoped 载入。8px 虚化放在 dialog 的 `::backdrop`，覆盖图片和已打开的表单；画布本身只放大偏移，不重复叠加滤镜 |
 | `ask/canvas-sheet.ts`、`native/canvas-sheet.ts`、`shared/canvas-sheet.css` | IMAGE／EDIT／CHAT 共用手机底部抽屉：半屏／全屏与上次面板状态在 `canvas-presentation.ts`；组合函数给出抽屉模式、覆盖判定、切换显示、把手单击、输入聚焦升全屏和遮挡高度 `--sheet-cover`；原生驱动只写 `--sheet-drag` 与 `data-sheet-dragging`，松手再定档。样式钩子为 `.canvas-sheet`／`-host`／`-tray`／`-content`／`-ask`／`-grip`，IMAGE／EDIT 收起态的 `.canvas-sheet-peek` 与悬停入口也在此维护；底部保留输入栏或操作栏、各面板并入头部一行的方式，归工作区样式 |
 | `native/canvas-splitter.ts` | 分隔条逐帧仅写委托的 CSS 变量，结束保存比例；监听及 VisualViewport 更新随工作区暂停和清理 |
 | `ImageWorkspace.vue`、`ImageLibrary.vue` | IMAGE 视图／表单／配方与底部操作宿主；同一历史列表 Teleport 到图片贴边槽或手机浏览层，分类及原生 dialog 焦点归列表组件 |
@@ -300,9 +300,9 @@ npm run check
 | `tokens.css` 的 `--composer-*` | CHAT（`chat.css` 的 `.chat-composer`）与 ASK（`AskComposer`、`AskSend`、`AskModelPicker`、`DirectoryChip`）输入栏共用的外壳尺寸；改规格只改令牌，不在任一方覆盖另一方的样式 |
 | `CompactLayoutNotice.vue` | 应用级窄屏建议，读取同一模式偏好；不刷新、复制工作区或叠加已有模态层 |
 | `HomeHead.vue`、`TagsWorkspace.vue`、`AskDrawer.vue` | HOME／TAGS 读取同一 BETA 偏好，用根作用域与 `data-beta` 切换角落岛及停靠材质，保持各自布局 |
-| `SettingsOverlay.vue`、`settings.css` 末尾「Canvas collaboration (BETA)」 | 打开设置时读取 BETA 偏好（`beta` 快照）并挂 `is-beta`／`canvas-collaboration`；`.set-home` 平时 `display: contents`，BETA 时成为返回岛；分组岛复用 `CanvasPanelSwitch`（`meta` 显示数量）；scoped 载入 `canvas-surface.css` 提供玻璃变量，设置旁的三个弹窗由宿主传入类，设置内的弹窗继承；弹窗材质与进出按 `.modal.set-ui:is(.canvas-collaboration, .settings.is-beta *)` 归设置样式 |
+| `SettingsOverlay.vue`、`settings.css` 末尾「Canvas collaboration (BETA)」 | 打开设置时读取 BETA 偏好（`beta` 快照）并挂 `is-beta`／`canvas-collaboration`；`.set-home` 平时 `display: contents`，BETA 时成为返回岛；分组岛复用 `CanvasPanelSwitch`（`meta` 显示数量）；scoped 载入 `canvas-surface.css` 提供玻璃变量，设置旁的三个弹窗由宿主传入类，设置内的弹窗继承；弹窗材质与进场按 `.modal.set-ui:is(.canvas-collaboration, .settings.is-beta *)` 归设置样式，关闭同步退出 |
 
-`panel` 管按钮选中、焦点和 Esc；`shownPanel` 在退场期间保留原内胆，`trayHeld` 延后释放列宽，`switchInTray` 让手机切换控件留在抽屉头直到退场结束。各工作区把 `trayDuration`（读 `--t3`／`--t2`）传给 Transition；共享抽屉样式在 `canvas-motion.css` 之后载入，手机外壳只位移、内容单独渐显，不叠加外壳透明度或台面 `filter` 动画。ASK 流的激活跟随 `panel` 而非 `shownPanel`，退场中重开仍回到最新。同一拍内选中又恢复的面板不留下记录；切出时已关闭则直接释放。`trayMotion` 跳过开关 BETA／切页的过渡，`paneMotion` 在结束后清除，KeepAlive 插回不重播。ASK 的 `data-arriving` 同样只跳过该次内容入场。设置的进场用 `@starting-style`，退场只在 `@supports (overlay: auto)` 下以 display／overlay 离散过渡延后隐藏，不推迟 `close()`；分组入场依赖 v-show 由隐藏变为显示时 CSS 动画自然重播，不另设标记。
+`panel` 管按钮选中、焦点和 Esc；`shownPanel` 在退场期间保留原内胆，`trayHeld` 延后释放列宽，`switchInTray` 让手机切换控件留在抽屉头直到退场结束。各工作区把 `trayDuration`（读 `--t3`／`--t2`）传给 Transition；共享抽屉样式在 `canvas-motion.css` 之后载入，手机外壳只位移、内容单独渐显，不叠加外壳透明度或台面 `filter` 动画。ASK 流的激活跟随 `panel` 而非 `shownPanel`，退场中重开仍回到最新。同一拍内选中又恢复的面板不留下记录；切出时已关闭则直接释放。`trayMotion` 跳过开关 BETA／切页的过渡，`paneMotion` 在结束后清除，KeepAlive 插回不重播。ASK 的 `data-arriving` 同样只跳过该次内容入场。设置主窗口的进场用 `@starting-style`，退场只在 `@supports (overlay: auto)` 下以 display／overlay 离散过渡延后隐藏，不推迟 `close()`。二级弹窗只做进场，关闭时立即释放内容与遮罩，不保留已失去 `[open]` 布局、清空字段或 Key 的窗口做退场动画；分组入场依赖 v-show 由隐藏变为显示时 CSS 动画自然重播，不另设标记。
 
 `useCanvasSheet` 的 `stageCovered` 仅在手机 ASK 全屏时隔离舞台，半屏仍可交互；台面标记 `data-receded`／`inert`，不隔离包含侧栏的整个工作区。IMAGE 用 `paused` 暂停观察器、揭示和波浪；EDIT 的 `canvasPaused` 还包括全屏表单，只暂停画布／框选，保留底部生成与工具栏尺寸更新，ASK 全屏才暂停工具栏测量。收起恢复原驱动。EDIT 的遮挡量测量固定 `#editorCanvas`，通过 `--sheet-cover` 收缩内部编辑视口；不可测量随遮挡量变化的视口本身，以免形成尺寸反馈。抽屉监听与 Observer 随工作区活动周期清理。演进嵌入时不测量浮层避让高度，返回浮窗恢复 Observer 并负责清理。生成任务不会因切页取消。
 
@@ -313,3 +313,5 @@ npm run check
 IMAGE 底部换行按画布容器宽度，相关阈值归工作区样式；浮动操作宿主透传空白处的指针，具体工具恢复交互。历史折叠选择器明确排除 `.filmstrip`，不通过修改全局历史偏好伪装布局。表单滚动与参数区保持面板内部，不恢复页面固定脚栏。传统外壳仍分别归 `styles.css`、`editor.css`、`chat.css`。
 
 Stylelint 检查 `src/` 下 Vue 和 CSS。相关浏览器用例等待实际隐藏／恢复、选图、画笔、草稿与生成结果，不断言过渡帧、控件坐标或材质数值。
+
+手机玻璃由 `canvas-surface.css` 在协创作用域将虚化降至 8px、取消饱和度增强，保持同一颜色令牌。`canvas-sheet.css` 在已有 `data-sheet-dragging` 期间使用 `--glass-pop-bg` 并关闭实时背景滤镜，结束／取消后恢复，不新增手势状态；设置二级弹窗只在 `::backdrop` 虚化，手机不做整页／弹窗缩放进场。`WaveMark.vue` 在设置打开时暂停背后 Logo 的 CSS 动画，关闭后恢复。桌面浏览器的图层与内存诊断不能代替 Android 真机崩溃分析。

@@ -21,6 +21,7 @@ import type { ConversationPeriod } from "../../domain/conversation";
 import { placeMenu, menuKeys } from "../../shared/popover";
 import AppIcon from "../../shared/AppIcon.vue";
 import AiNameButton from "../../shared/AiNameButton.vue";
+import ChatImage from "./ChatImage.vue";
 const props = defineProps<{ query: string }>();
 const { chat, view } = useChat(),
   shell = useShell();
@@ -48,7 +49,7 @@ const rows = computed(() => {
       return {
         c,
         group: c.pinned ? "置顶" : periods[conversationPeriod(c.updatedAt, now)],
-        cover: cover ? chat.assets.assets.get(cover)?.url : undefined,
+        cover: cover && chat.assets.assets.has(cover) ? cover : undefined,
       };
     });
 });
@@ -188,14 +189,13 @@ onBeforeUnmount(cancelHold);
         @pointerleave="cancelHold"
       >
         <span class="conversation-thumb" aria-hidden="true"
-          ><img
+          ><ChatImage
             v-if="cover"
-            :src="cover"
+            :asset-id="cover"
             alt=""
             width="26"
             height="26"
-            loading="lazy"
-            decoding="async" /><AppIcon v-else name="i-image"
+            /><AppIcon v-else name="i-image"
         /></span>
         <input
           v-if="renaming === c.id"

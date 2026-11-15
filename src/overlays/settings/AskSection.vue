@@ -23,6 +23,8 @@ import {
 } from "../../ask/settings.ts";
 import type { AskSettings, TextAttachmentLimits } from "../../ask/settings.ts";
 import { DEFAULT_HIGH_WATER } from "../../ask/compact/trigger.ts";
+import { exportCreationSettings, importCreationSettings } from "../../ask/creation-settings.ts";
+import { download } from "../../shared/files.ts";
 
 const props = defineProps<{ routing: Routing }>();
 const emit = defineEmits<{ models: [connectionId: string, purpose?: "ask" | "naming"] }>();
@@ -63,6 +65,7 @@ const word = ref(""),
 const replacementFrom = ref(""), replacementTo = ref(""),
   replacementError = ref(""), editingFrom = ref<string | null>(null);
 const replacementInput = ref<HTMLInputElement | null>(null);
+const creationInput = ref<HTMLInputElement | null>(null), importingCreation = ref(false);
 // Other tabs and restores change the same keys; the adult flag stays per device.
 const unsubscribe = preferences.subscribe((key) => {
   if (!key || key === names.ask) {
@@ -148,6 +151,33 @@ async function saveReplacement() {
 async function removeReplacement(rule: Replacement) {
   if (await save({ replacements: settings.value.replacements.filter((r) => r.from !== rule.from) }))
     if (editingFrom.value === rule.from) clearReplacement();
+}
+function exportCreation() {
+  download(new Blob([JSON.stringify(exportCreationSettings(settings.value), null, 2)], { type: "application/json" }), "koma-ask-creation.json");
+}
+async function importCreation(event: Event) {
+  const input = event.target as HTMLInputElement, file = input.files?.[0];
+  input.value = "";
+  if (!file || importingCreation.value) return;
+  importingCreation.value = true;
+  try {
+    if (file.size > 16 * 1024 * 1024) throw new Error("创作配置文件不能超过 16 MB");
+    const value = importCreationSettings(JSON.parse(await file.text()));
+    if (!await ui.confirm({
+      title: "导入创作配置",
+      message: `替换当前创作配置，含 ${value.words.length} 个词条、${value.replacements.length} 条替换。`,
+      confirmLabel: "导入",
+    })) return;
+    if (await save(value)) {
+      word.value = wordError.value = "";
+      clearReplacement();
+      ui.toast("创作配置已导入", "ok");
+    }
+  } catch (error) {
+    ui.toast(error instanceof SyntaxError ? "创作配置不是有效的 JSON" : message(error), "err");
+  } finally {
+    importingCreation.value = false;
+  }
 }
 </script>
 <template>
@@ -321,7 +351,14 @@ async function removeReplacement(rule: Replacement) {
         </div>
       </section>
       <section class="sp-sec" aria-label="创作">
-        <div class="sp-sec-head"><h3>创作</h3></div>
+        <div class="sp-sec-head ask-sec-head">
+          <h3>创作</h3>
+          <div class="ask-creation-actions">
+            <button class="btn btn-quiet btn-xs" type="button" :disabled="importingCreation" @click="creationInput?.click()">导入</button>
+            <button class="btn btn-quiet btn-xs" type="button" @click="exportCreation">导出</button>
+          </div>
+          <input ref="creationInput" hidden type="file" accept=".json,application/json" aria-label="导入创作配置" @change="importCreation" />
+        </div>
         <div class="sp-group s-appearance-group">
           <div class="s-row">
             <div>
@@ -373,8 +410,7 @@ async function removeReplacement(rule: Replacement) {
                 aria-label="自定义词条"
               >
                 <li v-for="w in settings.words" :key="w">
-                  {{ w
-                  }}<button
+                  <span :title="w">{{ w }}</span><button
                     type="button"
                     :aria-label="`删除 ${w}`"
                     @click="
@@ -408,7 +444,7 @@ async function removeReplacement(rule: Replacement) {
               </div>
               <ul v-if="settings.replacements.length" class="ask-rules" aria-label="文本替换">
                 <li v-for="rule in settings.replacements" :key="rule.from">
-                  <div class="ask-rule-text"><span>{{ rule.from }}</span><span aria-hidden="true">→</span><span>{{ rule.to }}</span></div>
+                  <div class="ask-rule-text"><span :title="rule.from">{{ rule.from }}</span><span aria-hidden="true">→</span><span :title="rule.to">{{ rule.to }}</span></div>
                   <div class="ask-rule-actions">
                     <button type="button" class="btn btn-quiet btn-xs" :aria-label="`编辑替换 ${rule.from}`" @click="editReplacement(rule)">编辑</button>
                     <button type="button" class="btn btn-quiet btn-xs" :aria-label="`删除替换 ${rule.from}`" @click="removeReplacement(rule)">删除</button>
@@ -450,6 +486,7 @@ async function removeReplacement(rule: Replacement) {
 /* Shared settings rows; vocabulary and replacement editors belong to ASK. */
 .ask-sections { --ask-action-size: 32px; display: grid; gap: var(--sp-6); }
 .ask-sec-head { display: flex; align-items: baseline; justify-content: space-between; }
+.ask-creation-actions { display: flex; gap: var(--sp-2); }
 /* Picked from a list, a value stands flush in its row with a surface under the
    pointer; typed in, it sits in a field one notch below the row. */
 .s-ctl.s-field.ask-pick { width: auto; max-width: 55%; gap: 2px; }
@@ -506,20 +543,21 @@ async function removeReplacement(rule: Replacement) {
 }
 .ask-pref textarea:focus { box-shadow: var(--ring); }
 .ask-pref small { position: absolute; right: 14px; bottom: 12px; font: var(--fz-2xs)/1 var(--mono); color: var(--fg-4); pointer-events: none; }
-.ask-chips { display: flex; flex-wrap: wrap; gap: 6px; margin: 0; padding: 0; list-style: none; }
+.ask-chips { display: flex; flex-wrap: wrap; gap: 6px; max-height: min(220px, 30dvh); margin: 0; padding: 0; overflow: auto; overscroll-behavior: contain; list-style: none; }
 .ask-chips li {
-  display: inline-flex; align-items: center; gap: 2px; height: 24px; padding: 0 9px;
+  display: inline-flex; align-items: center; gap: 2px; max-width: 100%; height: 24px; padding: 0 9px;
   font: var(--fz-xs)/1 var(--mono); color: var(--fg-2);
   background: var(--raised); border-radius: 999px; box-shadow: inset 0 0 0 1px var(--line-2);
 }
 .ask-chips li:has(button) { padding-right: 3px; }
-.ask-chips button { display: grid; place-items: center; width: 18px; height: 18px; --ico: var(--ico-xs); color: var(--fg-4); border-radius: 50%; }
+.ask-chips li > span { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.ask-chips button { display: grid; place-items: center; flex: none; width: 18px; height: 18px; --ico: var(--ico-xs); color: var(--fg-4); border-radius: 50%; }
 .ask-chips button:hover { color: var(--fg); background: var(--hover); }
 .s-row .ask-error { margin-top: -4px; font-size: var(--fz-xs); color: var(--err); }
-.ask-rules { display: grid; gap: 6px; margin: 0; padding: 0; list-style: none; }
+.ask-rules { display: grid; gap: 6px; max-height: min(320px, 42dvh); margin: 0; padding: 0; overflow: auto; overscroll-behavior: contain; list-style: none; }
 .ask-rules li { display: flex; align-items: center; gap: 8px; padding: 6px 8px; border-radius: var(--r1); background: var(--raised); }
 .ask-rule-text { display: grid; grid-template-columns: minmax(0, 1fr) auto minmax(0, 1fr); align-items: baseline; gap: 8px; flex: 1; min-width: 0; font: var(--fz-xs)/1.5 var(--mono); }
-.ask-rule-text span { overflow-wrap: anywhere; }
+.ask-rule-text span { display: -webkit-box; overflow: hidden; overflow-wrap: anywhere; -webkit-box-orient: vertical; -webkit-line-clamp: 3; }
 .ask-rule-text span:nth-child(2), .ask-replace-fields > span { color: var(--fg-4); }
 .ask-rule-actions { display: flex; flex-shrink: 0; justify-content: flex-end; gap: 4px; }
 .ask-replace-form { display: flex; align-items: center; gap: 8px; min-width: 0; }

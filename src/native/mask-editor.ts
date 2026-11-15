@@ -61,6 +61,8 @@ export function createMaskEditor(canvas: HTMLCanvasElement, onChange: () => void
     locked = false;
   let anchor: number | undefined;
   let encoded: string | null | undefined;
+  type DirtyRect = { left: number; top: number; right: number; bottom: number };
+  let dirty: DirtyRect | undefined, previewFrame = 0;
   function paint(item: MaskEntry, from = 0) {
     if ("bitmap" in item) {
       ctx.putImageData(maskBitmapPixels(item.bitmap), 0, 0);
@@ -95,12 +97,46 @@ export function createMaskEditor(canvas: HTMLCanvasElement, onChange: () => void
     show();
   }
   function show() {
-    preview.clearRect(0, 0, canvas.width, canvas.height);
-    preview.drawImage(mask, 0, 0);
+    cancelPreview();
+    showRegion({ left: 0, top: 0, right: canvas.width, bottom: canvas.height });
+  }
+  function showRegion({ left, top, right, bottom }: DirtyRect) {
+    const width = right - left, height = bottom - top;
+    if (width <= 0 || height <= 0) return;
+    preview.save();
+    // source-in also clears outside its source; clip it to the changed pixels.
+    preview.beginPath();
+    preview.rect(left, top, width, height);
+    preview.clip();
+    preview.clearRect(left, top, width, height);
+    preview.drawImage(mask, left, top, width, height, left, top, width, height);
     preview.globalCompositeOperation = "source-in";
     preview.fillStyle = tint;
-    preview.fillRect(0, 0, canvas.width, canvas.height);
-    preview.globalCompositeOperation = "source-over";
+    preview.fillRect(left, top, width, height);
+    preview.restore();
+  }
+  function cancelPreview() {
+    if (previewFrame) cancelAnimationFrame(previewFrame);
+    previewFrame = 0;
+    dirty = undefined;
+  }
+  function flushPreview() {
+    const region = dirty;
+    cancelPreview();
+    if (region) showRegion(region);
+  }
+  function displayStroke(item: MaskStroke, from = 0) {
+    encoded = undefined;
+    const a = item.points[Math.max(0, from - 1)], b = item.points[from], radius = item.diameter / 2 + 2;
+    const region = {
+      left: Math.max(0, Math.floor(Math.min(a.x, b.x) - radius)),
+      top: Math.max(0, Math.floor(Math.min(a.y, b.y) - radius)),
+      right: Math.min(mask.width, Math.ceil(Math.max(a.x, b.x) + radius)),
+      bottom: Math.min(mask.height, Math.ceil(Math.max(a.y, b.y) + radius)),
+    };
+    dirty = dirty ? { left: Math.min(dirty.left, region.left), top: Math.min(dirty.top, region.top),
+      right: Math.max(dirty.right, region.right), bottom: Math.max(dirty.bottom, region.bottom) } : region;
+    if (!previewFrame) previewFrame = requestAnimationFrame(flushPreview);
   }
   function replay() {
     ctx.clearRect(0, 0, mask.width, mask.height);
@@ -145,14 +181,14 @@ export function createMaskEditor(canvas: HTMLCanvasElement, onChange: () => void
       pointer: event.pointerId,
     };
     paint(stroke);
-    display();
+    displayStroke(stroke);
     onChange();
   };
   const move = (event: PointerEvent) => {
     if (!stroke || stroke.pointer !== event.pointerId) return;
     stroke.points.push(point(event));
     paint(stroke, stroke.points.length - 1);
-    display();
+    displayStroke(stroke, stroke.points.length - 1);
   };
   function finish(event: PointerEvent) {
     if (!stroke || stroke.pointer !== event.pointerId) return;
@@ -160,12 +196,14 @@ export function createMaskEditor(canvas: HTMLCanvasElement, onChange: () => void
     strokes.push(stroke);
     position++;
     stroke = null;
+    flushPreview();
     onChange();
   }
   let events: AbortController | null | undefined;
   function pause() {
     events?.abort();
     events = null;
+    cancelPreview();
     if (stroke) {
       stroke = null;
       replay();

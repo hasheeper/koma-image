@@ -34,6 +34,7 @@ import WaveMark from "../../shared/WaveMark.vue";
 import ConversationList from "./ConversationList.vue";
 import ContextPanel from "./ContextPanel.vue";
 import ChatTurn from "./ChatTurn.vue";
+import ChatImage from "./ChatImage.vue";
 const annotations = useAnnotations(), fullId=shallowRef(''), ask = useAsk();
 /* Canvas collaboration only moves hosts: the stream, composer, context and
    conversation remain owned by the chat service and these same components. */
@@ -609,8 +610,8 @@ onDeactivated(() => {
                 :aria-label="`查看参考图片：${chat.assets.assets.get(id)?.name}`"
                 @click="show(id)"
               >
-                <img
-                  :src="chat.assets.assets.get(id)?.url"
+                <ChatImage
+                  :asset-id="id"
                   alt=""
                   width="96"
                   height="96"

@@ -53,6 +53,8 @@ defineProps<{ surface: "home" | "image" | "chat" | "tags" }>();
 <style scoped>
 .wave-mark { flex: none; overflow: visible; fill: var(--a); }
 .wave-mark > * { transform-box: fill-box; transform-origin: center; animation: waveBreath 3.6s var(--e) infinite; animation-delay: calc(var(--d) * 160ms); }
+/* Settings covers the workspace completely; its hidden mark needs no composited animation. */
+body:has(#settingsPanel[open]) .wave-mark > * { animation-play-state: paused; }
 @keyframes waveBreath { 0%, 100% { transform: scale(1); } 40% { transform: scale(0.8); } }
 @media (prefers-reduced-motion: reduce) { .wave-mark > * { animation: none; } }
 </style>

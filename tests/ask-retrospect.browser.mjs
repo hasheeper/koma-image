@@ -340,6 +340,26 @@ test('evolution camera pans freely and the continuation preview returns to editi
     assert.equal(await panel.locator('.graph-edge[aria-pressed="true"]').count(), 0);
     assert.match(await preview.getAttribute('aria-label'), /已选中/);
     assert.equal(await panel.getByRole('textbox', { name: '批注内容' }).count(), 0);
+    await panel.getByRole('button', { name: '平移工具', exact: true }).click();
+    area = await canvas.boundingBox();
+    const at = { x: area.x + area.width / 2, y: area.y + area.height / 2 };
+    const initialCamera = await camera(), cdp = await context.newCDPSession(page);
+    const touch = (type, points) => cdp.send('Input.dispatchTouchEvent', { type, touchPoints: points.map(([id, x, y]) => ({ id, x, y })) });
+    await touch('touchStart', [[1, at.x - 50, at.y]]);
+    await touch('touchStart', [[1, at.x - 50, at.y], [2, at.x + 50, at.y]]);
+    for (let i = 1; i <= 12; i++) await touch('touchMove', [[1, at.x - 50 - i, at.y + i], [2, at.x + 50 + i, at.y + i]]);
+    await touch('touchEnd', []); await cdp.detach();
+    const pinched = await camera();
+    assert.ok(Math.abs(pinched[2] - Math.min(2, initialCamera[2] * 1.24)) < .0001, 'pinch retains the accumulated scale');
+    // Closing before a wheel display callback must still save all of its input.
+    await canvas.evaluate((el, at) => {
+      for (let i = 0; i < 12; i++) el.dispatchEvent(new WheelEvent('wheel', { deltaY: 5, clientX: at.x, clientY: at.y, bubbles: true, cancelable: true }));
+      el.closest('dialog').querySelector('[aria-label="关闭演进"]').click();
+    }, at);
+    await panel.waitFor({ state: 'detached' });
+    const savedCamera = await page.evaluate(() => ask.retrospects.records.value[0].graphCamera);
+    assert.ok(Math.abs(savedCamera.scale - pinched[2] * Math.exp(-.12)) < .0001, 'pending wheel input is saved on close');
+    await page.getByRole('button', { name: '打开画板演进，进行中', exact: true }).click(); await panel.waitFor();
     const positionedCamera = await camera();
     await panel.getByRole('button', { name: '大图', exact: true }).click();
     await panel.getByRole('button', { name: '演进图', exact: true }).click();

@@ -687,10 +687,27 @@ export function createAsk(deps: {
     } finally { writingDraft.value = false; draftRevision.value++; }
   }
 
-  function pictureLibrary() {
+  function pictureLibrary(chats = chatLibrary()) {
     const d = drawing.snapshot();
-    return withEditPictures(snapshotPictures(d.history, d.favorites, ids), editPictures(deps.editor, ids, chatLibrary()));
+    return withEditPictures(snapshotPictures(d.history, d.favorites, ids), editPictures(deps.editor, ids, chats));
   }
+  // Rendering can resolve many nodes/references in one update. Keep this index
+  // separate from live tool/draft reads, and release its Blobs on invalidation.
+  function createPreviewIndex() {
+    const chats = chatLibrary(), library = pictureLibrary(chats);
+    const attached = attachmentPictures(attachments.read([...new Set([...entryAttachments(entries.value), ...tray.value])]), activeScope.id);
+    const all = [...library, ...chats, ...attached];
+    const aliases = new Map<string, Picture>(), records = new Map<string, Picture[]>(), favorites = new Map<string, Picture>();
+    for (const picture of all) {
+      for (const alias of picture.aliases) if (!aliases.has(alias)) aliases.set(alias, picture);
+      const sameId = records.get(picture.id);
+      if (sameId) sameId.push(picture); else records.set(picture.id, [picture]);
+      if (picture.entity_key && picture.origins.some(o => o.source === 'favorites') && !favorites.has(picture.entity_key)) favorites.set(picture.entity_key, picture);
+    }
+    return { all, aliases, records, favorites, candidates: [...withEditPictures(library, chats), ...attached] };
+  }
+  let previewIndex: ReturnType<typeof createPreviewIndex> | undefined;
+  const previewPictures = () => previewIndex ??= createPreviewIndex();
   function referencedPictureIds() {
     const wanted = new Set<string>();
     const add = (tags: readonly string[], refs?: PictureRefs) => { for (const tag of tags) if (refs?.[tag]) wanted.add(refs[tag].record_id); };
@@ -714,9 +731,9 @@ export function createAsk(deps: {
   }
   const pictureScope = () => pageScope;
   const pictureScopes = () => ({page:pageScope,favorites:drawing.favoritesScopeId,ask:activeScope.id,chat:chat.snapshot().current.id});
-  function boundPicture(label: string, refs?: PictureRefs): Picture | null {
-    const all = [...pictureLibrary(), ...chatLibrary(), ...attachmentPictures(attachments.read([...new Set([...entryAttachments(entries.value), ...tray.value])]), activeScope.id)];
-    if (!refs) return all.find(p => p.aliases.includes(label)) ?? null;
+  function boundPicture(label: string, refs?: PictureRefs, index?: ReturnType<typeof createPreviewIndex>): Picture | null {
+    const all = index?.all ?? [...pictureLibrary(), ...chatLibrary(), ...attachmentPictures(attachments.read([...new Set([...entryAttachments(entries.value), ...tray.value])]), activeScope.id)];
+    if (!refs) return (index ? index.aliases.get(label) : all.find(p => p.aliases.includes(label))) ?? null;
     const ref = refs[label];
     if (!ref) return null;
     const scope = ref.scope;
@@ -733,10 +750,10 @@ export function createAsk(deps: {
       const p = c && chatPictures({ ...state, current: c }, chat, false, chatIds).find(p => p.id === ref.record_id && p.entity_key === ref.entity_key);
       if (p) return { ...p, label, aliases: [label] };
     }
-    const exact = all.find(p => p.id===ref.record_id && (!ref.entity_key || p.entity_key===ref.entity_key));
+    const exact = (index ? index.records.get(ref.record_id) ?? [] : all).find(p => p.id===ref.record_id && (!ref.entity_key || p.entity_key===ref.entity_key));
     // Original persisted record is readable across refresh; no label is resolved anew.
     if (exact && (scopeValid || exact.origins.some(o=>o.source==="favorites"))) return exact;
-    return ref.entity_key ? all.find(p=>p.entity_key===ref.entity_key && p.origins.some(o=>o.source==="favorites")) ?? null : null;
+    return ref.entity_key ? (index ? index.favorites.get(ref.entity_key) : all.find(p=>p.entity_key===ref.entity_key && p.origins.some(o=>o.source==="favorites"))) ?? null : null;
   }
   /** Preview URLs stay with the source owner and survive original-pixel release. */
   function pictureUrl(item: Picture): string | null {
@@ -749,7 +766,7 @@ export function createAsk(deps: {
     const record = [...d.history, ...d.favorites].find(r => r.id === item.id && same(r));
     if (record) return drawing.url(record, true);
     const version = deps.editor?.boards().flatMap(b => b.versions).find(v => v.recordId === item.id && same(v));
-    if (version) return version.url;
+    if (version) return version.thumbUrl;
     const attachment = attachments.get(item.id);
     return attachment?.kind === "image" && same(attachment) ? attachment.url : null;
   }
@@ -828,6 +845,7 @@ export function createAsk(deps: {
   }
   syncDrawing();
   const stops = [
+    watch(libraryRevision, () => { previewIndex = undefined; }, { flush: 'sync' }),
     drawing.subscribe(syncDrawing),
     drawing.onRemove(() => { libraryRevision.value++; }),
     watch([entries, draft, externalRevision, draftRevision, retrospects.records], syncPictureResources, { flush: 'sync' }),
@@ -2183,11 +2201,10 @@ export function createAsk(deps: {
     labelFor(id: string) { return ids.label(id); },
     favoriteLabelFor(id: string) { return ids.favorite(id); },
     pictureCandidates(prefix: string) {
-      const library = withEditPictures(pictureLibrary(),chatLibrary());
-      const attached = attachmentPictures(attachments.read([...new Set([...entryAttachments(entries.value),...tray.value])]), activeScope.id);
+      const library = previewPictures().candidates;
       const workspace=router.route.value.workspace;
       const priority = (p: import("./library.ts").Picture) => workspace==="edit" ? p.origins.some(o=>o.source==="edit"&&o.boardId===deps.editor?.session.id)?0:p.origins.some(o=>o.source==="edit")?1:p.origins.some(o=>o.source==="history")?2:3 : workspace==="chat" ? p.origins.some(o=>o.source==="chat") ? 0 : 1 : /^#e/.test(anchor.value ?? "") ? p.origins.some(o=>o.source==="edit") ? 0 : 1 : p.origins.some(o=>o.source==="history") ? 0 : 1;
-      return [...library,...attached].sort((a,b)=>priority(a)-priority(b) || b.createdAt-a.createdAt).flatMap(p=>{
+      return [...library].sort((a,b)=>priority(a)-priority(b) || b.createdAt-a.createdAt).flatMap(p=>{
         const label = workspace==="edit" ? p.aliases.find(tag=>/^#e\d+[a-z]?$/.test(tag))??p.label : workspace==="chat" ? p.origins.find(o=>o.source==="chat")?.label ?? p.label : p.aliases.find(tag=>/^#e\d+\./.test(tag)) && /^#e/.test(anchor.value ?? "") ? p.aliases.find(tag=>/^#e\d+[a-z]?$/.test(tag)) ?? p.label : p.label;
         if (!label.toLowerCase().startsWith(prefix.toLowerCase()) && !p.aliases.some(tag=>tag.toLowerCase().startsWith(prefix.toLowerCase()))) return [];
         const matched = label.toLowerCase().startsWith(prefix.toLowerCase()) ? label : p.aliases.find(tag=>tag.toLowerCase().startsWith(prefix.toLowerCase()))!;
@@ -2196,7 +2213,7 @@ export function createAsk(deps: {
       }).slice(0,7);
     },
     pictureInfo(label: string, refs?: PictureRefs) {
-      const item = boundPicture(label, refs);
+      const item = boundPicture(label, refs, previewPictures());
       const url = item && pictureUrl(item);
       return item && url ? { label, url, width:item.size.width,height:item.size.height, thumbnailOnly:!!item.thumbnailOnly,
         expired: !!refs?.[label] && refs[label].scope.kind==="page" && refs[label].scope.id!==pageScope,
@@ -2408,6 +2425,7 @@ export function createAsk(deps: {
       saveFavorite();
       void flushFavorites().catch(() => {});
       disposed = true;
+      previewIndex = undefined;
       stopExternal(); externalEvents.clear();
       stopFavoriteSave();
       unregisterFavorites();

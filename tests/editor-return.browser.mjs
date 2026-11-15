@@ -82,6 +82,60 @@ test('PE1 masks distinguish opaque grayscale from alpha, preserve undo/erase/cle
   } finally { await t.context.close(); }
 });
 
+test('mask brush previews preserve every sample, erase locally and match exported coverage through undo and cancellation', async () => {
+  const t = await setup(), page = t.page;
+  try {
+    await page.evaluate(async () => {
+      const { createMaskEditor } = await import('/src/native/mask-editor.ts');
+      const canvas = document.createElement('canvas'); canvas.id = 'brush-test';
+      canvas.style.cssText = 'position:fixed;left:0;top:0;width:256px;height:384px;z-index:9999;touch-action:none';
+      document.body.append(canvas);
+      window.brush = createMaskEditor(canvas, () => {}); brush.resize(256, 384); brush.setBrush(12, false); brush.resume();
+      window.previewPixels = () => [...canvas.getContext('2d').getImageData(0, 0, 256, 384).data];
+      window.brushMove = (x, y, type = 'pointermove') => canvas.dispatchEvent(new PointerEvent(type, { pointerId: 1, pointerType: 'mouse', button: 0, buttons: type === 'pointerup' ? 0 : 1, clientX: x, clientY: y, bubbles: true }));
+    });
+    await page.mouse.move(24, 40); await page.mouse.down();
+    const painted = await page.evaluate(() => {
+      for (let i = 1; i <= 30; i++) brushMove(24 + i * 6, 40 + (i % 2) * 24);
+      brushMove(204, 40, 'pointerup');
+      const state = brush.snapshot(), preview = previewPixels(), encoded = brush.getMask();
+      brush.restore(state); // A full replay must agree with incremental preview pixels.
+      const replay = previewPixels();
+      return { samples: state.strokes[0].points.length, previewMatches: preview.every((v, i) => v === replay[i]),
+        exportMatches: encoded === brush.getMask(), covered: state.strokes[0].points.every(p => preview[(Math.floor(p.y) * 256 + Math.floor(p.x)) * 4 + 3] > 32) };
+    });
+    await page.mouse.up();
+    assert.deepEqual(painted, { samples: 31, previewMatches: true, exportMatches: true, covered: true });
+    await page.evaluate(() => { window.beforeErase = previewPixels(); window.beforeMask = brush.getMask(); brush.setBrush(20, true); });
+    await page.mouse.move(24, 40); await page.mouse.down();
+    const erased = await page.evaluate(() => {
+      brushMove(42, 40); brushMove(42, 40, 'pointerup');
+      const pixels = previewPixels(), state = brush.snapshot(), output = brush.getMask();
+      brush.restore(state); const replay = previewPixels();
+      const matches = pixels.every((v, i) => v === replay[i]);
+      brush.undo(); const undo = brush.getMask() === beforeMask;
+      brush.redo(); const redo = brush.getMask() === output;
+      return { matches, undo, redo, erased: pixels[(40 * 256 + 24) * 4 + 3] === 0,
+        distant: pixels[(40 * 256 + 204) * 4 + 3] === beforeErase[(40 * 256 + 204) * 4 + 3] };
+    });
+    await page.mouse.up();
+    assert.deepEqual(erased, { matches: true, undo: true, redo: true, erased: true, distant: true });
+    await page.evaluate(() => { brush.setBrush(30, false); window.savedMask = brush.getMask(); window.savedPreview = previewPixels(); });
+    for (const action of ['cancel', 'pause']) {
+      await page.mouse.move(80, 200); await page.mouse.down();
+      await page.evaluate(action => { brushMove(160, 250); brush[action](); }, action);
+      await page.mouse.up();
+      await page.evaluate(() => new Promise(resolve => requestAnimationFrame(resolve)));
+      assert.deepEqual(await page.evaluate(() => {
+        const pixels = previewPixels(); brush.resume();
+        return [brush.getMask() === savedMask, pixels.every((v, i) => v === savedPreview[i])];
+      }), [true, true]);
+    }
+    await page.evaluate(() => { brush.dispose(); document.getElementById('brush-test').remove(); });
+    assert.deepEqual(t.errors, []);
+  } finally { await t.context.close(); }
+});
+
 test('PE1 all return modes, source recipe, idempotent favorite and persistent Slate delivery without generation', async () => {
   const t = await setup();
   try {
