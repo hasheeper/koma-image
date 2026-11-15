@@ -56,7 +56,8 @@
   .chat-collaboration .chat-layout, .chat-collaboration.chat-panel-collapsed .chat-layout { grid-template-columns: minmax(0, 1fr); }
   /* Phone head: one row at the IMAGE／EDIT island height; the conversation takes the slack. */
   .chat-canvas-head { gap: 6px; height: 40px; }
-  .chat-canvas-conversation { flex: 1 1 0; height: 40px; margin-right: 0; font-size: var(--fz-sm); }
+  /* The title sizes to its text and leaves the middle of the row empty; long titles stop short of the islands. */
+  .chat-canvas-conversation { flex: 0 1 auto; max-width: min(60%, 260px); height: 40px; margin-right: auto; font-size: var(--fz-sm); }
   .chat-canvas-evolution { height: 40px; }
   .chat-canvas-options { width: 36px; height: 40px; }
   .chat-collaboration .chat-scroll { padding-top: 52px; scroll-padding-top: 68px; }
@@ -70,6 +71,39 @@
   /* The composer keeps its own colour transitions while it fades behind the pane. */
   .chat-collaboration .chat-composer { transition: border-color var(--t1) var(--e), background var(--t1) var(--e), opacity var(--t1) var(--e), visibility 0s; }
   .chat-collaboration [data-receded] .chat-composer { opacity: 0; visibility: hidden; transition: border-color var(--t1) var(--e), background var(--t1) var(--e), opacity var(--t1) var(--e), visibility 0s linear var(--t1); }
+}
+/* Phone bottom sheet, CHAT's part (the sheet itself is shared/canvas-sheet.css). Closed, the grip sits in the
+   composer's top edge. The input never moves or changes: closed, with the context pane and with ASK it is the
+   same card in the same place (8px sides, 8px foot, CHAT's raised surface). With the context pane the CHAT
+   composer rises above the sheet; ASK's input takes that slot and that card while its pane is shown. */
+@media (max-width: 1079px) {
+  .chat-composer-grip { height: 14px; width: 120px; }
+  .chat-composer-grip::before { width: 32px; }
+  .canvas-sheet[data-sheet-pane] .chat-composer-grip { visibility: hidden; }
+  /* The toolbar keeps one row: the model name gives way before anything wraps. */
+  .canvas-sheet .chat-composer-bottom { flex-wrap: nowrap; }
+  .canvas-sheet .composer-end { flex-basis: 0; }
+  .canvas-sheet[data-sheet-pane="ask"] .chat-composer { opacity: 0; visibility: hidden; }
+  .canvas-sheet[data-sheet-pane] .chat-workspace .chat-composer { position: relative; z-index: 10; }
+  .canvas-sheet :deep(.ask-bottom) { padding: 0 8px calc(8px + env(safe-area-inset-bottom)); }
+  /* An empty conversation centres its composer; with the context pane open it docks at the bottom under the sheet. */
+  .canvas-sheet[data-sheet-pane="context"] .chat-workspace[data-empty="true"] { justify-content: flex-end; padding-bottom: 0; }
+  /* A spacer inside the scroller, not padding on it: padding would grow the flex box and feed the overlap back. */
+  .canvas-sheet .chat-scroll::after { content: ""; display: block; height: var(--sheet-cover, 0px); }
+  /* The context pane joins the head row the way ASK does: its title repeats the switch and is hidden, its
+     counts become plain text before the clear button, and its body clears the composer. */
+  .canvas-sheet .chat-canvas-context { top: -38px; }
+  .canvas-sheet :deep(.context-head) { display: flex; align-items: center; justify-content: flex-end; gap: 4px; height: 38px; padding: 0 8px 0 0; pointer-events: none; }
+  .canvas-sheet :deep(.context-head) > * { pointer-events: auto; }
+  .canvas-sheet :deep(.context-title) { order: 1; height: 38px; }
+  .canvas-sheet :deep(.context-title h2) { position: absolute; width: 1px; height: 1px; overflow: hidden; clip-path: inset(50%); white-space: nowrap; }
+  .canvas-sheet :deep(.context-title .ibtn) { width: 30px; height: 30px; border-radius: var(--r2); }
+  .canvas-sheet :deep(.context-title button .ico) { --ico: var(--ico-sm); }
+  .canvas-sheet :deep(.context-stats) { flex-wrap: nowrap; gap: 10px; }
+  .canvas-sheet :deep(.context-stat) { height: auto; gap: 4px; padding: 0; background: none; }
+  .canvas-sheet :deep(.context-stat .ico) { color: var(--fg-3); }
+  .canvas-sheet :deep(.context-stat .mono) { color: var(--fg-2); font-size: var(--fz-xs); }
+  .canvas-sheet[data-sheet-pane="context"] :deep(.context-body) { padding-bottom: calc(var(--composer-height, 120px) + 20px + env(safe-area-inset-bottom)); }
 }
 /* Phone and touch: a turn's tools never drop into the flow on demand, which pushed the stream up and
    down while scrolling. The latest turn keeps them in flow and always shown; earlier turns float them
@@ -118,24 +152,20 @@
   .chat-collaboration :deep(.msg-tools) { position: static; display: none; padding: 0; margin-right: -6px; opacity: 1; }
   .chat-collaboration :deep(.msg-user:hover .msg-tools), .chat-collaboration :deep(.msg-user:focus-within .msg-tools) { display: flex; }
   .chat-collaboration :deep(.msg-tools .ibtn) { width: 40px; height: 40px; }
-  .chat-collaboration :deep(.chat-composer) { order: 2; width: calc(100% - 16px); margin: 0 8px calc(8px + env(safe-area-inset-bottom)); padding: 8px 8px 4px; border-radius: 22px; }
+  .chat-collaboration :deep(.chat-composer) { order: 2; width: calc(100% - 16px); margin: 0 8px calc(8px + env(safe-area-inset-bottom)); }
   .chat-collaboration :deep(.chat-lock) { gap: 12px; }
   .chat-collaboration :deep(.chat-mark) { width: 38px; height: 38px; }
   .chat-collaboration :deep(.chat-word) { gap: 8px; }
   .chat-collaboration :deep(.chat-starters) { order: 1; flex-wrap: nowrap; justify-content: flex-start; width: 100%; margin: 0; padding: 0 12px 10px; overflow-x: auto; scrollbar-width: none; }
   .chat-collaboration :deep(.chat-starter) { flex: none; height: 36px; }
-  .chat-collaboration :deep(#chatPrompt) { font-size: 16px; min-height: 48px; max-height: 22dvh; padding: 6px 15px 2px; }
+  /* One line at rest, like ASK's input, so the two composers match when the sheet swaps them; it grows as you type. */
+  .chat-collaboration :deep(#chatPrompt) { min-height: 26px; max-height: 22dvh; }
   .chat-collaboration :deep(.chat-inline-error:not(:empty)) { margin-inline: 15px; }
-  .chat-collaboration :deep(.chat-composer-bottom > .ibtn) { width: 40px; height: 44px; }
-  .chat-collaboration :deep(.param-button) { flex: none; width: 40px; height: 44px; padding: 0; }
+  .chat-collaboration :deep(.param-button) { flex: none; width: var(--composer-control); padding: 0; }
   .chat-collaboration :deep(.param-button[data-changed]) { padding: 0; }
   .chat-collaboration :deep(.param-summary) { display: none; }
   .chat-collaboration :deep(.param-button[data-changed]::after) { content: ""; position: absolute; top: 12px; right: 7px; width: 6px; height: 6px; border-radius: 50%; background: var(--a); }
   .chat-collaboration :deep(.quote-cost) { padding: 0 4px; }
-  .chat-collaboration :deep(.model-chip) { height: 44px; padding: 0 6px 0 8px; }
-  .chat-collaboration :deep(.model-chip-caret) { display: none; }
-  .chat-collaboration :deep(.send-slot) { margin-left: 2px; }
-  .chat-collaboration :deep(.send-slot > .btn) { width: 40px; height: 40px; }
   .canvas-collaboration.editor-pop.chat-pop { inset: auto 0 0 0; width: 100%; min-width: 0; max-width: none; max-height: 80dvh; padding: 10px 12px calc(14px + env(safe-area-inset-bottom)); border-bottom: 0; border-radius: var(--r4) var(--r4) 0 0; }
   .canvas-collaboration.chat-pop::backdrop { background: color-mix(in srgb, var(--scrim-neutral) 45%, transparent); }
   .canvas-collaboration.chat-pop :deep(.model-group-head) { font-size: var(--fz-xs); }
@@ -145,7 +175,6 @@
   .chat-collaboration :deep(.attachment) { width: 64px; height: 64px; }
   .chat-collaboration :deep(.attachment-remove) { width: 44px; height: 44px; top: -8px; right: -8px; }
   .chat-collaboration :deep(.attachment-remove::before) { width: 22px; height: 22px; }
-  .chat-collaboration :deep(.context-button) { height: 44px; padding-inline: 8px; }
   .chat-collaboration :deep(.context-follow), .chat-collaboration :deep(.context-raw summary) { min-height: 44px; font-size: var(--fz-sm); }
   .chat-collaboration :deep(.latest-button) { bottom: calc(var(--composer-height, 180px) + 20px + env(safe-area-inset-bottom)); }
 }

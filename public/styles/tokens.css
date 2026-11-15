@@ -331,6 +331,17 @@
   --ico-stroke: 1.3px;
   --ico-stroke-strong: 1.6px;
 
+  /* Composer shell, shared by the CHAT and ASK inputs so the two read as one family wherever they meet:
+     card corner and inset, text inset, the gap to the toolbar and the toolbar's two heights (controls:
+     tools, model, send; chips: secondary tags). The surface, the text size on large screens (CHAT's prompt
+     15px, ASK's message 13px) and what sits in the toolbar stay with each owner. */
+  --composer-radius: 14px;
+  --composer-pad: 12px 8px 8px 12px;
+  --composer-text-inset: 2px;
+  --composer-bar-gap: 10px;
+  --composer-control: 32px;
+  --composer-chip: 24px;
+
   --e: cubic-bezier(0.32, 0.72, 0.28, 1);
   --e-out: cubic-bezier(0.16, 1, 0.3, 1);
   --t1: 120ms; --t2: 220ms; --t3: 380ms;
@@ -372,6 +383,12 @@
 }
 
 /* The same semantic materials serve the light appearance. */
+/* Touch-sized composers: one text size for both inputs (16px also keeps iOS from zooming on focus)
+   and controls a step larger. */
+@media (max-width: 860px) {
+  :root { --composer-field-size: 16px; --composer-control: 36px; --composer-chip: 28px; }
+}
+
 :root[data-theme="light"] {
   color-scheme: light;
   /* Accent and glass reference: AgIzT/NovelAI-Tag, commit 569ed71.

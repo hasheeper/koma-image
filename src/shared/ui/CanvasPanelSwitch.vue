@@ -13,7 +13,9 @@ const root = shallowRef<HTMLElement | null>(null);
    its transition on) is written here, natively and in the same task as the
    position, so a style read in between can never interpolate from a stale spot.
    A first placement, or one after the island was hidden or the tray collapsed,
-   lands with the transition off for two frames. */
+   lands with the transition off for two frames. `data-placed` shows the thumb
+   as soon as a position is written, so a first placement never swaps the pressed
+   button's own surface for a thumb fading in. */
 let ready = false, frames: number[] = [], observer: ResizeObserver | null = null;
 function cancel() { frames.forEach(cancelAnimationFrame); frames = []; }
 function setReady(group: HTMLElement | null, value: boolean) {
@@ -27,6 +29,7 @@ function place(instant = false) {
   if (active) {
     group.style.setProperty("--thumb-x", `${active.offsetLeft}px`);
     group.style.setProperty("--thumb-w", `${active.offsetWidth}px`);
+    group.setAttribute("data-placed", "");
   }
   if (ready || frames.length) return;
   frames = [requestAnimationFrame(() => { frames = [requestAnimationFrame(() => { frames = []; setReady(root.value, true); })]; })];
@@ -38,7 +41,7 @@ function observe() {
   observer.observe(root.value);
   place(true);
 }
-function release() { observer?.disconnect(); observer = null; cancel(); setReady(root.value, false); }
+function release() { observer?.disconnect(); observer = null; cancel(); setReady(root.value, false); root.value?.removeAttribute("data-placed"); }
 watch(() => props.selected, (_value, previous) => void nextTick(() => place(!previous)), { flush: "post" });
 watch(() => props.options.map(o => o.label).join("|"), () => void nextTick(() => place()), { flush: "post" });
 onMounted(observe);
@@ -71,9 +74,9 @@ defineExpose({ focus(value: string) { root.value?.querySelector<HTMLButtonElemen
 /* A count beside the label (settings sections), quieter than it. */
 .canvas-panel-meta { font: 11px/1 var(--mono); color: var(--fg-4); }
 /* Until measured, the pressed button carries its own surface. */
-.canvas-panel-switch:not([data-ready]) > button[aria-pressed="true"] { background: var(--nav-active-bg); box-shadow: var(--nav-active-shadow); }
+.canvas-panel-switch:not([data-placed]) > button[aria-pressed="true"] { background: var(--nav-active-bg); box-shadow: var(--nav-active-shadow); }
 .canvas-panel-thumb { position: absolute; top: 3px; bottom: 3px; left: 0; width: var(--thumb-w, 0px); border-radius: 7px; background: var(--nav-active-bg); box-shadow: var(--nav-active-shadow); opacity: 0; transform: translateX(var(--thumb-x, 0px)); pointer-events: none; }
-[data-ready] > .canvas-panel-thumb[data-shown] { opacity: 1; }
+[data-placed] > .canvas-panel-thumb[data-shown] { opacity: 1; }
 [data-ready] > .canvas-panel-thumb { transition: transform var(--t2) var(--e), width var(--t2) var(--e), opacity var(--t1) var(--e); }
 .canvas-panel-switch > button[data-updated]::after { content: ""; position: absolute; top: 3px; right: 4px; width: 6px; height: 6px; border-radius: 50%; background: var(--a); animation: panel-updated var(--t2) var(--e-out); }
 @keyframes panel-updated { from { opacity: 0; transform: scale(.4); } }

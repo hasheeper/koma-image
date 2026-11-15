@@ -51,9 +51,8 @@ async function useModel(id: string, close: (refocus?: boolean) => void) {
           </AskMenu>
 </template>
 <style scoped>
-.ask-model { display: inline-flex; align-items: center; gap: 2px; min-width: 0; height: 28px; padding: 0 0 0 8px; color: var(--fg-3); font: var(--fw-regular) 12px/1 var(--sans); border-radius: 8px; transition: color var(--t1) var(--e), background var(--t1) var(--e); }
+.ask-model { display: inline-flex; align-items: center; gap: 2px; min-width: 0; height: var(--composer-control); padding: 0 4px 0 8px; color: var(--fg-2); font: var(--fw-regular) 12px/1 var(--sans); border-radius: var(--r2); transition: color var(--t1) var(--e), background var(--t1) var(--e); }
 .ask-model:hover { color: var(--fg); background: var(--ask-hover, var(--hover)); }
 .ask-model-name { min-width: 0; overflow: hidden; line-height: 1.4; text-overflow: ellipsis; white-space: nowrap; }
 .ask-model-chev { flex: none; --ico: var(--ico-xs); color: var(--fg-4); transform: rotate(90deg); }
-@media (max-width: 860px) { .ask-model { height: 36px; } }
 </style>

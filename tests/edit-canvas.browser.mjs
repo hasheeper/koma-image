@@ -11,6 +11,12 @@ async function setCanvas(page, enabled) {
   await route(page, '#/edit');
 }
 const switcher = page => page.getByRole('group', { name: '编辑侧栏内容', exact: true });
+async function openPanel(page, label) {
+  const grip = page.getByRole('button', { name: '展开创作面板', exact: true });
+  if (await grip.isVisible()) await grip.click();
+  const button = switcher(page).getByRole('button', { name: label, exact: true });
+  if (await button.getAttribute('aria-pressed') !== 'true') await button.click();
+}
 
 async function setup(t, options = {}) {
   const f = await open('/#/edit', { ready: '#imageEditor', standard: true, chatModel: true, editModels: true, ask: askSettings({ images: false }), ...options });
@@ -39,7 +45,7 @@ test('EDIT canvas: locating a version uncovers the mask and preserves the ASK co
     editor.setMode('inpaint');
     return { id: first.id, label: editor.reference(first), base: editor.session.baseId };
   });
-  await switcher(p).getByRole('button', { name: 'ASK', exact: true }).click();
+  await openPanel(p, 'ASK');
   f.llm.push(textReply(`请检查 ${target.label}。`));
   await p.locator('#askPrompt').fill('查看原始版本'); await submitAsk(p);
   await p.locator('.ask-turn[data-status="done"]').waitFor();
@@ -55,7 +61,7 @@ test('EDIT canvas: locating a version uncovers the mask and preserves the ASK co
   await p.mouse.move(box.x + box.width * .3, box.y + box.height * .4); await p.mouse.down();
   await p.mouse.move(box.x + box.width * .6, box.y + box.height * .6, { steps: 8 }); await p.mouse.up();
   await p.waitForFunction(() => editor.session.mask.position > 0);
-  await switcher(p).getByRole('button', { name: 'ASK', exact: true }).click();
+  await openPanel(p, 'ASK');
   assert.equal(await p.locator('#askPrompt').inputValue(), 'keep this followup');
   assert.equal(await p.evaluate(() => ask.conversationId.value), conversation);
   assert.deepEqual(f.errors, []);
@@ -97,14 +103,14 @@ test('EDIT canvas: one form, ASK and canvas survive sidebar toggles, resize and 
   assert.deepEqual(await p.evaluate(() => ({ board: editor.session.id === originalBoard, form: originalForm === document.getElementById('editorForm'), canvas: originalCanvas === document.getElementById('editorMask'), ask: originalAsk === document.getElementById('askDrawer'), prompt: editor.session.fields.prompt, question: ask.input.value })), { board: true, form: true, canvas: true, ask: true, prompt: 'edited from right sidebar', question: 'keep my question' });
   await p.setViewportSize({ width: 390, height: 844 });
   await p.locator('.edit-sidebar-head').waitFor();
-  // The covered canvas stays behind the pane, receded and inert, with its drivers paused.
-  assert.deepEqual(await p.locator('#editorCanvas').evaluate(el => [el.hasAttribute('data-receded'), el.inert]), [true, true]);
-  await p.locator('#editorRun').waitFor({ state: 'hidden' });
-  await p.getByRole('button', { name: '收起编辑面板' }).click();
+  // A half-height form leaves the canvas usable and keeps the original generation action.
+  assert.deepEqual(await p.locator('#editorCanvas').evaluate(el => [el.hasAttribute('data-receded'), el.inert]), [false, false]);
+  await p.locator('#editorRun').waitFor();
+  await switcher(p).getByRole('button', { name: '表单', exact: true }).click();
   await p.locator('#editorRun').waitFor(); // returns with the canvas on the next frame
   assert.equal(await p.locator('#editorCanvas').evaluate(el => el.hasAttribute('data-receded') || el.inert), false);
   assert.equal(await p.locator('#editorFullscreen').count(), 0);
-  await switcher(p).getByRole('button', { name: 'ASK', exact: true }).click();
+  await openPanel(p, 'ASK');
   await p.locator('#askPrompt').waitFor();
   await p.setViewportSize({ width: 1440, height: 900 });
   await p.locator('#editorCanvas').waitFor();
@@ -120,14 +126,23 @@ test('EDIT canvas: phone version browser and panel switches keep the mask, base,
     window.baseId = editor.session.baseId; window.originalVersions = document.querySelector('.editor-rail');
   });
   const mask = p.locator('#editorMask'); await mask.waitFor();
+  await openPanel(p, '表单');
+  await p.locator('.edit-canvas-sidebar').evaluate(el => Promise.all(el.getAnimations().map(animation => animation.finished.catch(() => {}))));
+  assert.equal(await p.evaluate(() => ask_presentation.editCanvas.detent.value), 'half');
+  assert.equal(await p.locator('#editorViewport').evaluate(el => el.inert), false);
+  await p.locator('#editorRun').waitFor();
   // Coordinates only feed a real brush stroke; no layout measurements are asserted.
   const box = await mask.boundingBox();
   await p.mouse.move(box.x + box.width * .3, box.y + box.height * .4); await p.mouse.down();
   await p.mouse.move(box.x + box.width * .6, box.y + box.height * .6, { steps: 8 }); await p.mouse.up();
   await p.waitForFunction(() => editor.session.mask.position > 0);
+  await switcher(p).getByRole('button', { name: '表单', exact: true }).click();
+  await p.locator('.edit-canvas-sidebar').waitFor({ state: 'hidden' });
   await p.getByRole('button', { name: '缩放到 100%', exact: true }).click();
   const painted = await p.evaluate(() => JSON.stringify(editor.session.mask)), zoom = await p.locator('#editorZoomValue').innerText();
-  await switcher(p).getByRole('button', { name: '表单', exact: true }).click(); await p.locator('#editorPrompt').fill('still editing');
+  await openPanel(p, '表单'); await p.locator('#editorPrompt').fill('still editing');
+  assert.equal(await p.locator('#editorViewport').evaluate(el => el.inert), true, 'full-height editing pauses the covered canvas');
+  assert.equal(await p.locator('#editorRun').isVisible(), true, 'the full form still exposes generation');
   await switcher(p).getByRole('button', { name: 'ASK', exact: true }).click(); await p.locator('#askPrompt').fill('review this mask');
   await switcher(p).getByRole('button', { name: 'ASK', exact: true }).click(); await mask.waitFor();
   await p.locator('#editorZoomValue').waitFor(); // the receded tools return on the next frame

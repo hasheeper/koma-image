@@ -21,10 +21,15 @@
 .edit-switch-home { margin-left: auto; }
 .edit-canvas-board, .edit-canvas-summary, .edit-canvas-options { color: var(--fg-2); background: var(--glass-bg); border: 1px solid var(--line-2); border-radius: 10px; box-shadow: var(--sh-1); backdrop-filter: blur(var(--glass-blur)); }
 .edit-canvas-board { flex: 0 1 160px; min-width: 90px; }
-.edit-canvas-summary { display: inline-flex; align-items: center; gap: 6px; flex: 0 1 auto; min-width: 0; height: 34px; padding: 0 10px; margin-left: auto; white-space: nowrap; font-size: var(--fz-xs); --ico: var(--ico-sm); }
-.edit-canvas-summary > .ico { flex: none; color: var(--fg-3); }
+/* Same anatomy as the IMAGE summary island: icon and short model, then the size in a short raised well
+   whose text (× included) sits one step under the model. Without a base image the well is absent. */
+.edit-canvas-summary { display: inline-flex; align-items: center; gap: 6px; flex: 0 1 auto; min-width: 0; height: 34px; padding: 0 10px; margin-left: auto; white-space: nowrap; font-size: var(--fz-xs); line-height: 1; --ico: var(--ico-sm); }
+.edit-canvas-summary:has(> .edit-canvas-chip) { padding-right: 6px; }
+.edit-canvas-lead { display: inline-flex; align-items: center; gap: 6px; min-width: 0; }
+.edit-canvas-lead > .ico { flex: none; color: var(--fg-3); }
 .edit-canvas-summary strong { min-width: 0; overflow: hidden; text-overflow: ellipsis; color: var(--fg); font-weight: var(--fw-semibold); }
-.edit-canvas-summary > span { display: inline-flex; align-items: center; gap: 4px; flex: none; padding-left: 8px; border-left: 1px solid var(--line); font-variant-numeric: tabular-nums; color: var(--fg-3); }
+.edit-canvas-chip { display: inline-flex; flex: none; align-items: center; height: 22px; padding: 0 8px; color: var(--fg-3); background: var(--nav-active-bg); border-radius: 6px; box-shadow: var(--nav-active-shadow); font-variant-numeric: tabular-nums; }
+.edit-canvas-times { margin-inline: 2px; }
 .edit-canvas-summary:hover { background: var(--hover); }
 .edit-canvas-options { width: 34px; height: 34px; --ico: var(--ico-md); }
 .edit-canvas-account { display: flex; flex-wrap: wrap; align-items: center; justify-content: flex-end; gap: 8px; padding: 2px; }
@@ -46,7 +51,7 @@
 /* Context tools have their own row; version browsing and generation bookend the main row. */
 .edit-collaboration .editor-toolbar { left: 12px; right: 12px; bottom: 12px; transform: none; display: grid; grid-template-columns: auto minmax(0, 1fr) auto; align-items: center; justify-items: center; gap: 8px; width: auto; max-width: none; pointer-events: none; }
 .edit-collaboration .editor-toolbar > * { pointer-events: auto; }
-.edit-collaboration .editor-toolbar > :not(.edit-versions-toggle, .editor-tool-controls, .edit-canvas-run) { grid-column: 1 / -1; }
+.edit-collaboration .editor-toolbar > :not(.edit-versions-toggle, .editor-tool-controls, .edit-canvas-run, .canvas-sheet-peek) { grid-column: 1 / -1; }
 .edit-collaboration .editor-tool-controls { min-width: 0; gap: 8px; }
 .edit-collaboration .editor-secondary-tools { flex-wrap: wrap; }
 .edit-versions-toggle { justify-self: start; gap: 7px; height: 44px; padding: 0 14px; color: var(--fg-2); font-size: var(--fz-sm); --ico: var(--ico-md); }
@@ -90,24 +95,27 @@
 @container editor-mat (max-width: 720px) {
   .edit-collaboration .editor-toolbar { grid-template-columns: auto 1fr; gap: 8px; }
   .edit-collaboration .editor-tool-controls { grid-column: 1 / -1; grid-row: auto; order: -1; }
-  .edit-collaboration .editor-toolbar > :not(.edit-versions-toggle, .editor-tool-controls, .edit-canvas-run) { order: -2; }
+  .edit-collaboration .editor-toolbar > :not(.edit-versions-toggle, .editor-tool-controls, .edit-canvas-run, .canvas-sheet-peek) { order: -2; }
   .edit-canvas-board { flex-basis: 110px; }
   .edit-canvas-head { gap: 6px; }
-  .edit-canvas-summary { gap: 5px; padding-inline: 8px; }
+  .edit-canvas-summary { gap: 5px; padding-left: 8px; }
 }
 @media (max-width: 1079px) {
   .editor.edit-collaboration { padding: max(8px, env(safe-area-inset-top)) max(8px, env(safe-area-inset-right)) max(8px, env(safe-area-inset-bottom)) max(8px, env(safe-area-inset-left)); }
   .edit-collaboration .editor-shell, .edit-collaboration.edit-sidebar-collapsed .editor-shell { grid-template-columns: minmax(0, 1fr); }
-  /* Row one navigates (workspace, board, ⋯, tray switch), as in CHAT; row two only describes the board. */
-  .edit-canvas-head { display: grid; grid-template-columns: 36px minmax(0, 1fr) auto auto; grid-template-rows: 40px 40px; gap: 6px; height: auto; }
-  .edit-canvas-nav { grid-column: 1; grid-row: 1; }
-  .edit-canvas-board { grid-column: 2; grid-row: 1; width: auto; min-width: 0; }
-  .edit-canvas-head > .popover-menu-host { grid-column: 3; grid-row: 1; }
-  .edit-switch-home { grid-column: 4; grid-row: 1; margin: 0; }
-  .edit-canvas-head .edit-canvas-summary { grid-column: 1 / -1; grid-row: 2; max-width: 100%; height: 40px; justify-self: end; }
+  /* The board hugs its title on the left, the model stays on the right, as in IMAGE. */
+  .edit-canvas-head { gap: 6px; height: 40px; }
+  .edit-canvas-board { flex: 0 1 auto; width: auto; max-width: min(35%, 180px); min-width: 0; }
+  .edit-canvas-board :deep(.bd) { container-type: normal; }
+  .edit-canvas-board :deep(.compact .bd-pill) { height: 38px; }
+  .edit-canvas-head > .popover-menu-host { flex: none; }
+  .edit-switch-home { display: none; }
+  .edit-canvas-head .edit-canvas-summary { height: 40px; margin-left: auto; }
+  .edit-canvas-lead { gap: 4px; }
+  .edit-canvas-chip { height: 26px; padding-inline: 6px; }
   .edit-canvas-options { height: 40px; width: 36px; }
-  .edit-collaboration .editor-viewport { padding-top: 146px; }
-  .edit-collaboration .editor-info { top: 100px; }
+  .edit-collaboration .editor-viewport { padding-top: 100px; }
+  .edit-collaboration .editor-info { top: 54px; }
   .edit-collaboration .editor-info { justify-content: flex-start; gap: 10px; padding-inline: 12px; }
   .edit-collaboration .editor-info-meta { flex: 1; }
   .edit-collaboration .editor-info-meta .mono { display: none; }
@@ -131,8 +139,22 @@
   .edit-collaboration .editor-toolbar { left: 8px; right: 8px; bottom: 8px; }
   .edit-canvas-run .btn-go, .edit-canvas-run .btn-stop { height: 44px; min-height: 44px; }
   .edit-canvas-run .btn-go { min-width: 156px; }
-  .edit-history-browsing .editor-viewport { transform: translateX(24%) scale(1.22); filter: blur(14px); opacity: .5; pointer-events: none; }
+  .edit-history-browsing .editor-viewport { transform: translateX(24%) scale(1.22); opacity: .5; pointer-events: none; }
   .edit-history-browsing :is(.edit-canvas-head, .editor-info, .editor-toolbar) { opacity: 0; pointer-events: none; }
+}
+/* The same bottom sheet and resting grip as IMAGE; EDIT keeps its own tools and generation action. */
+@media (max-width: 1079px) {
+  .editor.canvas-sheet { --sheet-side: max(8px, env(safe-area-inset-left)); --sheet-bottom: max(8px, env(safe-area-inset-bottom)); padding-bottom: 0; }
+  .canvas-sheet .editor-toolbar { grid-template-columns: max-content minmax(0, 1fr) max-content; bottom: max(16px, env(safe-area-inset-bottom)); gap: 6px; }
+  .canvas-sheet .editor-toolbar > .editor-tool-controls { grid-column: 1 / -1; order: -1; }
+  .canvas-sheet .editor-toolbar > .canvas-sheet-peek { grid-column: 2; width: 100%; min-width: 0; max-width: 160px; }
+  .canvas-sheet[data-sheet-pane] .editor-viewport { bottom: var(--sheet-cover, 0px); padding-bottom: 12px; }
+  .canvas-sheet[data-sheet-pane="context"] .editor-toolbar { z-index: 10; }
+  .canvas-sheet[data-sheet-pane="context"] .editor-toolbar > :not(.edit-versions-toggle, .canvas-sheet-peek, .edit-canvas-run) { display: none; }
+  .canvas-sheet[data-sheet-pane="context"] .edit-canvas-form { bottom: 64px; }
+  .canvas-sheet .edit-form-side .composer-foot { background: none; border-top: 0; box-shadow: none; }
+  .canvas-sheet :deep(.ask-bottom) { padding: 0 8px 8px; }
+  .canvas-sheet[data-sheet-pane="ask"] .editor-toolbar { opacity: 0; visibility: hidden; pointer-events: none; }
 }
 @media (max-width: 600px) {
   .edit-collaboration #editorHand { display: none; }

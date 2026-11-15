@@ -6,7 +6,7 @@ import { useShell } from "../../app/shell";
 import { useAskPresentation } from "../../ask/presentation";
 const { fullscreen: askFullscreen, canvas, selectCanvasPanel } = useAskPresentation();
 const { active: coCreate } = canvas;
-/* The compact pane covers and pauses the stage until it is closed. */
+/* A phone pane is open (it closes the history browser); what it covers and pauses is the sheet's call. */
 const compactPanel = canvas.covered;
 const recipeHost = shallowRef<HTMLElement | null>(null);
 watch(recipeHost, host => { canvas.recipeHost.value = host; });
@@ -29,6 +29,7 @@ import { naiInputLimits } from "../../domain/nai-input";
 import { effectiveNaiMode, naiCapabilities } from "../../domain/nai";
 import { usePopover } from "../../shared/ui/use-popover";
 import { installCanvasSplitter } from "../../native/canvas-splitter";
+import { useCanvasSheet } from "../../ask/canvas-sheet";
 import CanvasPanelSwitch from "../../shared/ui/CanvasPanelSwitch.vue";
 import { useTransientMark } from "../../shared/ui/use-transient-mark";
 import ModelField from "../../shared/nai/ModelField.vue";
@@ -51,7 +52,7 @@ const splitter = shallowRef<HTMLElement | null>(null);
 const bottomPanel = shallowRef<InstanceType<typeof DrawingBottomPanel>>();
 const foot = shallowRef<HTMLElement | null>(null);
 const { image, narrow } = useShell();
-const main = shallowRef<HTMLElement | null>(null), canvasLeft = shallowRef<HTMLElement | null>(null);
+const main = shallowRef<HTMLElement | null>(null), canvasStage = shallowRef<HTMLElement | null>(null);
 
 const navHome = shallowRef<HTMLElement | null>(null), navFloat = shallowRef<HTMLElement | null>(null), quickAccount = shallowRef<HTMLElement | null>(null);
 const navTarget = computed(() => coCreate.value ? navFloat.value : navHome.value);
@@ -83,8 +84,13 @@ const quickModel = shallowRef<HTMLElement | null>(null), quickSize = shallowRef<
 const quickPanel = shallowRef<HTMLElement | null>(null), summaryButton = shallowRef<HTMLElement | null>(null);
 const canvasSplitter = shallowRef<HTMLElement | null>(null);
 const sidebar = shallowRef<HTMLElement | null>(null), panelSwitch = shallowRef<InstanceType<typeof CanvasPanelSwitch> | null>(null);
+/* Phone: the tray is the shared bottom sheet. Closed, its grip sits between History and Generate;
+   the form or recipe pane keeps the action bar, ASK hides it. At half height
+   the picture refits into the part of the stage left visible. */
+const canvasSheet = useCanvasSheet(canvas, { host: main, sheet: sidebar, cover: () => canvasStage.value, open: pane => selectPanel(pane) });
+const { mode: sheetMode, stageCovered } = canvasSheet;
 const panelSwitchHome = shallowRef<HTMLElement | null>(null), panelSwitchSide = shallowRef<HTMLElement | null>(null);
-const panelSwitchTarget = computed(() => compactPanel.value ? panelSwitchSide.value : panelSwitchHome.value);
+const panelSwitchTarget = computed(() => canvas.switchInTray.value ? panelSwitchSide.value : panelSwitchHome.value);
 const contextOpen = computed(() => coCreate.value && canvas.panel.value === 'context');
 const formOpen = computed(() => contextOpen.value && canvas.contextKind.value === 'form');
 /* What the tray displays: the chosen pane, retained until the tray finishes leaving. */
@@ -154,6 +160,7 @@ window.addEventListener("beforeunload", leave);
 onBeforeUnmount(() => window.removeEventListener("beforeunload", leave));
 lifecycle.whileActive((signal) => {
   if (canvasSplitter.value && main.value) installCanvasSplitter(canvasSplitter.value, main.value, () => canvas.ratio.value, canvas.setRatio, signal);
+  canvasSheet.install(signal);
   if (splitter.value) {
     installSplitter(splitter.value, signal);
     splitter.value.addEventListener(
@@ -168,9 +175,13 @@ lifecycle.whileActive((signal) => {
     );
   }
   const dockObserver = new ResizeObserver(() => {
-    if (coCreate.value && canvasBottom.value?.offsetHeight) canvasLeft.value?.style.setProperty('--canvas-dock-space', `${canvasBottom.value.offsetHeight + 24}px`);
+    if (!coCreate.value || !canvasBottom.value?.offsetHeight) return;
+    /* On the phone sheet the picture's actions float above the bar instead of wrapping into it; the stage still keeps clear of them. */
+    const actions = sheetMode.value && imageActions.value?.childElementCount ? imageActions.value.offsetHeight + 8 : 0;
+    main.value?.style.setProperty('--canvas-dock-space', `${canvasBottom.value.offsetHeight + actions + 24}px`);
   });
   if (canvasBottom.value) dockObserver.observe(canvasBottom.value);
+  if (imageActions.value) dockObserver.observe(imageActions.value);
   const sizeViewport = () => {
     if (coCreate.value && canvas.compact.value && window.visualViewport)
       main.value?.style.setProperty('--canvas-viewport-height', `${window.visualViewport.height}px`);
@@ -200,6 +211,8 @@ lifecycle.whileActive((signal) => {
       }
       if (event.key === "Escape") {
         if (formOpen.value) { event.preventDefault(); if (!bottomPanel.value?.close()) closeForm(); }
+        /* The phone sheet has no ×: Esc closes whichever pane it shows (ASK keeps Esc for its own popups and stop). */
+        else if (sheetMode.value && canvas.panel.value) { event.preventDefault(); canvas.panel.value = null; }
         else if (image.importing) importSheet.value?.close();
         else if (bottomPanel.value?.close()) {}
         else if (image.zoom) image.zoom = false;
@@ -226,7 +239,7 @@ lifecycle.whileActive((signal) => {
     </div>
     <div ref="account" class="topbar-account"></div>
   </header>
-  <main ref="main" class="shell" :class="{ 'canvas-layout': coCreate, 'canvas-collaboration': coCreate, 'sidebar-collapsed': coCreate && !canvas.trayHeld.value }" :style="{ '--canvas-ask-width': `${canvas.ratio.value * 100}%` }" data-workspace-root="image" :inert="askFullscreen">
+  <main ref="main" class="shell" :class="{ 'canvas-layout': coCreate, 'canvas-collaboration': coCreate, 'sidebar-collapsed': coCreate && !canvas.trayHeld.value, 'canvas-sheet-host': coCreate, 'canvas-sheet': sheetMode }" :data-sheet-pane="sheetMode ? canvas.shownPanel.value || undefined : undefined" :data-detent="sheetMode ? canvas.detent.value : undefined" :style="{ '--canvas-ask-width': `${canvas.ratio.value * 100}%` }" data-workspace-root="image" :inert="askFullscreen">
     <div ref="formHome" class="form-home"></div>
     <Teleport v-if="formTarget" :to="formTarget">
     <form
@@ -262,7 +275,7 @@ lifecycle.whileActive((signal) => {
       aria-label="调整栏宽"
       tabindex="0"
     ></div>
-    <section ref="canvasLeft" class="canvas-left" :class="{ 'graph-scene': graphScene, 'history-browsing': mobileHistoryOpen }" :data-receded="compactPanel || undefined" :inert="compactPanel" aria-label="IMAGE 画布">
+    <section class="canvas-left" :class="{ 'graph-scene': graphScene, 'history-browsing': mobileHistoryOpen }" :data-receded="stageCovered || undefined" :inert="stageCovered" aria-label="IMAGE 画布">
       <header v-show="coCreate" class="canvas-head canvas-recede-hide" :class="{ 'recipe-context': canvas.contextKind.value === 'recipe' }">
         <div ref="navFloat" class="canvas-nav"></div>
         <div ref="boardHead" class="canvas-board"></div>
@@ -277,44 +290,50 @@ lifecycle.whileActive((signal) => {
           </template>
         </div>
         <button v-show="canvas.contextKind.value === 'form'" ref="summaryButton" class="canvas-summary" type="button" popovertarget="canvasQuick" aria-label="调整型号与画幅" aria-haspopup="dialog" :aria-expanded="quick.open.value" :title="`${summaryModel} · ${view.form.width}×${view.form.height}`">
-          <span class="canvas-summary-identity">
-            <span v-if="summaryMode" class="canvas-mode-icon" :title="summaryMode === 'furry' ? '兽人' : '动漫'"><AppIcon :name="summaryMode === 'furry' ? 'i-paw' : 'i-sakura'" /></span>
-            <span class="canvas-summary-model"><span class="model-full">{{ summaryModel }}</span><span class="model-short">{{ summaryModelShort }}</span></span>
-          </span>
-          <span class="canvas-summary-size"><AppIcon name="i-frame" />{{ view.form.width }}×{{ view.form.height }}</span>
-          <span v-if="naiInputLimits(view.form.model)" class="canvas-tokens"><NaiTokenCount field="prompt" :text="view.form.prompt" /><span>tok</span></span>
+          <span class="canvas-summary-lead"><span v-if="summaryMode" class="canvas-mode-icon" :title="summaryMode === 'furry' ? '兽人' : '动漫'"><AppIcon :name="summaryMode === 'furry' ? 'i-paw' : 'i-sakura'" /></span><span class="canvas-summary-model">{{ summaryModelShort }}</span></span>
+          <span class="canvas-summary-chip">{{ view.form.width }}<span class="canvas-summary-times">×</span>{{ view.form.height }}</span>
+          <span v-if="naiInputLimits(view.form.model)" class="canvas-summary-chip canvas-summary-tokens"><NaiTokenCount field="prompt" :text="view.form.prompt" /><span class="canvas-summary-unit">tok</span></span>
           <AppIcon class="canvas-summary-caret" name="i-chevron" />
         </button>
         <div ref="panelSwitchHome" class="canvas-panel-switch-home"></div>
         <Teleport v-if="panelSwitchTarget" :to="panelSwitchTarget">
-        <CanvasPanelSwitch ref="panelSwitch" label="侧栏内容" :options="panelOptions" :selected="canvas.panel.value" @select="selectPanel($event as 'ask' | 'context')" />
+        <CanvasPanelSwitch v-show="canvasSheet.switchShown.value" ref="panelSwitch" label="侧栏内容" :options="panelOptions" :selected="canvas.panel.value" @select="selectPanel($event as 'ask' | 'context')" />
         </Teleport>
       </header>
-      <div class="canvas-stage" :class="{ 'canvas-recede': coCreate }">
+      <div ref="canvasStage" class="canvas-stage" :class="{ 'canvas-recede': coCreate }">
         <Teleport :to="historyTarget || 'body'" :disabled="!historyTarget">
           <div ref="historyTray" v-show="libraryExpanded && historyTarget" class="canvas-history" :data-groove-motion="grooveMotion.on.value || undefined" aria-label="图片历史侧栏"></div>
         </Teleport>
-        <ImageStage :compact="coCreate" :history-visible="libraryExpanded" @history-host="imageHistoryHost = $event" :actions-target="imageActions" :visible="!coCreate || canvas.view.value === 'image' || !canvas.recordId.value" :paused="compactPanel" />
+        <ImageStage :compact="coCreate" :history-visible="libraryExpanded" @history-host="imageHistoryHost = $event" :actions-target="imageActions" :visible="!coCreate || canvas.view.value === 'image' || !canvas.recordId.value" :paused="stageCovered" />
         <div ref="graphHost" v-show="coCreate && canvas.view.value !== 'image' && canvas.recordId.value" class="canvas-graph"></div>
       </div>
       <div ref="canvasBottom" v-show="coCreate" class="canvas-bottom canvas-recede-hide">
         <div ref="filmstrip" v-show="!graphScene" class="canvas-filmstrip"></div>
+        <div v-if="sheetMode" class="canvas-sheet-peek" role="group" aria-label="创作面板">
+          <div class="canvas-peek-surface">
+            <button class="canvas-sheet-grip canvas-peek-grip" type="button" data-sheet-grip aria-label="展开创作面板" title="上拉展开" @click="canvasSheet.tap()"></button>
+            <div class="canvas-peek-entries">
+              <button type="button" :aria-label="`打开${contextLabel}`" :title="contextLabel" @click="selectPanel('context')"><AppIcon :name="canvas.contextKind.value === 'recipe' ? 'i-layers' : 'i-menu'" /></button>
+              <button type="button" aria-label="打开 ASK" title="ASK" @click="selectPanel('ask')"><AppIcon name="i-ask" /></button>
+            </div>
+          </div>
+        </div>
         <div ref="imageActions" class="editor-toolbar canvas-image-actions" :class="{ 'graph-actions': graphScene }"></div>
         <div ref="canvasFoot" class="canvas-foot generation-form" :aria-busy="view.busy"></div>
       </div>
 
     </section>
     <div v-show="coCreate && canvas.panel.value && !canvas.compact.value" ref="canvasSplitter" class="canvas-splitter" role="separator" tabindex="0" aria-orientation="vertical" aria-label="调整侧栏宽度" aria-valuemin="25" aria-valuemax="45" :aria-valuenow="Math.round(canvas.ratio.value * 100)"></div>
-    <Transition name="canvas-tray" :css="canvas.trayMotion.value" @after-leave="canvas.settleTray()">
-    <aside v-show="coCreate && canvas.panel.value" ref="sidebar" class="canvas-sidebar" aria-label="创作侧栏">
-      <header v-show="canvas.compact.value" class="canvas-sidebar-head canvas-tray-head" :class="{ 'is-folded': canvas.headFolded.value }">
+    <Transition name="canvas-tray" :css="canvas.trayMotion.value" :duration="canvas.trayDuration.value" @after-leave="canvas.settleTray()">
+    <aside v-show="coCreate && canvas.panel.value" ref="sidebar" class="canvas-sidebar canvas-sheet-tray" aria-label="创作侧栏">
+      <header v-show="canvas.compact.value" class="canvas-sidebar-head canvas-tray-head" :class="{ 'is-folded': canvas.headFolded.value && !sheetMode }"><button v-if="sheetMode" class="canvas-sheet-grip" type="button" data-sheet-grip :aria-label="canvas.detent.value === 'half' ? '展开到全屏' : '收回半屏'" title="拖动调整高度" @click="canvasSheet.tap()"></button>
         <div class="canvas-sheet-actions"><button class="ibtn" type="button" aria-label="收起创作面板" @click="canvas.panel.value = null"><AppIcon name="i-close" /></button><button class="ibtn canvas-fold" type="button" aria-label="收起顶栏" @click="canvas.toggleHead($event)"><AppIcon name="i-chevron" /></button></div>
         <div ref="panelSwitchSide"></div>
         <button v-show="canvas.headFolded.value" class="canvas-head-handle" type="button" aria-label="展开顶栏" @click="canvas.toggleHead($event)"></button>
       </header>
-      <div class="canvas-sidebar-content" :data-pane-motion="canvas.paneMotion.value || undefined">
-      <div ref="askHost" class="canvas-ask"></div>
-      <section v-show="formShown" id="canvasForm" class="canvas-form-panel" aria-label="IMAGE 表单">
+      <div class="canvas-sidebar-content canvas-sheet-content" :data-pane-motion="canvas.paneMotion.value || undefined">
+      <div ref="askHost" class="canvas-ask canvas-sheet-ask" @focusin="canvasSheet.focus"></div>
+      <section v-show="formShown" id="canvasForm" class="canvas-form-panel" aria-label="IMAGE 表单" @focusin="canvasSheet.focus">
         <header class="canvas-panel-head"><AppIcon name="i-menu" /><strong>表单</strong></header>
         <div ref="formSide" class="canvas-form-body"></div>
       </section>
@@ -388,6 +407,7 @@ lifecycle.whileActive((signal) => {
 
 <style scoped src="../../shared/canvas-motion.css"></style>
 <style scoped src="../../shared/canvas-surface.css"></style>
+<style scoped src="../../shared/canvas-sheet.css"></style>
 <style scoped>
 .composer-foot.drawing-footer { padding-top: 10px; gap: 0; background: color-mix(in srgb,var(--chrome) 65%,var(--raised)); border-radius: var(--r3) var(--r3) 0 0; border-top: 1px solid var(--line-2); box-shadow: 0 -5px 16px -12px rgb(var(--shadow-rgb) / calc(.7333 * var(--shadow-strength))); backdrop-filter: none; }
 .form-home, .canvas-left, .canvas-stage, .composer-slot { display: contents; }
@@ -411,27 +431,26 @@ lifecycle.whileActive((signal) => {
 .canvas-views button[aria-pressed="true"] { color: var(--fg); background: var(--nav-active-bg); box-shadow: var(--nav-active-shadow); }
 .canvas-views .canvas-inspection { position: relative; color: var(--fg-2); }
 .canvas-inspection::before { position: absolute; top: 6px; bottom: 6px; left: -1px; width: 1px; content: ''; background: var(--line-2); }
-.canvas-summary { display: flex; align-items: center; gap: 8px; flex: 0 1 auto; min-width: 0; height: 34px; margin-left: auto; padding: 0 10px; font-size: var(--fz-xs); line-height: 1; white-space: nowrap; }
+.canvas-summary { display: flex; align-items: center; gap: 2px; flex: 0 1 auto; min-width: 0; height: 34px; margin-left: auto; padding: 0 4px 0 10px; font-size: var(--fz-xs); line-height: 1; white-space: nowrap; }
 .canvas-summary:is(:hover, [aria-expanded="true"]) { background: var(--hover); }
-.canvas-summary-identity { display: inline-flex; align-items: center; gap: 6px; min-width: 0; }
+.canvas-summary-lead { display: inline-flex; align-items: center; gap: 6px; min-width: 0; margin-right: 6px; }
 .canvas-mode-icon { display: inline-flex; flex: none; color: var(--fg-3); --ico: var(--ico-sm); }
 .canvas-summary-model { min-width: 0; overflow: hidden; text-overflow: ellipsis; color: var(--fg); font-weight: var(--fw-semibold); }
-.model-short { display: none; }
-.canvas-summary-size { display: inline-flex; align-items: center; gap: 4px; flex: none; padding-left: 8px; border-left: 1px solid var(--line); color: var(--fg-3); font-size: var(--fz-xs); font-variant-numeric: tabular-nums; --ico: var(--ico-sm); }
-.canvas-tokens { display: inline-flex; flex: none; align-items: baseline; gap: 3px; padding-left: 8px; border-left: 1px solid var(--line); color: var(--fg-3); font-size: var(--fz-2xs); font-variant-numeric: tabular-nums; }
-.canvas-tokens :deep(.tab-count) { padding: 0; background: none; font: inherit; }
-.canvas-summary-caret { flex: none; color: var(--fg-3); transform: rotate(90deg); --ico: var(--ico-sm); }
+/* Values sit in short raised wells (the switch island's surface) with room above and below; their text is one
+   step under the model, × and the unit included, so the model stays the pill's only bright word. */
+.canvas-summary-chip { display: inline-flex; flex: none; align-items: center; height: 22px; padding: 0 8px; color: var(--fg-3); background: var(--nav-active-bg); border-radius: 6px; box-shadow: var(--nav-active-shadow); font-variant-numeric: tabular-nums; }
+.canvas-summary-times { margin-inline: 2px; }
+.canvas-summary-unit { margin-left: 3px; }
+.canvas-summary-chip :deep(.tab-count) { padding: 0; background: none; font: inherit; color: inherit; }
+.canvas-summary-caret { flex: none; margin-inline: 4px 5px; color: var(--fg-3); transform: rotate(90deg); --ico: var(--ico-sm); }
 .canvas-summary[aria-expanded="true"] .canvas-summary-caret { transform: rotate(-90deg); }
 .canvas-panel-switch-home { flex: none; margin-left: auto; }
 .canvas-summary + .canvas-panel-switch-home { margin-left: 0; }
 .recipe-context .canvas-panel-switch-home { margin-left: auto; }
-@container canvas-workspace (max-width: 760px) { .model-full { display: none; } .model-short { display: inline; } }
 @container canvas-workspace (max-width: 620px) {
   .canvas-board { flex-basis: 92px; min-width: 72px; }
   .canvas-views > :is(button, .canvas-inspection) { min-width: 56px; padding-inline: 6px; gap: 4px; }
-  .canvas-summary { flex: none; gap: 6px; padding-inline: 8px; }
-  .canvas-summary-identity { display: none; }
-  .canvas-summary-size { padding-left: 0; border-left: 0; }
+  .canvas-summary-tokens { display: none; }
 }
 .canvas-layout .canvas-stage { padding-bottom: var(--canvas-dock-space, 72px); position: relative; display: flex; flex: 1; min-width: 0; min-height: 0; }
 .canvas-layout .graph-scene .canvas-stage { padding-bottom: 0; }
@@ -483,16 +502,22 @@ lifecycle.whileActive((signal) => {
 @media (max-width: 1079px) {
   .canvas-layout, .canvas-layout.sidebar-collapsed { grid-template-columns: minmax(0, 1fr); padding: max(8px, env(safe-area-inset-top)) max(8px, env(safe-area-inset-right)) max(8px, env(safe-area-inset-bottom)) max(8px, env(safe-area-inset-left)); }
   .canvas-layout .canvas-left { grid-column: 1; grid-row: 1; }
-  .history-browsing .canvas-stage { transform: translateX(24%) scale(1.22); filter: blur(14px); opacity: .5; pointer-events: none; }
+  .history-browsing .canvas-stage { transform: translateX(24%) scale(1.22); opacity: .5; pointer-events: none; }
   .history-browsing .canvas-head, .history-browsing .canvas-bottom > :not(.canvas-filmstrip) { opacity: 0; pointer-events: none; }
-  .canvas-head { display: grid; grid-template-columns: 36px minmax(0, 1fr) auto; grid-template-rows: 40px 40px; height: auto; gap: 6px; }
-  .canvas-nav { grid-column: 1; grid-row: 1; }
-  .canvas-board { grid-column: 2; grid-row: 1; width: auto; min-width: 0; }
-  .canvas-head .canvas-panel-switch-home { grid-column: 3; grid-row: 1; margin-left: 0; }
-  .canvas-head > .canvas-views:not(.canvas-panel-switch) { grid-column: 1 / -1; grid-row: 2; justify-self: start; }
-  .canvas-head .canvas-summary { grid-column: 1 / -1; grid-row: 2; justify-self: end; max-width: calc(100% - 144px); margin-left: 0; }
-  .canvas-head:not(:has(> .canvas-views:not(.canvas-panel-switch))) .canvas-summary { max-width: 100%; }
+  .canvas-head { height: 40px; gap: 6px; }
+  .canvas-board { flex: 0 1 auto; width: auto; max-width: min(35%, 180px); min-width: 0; }
+  .canvas-board :deep(.bd) { container-type: normal; }
+  .canvas-board :deep(.compact .bd-pill) { height: 38px; }
+  .canvas-head .canvas-panel-switch-home { display: none; }
+  .canvas-head > .canvas-views:not(.canvas-panel-switch) { position: absolute; top: 46px; left: 0; }
+  .canvas-head .canvas-summary { flex: 0 1 auto; margin-left: auto; }
   .canvas-head :is(.canvas-views, .canvas-summary) { height: 40px; }
+  /* Board and model share one row; a narrow phone drops tokens before squeezing their names. */
+  .canvas-head .canvas-summary { padding-left: 10px; }
+  .canvas-summary-lead { display: inline-flex; gap: 4px; margin-right: 4px; }
+  .canvas-summary-chip { height: 26px; padding-inline: 6px; }
+  .canvas-summary-tokens { display: inline-flex; }
+  .canvas-summary-caret { margin-inline: 2px 4px; }
   .canvas-views > :is(button, .canvas-inspection) { height: 32px; }
   .canvas-sidebar { position: absolute; inset: max(8px, env(safe-area-inset-top)) max(8px, env(safe-area-inset-right)) max(8px, env(safe-area-inset-bottom)) max(8px, env(safe-area-inset-left)); z-index: 9; gap: 8px; background: none; box-shadow: none; backdrop-filter: none; }
   /* Same corners as the canvas head: the switch stays put and × takes the workspace mark's place. */
@@ -500,7 +525,8 @@ lifecycle.whileActive((signal) => {
   .canvas-sidebar-head .ibtn { background: var(--glass-bg); border: 1px solid var(--line-2); border-radius: 10px; box-shadow: var(--sh-1); backdrop-filter: blur(var(--glass-blur)); }
   .canvas-sidebar-head .ibtn { width: 40px; height: 40px; }
   .canvas-sidebar-content { border-radius: 16px; background: var(--glass-bg); box-shadow: inset 0 1px 0 var(--glass-edge), 0 0 0 1px var(--line-2), var(--sh-1); backdrop-filter: blur(var(--glass-blur)) saturate(var(--glass-saturation)); }
-  .canvas-layout .canvas-stage > :deep(.stage) { padding-top: 96px; }
+  .canvas-layout .canvas-stage > :deep(.stage) { padding-top: 48px; }
+  .canvas-left:has(.canvas-head > .canvas-views:not(.canvas-panel-switch)) .canvas-stage > :deep(.stage) { padding-top: 96px; }
   .canvas-form-body :deep(.fld-hero) { flex: none; min-height: 280px; }
   .canvas-form-panel > .canvas-panel-head { display: none; }
   .canvas-layout .canvas-stage :deep(.compact-stage .viewport) { height: 100%; max-height: none; min-height: 0; padding: 12px; transition: none; }
@@ -509,6 +535,29 @@ lifecycle.whileActive((signal) => {
   .canvas-bottom .canvas-image-actions.graph-actions { justify-content: flex-start; }
   .canvas-foot .btn-go { min-height: 44px; height: 44px; min-width: 156px; }
   .canvas-foot .btn-stop { min-height: 44px; height: 44px; }
+}
+@media (max-width: 480px) {
+  .canvas-summary-tokens { display: none; }
+}
+/* Phone bottom sheet, IMAGE's part (the sheet itself is shared/canvas-sheet.css). The grip shares the
+   History / Generate row and reaches the bottom edge; hover or keyboard focus reveals pane shortcuts.
+   With the form or recipe pane the islands ride above the sheet's foot
+   (prompt, parameters and Generate work together while the picture stays in view) and the pane ends above
+   them; ASK hides them and its input takes the foot. The picture fits into the part of the stage left visible. */
+@media (max-width: 1079px) {
+  .canvas-sheet.canvas-layout { --sheet-side: max(8px, env(safe-area-inset-left)); --sheet-bottom: max(8px, env(safe-area-inset-bottom)); padding-bottom: 0; }
+  .canvas-sheet.canvas-layout .canvas-bottom { bottom: max(16px, env(safe-area-inset-bottom)); flex-wrap: nowrap; justify-content: space-between; gap: 6px; }
+  .canvas-sheet .canvas-foot { margin-left: 0; }
+  .canvas-sheet .canvas-bottom .canvas-image-actions { position: absolute; right: 0; bottom: calc(100% + 8px); left: 0; flex: none; order: 0; }
+  .canvas-sheet[data-sheet-pane="context"] .canvas-bottom { z-index: 10; }
+  .canvas-sheet[data-sheet-pane="context"] .canvas-image-actions { display: none; }
+  .canvas-sheet[data-sheet-pane="context"] :is(.canvas-form-panel, .canvas-recipe) { bottom: calc(var(--canvas-dock-space, 72px) - 8px); }
+  .canvas-sheet .canvas-form-body .composer-foot { background: none; border-top: 0; box-shadow: none; }
+  .canvas-sheet :deep(.ask-bottom) { padding: 0 8px 8px; }
+  .canvas-sheet[data-sheet-pane="ask"] .canvas-bottom { opacity: 0; visibility: hidden; transition: opacity var(--t1) var(--e), visibility 0s linear var(--t1); }
+  .canvas-sheet .canvas-stage { padding-bottom: max(var(--canvas-dock-space, 72px), var(--sheet-cover, 0px)); }
+  .canvas-sheet .graph-scene .canvas-stage { padding-bottom: var(--sheet-cover, 0px); }
+  .canvas-sheet .canvas-graph { bottom: max(var(--canvas-dock-space, 72px), var(--sheet-cover, 0px)); }
 }
 @container canvas-workspace (max-width: 600px) {
   .canvas-layout .canvas-bottom { flex-wrap: wrap; }

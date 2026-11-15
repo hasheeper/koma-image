@@ -18,7 +18,7 @@ import { useShell } from "../../app/shell";
 import { useAskPresentation } from "../../ask/presentation";
 const { fullscreen: askFullscreen, editCanvas: layout, selectCanvasPanel } = useAskPresentation();
 const coCreate = layout.active;
-/* The compact pane covers and pauses the canvas until it is closed. */
+/* Any compact pane closes version browsing; only a full sheet pauses painting. */
 const compactPanel = layout.covered;
 const annotations = useAnnotations(), ask = useAsk();
 const selection = shallowRef<InstanceType<typeof RegionAnnotator>>();
@@ -84,6 +84,7 @@ import type { MaskEditor } from "../../native/mask-editor.ts";
 import { createEditorCanvas } from "../../native/editor-canvas";
 import { createEditorToolbar } from "../../native/editor-toolbar";
 import { installCanvasSplitter } from "../../native/canvas-splitter";
+import { useCanvasSheet } from "../../ask/canvas-sheet";
 import CanvasPanelSwitch from "../../shared/ui/CanvasPanelSwitch.vue";
 import { useTransientMark } from "../../shared/ui/use-transient-mark";
 import { watchTheme } from "../../native/theme-watch";
@@ -135,6 +136,11 @@ const accountHome = shallowRef<HTMLElement | null>(null), accountFloat = shallow
 const toolsHome = shallowRef<HTMLElement | null>(null), toolsFloat = shallowRef<HTMLElement | null>(null);
 const goHome = shallowRef<HTMLElement | null>(null), goDock = shallowRef<HTMLElement | null>(null);
 const askHost = shallowRef<HTMLElement | null>(null), canvasSplitter = shallowRef<HTMLElement | null>(null);
+const sheet = shallowRef<HTMLElement | null>(null), canvasStage = shallowRef<HTMLElement | null>(null);
+/* Measure the fixed stage: the scroll viewport shrinks above the sheet and must not feed that size back. */
+const canvasSheet = useCanvasSheet(layout, { host: dialog, sheet, cover: () => canvasStage.value, open: pane => selectPanel(pane) });
+const { mode: sheetMode, stageCovered, switchShown } = canvasSheet;
+const canvasPaused = computed(() => sheetMode.value ? !!layout.panel.value && layout.detent.value === 'full' : compactPanel.value);
 const switchHome = shallowRef<HTMLElement | null>(null), switchSide = shallowRef<HTMLElement | null>(null);
 const versionSlot = shallowRef<HTMLElement | null>(null), versionBrowser = shallowRef<HTMLDialogElement | null>(null), versionBrowserBody = shallowRef<HTMLElement | null>(null);
 const versionBrowserOpen = shallowRef(false), versionToggle = shallowRef<HTMLButtonElement | null>(null);
@@ -144,7 +150,7 @@ const navTarget = computed(() => coCreate.value ? navFloat.value : navHome.value
 const accountTarget = computed(() => coCreate.value ? accountFloat.value : accountHome.value);
 const toolsTarget = computed(() => coCreate.value ? toolsFloat.value : toolsHome.value);
 const goTarget = computed(() => coCreate.value ? goDock.value : goHome.value);
-const switchTarget = computed(() => compactPanel.value ? switchSide.value : switchHome.value);
+const switchTarget = computed(() => layout.switchInTray.value ? switchSide.value : switchHome.value);
 const versionTarget = computed(() => layout.compact.value ? versionBrowserBody.value : versionSlot.value);
 /* The tray keeps the form on screen while it leaves; display:none follows the exit. */
 const formShown = computed(() => coCreate.value && layout.shownPanel.value === 'context');
@@ -184,6 +190,8 @@ const tab = ref<"prompt" | "negative_prompt">("prompt"),
   comparing = ref(false),
   rail = ref(true),
   drop = ref("");
+const summaryModel = computed(() => view.value.model?.name ?? '未配置模型');
+const summaryModelShort = computed(() => summaryModel.value.replace(/^NAI Diffusion\s+/, ''));
 const versionsBeside = computed(() => coCreate.value && !layout.compact.value && rail.value && view.value.session.versions.length > 0);
 const comparisonMode = shallowRef<'source' | 'raw' | 'composite'>('raw'), previewImage = shallowRef<EditorVersion>();
 const colorMatch=shallowRef(true);
@@ -521,7 +529,7 @@ async function activate() {
   if (coCreate.value && layout.panel.value === 'ask' && !ask.visible.value) ask.show();
   ensureMask();
   syncCanvasSurface();
-  if (!compactPanel.value) canvas?.restore(editor.session.viewport);
+  if (!canvasPaused.value) canvas?.restore(editor.session.viewport);
   paintBrush();
   const settings = prefs();
   rail.value = settings.editorRail !== false;
@@ -533,6 +541,7 @@ async function activate() {
   activeEvents?.abort();
   activeEvents = new AbortController();
   const signal = activeEvents.signal;
+  canvasSheet.install(signal);
   if (canvasSplitter.value && dialog.value) installCanvasSplitter(canvasSplitter.value, dialog.value, () => layout.ratio.value, layout.setRatio, signal);
   const sizeViewport = () => {
     if (coCreate.value && window.visualViewport) dialog.value?.style.setProperty('--edit-canvas-height', `${window.visualViewport.height}px`);
@@ -560,10 +569,11 @@ async function activate() {
 }
 function syncCanvasSurface() {
   if (!view.value.open || photopeaService.task.value) return;
-  if (compactPanel.value) { canvas?.pause(); toolbar?.pause(); focusRegion?.pause(); }
-  else { canvas?.resume(); toolbar?.resume(); focusRegion?.resume(); }
+  if (canvasPaused.value) { canvas?.pause(); focusRegion?.pause(); }
+  else { canvas?.resume(); focusRegion?.resume(); }
+  if (stageCovered.value) toolbar?.pause(); else toolbar?.resume();
 }
-watch([coCreate, compactPanel], async () => {
+watch([coCreate, canvasPaused, stageCovered], async () => {
   saveView(); saveMask(); focusRegion?.cancel(); mask?.cancel();
   await nextTick();
   if (view.value.open) await activate();
@@ -902,7 +912,9 @@ async function copyReference(v: EditorVersion) {
     ref="dialog"
     id="imageEditor"
     class="editor"
-    :class="{ 'edit-collaboration': coCreate, 'canvas-collaboration': coCreate, 'edit-sidebar-collapsed': coCreate && !layout.trayHeld.value, 'edit-history-browsing': versionBrowserOpen }"
+    :class="{ 'edit-collaboration': coCreate, 'canvas-collaboration': coCreate, 'edit-sidebar-collapsed': coCreate && !layout.trayHeld.value, 'edit-history-browsing': versionBrowserOpen, 'canvas-sheet-host': coCreate, 'canvas-sheet': sheetMode }"
+    :data-sheet-pane="sheetMode ? layout.shownPanel.value || undefined : undefined"
+    :data-detent="sheetMode ? layout.detent.value : undefined"
     :style="{ '--canvas-ask-width': `${layout.ratio.value * 100}%` }"
     :data-mode="s.mode"
     :data-active="view.open ? 'true' : undefined"
@@ -1156,20 +1168,21 @@ async function copyReference(v: EditorVersion) {
         tabindex="0"
       ></div>
       <section
+        ref="canvasStage"
         class="stage"
         id="editorCanvas"
         aria-label="画布"
         :data-drop="drop || undefined"
-        :data-receded="compactPanel || undefined"
-        :inert="compactPanel"
+        :data-receded="stageCovered || undefined"
+        :inert="stageCovered"
       >
         <div class="viewport editor-mat">
           <header v-show="coCreate" class="edit-canvas-head canvas-recede-hide">
             <div ref="navFloat" class="edit-canvas-nav"></div>
             <div ref="boardFloat" class="edit-canvas-board"></div>
-            <button class="edit-canvas-summary" type="button" aria-label="调整编辑模型与参数" @click="layout.panel.value = 'context'">
-              <AppIcon name="i-edit" /><strong>{{ view.model?.name ?? '未配置模型' }}</strong>
-              <span v-if="view.base"><AppIcon name="i-frame" />{{ view.base.width }}×{{ view.base.height }}</span>
+            <button class="edit-canvas-summary" type="button" aria-label="调整编辑模型与参数" :title="summaryModel" @click="layout.panel.value = 'context'">
+              <span class="edit-canvas-lead"><AppIcon name="i-edit" /><strong>{{ summaryModelShort }}</strong></span>
+              <span v-if="view.base" class="edit-canvas-chip">{{ view.base.width }}<span class="edit-canvas-times">×</span>{{ view.base.height }}</span>
             </button>
             <PopoverMenu id="editCanvasOptions" label="编辑画布选项" side="right" compact menu-class="canvas-options-menu" pointer-focus="menu">
               <template #trigger="{ open, toggle }"><button class="ibtn edit-canvas-options" type="button" aria-label="编辑画布选项" aria-haspopup="menu" :aria-expanded="open" @click="toggle"><AppIcon name="i-more" /></button></template>
@@ -1177,7 +1190,7 @@ async function copyReference(v: EditorVersion) {
             </PopoverMenu>
             <div ref="switchHome" class="edit-switch-home"></div>
           </header>
-          <div class="editor-viewport" :class="{ 'canvas-recede': coCreate }" id="editorViewport" tabindex="-1">
+          <div class="editor-viewport" :class="{ 'canvas-recede': coCreate }" id="editorViewport" :inert="canvasPaused" tabindex="-1">
             <div class="edit-print-layout" :class="{ 'with-versions': versionsBeside }">
             <div ref="versionSlot" v-show="versionsBeside" class="edit-version-slot" :data-groove-motion="grooveMotion.on.value || undefined"></div>
             <div class="editor-print" id="editorStage" :hidden="!shown" :data-transparent="shown?.director?.tool === 'bg-removal' || undefined">
@@ -1336,6 +1349,15 @@ async function copyReference(v: EditorVersion) {
             </div>
             <EditComparisonTools v-if="comparison" v-show="!selecting" :mode="comparisonMode" :compact="coCreate && layout.compact.value" :color-match="colorMatch" :can-composite="!!comparison.info.mask && comparison.compatible" :busy="previewBusy" :locked="locked" :can-apply="unsavedPreview" :reason="!comparison.info.mask ? '本轮没有明确范围的蒙版' : !comparison.compatible ? '方向或宽高比不符，无法应用蒙版' : undefined" @select="showComparison" @color="toggleColorMatch" @fusion="openFusion" @apply="applyComparison" />
             <button v-show="coCreate" ref="versionToggle" class="edit-versions-toggle editor-tool-capsule" type="button" aria-label="浏览编辑版本" :aria-expanded="layout.compact.value ? versionBrowserOpen : rail" @click="toggleVersions"><AppIcon name="i-history" /><span>版本</span><b>{{ ordered.length }}</b><AppIcon name="i-chevron" /></button>
+            <div v-if="sheetMode" class="canvas-sheet-peek" role="group" aria-label="创作面板">
+              <div class="canvas-peek-surface">
+                <button class="canvas-sheet-grip canvas-peek-grip" type="button" data-sheet-grip aria-label="展开创作面板" title="上拉展开" @click="canvasSheet.tap()"></button>
+                <div class="canvas-peek-entries">
+                  <button type="button" aria-label="打开表单" title="表单" @click="selectPanel('context')"><AppIcon name="i-menu" /></button>
+                  <button type="button" aria-label="打开 ASK" title="ASK" @click="selectPanel('ask')"><AppIcon name="i-ask" /></button>
+                </div>
+              </div>
+            </div>
             <div v-show="!selecting && !!shown" class="editor-tool-controls">
               <div class="editor-picture-ops editor-tool-capsule" role="group" aria-label="编辑工具">
                 <EditToolMode id="editorAnnotate" label="批注" aria-label="批注工具" :icon="annotationTool.icon" :title="annotationTool.label" :active="selecting" :value="selecting ? selection?.tool ?? 'point' : 'point'" menu-label="批注方式" :options="annotationOptions" :disabled="locked || !shown || !!comparison" @toggle="selecting ? closeSelection() : annotate()" @select="value => annotate(value as AnnotationShape)" />
@@ -1435,12 +1457,12 @@ async function copyReference(v: EditorVersion) {
         </div>
       </section>
       <div v-show="coCreate && layout.panel.value && !layout.compact.value" ref="canvasSplitter" class="edit-canvas-splitter" role="separator" tabindex="0" aria-orientation="vertical" aria-label="调整编辑侧栏宽度" aria-valuemin="25" aria-valuemax="45" :aria-valuenow="Math.round(layout.ratio.value * 100)"></div>
-      <Transition name="canvas-tray" :css="layout.trayMotion.value" @after-leave="layout.settleTray()">
-      <aside v-show="coCreate && layout.panel.value" class="edit-canvas-sidebar" aria-label="编辑创作侧栏">
-        <header v-show="layout.compact.value" class="edit-sidebar-head canvas-tray-head" :class="{ 'is-folded': layout.headFolded.value }"><div class="canvas-sheet-actions"><button class="ibtn" type="button" aria-label="收起编辑面板" @click="layout.panel.value = null"><AppIcon name="i-close" /></button><button class="ibtn canvas-fold" type="button" aria-label="收起顶栏" @click="layout.toggleHead($event)"><AppIcon name="i-chevron" /></button></div><div ref="switchSide"></div><button v-show="layout.headFolded.value" class="canvas-head-handle" type="button" aria-label="展开顶栏" @click="layout.toggleHead($event)"></button></header>
-        <div class="edit-sidebar-content" :data-pane-motion="layout.paneMotion.value || undefined">
-          <div ref="askHost" class="edit-canvas-ask"></div>
-          <section v-show="formShown" class="edit-canvas-form" aria-label="EDIT 表单"><div class="edit-form-title"><AppIcon name="i-menu" />表单</div><div ref="formSide" class="edit-form-side"></div></section>
+      <Transition name="canvas-tray" :css="layout.trayMotion.value" :duration="layout.trayDuration.value" @after-leave="layout.settleTray()">
+      <aside v-show="coCreate && layout.panel.value" ref="sheet" class="edit-canvas-sidebar canvas-sheet-tray" aria-label="编辑创作侧栏">
+        <header v-show="layout.compact.value" class="edit-sidebar-head canvas-tray-head" :class="{ 'is-folded': layout.headFolded.value && !sheetMode }"><button v-if="sheetMode" class="canvas-sheet-grip" type="button" data-sheet-grip :aria-label="layout.detent.value === 'half' ? '展开到全屏' : '收回半屏'" title="拖动调整高度" @click="canvasSheet.tap()"></button><div class="canvas-sheet-actions"><button class="ibtn" type="button" aria-label="收起编辑面板" @click="layout.panel.value = null"><AppIcon name="i-close" /></button><button class="ibtn canvas-fold" type="button" aria-label="收起顶栏" @click="layout.toggleHead($event)"><AppIcon name="i-chevron" /></button></div><div ref="switchSide"></div><button v-show="layout.headFolded.value" class="canvas-head-handle" type="button" aria-label="展开顶栏" @click="layout.toggleHead($event)"></button></header>
+        <div class="edit-sidebar-content canvas-sheet-content" :data-pane-motion="layout.paneMotion.value || undefined">
+          <div ref="askHost" class="edit-canvas-ask canvas-sheet-ask" @focusin="canvasSheet.focus"></div>
+          <section v-show="formShown" class="edit-canvas-form" aria-label="EDIT 表单" @focusin="canvasSheet.focus"><div class="edit-form-title"><AppIcon name="i-menu" />表单</div><div ref="formSide" class="edit-form-side"></div></section>
         </div>
       </aside>
       </Transition>
@@ -1483,7 +1505,7 @@ async function copyReference(v: EditorVersion) {
       </aside>
       </Teleport>
     </div>
-    <Teleport :to="switchTarget || 'body'" :disabled="!switchTarget"><CanvasPanelSwitch v-show="coCreate" label="编辑侧栏内容" :options="panelOptions" :selected="layout.panel.value" @select="selectPanel($event as 'ask' | 'context')" /></Teleport>
+    <Teleport :to="switchTarget || 'body'" :disabled="!switchTarget"><CanvasPanelSwitch v-show="switchShown" label="编辑侧栏内容" :options="panelOptions" :selected="layout.panel.value" @select="selectPanel($event as 'ask' | 'context')" /></Teleport>
     <dialog ref="versionBrowser" class="mobile-library edit-version-browser" aria-label="编辑版本" @cancel.prevent="versionBrowserOpen = false" @close="versionBrowserOpen = false" @click.self="versionBrowserOpen = false" @keydown.stop>
       <div class="mobile-library-bar"><div class="edit-browser-title"><AppIcon name="i-history" />版本 <b>{{ ordered.length }}</b></div><button class="ibtn mobile-library-close" type="button" aria-label="收起编辑版本" @click="versionBrowserOpen = false"><AppIcon name="i-close" /></button></div>
       <div ref="versionBrowserBody" class="mobile-library-scroll" :class="{ 'is-empty': !ordered.length }"><div v-if="!ordered.length" class="tray-empty"><AppIcon name="i-history" /><p>还没有编辑版本</p></div></div>
@@ -1613,5 +1635,6 @@ async function copyReference(v: EditorVersion) {
 </style>
 <style scoped src="../../shared/canvas-motion.css"></style>
 <style scoped src="../../shared/canvas-surface.css"></style>
+<style scoped src="../../shared/canvas-sheet.css"></style>
 <style scoped src="./edit-canvas.css"></style>
 <style scoped src="../../shared/canvas-history.css"></style>

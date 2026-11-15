@@ -7,15 +7,22 @@
 .canvas-tray-enter-active { transition: opacity var(--t2) var(--e-out), transform var(--t2) var(--e-out); }
 .canvas-tray-leave-active { transition: opacity var(--t1) var(--e), transform var(--t1) var(--e); pointer-events: none; }
 .canvas-tray-enter-from, .canvas-tray-leave-to { opacity: 0; transform: translateX(16px); }
-/* The switch island has already returned to the canvas head; the leaving pane's own head
-   (switch slot and close button, small screens only) must not linger over it. */
-.canvas-tray-leave-active > header { visibility: hidden; }
+/* Small screens: the switch island stays in the leaving pane's head until the exit ends, then returns
+   to the canvas head, which has faded back in by then. × and fold give way at once to the workspace
+   mark fading back in at their corner. */
+.canvas-tray-leave-active > header :is(.canvas-sheet-actions, .canvas-head-handle) { visibility: hidden; }
 
-/* Small screens: the same tray opens from the switch island as a near full-screen pane. */
+/* Small screens: the same tray opens from the switch island as a near full-screen pane. The shell
+   holds still, so its head (× and the switch island moved into it) lands in place at once and never
+   fades or shifts; only the content below opens from the corner. The content fades itself rather than
+   inside a fading shell, so its glass keeps sampling the stage instead of popping in at the end.
+   The workspace passes the matching duration, since the shell has no transition of its own. */
 @media (max-width: 1079px) {
-  .canvas-tray-enter-active { transition-duration: var(--t3); }
-  .canvas-tray-leave-active { transition-duration: var(--t2); }
-  .canvas-tray-enter-from, .canvas-tray-leave-to { transform: scale(.98); transform-origin: top right; }
+  .canvas-tray-enter-active, .canvas-tray-leave-active { transition: none; }
+  .canvas-tray-enter-from, .canvas-tray-leave-to { opacity: 1; transform: none; }
+  .canvas-tray-enter-active > :not(.canvas-tray-head) { transition: opacity var(--t3) var(--e-out), transform var(--t3) var(--e-out); }
+  .canvas-tray-leave-active > :not(.canvas-tray-head) { transition: opacity var(--t2) var(--e), transform var(--t2) var(--e); }
+  .canvas-tray-enter-from > :not(.canvas-tray-head), .canvas-tray-leave-to > :not(.canvas-tray-head) { opacity: 0; transform: scale(.98); transform-origin: top right; }
 }
 
 /* Switching panes keeps the shell still; the pane being shown rises 4px into place. */
@@ -25,11 +32,12 @@
 @keyframes canvas-pane-b { from { opacity: 0; transform: translateY(4px); } }
 
 /* Small screens: what the tray or a browsing layer covers stays on the table and recedes —
-   the stage blurs and steps back, its floating islands fade. It never animates its size,
-   and the covered stage keeps its drivers paused. */
+   the stage steps back and dims, its floating islands fade. It never animates its size, and the
+   covered stage keeps its drivers paused. The tray's own glass already blurs what lies behind it, so
+   the stage does not animate a full-screen blur under that glass (phones re-blur both every frame). */
 .canvas-recede { transition: transform var(--t3) var(--e-out), filter var(--t3) var(--e-out), opacity var(--t3) var(--e-out); }
 .canvas-recede-hide { transition: opacity var(--t1) var(--e), visibility 0s; }
-[data-receded] .canvas-recede { transform: scale(.96); filter: blur(14px); opacity: .5; pointer-events: none; }
+[data-receded] .canvas-recede { transform: scale(.96); opacity: .5; pointer-events: none; }
 [data-receded] .canvas-recede-hide { opacity: 0; visibility: hidden; pointer-events: none; transition: opacity var(--t1) var(--e), visibility 0s linear var(--t1); }
 
 /* A history or version groove, opened by the user, emerges from behind the picture's left edge.
@@ -38,7 +46,7 @@
 @keyframes canvas-groove { from { opacity: 0; transform: translateX(6px); } }
 
 @media (prefers-reduced-motion: reduce) {
-  .canvas-tray-enter-from, .canvas-tray-leave-to { transform: none; }
+  .canvas-tray-enter-from, .canvas-tray-leave-to, .canvas-tray-enter-from > *, .canvas-tray-leave-to > * { transform: none; }
   [data-receded] .canvas-recede { transform: none; }
   /* A browsing layer's own offset of the stage lands at once; blur and fade still ease. */
   .canvas-recede { transition-property: filter, opacity; }

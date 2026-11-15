@@ -36,6 +36,9 @@ const canvas = {
   compact: presentation.canvas.compact,
 };
 const panelShown = computed(() => shown.value && (!canvas.active.value || canvas.panel.value === 'ask'));
+/* The stream follows the chosen pane rather than the one held through the exit: closing ASK and
+   reopening it before the tray has left still reads as a reopen and returns to the latest turn. */
+const streamActive = computed(() => panelShown.value && (!canvas.active.value || presentation.dockedCanvas.value?.panel.value === 'ask'));
 const joinedDraft = computed(() => !!ask.draftPlan.value && (home.value || mode.value !== 'ready'));
 const inlineWindow = computed(() => !canvas.active.value && !home.value && !mobile.value && !!ask.inline.value);
 // TAGS keeps an expanded ASK in the right-hand slot it shares with the Prompt cart.
@@ -172,7 +175,7 @@ onBeforeUnmount(() => { controller.abort(); ask.attach(null); });
           <button v-if="!canvas.active.value" class="ibtn" type="button" aria-label="收起 ASK" title="收起" @click="ask.hide()"><svg class="ico" viewBox="0 0 24 24" aria-hidden="true"><path d="M5 12h14" /></svg></button>
         </div>
       </header>
-      <AskStream :active="panelShown" @start="start" @focus="composer?.focus(true)" />
+      <AskStream :active="streamActive" @start="start" @focus="composer?.focus(true)" />
       <div class="ask-bottom">
         <AskRetrospectBar /><AskTodos />
         <div class="ask-compose-panel" :class="{ 'has-draft': joinedDraft }">

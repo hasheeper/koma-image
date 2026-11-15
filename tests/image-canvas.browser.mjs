@@ -11,6 +11,12 @@ async function setCanvas(page, enabled) {
   await route(page, '#/image');
 }
 const panelSwitch = page => page.getByRole('group', { name: '侧栏内容', exact: true });
+async function openImagePanel(page, label) {
+  const grip = page.getByRole('button', { name: '展开创作面板', exact: true });
+  if (await grip.isVisible()) await grip.click();
+  const button = panelSwitch(page).getByRole('button', { name: label, exact: true });
+  if (await button.getAttribute('aria-pressed') !== 'true') await button.click();
+}
 
 async function enter(page) {
   await bind(page);
@@ -23,7 +29,7 @@ test('[core] IMAGE canvas: picture references uncover the canvas and reopen the 
   t.after(() => f.context.close());
   const p = f.page; await bind(p); await setCanvas(p, true);
   const first = await addImage(p, 'first picture'), second = await addImage(p, 'second picture');
-  await panelSwitch(p).getByRole('button', { name: 'ASK', exact: true }).click();
+  await openImagePanel(p, 'ASK');
   f.llm.push(textReply('请看 #h1。'));
   await p.locator('#askPrompt').fill('查看第一张'); await submitAsk(p);
   await p.locator('.ask-turn[data-status="done"]').waitFor();
@@ -39,7 +45,7 @@ test('[core] IMAGE canvas: picture references uncover the canvas and reopen the 
       await p.getByRole('button', { name: '浏览历史与收藏', exact: true }).click();
       await p.getByRole('dialog', { name: '历史与收藏', exact: true }).waitFor();
       await p.keyboard.press('Escape');
-      await panelSwitch(p).getByRole('button', { name: 'ASK', exact: true }).click();
+      await openImagePanel(p, 'ASK');
     }
     await p.locator('#askPrompt').waitFor();
     assert.equal(await p.locator('#askPrompt').inputValue(), 'unfinished followup');
@@ -256,8 +262,8 @@ test('IMAGE canvas: embedded evolution, inspect/back, staged load and manual gen
     await panel.locator('[data-node="v3"] .node-media').click();
     await recipe.waitFor();
     await recipe.getByRole('button', { name: '载入画板', exact: true }).click();
-    await p.locator('#goBtn').waitFor({ state: 'hidden' }); // fades with the receded canvas
-    await recipe.getByRole('button', { name: '返回画布', exact: true }).click();
+    // The phone recipe sheet keeps Generate available after loading the staged branch.
+    await p.locator('#goBtn').waitFor();
     await p.locator('#goBtn').click();
     await p.waitForFunction(() => !drawing.snapshot().busy && ask.retrospects.records.value[0].value.nodes[2].kind !== 'staged');
     assert.equal(generations, 2);
@@ -301,7 +307,7 @@ test('IMAGE canvas: switching the sidebar keeps ASK running and explicitly invok
 });
 
 
-test('IMAGE canvas: phone switches full-width panels, collapses back to the canvas and reuses generation and ASK', async () => {
+test('IMAGE canvas: phone sheet switches panels, collapses back to the canvas and reuses generation and ASK', async () => {
   const f = await open('/#/image', { ready: '.switcher', standard: true, touch: true, width: 390, ask: askSettings({ images: false }) });
   try {
     const p = f.page; await bind(p); await setCanvas(p, true);
@@ -316,19 +322,20 @@ test('IMAGE canvas: phone switches full-width panels, collapses back to the canv
     await p.evaluate(() => { window.phoneForm = document.getElementById('form'); window.phoneAsk = document.getElementById('askDrawer'); });
     await p.locator('.canvas-sidebar').waitFor({ state: 'hidden' }); // the tray leaves before display:none
     assert.equal(await p.locator('#goBtn').isVisible(), true);
-    await panelSwitch(p).getByRole('button', { name: '表单', exact: true }).tap();
+    // The grip opens the last pane; the sheet's own switch selects form or ASK.
+    await openImagePanel(p, '表单');
     await p.locator('#prompt').fill('edited on phone');
     await p.locator('#width').fill('768'); await p.locator('#width').press('Tab');
-    await p.locator('#goBtn').waitFor({ state: 'hidden' }); // fades with the receded canvas
+    assert.equal(await p.locator('#goBtn').isVisible(), true, 'the form pane keeps Generate on the bar above the sheet');
     await panelSwitch(p).getByRole('button', { name: 'ASK', exact: true }).tap();
     assert.equal(await p.locator('.canvas-layout').getAttribute('inert'), null);
-    assert.equal(await p.locator('#goBtn').isVisible(), false);
+    await p.locator('#goBtn').waitFor({ state: 'hidden' }); // ASK has its own input: the bar fades away
     assert.equal(await p.locator('#askDrawer').getAttribute('aria-modal'), 'false');
     await p.locator('#askPrompt').fill('phone question');
     await panelSwitch(p).getByRole('button', { name: 'ASK', exact: true }).tap();
     await p.locator('.canvas-sidebar').waitFor({ state: 'hidden' }); // the tray leaves before display:none
     await p.locator('#goBtn').waitFor();
-    await panelSwitch(p).getByRole('button', { name: 'ASK', exact: true }).tap();
+    await openImagePanel(p, 'ASK');
     assert.equal(await p.locator('#askPrompt').inputValue(), 'phone question');
     for (const workspace of ['chat', 'edit', 'image', 'chat', 'edit', 'image']) {
       await route(p, `#/${workspace}`);
@@ -336,7 +343,13 @@ test('IMAGE canvas: phone switches full-width panels, collapses back to the canv
       await p.locator('#askPrompt').waitFor({ state: 'hidden' });
       const panels = p.getByRole('group', { name: workspace === 'image' ? '侧栏内容' : workspace === 'edit' ? '编辑侧栏内容' : '对话侧栏内容', exact: true });
       assert.equal(await panels.locator('[aria-pressed="true"]').count(), 0, `${workspace} opens on its canvas after navigation`);
-      await panels.getByRole('button', { name: 'ASK', exact: true }).tap();
+      if (workspace === 'image') await openImagePanel(p, 'ASK');
+      else if (workspace === 'chat') await p.getByRole('button', { name: '打开 ASK', exact: true }).tap();
+      else {
+        await p.getByRole('button', { name: '展开创作面板', exact: true }).tap();
+        const askButton = panels.getByRole('button', { name: 'ASK', exact: true });
+        if (await askButton.getAttribute('aria-pressed') !== 'true') await askButton.tap();
+      }
       assert.equal(await p.locator('#askPrompt').inputValue(), 'phone question', 'explicitly opening ASK restores the same unsent question');
     }
     await p.setViewportSize({ width: 844, height: 390 });

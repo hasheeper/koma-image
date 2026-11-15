@@ -27,8 +27,19 @@ export function createCanvasPresentation(router: AppRouter, viewport: ShallowRef
   /* Pre-flush, so a pane set and restored within one tick (docking calls ask.show(), which selects ASK,
      then puts the user's choice back) never sticks: a pane that was never shown has no exit to settle. */
   watch(panel, value => { if (value) shownPanel.value = value; });
+  /* Phone bottom sheet (workspaces that opt in): every opening starts at half height; dragging up from
+     the peek grip reopens the pane last shown. */
+  const detent = shallowRef<'half' | 'full'>('half');
+  const lastPanel = shallowRef<'ask' | 'context'>('ask');
+  watch(panel, (value, previous) => {
+    if (value) lastPanel.value = value;
+    if (value && !previous) detent.value = 'half';
+  }, { flush: 'sync' });
   /* Entering BETA or switching workspaces is not a tray gesture: that render settles without motion. */
   const trayMotion = shallowRef(true);
+  /* Time the phone tray from motion tokens, including the content transition below its head. */
+  const token = (name: string) => parseFloat(getComputedStyle(document.documentElement).getPropertyValue(name)) || 0;
+  const trayDuration = computed(() => compact.value ? { enter: token('--t3'), leave: token('--t2') } : undefined);
   watch(active, value => {
     trayMotion.value = false;
     /* Phone navigation starts on the canvas; only an explicit pane action covers it. */
@@ -42,6 +53,9 @@ export function createCanvasPresentation(router: AppRouter, viewport: ShallowRef
   /* Small screens: the phone pane covers the stage (which recedes and pauses). Its head row of
      close / fold / switch can fold into a slim handle to give the pane that height; kept for the page session. */
   const covered = computed(() => active.value && compact.value && !!panel.value);
+  /* The switch island rides in the phone pane's head until the pane has fully left: returning it to the
+     canvas head at once would drop it into a row that is still fading back in, and it would blink. */
+  const switchInTray = computed(() => active.value && compact.value && trayHeld.value);
   const headFolded = shallowRef(false);
   const paneKey = computed(() => panel.value === 'context' ? contextKind.value : panel.value);
   const paneMotion = shallowRef<'a' | 'b' | null>(null);
@@ -59,7 +73,7 @@ export function createCanvasPresentation(router: AppRouter, viewport: ShallowRef
     try { await preferences.set(names.imageLayout, { enabled: enabled.value, ratio: ratio.value, filmstripOpen: filmstripOpen.value }); }
     catch { sync(); }
   }
-  return { enabled, ratio, filmstripOpen, eligible, active, compact, askHost, graphHost, actionsHost, historyHost, historyVisible, recipeHost, panel, shownPanel, trayHeld, trayMotion, paneMotion, covered, headFolded, contextKind, recordId, view,
+  return { enabled, ratio, filmstripOpen, eligible, active, compact, askHost, graphHost, actionsHost, historyHost, historyVisible, recipeHost, panel, shownPanel, trayHeld, trayMotion, trayDuration, paneMotion, covered, switchInTray, detent, lastPanel, headFolded, contextKind, recordId, view,
     /** Folds or unfolds the phone pane's head row; focus moves to the control that replaces the pressed one. */
     toggleHead(event?: Event) {
       const head = (event?.currentTarget as HTMLElement | null)?.closest('header');
@@ -73,3 +87,4 @@ export function createCanvasPresentation(router: AppRouter, viewport: ShallowRef
     setRatio(value: number) { ratio.value = canvasRatio(value); void save(); },
   };
 }
+export type CanvasPresentation = ReturnType<typeof createCanvasPresentation>;

@@ -12,12 +12,10 @@ import {
 import { placeMenu, menuKeys } from "../../shared/popover";
 import { names } from "../../storage/names";
 import AppIcon from "../../shared/AppIcon.vue";
-import { useAsk, AskMark } from "../../app/ask";
 /* Embedded: canvas collaboration hosts the same floors in its sidebar, open
    while that panel is chosen; closing hands the choice back to the page. */
 const props = defineProps<{ embedded?: boolean; open?: boolean }>();
 const emit = defineEmits<{ view: [id: string]; close: [] }>();
-const ask = useAsk();
 const { chat, view } = useChat(),
   shell = useShell(),
   ui = useUi();
@@ -99,11 +97,6 @@ function sync() {
   else if (dialog.value.open) { menu.value?.hidePopover(); dialog.value.removeAttribute("open"); }
 }
 /* Only fills ASK's input; the user still sends it, and any change returns as a draft to confirm. */
-function askContext(kind: "tidy" | "rewrite") {
-  ask.show({ question: kind === "tidy"
-    ? "请检查 CHAT 当前分支的上下文：哪些历史文字或图片与下一轮无关、重复或互相冲突？需要调整时提出草稿。"
-    : "请结合 CHAT 当前上下文，改写或补写输入框里的本轮描述，使要求更明确，以草稿提出。" });
-}
 function toggle() {
   if (dialog.value?.open) {
     close();
@@ -254,10 +247,6 @@ defineExpose({ toggle, close });
           ></span
         >
       </p>
-      <div v-if="embedded" class="context-ask" role="group" aria-label="交给 ASK">
-        <button class="btn btn-quiet btn-sm" type="button" :disabled="!turns.length" @click="askContext('tidy')"><AskMark />整理上下文</button>
-        <button class="btn btn-quiet btn-sm" type="button" @click="askContext('rewrite')"><AskMark />改写本轮描述</button>
-      </div>
     </header>
     <div
       class="context-body"

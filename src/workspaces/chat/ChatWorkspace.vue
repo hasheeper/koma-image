@@ -10,6 +10,7 @@ import { useAskPresentation } from "../../ask/presentation";
 const { fullscreen: askFullscreen, chatCanvas: layout, selectCanvasPanel } = useAskPresentation();
 import { useAsk } from "../../app/ask";
 import { installCanvasSplitter } from "../../native/canvas-splitter";
+import { useCanvasSheet } from "../../ask/canvas-sheet";
 import PopoverMenu from "../../shared/ui/PopoverMenu.vue";
 import CanvasPanelSwitch from "../../shared/ui/CanvasPanelSwitch.vue";
 import { useChat } from "../../app/chat";
@@ -37,12 +38,15 @@ const annotations = useAnnotations(), fullId=shallowRef(''), ask = useAsk();
 /* Canvas collaboration only moves hosts: the stream, composer, context and
    conversation remain owned by the chat service and these same components. */
 const coCreate = layout.active;
-/* The compact pane covers the stream until it is closed. */
-const compactPanel = layout.covered;
 const askHost = shallowRef<HTMLElement | null>(null), contextHost = shallowRef<HTMLElement | null>(null), canvasSplitter = shallowRef<HTMLElement | null>(null);
 const navFloat = shallowRef<HTMLElement | null>(null), accountFloat = shallowRef<HTMLElement | null>(null);
 const switchHome = shallowRef<HTMLElement | null>(null), switchSide = shallowRef<HTMLElement | null>(null);
-const switchTarget = computed(() => compactPanel.value ? switchSide.value : switchHome.value);
+/* Phone: the tray is the shared bottom sheet. Closed, its grip sits in the composer's top edge and the
+   composer's own context and ASK buttons open it; the context pane keeps the composer, ASK takes its slot. */
+const chatLayout = shallowRef<HTMLElement | null>(null), sheet = shallowRef<HTMLElement | null>(null);
+const canvasSheet = useCanvasSheet(layout, { host: chatLayout, sheet, cover: () => scroll.value, open: pane => selectPanel(pane) });
+const { mode: sheetMode, stageCovered, switchShown } = canvasSheet;
+const switchTarget = computed(() => layout.switchInTray.value ? switchSide.value : switchHome.value);
 const contextTarget = computed(() => coCreate.value ? contextHost.value : null);
 const contextOpen = computed(() => coCreate.value && layout.panel.value === "context");
 const contextExpanded = computed(() => coCreate.value ? contextOpen.value : shell.chat.contextOpen);
@@ -350,6 +354,7 @@ life.whileActive((signal) => {
   window.addEventListener("resize", viewport, { signal });
   viewport();
   if (canvasSplitter.value) installCanvasSplitter(canvasSplitter.value, app, () => layout.ratio.value, layout.setRatio, signal);
+  canvasSheet.install(signal);
   const observer = new ResizeObserver(() =>
     app.style.setProperty(
       "--composer-height",
@@ -454,7 +459,7 @@ onDeactivated(() => {
 });
 </script>
 <template>
-  <div class="chat-app" id="chatApp" data-workspace-root="chat" :class="{ 'chat-collaboration': coCreate, 'canvas-collaboration': coCreate, 'chat-panel-collapsed': coCreate && !layout.trayHeld.value, 'chat-panel-compact': compactPanel, 'chat-drawer-open': coCreate && shell.chat.sidebarOpen }" :style="coCreate ? { '--canvas-ask-width': `${layout.ratio.value * 100}%` } : undefined" :inert="askFullscreen || !!photopea.task.value">
+  <div class="chat-app" id="chatApp" data-workspace-root="chat" :class="{ 'chat-collaboration': coCreate, 'canvas-collaboration': coCreate, 'chat-panel-collapsed': coCreate && !layout.trayHeld.value, 'chat-panel-compact': stageCovered, 'chat-drawer-open': coCreate && shell.chat.sidebarOpen, 'canvas-sheet': sheetMode }" :data-sheet-pane="sheetMode ? layout.shownPanel.value || undefined : undefined" :data-detent="sheetMode ? layout.detent.value : undefined" :style="coCreate ? { '--canvas-ask-width': `${layout.ratio.value * 100}%` } : undefined" :inert="askFullscreen || !!photopea.task.value">
     <header class="topbar" :hidden="coCreate">
       <Teleport :to="navFloat || 'body'" :disabled="!coCreate || !navFloat"><WorkspaceSwitch workspace="chat" :compact="coCreate" /></Teleport><button
         class="ibtn rail-toggle"
@@ -473,7 +478,7 @@ onDeactivated(() => {
         <WalletDisplay :quota="view.quota" :model="view.model" /><ThemeToggle />
       </div></Teleport>
     </header>
-    <div class="chat-layout">
+    <div ref="chatLayout" class="chat-layout canvas-sheet-host">
       <Transition name="chat-backdrop">
       <button
         v-show="coCreate && shell.chat.sidebarOpen"
@@ -524,9 +529,9 @@ onDeactivated(() => {
       </aside>
       <main
         class="chat-workspace"
-        :inert="(coCreate && shell.chat.sidebarOpen) || compactPanel"
+        :inert="(coCreate && shell.chat.sidebarOpen) || stageCovered"
         :data-empty="!c.turns.length"
-        :data-receded="compactPanel || undefined"
+        :data-receded="stageCovered || undefined"
       >
         <header v-show="coCreate" class="chat-canvas-head canvas-recede-hide">
           <div ref="navFloat" class="chat-canvas-nav"></div>
@@ -589,7 +594,7 @@ onDeactivated(() => {
           :aria-busy="!!view.busy"
           :data-drop="drop || undefined"
           @submit.prevent="chat.execute()"
-        >
+        ><button v-if="sheetMode" class="canvas-sheet-grip chat-composer-grip" type="button" data-sheet-grip aria-label="展开对话面板" title="上拉展开" @click="canvasSheet.tap()"></button>
           <AnnotationCard v-if="c.pendingAnnotation" inline :regions="c.pendingAnnotation.snapshot.regions" :references="c.pendingAnnotation.snapshot.references" :preview="chat.assets.assets.get(c.pendingAnnotation.guideAssetId)?.url" :single-image="c.pendingAnnotation.singleImage" :markup="!!c.pendingAnnotation.markup" :markup-eligible="view.model?.markupEligible" :disabled="!!view.busy || !!view.uploading" @comment="chat.annotationComment" @mode="chat.annotationTextOnly" @markup="chat.annotationMarkup()" @remove="chat.clearAnnotations()" />
           <div class="chat-attachments" aria-label="本轮图片">
             <div
@@ -696,6 +701,7 @@ onDeactivated(() => {
                 class="param-summary"
                 >{{ summary }}</span
               ></button
+            ><button v-if="sheetMode" class="ibtn chat-sheet-ask" type="button" aria-label="打开 ASK" title="ASK" @click="selectPanel('ask')"><AppIcon name="i-ask" /></button
             ><span class="composer-end"
               ><span
                 v-if="view.quote && view.quote.cost > 0 && !view.busy"
@@ -765,11 +771,11 @@ onDeactivated(() => {
         </div>
       </main>
       <div v-show="coCreate && layout.panel.value && !layout.compact.value" ref="canvasSplitter" class="chat-canvas-splitter" role="separator" tabindex="0" aria-orientation="vertical" aria-label="调整对话侧栏宽度" aria-valuemin="25" aria-valuemax="45" :aria-valuenow="Math.round(layout.ratio.value * 100)"></div>
-      <Transition name="canvas-tray" :css="layout.trayMotion.value" @after-leave="layout.settleTray()">
-      <aside v-show="coCreate && layout.panel.value" class="chat-canvas-sidebar" aria-label="对话创作侧栏">
-        <header v-show="layout.compact.value" class="chat-sidebar-head canvas-tray-head" :class="{ 'is-folded': layout.headFolded.value }"><div class="canvas-sheet-actions"><button class="ibtn" type="button" aria-label="收起对话面板" @click="layout.panel.value = null"><AppIcon name="i-close" /></button><button class="ibtn canvas-fold" type="button" aria-label="收起顶栏" @click="layout.toggleHead($event)"><AppIcon name="i-chevron" /></button></div><div ref="switchSide"></div><button v-show="layout.headFolded.value" class="canvas-head-handle" type="button" aria-label="展开顶栏" @click="layout.toggleHead($event)"></button></header>
-        <div class="chat-sidebar-content" :data-pane-motion="layout.paneMotion.value || undefined">
-          <div ref="askHost" class="chat-canvas-ask"></div>
+      <Transition name="canvas-tray" :css="layout.trayMotion.value" :duration="layout.trayDuration.value" @after-leave="layout.settleTray()">
+      <aside v-show="coCreate && layout.panel.value" ref="sheet" class="chat-canvas-sidebar canvas-sheet-tray" aria-label="对话创作侧栏">
+        <header v-show="layout.compact.value" class="chat-sidebar-head canvas-tray-head" :class="{ 'is-folded': layout.headFolded.value && !sheetMode }"><button v-if="sheetMode" class="canvas-sheet-grip" type="button" data-sheet-grip :aria-label="layout.detent.value === 'half' ? '展开到全屏' : '收回半屏'" title="拖动调整高度" @click="canvasSheet.tap()"></button><div class="canvas-sheet-actions"><button class="ibtn" type="button" aria-label="收起对话面板" @click="layout.panel.value = null"><AppIcon name="i-close" /></button><button class="ibtn canvas-fold" type="button" aria-label="收起顶栏" @click="layout.toggleHead($event)"><AppIcon name="i-chevron" /></button></div><div ref="switchSide"></div><button v-show="layout.headFolded.value" class="canvas-head-handle" type="button" aria-label="展开顶栏" @click="layout.toggleHead($event)"></button></header>
+        <div class="chat-sidebar-content canvas-sheet-content" :data-pane-motion="layout.paneMotion.value || undefined">
+          <div ref="askHost" class="chat-canvas-ask canvas-sheet-ask" @focusin="canvasSheet.focus"></div>
           <div ref="contextHost" v-show="contextShown" class="chat-canvas-context"></div>
         </div>
       </aside>
@@ -777,7 +783,7 @@ onDeactivated(() => {
       <Teleport :to="contextTarget || 'body'" :disabled="!contextTarget"><ContextPanel ref="context" :embedded="coCreate" :open="contextShown" @view="show" @close="layout.panel.value = null" /></Teleport>
     </div>
   </div>
-  <Teleport :to="switchTarget || 'body'" :disabled="!switchTarget"><CanvasPanelSwitch v-show="coCreate" label="对话侧栏内容" :options="panelOptions" :selected="layout.panel.value" @select="selectPanel($event as 'ask' | 'context')" /></Teleport>
+  <Teleport :to="switchTarget || 'body'" :disabled="!switchTarget"><CanvasPanelSwitch v-show="switchShown" label="对话侧栏内容" :options="panelOptions" :selected="layout.panel.value" @select="selectPanel($event as 'ask' | 'context')" /></Teleport>
   <Teleport to="body"
     ><dialog ref="lightbox" class="chat-lightbox" @close="full = ''">
       <button
@@ -892,6 +898,7 @@ onDeactivated(() => {
 
 <style scoped src="../../shared/canvas-motion.css"></style>
 <style scoped src="../../shared/canvas-surface.css"></style>
+<style scoped src="../../shared/canvas-sheet.css"></style>
 <style scoped src="./chat-canvas.css"></style>
 <style scoped>
 .chat-lightbox .chat-annotate { position: absolute; bottom: 24px; left: 50%; transform: translateX(-50%); }

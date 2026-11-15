@@ -13,7 +13,7 @@ const ask = useAsk();
 </template>
 <style scoped>
 .ask-send-slot { display: grid; flex: none; margin-left: 4px; }
-.ask-send-slot > .btn { grid-area: 1 / 1; width: 28px; height: 28px; min-height: 0; padding: 0; border-radius: 50%; transition: opacity var(--t2) var(--e), transform var(--t2) var(--e-out), visibility 0s, color var(--t2) var(--e), background-color var(--t2) var(--e); }
+.ask-send-slot > .btn { grid-area: 1 / 1; width: var(--composer-control); height: var(--composer-control); min-height: 0; padding: 0; border-radius: 50%; transition: opacity var(--t2) var(--e), transform var(--t2) var(--e-out), visibility 0s, color var(--t2) var(--e), background-color var(--t2) var(--e); }
 .ask-send-slot > .btn[hidden] { display: inline-flex; visibility: hidden; pointer-events: none; opacity: 0; transform: scale(.72); transition: opacity var(--t1) var(--e), transform var(--t1) var(--e), visibility 0s linear var(--t1); }
 .ask-send .ico, .ask-stop .ico { --ico: var(--ico-sm); }
 .ask-send .ico { stroke-width: var(--ico-stroke-strong); }
@@ -26,5 +26,4 @@ const ask = useAsk();
 .home-send > .btn { width: 36px; height: 36px; }
 .home-send :is(.ask-send, .ask-stop) .ico { --ico: var(--ico-md); }
 .home-send > .ask-stop { border-radius: 10px; }
-@media (max-width: 860px) { .ask-send-slot > .btn { width: 36px; height: 36px; } }
 </style>

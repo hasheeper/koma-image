@@ -194,28 +194,29 @@ defineExpose({
 .ask-references small { margin-left:auto; color:var(--fg-3); font:var(--fw-regular) 11px/1 var(--mono); }
 .ask-inline-target { padding: 0 10px 6px; color: var(--fg-3); font-size: var(--fz-xs); }
 .ask-dock { position: relative; display: flex; flex-direction: column; gap: var(--sp-2); }
-.ask-composer { padding: 14px 6px 10px 12px; background: var(--ask-layer, var(--raised)); border: 1px solid var(--line-2); border-radius: 14px; box-shadow: var(--card-shadow); }
-.ask-composer.joined { padding-top: 12px; background: transparent; border: 0; border-top: 1px solid var(--line); border-radius: 0 0 14px 14px; box-shadow: none; }
-.ask-composer textarea { display: block; width: 100%; min-height: 26px; max-height: 30dvh; padding: 0 2px 2px; color: var(--fg); font: var(--fw-regular) 13px/1.6 var(--sans); background: transparent; border: 0; box-shadow: none; resize: none; }
+/* The shell (corner, inset, text inset, toolbar heights) is the shared composer spec; the glass surface is ASK's. */
+.ask-composer { padding: var(--composer-pad); background: var(--ask-layer, var(--raised)); border: 1px solid var(--line-2); border-radius: var(--composer-radius); box-shadow: var(--card-shadow); }
+.ask-composer.joined { padding-top: 12px; background: transparent; border: 0; border-top: 1px solid var(--line); border-radius: 0 0 var(--composer-radius) var(--composer-radius); box-shadow: none; }
+.ask-composer textarea { display: block; width: 100%; min-height: 26px; max-height: 30dvh; padding: 0 var(--composer-text-inset) 2px; color: var(--fg); font: var(--fw-regular) var(--composer-field-size, 13px)/1.6 var(--sans); background: transparent; border: 0; box-shadow: none; resize: none; }
 .ask-composer textarea:focus { outline: none; box-shadow: none; }
 .ask-composer textarea::placeholder { color: var(--fg-3); }
 .ask-notice { color: var(--err); font-size: var(--fz-xs); overflow-wrap: anywhere; }
 .ask-notice:not(:empty) { margin: 2px 4px 6px; }
-.ask-cbar { display: flex; flex-wrap: wrap; align-items: center; gap: 4px 6px; margin-top: 14px; color: var(--fg-3); font-size: 12px; }
-.ask-add { display: grid; flex: none; place-items: center; width: 28px; height: 28px; margin-left: -6px; color: var(--fg-3); border-radius: 8px; }
+.ask-cbar { display: flex; flex-wrap: wrap; align-items: center; gap: 4px 6px; margin-top: var(--composer-bar-gap); color: var(--fg-3); font-size: 12px; }
+.ask-add { display: grid; flex: none; place-items: center; width: var(--composer-control); height: var(--composer-control); margin-left: calc((var(--ico-md) - var(--composer-control)) / 2 + var(--composer-text-inset)); color: var(--fg-2); border-radius: var(--r2); }
 .ask-add:hover { color: var(--fg); background: var(--ask-hover); }
 .ask-add .ico { --ico: var(--ico-md); }
-.ask-capsule { display: inline-flex; align-items: center; gap: 2px; height: 24px; padding: 0 8px; background: color-mix(in srgb, var(--a) 10%, transparent); border-radius: 7px; }
+.ask-capsule { display: inline-flex; align-items: center; gap: 2px; height: var(--composer-chip); padding: 0 8px; background: color-mix(in srgb, var(--a) 10%, transparent); border-radius: 7px; }
 .ask-capsule:has(.ask-capsule-clear) { padding-right: 2px; }
 .ask-capsule-id { color: var(--a); font: var(--fw-regular) 12px/1 var(--mono); }
 .ask-capsule-clear { display: grid; place-items: center; width: 20px; height: 20px; color: var(--fg-4); border-radius: 5px; }
 .ask-capsule-clear:hover { color: var(--fg); background: var(--ask-hover, var(--hover)); }
 .ask-capsule-clear .ico { --ico: var(--ico-xs); }
 /* Only exceptions show beside the capsule; a click restores the default. */
-.ask-flag { flex: none; height: 24px; padding: 0 8px; color: var(--warn); font-size: 12px; line-height: 24px; background: color-mix(in srgb, var(--warn) 10%, transparent); border-radius: 7px; }
+.ask-flag { flex: none; height: var(--composer-chip); padding: 0 8px; color: var(--warn); font-size: 12px; line-height: var(--composer-chip); background: color-mix(in srgb, var(--warn) 10%, transparent); border-radius: 7px; }
 .ask-flag:hover { background: color-mix(in srgb, var(--warn) 16%, transparent); }
 .ask-end { display: flex; flex: 1 1 140px; align-items: center; justify-content: flex-end; gap: 2px; min-width: 0; }
-.ask-context { position: relative; display: grid; flex: none; place-items: center; width: 24px; height: 28px; color: var(--fg-2); border-radius: 6px; }
+.ask-context { position: relative; display: grid; flex: none; place-items: center; width: 24px; height: var(--composer-control); color: var(--fg-2); border-radius: 6px; }
 .ask-context-ring { display: block; width: 14px; height: 14px; fill: none; stroke: currentColor; stroke-width: 2.5; } /* stylelint-disable-line declaration-property-value-allowed-list -- A progress ring in its own viewBox, not a sprite glyph. */
 .ask-context-track { opacity: .28; }
 .ask-context:hover { color: var(--fg); }
@@ -239,8 +240,4 @@ defineExpose({
 .ask-context-caption > span { font-family: var(--mono); }
 @keyframes ask-context-in { from { opacity: 0; transform: translateY(2px); } to { opacity: 1; transform: none; } }
 @media (prefers-reduced-motion: reduce) { .ask-context-tip { animation: none; } }
-@media (max-width: 860px) {
-  .ask-add { width: 36px; height: 36px; }
-  .ask-context { height: 36px; }
-}
 </style>

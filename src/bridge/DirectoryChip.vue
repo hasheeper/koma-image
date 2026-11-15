@@ -15,7 +15,7 @@ async function activate(){
 </script>
 <template><button class="directory-chip" :class="{attention,home}" type="button" :aria-label="bridge.directory.value ? `打开企划集 · ${title}` : '挂载企划目录'" :title="bridge.error.value || title" :disabled="bridge.busy.value" @click="activate"><i v-if="home && bridge.directory.value" class="directory-dot" aria-hidden="true"></i><AppIcon name="i-folder"/><span>{{ title }}</span></button></template>
 <style scoped>
-.directory-chip { display: inline-flex; flex: 0 1 auto; align-items: center; gap: 4px; min-width: 36px; max-width: 132px; height: 22px; padding: 0 6px; color: var(--fg-2); font: 11px var(--sans); white-space: nowrap; background: var(--ask-hover, var(--hover)); border-radius: var(--r1); }
+.directory-chip { display: inline-flex; flex: 0 1 auto; align-items: center; gap: 4px; min-width: 36px; max-width: 132px; height: var(--composer-chip); padding: 0 8px; color: var(--fg-2); font: 12px var(--sans); white-space: nowrap; background: var(--ask-hover, var(--hover)); border-radius: var(--r2); }
 .directory-chip > .ico { flex: none; --ico: var(--ico-xs); }
 .directory-chip > span { min-width: 0; overflow: hidden; text-overflow: ellipsis; }
 .directory-chip:is(:hover, [aria-expanded="true"]) { color: var(--fg); background: var(--hover); }
