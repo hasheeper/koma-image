@@ -12,7 +12,7 @@
   .canvas-sheet-host { --sheet-side: 0px; --sheet-bottom: 0px; --sheet-room: calc(100% - var(--sheet-bottom) - 8px); }
   .canvas-sheet .canvas-sheet-tray { inset: auto var(--sheet-side) var(--sheet-bottom) var(--sheet-side); height: var(--sheet-drag, calc(55% - var(--sheet-bottom))); gap: 0; overflow: hidden; background: var(--glass-bg); border-radius: 18px; box-shadow: inset 0 1px 0 var(--glass-edge), 0 0 0 1px var(--line-2), var(--sh-2); backdrop-filter: blur(var(--glass-blur)) saturate(var(--glass-saturation)); transition: height var(--t2) var(--e); }
   .canvas-sheet[data-detent="full"] .canvas-sheet-tray { height: var(--sheet-drag, var(--sheet-room)); }
-  .canvas-sheet-host[data-sheet-dragging] .canvas-sheet-tray { transition: none; }
+  .canvas-sheet-host[data-sheet-dragging] .canvas-sheet-tray, .canvas-sheet-host[data-sheet-dragging] .canvas-sheet-tray > * { transform: none; transition: none; }
   .canvas-sheet-host[data-sheet-dragging] { user-select: none; }
   /* The sheet slides up from below (transform only, so its glass keeps sampling the stage); content fades. */
   .canvas-sheet .canvas-tray-enter-active { transition: height var(--t2) var(--e), transform var(--t3) var(--e); }

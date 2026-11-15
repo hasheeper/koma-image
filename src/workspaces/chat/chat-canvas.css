@@ -88,8 +88,9 @@
   .canvas-sheet :deep(.ask-bottom) { padding: 0 8px calc(8px + env(safe-area-inset-bottom)); }
   /* An empty conversation centres its composer; with the context pane open it docks at the bottom under the sheet. */
   .canvas-sheet[data-sheet-pane="context"] .chat-workspace[data-empty="true"] { justify-content: flex-end; padding-bottom: 0; }
-  /* A spacer inside the scroller, not padding on it: padding would grow the flex box and feed the overlap back. */
-  .canvas-sheet .chat-scroll::after { content: ""; display: block; height: var(--sheet-cover, 0px); }
+  /* Only the fixed-height message scroller needs extra scroll reach. The empty-state scroller sizes to
+     its content: adding its measured overlap back into that content feeds the height back and moves the logo. */
+  .canvas-sheet .chat-workspace[data-empty="false"] .chat-scroll::after { content: ""; display: block; height: var(--sheet-cover, 0px); }
   /* The context pane joins the head row the way ASK does: its title repeats the switch and is hidden, its
      counts become plain text before the clear button, and its body clears the composer. */
   .canvas-sheet .chat-canvas-context { top: -38px; }

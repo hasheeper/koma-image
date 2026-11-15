@@ -4,9 +4,9 @@ import type { CanvasPresentation } from './canvas-presentation.ts';
 import { installCanvasSheet } from '../native/canvas-sheet.ts';
 
 type SheetOptions = {
-  /** The positioning box the sheet rises in; it carries `--sheet-drag`, `--sheet-cover` and `data-sheet-dragging`. */
+  /** The positioning box the sheet rises in; it carries `--sheet-cover` and `data-sheet-dragging`. */
   host: ShallowRef<HTMLElement | null>;
-  /** The tray element itself. */
+  /** The tray element itself; only this subtree inherits the driver's `--sheet-drag`. */
   sheet: ShallowRef<HTMLElement | null>;
   /** The scroller or stage whose visible bottom the sheet may overlap; the overlap is written as `--sheet-cover`. */
   cover?: () => HTMLElement | null;
@@ -29,7 +29,7 @@ export function useCanvasSheet(layout: CanvasPresentation, options: SheetOptions
   const dragging = () => !!options.host.value && 'sheetDragging' in options.host.value.dataset;
   /* A pane opened by tap or switch drops any height left from a drag that closed the sheet. */
   watch(() => layout.panel.value, (value, previous) => {
-    if (value && !previous && !dragging()) options.host.value?.style.removeProperty('--sheet-drag');
+    if (value && !previous && !dragging()) options.sheet.value?.style.removeProperty('--sheet-drag');
   });
   return {
     mode, stageCovered, switchShown,
@@ -56,15 +56,18 @@ export function useCanvasSheet(layout: CanvasPresentation, options: SheetOptions
       const cover = () => {
         if (dragging()) return;
         const node = options.sheet.value, target = options.cover?.();
-        const overlap = mode.value && layout.panel.value && node?.offsetParent && target ? Math.max(0, target.getBoundingClientRect().top + target.clientHeight - node.getBoundingClientRect().top) : 0;
-        host.style.setProperty('--sheet-cover', `${Math.round(overlap)}px`);
+        const overlap = mode.value && layout.panel.value && node?.offsetParent && target ? Math.max(0, target.getBoundingClientRect().bottom - node.getBoundingClientRect().top) : 0;
+        const value = `${Math.round(overlap)}px`;
+        if (host.style.getPropertyValue('--sheet-cover') !== value) host.style.setProperty('--sheet-cover', value);
       };
       /* Border boxes: the workspace may answer the cover with padding inside the target, which must not re-trigger it. */
       const observer = new ResizeObserver(cover);
       if (options.sheet.value) observer.observe(options.sheet.value, { box: 'border-box' });
       const target = options.cover?.();
       if (target) observer.observe(target, { box: 'border-box' });
-      host.addEventListener('transitionend', cover, { signal });
+      host.addEventListener('transitionend', event => {
+        if (event.target === options.sheet.value || event.target === options.cover?.()) cover();
+      }, { signal });
       signal.addEventListener('abort', () => observer.disconnect(), { once: true });
     },
   };
