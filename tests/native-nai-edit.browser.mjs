@@ -177,7 +177,8 @@ test("EDIT official: five Img2Img and four Inpaint variants, painted-area pixels
     {
       const width = 1440;
       await page.setViewportSize({width,height:900});
-      await page.locator('#imageEditor').getByRole('button',{name:'适应窗口',exact:true}).click();
+      await page.locator('#imageEditor').getByRole('button',{name:'视图缩放',exact:true}).click();
+      await page.getByRole('menuitem',{name:'适应窗口',exact:true}).click();
       await page.waitForTimeout(120);
 
     }

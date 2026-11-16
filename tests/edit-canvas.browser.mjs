@@ -138,15 +138,17 @@ test('EDIT canvas: phone version browser and panel switches keep the mask, base,
   await p.waitForFunction(() => editor.session.mask.position > 0);
   await switcher(p).getByRole('button', { name: '表单', exact: true }).click();
   await p.locator('.edit-canvas-sidebar').waitFor({ state: 'hidden' });
-  await p.getByRole('button', { name: '缩放到 100%', exact: true }).click();
-  const painted = await p.evaluate(() => JSON.stringify(editor.session.mask)), zoom = await p.locator('#editorZoomValue').innerText();
+  // A narrow mat keeps the view choices in 更多.
+  await p.getByRole('button', { name: '更多操作', exact: true }).click();
+  await p.getByRole('menuitem', { name: '缩放到 100%', exact: true }).click();
+  const painted = await p.evaluate(() => JSON.stringify(editor.session.mask)), zoom = await p.locator('#editorZoomValue').textContent();
   await openPanel(p, '表单'); await p.locator('#editorPrompt').fill('still editing');
   assert.equal(await p.locator('#editorViewport').evaluate(el => el.inert), true, 'full-height editing pauses the covered canvas');
   assert.equal(await p.locator('#editorRun').isVisible(), true, 'the full form still exposes generation');
   await switcher(p).getByRole('button', { name: 'ASK', exact: true }).click(); await p.locator('#askPrompt').fill('review this mask');
   await switcher(p).getByRole('button', { name: 'ASK', exact: true }).click(); await mask.waitFor();
-  await p.locator('#editorZoomValue').waitFor(); // the receded tools return on the next frame
-  assert.equal(await p.locator('#editorZoomValue').innerText(), zoom);
+  await p.locator('.editor-main-tools').waitFor(); // the receded tools return on the next frame
+  assert.equal(await p.locator('#editorZoomValue').textContent(), zoom);
   assert.equal(await p.evaluate(() => JSON.stringify(editor.session.mask)), painted);
   await p.getByRole('button', { name: '浏览编辑版本' }).click();
   const browser = p.getByRole('dialog', { name: '编辑版本', exact: true }); await browser.waitFor();

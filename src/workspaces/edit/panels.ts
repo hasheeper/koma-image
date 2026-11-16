@@ -1,6 +1,6 @@
 /** Flyouts sit above the main tools, covering the contextual tools' space. */
 export function placeEditorPanel(panel: HTMLElement, opener: HTMLElement) {
-  const tools = (opener.closest(".editor-picture-ops") ?? opener.closest(".editor-toolbar"))?.getBoundingClientRect();
+  const tools = (opener.closest(".editor-main-tools") ?? opener.closest(".editor-toolbar"))?.getBoundingClientRect();
   if (!tools) return;
   const anchor = opener.getBoundingClientRect(), vw = document.documentElement.clientWidth;
   const width = panel.getBoundingClientRect().width;

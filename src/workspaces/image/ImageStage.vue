@@ -343,10 +343,11 @@ const askId = computed(() => { void ask.libraryRevision.value; return current.va
 .lightbox-annotate { position: absolute; bottom: 24px; left: 50%; transform: translateX(-50%); }
 .result-panel { position: relative; }
 .compact-stage { grid-template-rows: minmax(0, 1fr); background: transparent; }
-.compact-stage .viewport { padding: 16px 24px; background: transparent; }
+/* History owns its scrolling; its content must not enlarge the preview's grid row. */
+.compact-stage .viewport { grid-template-rows: minmax(0, 1fr); padding: 16px 24px; background: transparent; }
 .compact-stage .print img { width: var(--fit-w); height: var(--fit-h); object-fit: contain; }
 .stage-presentation, .stage-layers { display: contents; }
-.stage-presentation.with-history { display: grid; grid-template-columns: 72px minmax(0, 1fr); grid-template-rows: minmax(0, 1fr); gap: 4px; width: calc(var(--display-w) + 76px); height: 100%; }
+.stage-presentation.with-history { display: grid; grid-template-columns: 72px minmax(0, 1fr); grid-template-rows: minmax(0, 1fr); gap: 4px; width: calc(var(--display-w) + 76px); height: 100%; min-height: 0; }
 .with-history .stage-layers { display: grid; min-width: 0; min-height: 0; }
 .history-slot { min-width: 0; min-height: 0; }
 .result-ask-id { color: var(--a); background: var(--result-id-bg); }

@@ -89,9 +89,9 @@ defineExpose({ fit, step: (delta: number) => zoom(scale * Math.pow(1.25, delta))
   </div>
 </template>
 <style scoped>
-.stage-image-frame { position: relative; display: grid; place-items: center; flex: 1; min-width: 0; min-height: 0; }
+.stage-image-frame { position: relative; display: grid; grid-template-rows: minmax(0, 1fr); place-items: center; flex: 1; min-width: 0; min-height: 0; }
 .image-presentation { display: contents; }
-.image-presentation.with-history { display: grid; grid-template-columns: 72px minmax(0, 1fr); grid-template-rows: minmax(0, 1fr); gap: 4px; width: calc(var(--image-fit-w, 0px) + 76px); height: 100%; }
+.image-presentation.with-history { display: grid; grid-template-columns: 72px minmax(0, 1fr); grid-template-rows: minmax(0, 1fr); gap: 4px; width: calc(var(--image-fit-w, 0px) + 76px); height: 100%; min-height: 0; }
 .history-slot { min-width: 0; min-height: 0; }
 .stage-image { position: relative; width: 100%; height: 100%; min-width: 0; min-height: 0; overflow: hidden; touch-action: none; cursor: zoom-in; }
 .stage-image.zoomed { cursor: grab; }

@@ -93,6 +93,7 @@ import ThemeToggle from "../../shared/ThemeToggle.vue";
 import EditBoards from "./EditBoards.vue";
 import { createFocusRegion } from "../../native/focus-region";
 import EditToolMode from "./EditToolMode.vue";
+import EditViewMenu from "./EditViewMenu.vue";
 import EditComparisonTools from "./EditComparisonTools.vue";
 import PhotopeaIcon from "../../shared/PhotopeaIcon.vue";
 import EnhanceControl from "./EnhanceControl.vue";
@@ -1360,56 +1361,15 @@ async function copyReference(v: EditorVersion) {
               </div>
             </div>
             <div v-show="!selecting && !!shown" class="editor-tool-controls">
-              <div class="editor-picture-ops editor-tool-capsule" role="group" aria-label="编辑工具">
-                <EditToolMode id="editorAnnotate" label="批注" aria-label="批注工具" :icon="annotationTool.icon" :title="annotationTool.label" :active="selecting" :value="selecting ? selection?.tool ?? 'point' : 'point'" menu-label="批注方式" :options="annotationOptions" :disabled="locked || !shown || !!comparison" @toggle="selecting ? closeSelection() : annotate()" @select="value => annotate(value as AnnotationShape)" />
-                <EditToolMode ref="inpaintMode" class="inpaint-mode" id="editorInpaint" :label="view.generative ? '蒙版' : view.focusing ? '聚焦' : '重绘'" :aria-label="view.generative ? '蒙版' : view.focusing ? '聚焦重绘' : '重绘'" :icon="view.focusing ? 'i-frame' : 'i-mask'" :active="s.mode === 'inpaint'" :value="view.focusing ? 'focused' : 'ordinary'" menu-label="重绘方式" :options="inpaintOptions" :disabled="locked || !editorModels({ models: view.models }, 'inpaint').length" @toggle="changeInpaint()" @select="value => changeInpaint(value === 'focused')" />
-                <EditToolMode ref="upscaleMode" class="upscale-mode" id="editorUpscale" label="放大" icon="i-upscale" :title="upscaleTitle" :active="view.upscaleOpen" :value="upscaleKind" controls="editorUpscalePop" menu-label="放大方式" :options="upscaleOptions" :disabled="locked || !upModels.length" @toggle="editor.upscaleToggle(!view.upscaleOpen)" @select="changeUpscale" />
-                <DirectorTools ref="directorPanel" />
-              </div>
-              <div class="editor-secondary-tools">
-                <div class="editor-view-tools editor-tool-capsule" role="group" aria-label="视图控制">
-                  <button
-                    class="ibtn"
-                    id="editorHand"
-                    type="button"
-                    aria-label="平移"
-                    data-tip="平移 · H / 空格"
-                    aria-pressed="false"
-                    @click="canvas?.toggleHand()"
-                  >
-                    <AppIcon name="i-hand" /></button
-                  ><button
-                    class="ibtn editor-zoom-step"
-                    type="button"
-                    aria-label="缩小"
-                    @click="canvas?.step(-1)"
-                  >
-                    <AppIcon name="i-zoom-out" /></button
-                  ><button
-                    class="editor-zoom mono"
-                    id="editorZoomValue"
-                    type="button"
-                    aria-label="缩放到 100%"
-                    @click="canvas?.zoomTo(1)"
-                  >
-                    100%</button
-                  ><button
-                    class="ibtn editor-zoom-step"
-                    type="button"
-                    aria-label="放大"
-                    @click="canvas?.step(1)"
-                  >
-                    <AppIcon name="i-zoom-in" /></button
-                  ><button
-                    class="ibtn"
-                    type="button"
-                    aria-label="适应窗口"
-                    @click="canvas?.fit()"
-                  >
-                    <AppIcon name="i-fit" />
-                  </button>
+              <!-- One capsule, hairlines between purposes: edit modes, picture actions, view. -->
+              <div class="editor-main-tools editor-tool-capsule">
+                <div class="editor-tool-group editor-picture-ops" role="group" aria-label="编辑工具">
+                  <EditToolMode id="editorAnnotate" label="批注" aria-label="批注工具" :icon="annotationTool.icon" :title="annotationTool.label" :active="selecting" :value="selecting ? selection?.tool ?? 'point' : 'point'" menu-label="批注方式" :options="annotationOptions" :disabled="locked || !shown || !!comparison" @toggle="selecting ? closeSelection() : annotate()" @select="value => annotate(value as AnnotationShape)" />
+                  <EditToolMode ref="inpaintMode" class="inpaint-mode" id="editorInpaint" :label="view.generative ? '蒙版' : view.focusing ? '聚焦' : '重绘'" :aria-label="view.generative ? '蒙版' : view.focusing ? '聚焦重绘' : '重绘'" :icon="view.focusing ? 'i-frame' : 'i-mask'" :active="s.mode === 'inpaint'" :value="view.focusing ? 'focused' : 'ordinary'" menu-label="重绘方式" :options="inpaintOptions" :disabled="locked || !editorModels({ models: view.models }, 'inpaint').length" @toggle="changeInpaint()" @select="value => changeInpaint(value === 'focused')" />
+                  <EditToolMode ref="upscaleMode" class="upscale-mode" id="editorUpscale" label="放大" icon="i-upscale" :title="upscaleTitle" :active="view.upscaleOpen" :value="upscaleKind" controls="editorUpscalePop" menu-label="放大方式" :options="upscaleOptions" :disabled="locked || !upModels.length" @toggle="editor.upscaleToggle(!view.upscaleOpen)" @select="changeUpscale" />
+                  <DirectorTools ref="directorPanel" />
                 </div>
-                <div class="editor-info-actions editor-tool-capsule" :hidden="!view.viewed" role="group" aria-label="图片操作">
+                <div class="editor-tool-group editor-info-actions" :hidden="!view.viewed" role="group" aria-label="图片操作">
                   <EvolutionAction v-if="shown && shown.kind !== 'source'" :record-id="shown.recordId" :target="evolutionTarget('edit', editor.session.id)" :disabled="locked || unsavedPreview" />
                   <button v-if="view.viewed" class="ibtn" type="button"
                     :aria-label="editor.isFavorite(shown) ? '已收藏' : '收藏图片'" :data-tip="editor.isFavorite(shown) ? '已收藏' : '收藏'"
@@ -1417,7 +1377,7 @@ async function copyReference(v: EditorVersion) {
                     <AppIcon name="i-star" />
                   </button>
                   <button
-                    class="ibtn"
+                    class="ibtn editor-wide-action"
                     type="button"
                     aria-label="设为底图"
                     data-tip="设为底图"
@@ -1427,7 +1387,7 @@ async function copyReference(v: EditorVersion) {
                   >
                     <AppIcon name="i-pin" /></button
                   ><button
-                    class="ibtn"
+                    class="ibtn editor-wide-action"
                     type="button"
                     aria-label="按住对比来源图"
                     data-tip="按住对比 · \"
@@ -1450,6 +1410,19 @@ async function copyReference(v: EditorVersion) {
                     :download="shown?.name" :aria-disabled="unsavedPreview"
                     ><AppIcon name="i-download"
                   /></a>
+                </div>
+                <EditViewMenu @step="canvas?.step($event)" @fit="canvas?.fit()" @actual="canvas?.zoomTo(1)" @hand="canvas?.toggleHand()" />
+                <div class="editor-tool-group editor-more-actions">
+                  <PopoverMenu id="editorMoreActions" label="更多操作" side="up" compact menu-class="editor-flyout">
+                    <template #trigger="{ open, toggle }"><button class="ibtn" type="button" aria-label="更多操作" data-tip="更多" aria-haspopup="menu" :aria-expanded="open" aria-controls="editorMoreActions" @click="toggle"><AppIcon name="i-more" /></button></template>
+                    <template #default="{ close }">
+                      <button v-if="view.viewed && shown && shown !== view.base && !unsavedPreview" class="menu-item" type="button" role="menuitem" :disabled="locked" @click="close(true); editor.setBase(shown.id)"><AppIcon name="i-pin" /><span class="menu-label">设为底图</span></button>
+                      <button v-if="view.viewed && parent" class="menu-item" type="button" role="menuitem" aria-label="按住对比来源图" @pointerdown.prevent="compare(true)" @pointerup="compare(false)" @pointerleave="compare(false)" @pointercancel="compare(false)" @blur="compare(false)" @keydown.space.prevent="compare(true)" @keydown.enter.prevent="compare(true)" @keyup="compare(false)"><AppIcon name="i-compare" /><span class="menu-label">按住对比</span><span class="menu-meta">\</span></button>
+                      <div v-if="view.viewed && (parent || shown && shown !== view.base && !unsavedPreview)" class="editor-menu-separator" role="separator"></div>
+                      <button class="menu-item" type="button" role="menuitem" @click="close(true); canvas?.fit()"><AppIcon name="i-fit" /><span class="menu-label">适应窗口</span></button>
+                      <button class="menu-item" type="button" role="menuitem" aria-label="缩放到 100%" @click="close(true); canvas?.zoomTo(1)"><span class="editor-menu-actual mono" aria-hidden="true">1:1</span><span class="menu-label">原始大小</span></button>
+                    </template>
+                  </PopoverMenu>
                 </div>
               </div>
             </div>

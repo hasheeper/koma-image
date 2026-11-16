@@ -106,7 +106,7 @@ export function createEditorCanvas(
   function paintHand() {
     cursor.hidden = true;
     root.dataset.hand = hand || space ? "on" : "off";
-    handButton.setAttribute("aria-pressed", String(hand || space));
+    handButton.setAttribute("aria-checked", String(hand || space));
   }
   function setSpace(value: boolean) {
     space = value;

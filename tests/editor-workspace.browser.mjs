@@ -88,7 +88,10 @@ test('EDIT wheel and pinch preserve source anchors, discard the first-finger str
   await page.evaluate(async () => {
     await editor.open('image', await makeImage('#445566', 2048, 1536), 'large.png'); editor.setMode('inpaint');
   });
-  await page.getByRole('button', { name: '缩放到 100%', exact: true }).click();
+  await page.getByRole('button', { name: '视图缩放', exact: true }).click();
+  await page.getByRole('menuitem', { name: '缩放到 100%', exact: true }).click();
+  // Reduced motion still commits the stage size on the next frame; paint after it lands.
+  await page.evaluate(() => new Promise(r => requestAnimationFrame(() => requestAnimationFrame(r))));
   const area = await page.locator('#editorViewport').boundingBox();
   const at = { x: area.x + area.width / 2, y: area.y + area.height / 2 };
   await page.mouse.click(at.x, at.y);

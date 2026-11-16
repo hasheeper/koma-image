@@ -460,22 +460,23 @@ lifecycle.whileActive((signal) => {
 .canvas-history { width: 100%; height: 100%; min-height: 0; padding: 4px; overflow: hidden; border-radius: 10px; background: var(--sunken); box-shadow: inset 0 1px 3px rgb(var(--shadow-rgb) / calc(.2 * var(--shadow-strength))); }
 .canvas-bottom { position: absolute; right: 12px; bottom: 12px; left: 12px; z-index: 7; display: flex; align-items: center; gap: 12px; min-width: 0; pointer-events: none; }
 .canvas-bottom > * { pointer-events: auto; }
-.canvas-filmstrip { flex: none; min-width: 0; }
-.canvas-image-actions { position: static; flex: 1 1 auto; flex-direction: row; justify-content: center; width: auto; max-width: none; min-width: 0; transform: none; }
-.canvas-image-actions.graph-actions { justify-content: flex-start; pointer-events: none; }
+/* Equal-basis ends keep the action capsule on the canvas centre line; an end wider than its share only nudges it. */
+.canvas-filmstrip { flex: 1 1 0; min-width: 0; }
+.canvas-image-actions { position: static; flex: none; flex-direction: row; justify-content: center; width: auto; max-width: none; min-width: 0; transform: none; }
+.canvas-image-actions.graph-actions { flex: 1 1 auto; justify-content: flex-start; pointer-events: none; }
 .canvas-image-actions:empty { pointer-events: none; }
-.canvas-foot { display: flex; flex: none; align-items: center; min-width: 0; margin-left: auto; }
+.canvas-foot { display: flex; flex: 1 1 0; justify-content: flex-end; align-items: center; min-width: max-content; margin-left: auto; }
 .canvas-foot .go-row { flex: none; width: auto; grid-template-columns: max-content 0px; margin-left: auto; min-width: 0; }
 .canvas-foot .go-row:has(> .btn-stop:not([hidden])) { grid-template-columns: max-content 72px; column-gap: 8px; }
-.canvas-foot .btn-go { height: 48px; min-height: 48px; min-width: 192px; justify-content: center; padding: 0 12px; gap: 7px; border-radius: 14px; box-shadow: var(--sh-1); font-size: var(--fz-md); }
-.canvas-foot[aria-busy="true"] .btn-go { min-width: 176px; }
-.canvas-foot .btn-stop { height: 48px; min-height: 48px; padding: 0 6px; gap: 4px; border-radius: 14px; }
-.canvas-foot .cost-tag { margin-left: 4px; padding: 3px 6px; font-size: var(--fz-xs); }
+.canvas-foot .btn-go { height: 44px; min-height: 44px; min-width: 176px; justify-content: center; padding: 0 14px; gap: 7px; border-radius: 999px; box-shadow: var(--sh-1); font-size: var(--fz-md); }
+.canvas-foot[aria-busy="true"] .btn-go { min-width: 160px; }
+.canvas-foot .btn-stop { height: 44px; min-height: 44px; padding: 0 6px; gap: 4px; border-radius: 999px; }
+.canvas-foot .cost-tag { margin-left: 4px; padding: 3px 8px; border-radius: 999px; font-size: var(--fz-xs); }
 .canvas-foot .btn-go > .ico { --ico: var(--ico-md); }
 .canvas-foot .go-keys { display: none; }
 @container canvas-workspace (max-width: 820px) {
   .canvas-bottom { gap: 6px; }
-  .canvas-foot .btn-go { min-width: 168px; padding-inline: 8px; gap: 5px; font-size: var(--fz-sm); }
+  .canvas-foot .btn-go { min-width: 156px; padding-inline: 10px; gap: 5px; font-size: var(--fz-sm); }
   .canvas-foot[aria-busy="true"] .btn-go { min-width: 144px; }
   .canvas-foot .go-row:has(> .btn-stop:not([hidden])) { grid-template-columns: max-content 64px; column-gap: 6px; }
 }
@@ -533,8 +534,6 @@ lifecycle.whileActive((signal) => {
   .canvas-layout .canvas-bottom { gap: 8px; right: 8px; bottom: 8px; left: 8px; }
   .canvas-bottom .canvas-image-actions:empty { display: none; }
   .canvas-bottom .canvas-image-actions.graph-actions { justify-content: flex-start; }
-  .canvas-foot .btn-go { min-height: 44px; height: 44px; min-width: 156px; }
-  .canvas-foot .btn-stop { min-height: 44px; height: 44px; }
 }
 @media (max-width: 480px) {
   .canvas-summary-tokens { display: none; }

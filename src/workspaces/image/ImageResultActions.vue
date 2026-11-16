@@ -19,12 +19,12 @@ function save() {
 }
 </script>
 <template>
-        <div class="result-actions" :class="{ 'compact-actions editor-tool-controls': compact }" role="group" aria-label="图片操作">
-          <div class="result-group result-group-ask" :class="{ 'editor-tool-capsule': compact }">
-            <ImageResultDetails v-if="compact && item" :item="item" />
+        <div class="result-actions" :class="{ 'compact-actions editor-tool-capsule': compact }" role="group" aria-label="图片操作">
+          <div class="result-group result-group-ask">
             <button class="btn btn-sm result-ask" type="button" :disabled="!item" aria-label="Ask 这张图" @click="openAsk"><AskMark /><span>Ask</span></button>
+            <ImageResultDetails v-if="compact && item" :item="item" />
           </div>
-          <div class="result-group" :class="{ 'editor-tool-capsule': compact }">
+          <div class="result-group">
             <EvolutionAction v-if="item" :record-id="item.id" />
             <button
               v-for="action in [
@@ -45,7 +45,7 @@ function save() {
               <AppIcon :name="action.icon" />
             </button>
           </div>
-          <div class="result-group" :class="{ 'editor-tool-capsule editor-info-actions': compact }">
+          <div class="result-group">
             <button
               class="ibtn"
               :id="legacyIds ? 'favoriteBtn' : undefined"
@@ -80,15 +80,17 @@ function save() {
 .result-ask:not(:disabled):hover { background: var(--result-ask-hover); border-color: var(--result-ask-line); }
 .ibtn[aria-pressed="true"] { color: var(--a); }
 .ibtn[aria-pressed="true"] .ico { fill: currentColor; }
-.compact-actions { flex-wrap: nowrap; min-width: 0; max-width: 100%; margin: 0; gap: 8px; pointer-events: auto; }
+/* Compact: one capsule for the canvas bottom bar, hairlines between the three purposes; Ask leads with a tint. */
+.compact-actions { flex-wrap: nowrap; min-width: 0; max-width: 100%; margin: 0; pointer-events: auto; }
 .compact-actions .result-group { gap: 0; }
-.compact-actions .result-group + .result-group::before { display: none; }
-.compact-actions :deep(.ibtn) { width: 32px; height: 32px; border-radius: 999px; --ico: var(--ico-md); }
-.compact-actions .result-ask { height: 32px; padding-inline: 8px; border-radius: 999px; font-size: var(--fz-sm); }
-@container canvas-workspace (max-width: 820px) {
-  .compact-actions { gap: 4px; }
-  .compact-actions :deep(.ibtn) { width: 28px; height: 32px; }
-  .compact-actions .result-ask { padding-inline: 5px; }
+.compact-actions .result-group + .result-group::before { height: 16px; margin-inline: 4px; background: color-mix(in srgb, var(--fg) 16%, transparent); }
+.compact-actions :deep(.ibtn) { width: 36px; height: 36px; border-radius: 999px; }
+.compact-actions :deep(.result-summary) { height: 36px; }
+.compact-actions .result-ask { height: 36px; margin-right: 2px; padding: 0 12px 0 10px; border-radius: 999px; font-size: var(--fz-sm); background: var(--result-ask-hover); border-color: transparent; }
+.compact-actions .result-ask:not(:disabled):hover { background: color-mix(in srgb, var(--a) 24%, transparent); border-color: transparent; }
+@container canvas-workspace (max-width: 400px) {
+  .compact-actions :deep(.ibtn) { width: 32px; }
+  .compact-actions .result-ask { padding-inline: 9px; }
   .compact-actions .result-ask > span { display: none; }
 }
 </style>

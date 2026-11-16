@@ -128,6 +128,40 @@ test('IMAGE canvas: settings entry, shared sidebar, width preference and respons
   } finally { await f.context.close(); }
 });
 
+test('IMAGE canvas: long history scrolls independently in the board and node preview', async t => {
+  const f = await open('/#/image', { ready: '.switcher', standard: true, ask: askSettings({ images: false }) });
+  t.after(() => f.context.close());
+  const p = f.page; await enter(p);
+  const ids = [];
+  for (let i = 0; i < 16; i++) ids.push(await addImage(p, `picture ${i + 1}`));
+  await p.evaluate(async () => { await drawing.patch({ prompt: 'keep this form', seed: '456' }); });
+  const original = await p.evaluate(() => ({ prompt: drawing.snapshot().form.prompt, seed: drawing.snapshot().form.seed }));
+  const tray = p.locator('.canvas-history .tray');
+  async function scrollHistory() {
+    await tray.evaluate(el => { el.scrollTop = 0; });
+    const current = await p.evaluate(() => drawing.snapshot().current?.id);
+    await tray.hover();
+    await p.mouse.wheel(0, 2400);
+    await p.waitForFunction(() => document.querySelector('.canvas-history .tray').scrollTop > 0);
+    assert.equal(await p.evaluate(() => drawing.snapshot().current?.id), current, 'scrolling does not switch the preview');
+    await tray.locator(`.tile[data-id="${ids[0]}"]`).click();
+    await p.waitForFunction(id => drawing.snapshot().current?.id === id, ids[0]);
+    assert.deepEqual(await p.evaluate(() => ({ prompt: drawing.snapshot().form.prompt, seed: drawing.snapshot().form.seed })), original);
+  }
+  await scrollHistory();
+  f.llm.push(toolReply('read', 'get_recipe_clusters', {}), toolReply('tree', 'show_retrospect', {
+    retrospect_title: '历史浏览', nodes: [{ id: 'v1', label: '预览阶段', image_ids: ['#h1', '#h16'], primary_id: '#h16' }], edges: [],
+  }), textReply('已整理。'));
+  await p.locator('#askPrompt').fill('整理历史'); await submitAsk(p);
+  const panel = p.locator('.canvas-graph .stage-panel[open]'); await panel.waitFor();
+  await p.waitForFunction(() => !ask.running.value);
+  await panel.locator('[data-node="v1"] .node-media').dblclick();
+  await p.waitForFunction(() => ask_presentation.canvas.view.value === 'node');
+  await scrollHistory();
+  assert.equal(await p.evaluate(() => ask_presentation.canvas.view.value), 'image');
+  assert.deepEqual(f.errors, []);
+});
+
 test('IMAGE canvas: history, favorites, reference and confirmed draft generate through the original form', async () => {
   const f = await open('/#/image', { ready: '.switcher', standard: true, ask: askSettings({ images: false }) });
   try {

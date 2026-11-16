@@ -48,12 +48,12 @@
 .edit-canvas-versions .tile > img { position: static; width: 100%; height: auto; aspect-ratio: var(--image-ratio); object-fit: contain; border-radius: 6px; }
 .edit-canvas-versions .tile[aria-current="true"] { box-shadow: inset 0 0 0 2px var(--a); }
 
-/* Context tools have their own row; version browsing and generation bookend the main row. */
-.edit-collaboration .editor-toolbar { left: 12px; right: 12px; bottom: 12px; transform: none; display: grid; grid-template-columns: auto minmax(0, 1fr) auto; align-items: center; justify-items: center; gap: 8px; width: auto; max-width: none; pointer-events: none; }
+/* Context tools have their own row; version browsing and generation bookend the main row.
+   Equal flexible ends keep the main capsule on the canvas centre line, at IMAGE's 44px height. */
+.edit-collaboration .editor-toolbar { --editor-tool-size: 36px; left: 12px; right: 12px; bottom: 12px; transform: none; display: grid; grid-template-columns: minmax(max-content, 1fr) auto minmax(max-content, 1fr); align-items: center; justify-items: center; gap: 8px; width: auto; max-width: none; pointer-events: none; }
 .edit-collaboration .editor-toolbar > * { pointer-events: auto; }
 .edit-collaboration .editor-toolbar > :not(.edit-versions-toggle, .editor-tool-controls, .edit-canvas-run, .canvas-sheet-peek) { grid-column: 1 / -1; }
 .edit-collaboration .editor-tool-controls { min-width: 0; gap: 8px; }
-.edit-collaboration .editor-secondary-tools { flex-wrap: wrap; }
 .edit-versions-toggle { justify-self: start; gap: 7px; height: 44px; padding: 0 14px; color: var(--fg-2); font-size: var(--fz-sm); --ico: var(--ico-md); }
 .edit-versions-toggle b { color: var(--fg-3); font-size: var(--fz-xs); font-weight: var(--fw-medium); }
 .edit-versions-toggle > .ico:last-child { --ico: var(--ico-xs); transform: rotate(90deg); }
@@ -64,10 +64,10 @@
 .edit-canvas-run .quota-warning { margin: 0; background: var(--glass-pop-bg); box-shadow: var(--sh-1); }
 .edit-canvas-run .go-row { width: auto; grid-template-columns: max-content 0px; }
 .edit-canvas-run .go-row:has(> .btn-stop:not([hidden])) { grid-template-columns: max-content 64px; column-gap: 6px; }
-.edit-canvas-run .btn-go { height: 48px; min-height: 48px; min-width: 168px; justify-content: center; padding: 0 10px; gap: 6px; font-size: var(--fz-sm); border-radius: 14px; box-shadow: var(--sh-1); }
+.edit-canvas-run .btn-go { height: 44px; min-height: 44px; min-width: 156px; justify-content: center; padding: 0 12px; gap: 6px; font-size: var(--fz-sm); border-radius: 999px; box-shadow: var(--sh-1); }
 .edit-canvas-run[aria-busy="true"] .btn-go { min-width: 144px; }
-.edit-canvas-run .btn-stop { height: 48px; min-height: 48px; padding: 0 6px; gap: 4px; border-radius: 14px; }
-.edit-canvas-run .cost-tag { margin-left: 4px; padding: 3px 6px; font-size: var(--fz-xs); }
+.edit-canvas-run .btn-stop { height: 44px; min-height: 44px; padding: 0 6px; gap: 4px; border-radius: 999px; }
+.edit-canvas-run .cost-tag { margin-left: 4px; padding: 3px 8px; border-radius: 999px; font-size: var(--fz-xs); }
 .edit-canvas-run .go-keys { display: none; }
 
 .edit-canvas-splitter { grid-column: 2; grid-row: 1; position: relative; cursor: col-resize; touch-action: none; border-radius: 6px; }
@@ -92,10 +92,13 @@
 .mobile-versions .tile { display: inline-block; break-inside: avoid; margin-bottom: 10px; }
 .mobile-versions .tile[data-base="true"] { margin-bottom: 10px; }
 
-@container editor-mat (max-width: 720px) {
+/* The main capsule takes its own row once it no longer fits between versions and generation. */
+@container editor-mat (max-width: 800px) {
   .edit-collaboration .editor-toolbar { grid-template-columns: auto 1fr; gap: 8px; }
   .edit-collaboration .editor-tool-controls { grid-column: 1 / -1; grid-row: auto; order: -1; }
   .edit-collaboration .editor-toolbar > :not(.edit-versions-toggle, .editor-tool-controls, .edit-canvas-run, .canvas-sheet-peek) { order: -2; }
+}
+@container editor-mat (max-width: 720px) {
   .edit-canvas-board { flex-basis: 110px; }
   .edit-canvas-head { gap: 6px; }
   .edit-canvas-summary { gap: 5px; padding-left: 8px; }
@@ -122,7 +125,6 @@
   .edit-collaboration .editor-info:has(.director-variants) .editor-info-kind { display: none; }
   .edit-collaboration .editor-empty-sheet { width: 100px; height: 64px; grid-template-columns: 1fr 30px; margin-bottom: 16px; }
   .edit-collaboration .editor-empty .editor-empty-open { min-width: 156px; min-height: 44px; padding-inline: 20px; }
-  .edit-collaboration .editor-zoom-step { display: none; }
   .edit-collaboration .editor-size { flex: none; width: 82px; padding-inline: 5px; gap: 4px; }
   .edit-collaboration .editor-size output { min-width: 20px; }
   .edit-canvas-sidebar { position: absolute; inset: max(8px, env(safe-area-inset-top)) max(8px, env(safe-area-inset-right)) max(8px, env(safe-area-inset-bottom)) max(8px, env(safe-area-inset-left)); z-index: 9; gap: 8px; background: none; box-shadow: none; backdrop-filter: none; }
@@ -137,8 +139,6 @@
   .edit-form-side .composer-scroll { padding-top: 16px; }
   .edit-form-side .fld-hero { flex: none; min-height: 280px; }
   .edit-collaboration .editor-toolbar { left: 8px; right: 8px; bottom: 8px; }
-  .edit-canvas-run .btn-go, .edit-canvas-run .btn-stop { height: 44px; min-height: 44px; }
-  .edit-canvas-run .btn-go { min-width: 156px; }
   .edit-history-browsing .editor-viewport { transform: translateX(24%) scale(1.22); opacity: .5; pointer-events: none; }
   .edit-history-browsing :is(.edit-canvas-head, .editor-info, .editor-toolbar) { opacity: 0; pointer-events: none; }
 }
@@ -156,11 +156,6 @@
   .canvas-sheet :deep(.ask-bottom) { padding: 0 8px 8px; }
   .canvas-sheet[data-sheet-pane="ask"] .editor-toolbar { opacity: 0; visibility: hidden; pointer-events: none; }
 }
-@media (max-width: 600px) {
-  .edit-collaboration #editorHand { display: none; }
-}
 @media (max-width: 360px) {
-  .edit-collaboration .editor-zoom { min-width: 42px; }
-  .edit-collaboration .editor-secondary-tools { gap: 6px; }
   .edit-collaboration .editor-size { width: 66px; }
 }

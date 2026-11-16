@@ -258,9 +258,15 @@
   box-shadow: inset 0 1px 0 var(--glass-edge), 0 0 0 1px var(--line-2), 0 10px 32px rgb(var(--shadow-rgb) / calc(.45 * var(--shadow-strength)));
   backdrop-filter: blur(var(--glass-blur)) saturate(var(--glass-saturation));
 }
-.editor-tool-controls, .editor-secondary-tools { display: flex; align-items: center; justify-content: center; flex-wrap: wrap; gap: 8px; max-width: 100%; }
-.editor-secondary-tools { flex: none; }
-.editor-picture-ops { padding-inline: 5px; }
+.editor-tool-controls { display: flex; align-items: center; justify-content: center; flex-wrap: wrap; gap: 8px; max-width: 100%; }
+/* The main capsule groups edit modes, picture actions and view behind hairlines. A narrow mat
+   keeps favourite and download in place and moves base, compare and view into 更多. */
+.editor-tool-group { display: flex; flex: none; align-items: center; }
+.editor-tool-group[hidden] { display: none; }
+.editor-main-tools > :not([hidden]) ~ :not([hidden])::before { content: ""; flex: none; align-self: center; width: 1px; height: 16px; margin-inline: 4px; background: color-mix(in srgb, var(--fg) 16%, transparent); }
+.editor-more-actions { display: none; }
+.editor-menu-separator { height: 1px; margin: 4px 8px; background: color-mix(in srgb, var(--fg) 10%, transparent); }
+.editor-menu-actual { flex: none; min-width: var(--ico-sm); color: var(--fg-3); font-size: var(--fz-2xs); letter-spacing: -.04em; text-align: center; }
 .editor-mask-tools { overflow-x: auto; scrollbar-width: none; }
 .editor-mask-tools > * { flex-shrink: 0; }
 /* Keep the contextual row's space while a flyout covers it: closing restores
@@ -307,8 +313,9 @@
 .editor-toolbar [data-tip]:hover::after { transform: translate(-50%, 0); }
 [data-theme="light"] .editor-toolbar { --editor-tool-hover: var(--raised); --editor-tool-hover-shadow: var(--sh-1); }
 @container editor-mat (max-width: 600px) {
-  .editor-tool-controls, .editor-secondary-tools { gap: 6px; }
-  .editor-zoom-step, #editorHand { display: none; }
+  .editor-tool-controls { gap: 6px; }
+  .editor-main-tools :is(.editor-wide-action, .editor-view-tools) { display: none; }
+  .editor-more-actions { display: flex; }
 }
 @media (pointer: coarse) {
   .editor-toolbar { --editor-tool-size: 36px; }
