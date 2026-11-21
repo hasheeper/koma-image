@@ -1,6 +1,6 @@
 # 历史发布证据
 
-更新：2026-11-15。只维护版本、提交、部署及未解决问题的必要证据；现行行为从[文档索引](../README.md)进入。这些结果仅适用于注明日期和提交，不代表当前工作区已发布，也不延续当时的推送、部署或真实生成授权。
+更新：2026-11-21。只维护版本、提交、部署及未解决问题的必要证据；现行行为从[文档索引](../README.md)进入。这些结果仅适用于注明日期和提交，不代表当前工作区已发布，也不延续当时的推送、部署或真实生成授权。
 
 ## 发布记录
 
@@ -28,6 +28,8 @@
 | 2026-11-15 | v0.7.2 | [ab737a11](https://github.com/hasheeper/koma-image/commit/ab737a11bc5364e1b8bddac909dba643e00a7e83) | [298bda50](https://298bda50.koma-image.pages.dev/) | 本地类型、560 项单元、构建、完整样式、12 项核心冒烟、12 项相关浏览器回归及发布包检查通过；Git 历史、本次改动和 dist 脱敏扫描通过。线上 10 项主要资源与构建一致，五工作区、版本日志及桌面／手机创作导入导出入口无页面错误或意外外部请求。[main CI](https://github.com/hasheeper/koma-image/actions/runs/43719846885)／[标签 CI](https://github.com/hasheeper/koma-image/actions/runs/43719846944) 均通过类型、单元和构建，在既有跨标签页备份锁用例失败，其余 11 项核心冒烟通过；根因及 Android 真机性能仍待复核 |
 | 2026-11-15 | v0.7.2 创作配置补充修正 | [fdc00591](https://github.com/hasheeper/koma-image/commit/fdc005910c688573a11be6d71746e6e2abedbf25) | [c49ed22a](https://c49ed22a.koma-image.pages.dev/) | 按用户要求合并至 0.7.2，原标签未移动；本地类型、561 项单元、构建、12 项核心冒烟、创作配置浏览器回归及相关样式通过，Git 历史、本次改动及 dist 脱敏扫描通过。[main CI](https://github.com/hasheeper/koma-image/actions/runs/43722852318) 全部通过。线上 10 项主要资源与构建一致，合并日志、重复导入、模拟 ASK 发送、手机清空确认／取消与刷新保持及五工作区导航通过，无页面错误或意外外部请求；未执行真实上游请求 |
 | 2026-11-16 | v0.7.3 | [c73d11fe](https://github.com/hasheeper/koma-image/commit/c73d11fe71a4bed28a88e8b959de733a3a749bd3) | [e540913f](https://e540913f.koma-image.pages.dev/) | 本地类型、561 项单元、构建、完整样式、30 项 IMAGE／EDIT 交互、7 项编辑回传、12 项核心冒烟及发布包检查通过；既有 PE1 in-flight cancellation 挂起项未运行。Git 历史、提交与 dist 脱敏扫描通过，部署重建 394 个文件与验收构建一致。线上 10 项主要资源一致，桌面／手机版本号、日志与五工作区导航无页面错误、资源失败或意外外部请求。[main CI](https://github.com/hasheeper/koma-image/actions/runs/43838729846) 通过；标签首轮在既有跨标签页备份锁用例失败，[第二次运行](https://github.com/hasheeper/koma-image/actions/runs/43838729646/attempts/2) 全部通过，偶发竞态仍待排查。未执行真实上游请求，Android 黑屏与真机性能仍待复核 |
+
+| 2026-11-21 | v0.8.0 | [8169384](https://github.com/hasheeper/koma-image/commit/81693840482157a30b589caf0d908fa188727517) | [94393aad](https://94393aad.koma-image.pages.dev/) | 本地类型、564 项单元、构建、样式／字体、18 项专题浏览器回归、12 项核心冒烟及发布包校验通过；核心冒烟首轮有一项 IMAGE 启动超时，单独重跑整组通过。Git 历史、提交与 dist 脱敏扫描通过，部署重建 394 个文件一致；生产域名与部署地址各 10 项资源和构建一致。生产站桌面及开启 BETA 的手机模拟均核对版本、日志和五工作区，无页面错误或未配置外部请求。[main CI](https://github.com/hasheeper/koma-image/actions/runs/44883461317)／[标签 CI](https://github.com/hasheeper/koma-image/actions/runs/44883461132) 通过。未执行真实生成或计费验证 |
 
 2026-10-26 的 Bridge 记录仅有发布前检查，没有部署证据，不计为一次发布。2026-10-29 公开前匿名化历史作者邮箱时保持提交树内容，历史提交号已映射；上表使用映射后的引用。历史脱敏检查不能代替下一次发布前复查。
 
