@@ -61,7 +61,17 @@ export function handoffImage(label: string, base: DraftState, library: readonly 
   if (!picture || (origin?.source !== "history" && origin?.source !== "favorites" && origin?.source !== "edit")) throw new Error(`${label} 不在本轮图片快照中`);
   return { label, source: origin.source, ref: picture.id, ...(picture.bindings?.[label] ? {binding:picture.bindings[label]} : {}) };
 }
-export function parseDraft(input: Readonly<Record<string, unknown>>, base: DraftState, library: readonly Picture[], question = "", evolutionBase?: (recordId: string) => EvolutionChange | { edit?: import("../../domain/edit-draft.ts").EditDraftState }): Draft {
+export function parseDraft(input: Readonly<Record<string, unknown>>, base: DraftState, library: readonly Picture[], question = "", evolutionBase?: (recordId: string) => EvolutionChange | { edit?: import("../../domain/edit-draft.ts").EditDraftState }, internal = false): Draft {
+  if (Array.isArray(input.steps) && input.steps.some(step => step?.kind === 'chat_open_child')) {
+    if (!internal || base.workspace !== 'chat' || !base.chat) throw new Error('仅能在当前 CHAT 中提议图片子区');
+    if (input.steps.length !== 1 || input.new_board_name !== undefined || input.base_image_id !== undefined) throw new Error('图片子区必须独立提交，每份草稿只开一个子区');
+    const title = text(input.draft_title ?? input.title, 120).trim(), baseHash = stateHash(base);
+    if (!title || input.base_hash !== baseHash) throw new Error('草稿 base_hash 与本轮快照不符，请使用本轮原始值');
+    const step = record(input.steps[0]), label = text(step.source, 64), image = chatImage(base.chat, label), versionId = image?.source.versionIds?.[image.version];
+    if (Object.keys(step).some(key => key !== 'kind' && key !== 'source') || !image || !versionId) throw new Error('子区来源必须是当前会话中的已完成结果图');
+    const source = { kind: 'image' as const, conversationId: base.conversationId, turnId: image.source.turnId, versionId, assetId: image.assetId };
+    return { title, baseHash, question, steps: [{ kind: 'chat_open_child', label, source }], base: structuredClone(base) };
+  }
   if(input.base_image_id!==undefined&&base.workspace==='edit') {
     if(!evolutionBase||input.new_board_name!==undefined||input.base_hash!==stateHash(base)||!base.edit)throw new Error('回退草稿需要当前编辑画板与原始快照');
     const label=text(input.base_image_id,32),p=library.find(p=>p.aliases.includes(label));if(!p)throw new Error('回退图片未读取');
@@ -254,6 +264,14 @@ export function validateDraft(draft: Draft, now: DraftState, options: ValidateOp
   if(draft.target === "edit") return validateEditDraft(draft,now,options);
   if (draft.steps[0]?.kind === "chat_distill_branch") return validateBranch(draft, now, options);
   if (draft.steps[0]?.kind === "chat_handoff") return validateHandoff(draft, now, options);
+  if (draft.steps[0]?.kind === "chat_open_child") {
+    const step = draft.steps[0], key = draft.base.chat?.key;
+    const issue = !key || now.chat?.key !== key || now.conversationId !== step.source.conversationId ? '会话或上下文已变化，请重新提议' : '';
+    const plan: Omit<DraftPlan, 'fingerprint'> = { title: draft.title, workspace: 'chat', conversationId: draft.base.conversationId, aligned: !!issue,
+      steps: [{ id: '0:child', label: '来源图（不作为底图或参考图）', kind: 'chat-child', locked: true, enabled: true, issue, aligned: false, before: '', after: step.label }],
+      changes: [], ...(issue || !key ? {} : { chatChild: { source: step.source, key } }) };
+    return { ...plan, fingerprint: hash(canonical(plan)) };
+  }
   const workspace: "image" | "chat" = draft.steps[0]?.kind === "prompt_patch" && draft.steps[0].target.startsWith("chat.") ? "chat" : "image";
   const initial = structuredClone({ ...now.form, characters: now.form.characters ?? [], composer: now.composer }), working = structuredClone({ ...initial, ...draft.rollbackBase?.fields });
   let allocation = Math.max(now.nextCharacterId ?? 1, draft.base.nextCharacterId ?? 1, nextCharacterId(draft.base.form.characters ?? []), nextCharacterId(working.characters));
@@ -465,7 +483,7 @@ function validateBranch(draft: Draft, now: DraftState, options: ValidateOptions)
     skipTurnIds: [...new Set([...before.skipTurnIds, ...exclude.flatMap((id) => chatTurn(base, id)?.turnId ?? [])])],
     prompt: options.off.has("0:text") ? before.prompt : step.text };
   const steps: CheckedStep[] = [
-    { id: "0:source", label: `从 ${step.source} 准备新分支`, kind: "branch", locked: true, enabled: true, issue, aligned: false, before: "当前起点", after: step.source },
+    { id: "0:source", label: `将当前对话起点切换到 ${step.source}`, kind: "branch", locked: true, enabled: true, issue, aligned: false, before: "当前起点", after: step.source },
     { id: "0:exclude", label: "排除历史文字", kind: "branch", enabled: !options.off.has("0:exclude"), issue, aligned: false, before: "保留现有勾选", after: step.exclude.join("、") || "无额外排除" },
     { id: "0:text", label: "填入描述，等你发送", kind: "rewrite", enabled: !options.off.has("0:text"), issue, aligned: false, before: before.prompt, after: step.text },
   ];

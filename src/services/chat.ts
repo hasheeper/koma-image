@@ -12,6 +12,7 @@ import type { CatalogModel } from "../domain/catalog";
 import { normalizeOptions, resolveModel, selectCatalogSources } from "../domain/catalog";
 import { removedModel } from "../domain/models";
 import { buildChatPayload, chatModels } from "../domain/media.ts";
+import { chatRerunPlan, chatVersionModelName, chatVersionSettings } from "../domain/chat-options.ts";
 import * as conversation from "../domain/conversation.ts";
 import { object } from "../domain/value";
 import type { Quote } from "../domain/quote";
@@ -19,6 +20,7 @@ import type { SourceSelection } from "./source-priority.ts";
 import type { QuotaStatus } from "../domain/quota";
 import type {
   ConversationRecord,
+  ConversationSource,
   ConversationTurn,
   ConversationVersion,
   AssetRecord,
@@ -299,8 +301,8 @@ export function createChat(services: ApplicationServices, ui: Ui) {
     cancelQuote();
     held = true;
   }
-  async function prepare(c: ConversationRecord, turn?: ConversationTurn) {
-    const settings = structuredClone(turn?.settings || c.settings),
+  async function prepare(c: ConversationRecord, turn?: ConversationTurn, attempt?: Fields) {
+    const settings = structuredClone(attempt ?? turn?.settings ?? c.settings),
       model = resolveModel(models, String(settings.model || ""));
     if (!model) throw new Error("请选择可用模型");
     const snapshot = turn
@@ -426,7 +428,7 @@ export function createChat(services: ApplicationServices, ui: Ui) {
     switchConversation(c);
     save();
   }
-  async function execute(existing?: ConversationTurn) {
+  async function execute(existing?: ConversationTurn, rerun?: { versionId: string; modelId: string; options: Record<string, string> }) {
     if (
       !mutable() ||
       !ready ||
@@ -436,6 +438,17 @@ export function createChat(services: ApplicationServices, ui: Ui) {
     )
       return;
     const c = current,
+      sourceIndex = rerun ? existing?.versions.findIndex(item => item.id === rerun.versionId) : existing?.selectedVersion,
+      sourceVersion = sourceIndex === undefined ? undefined : existing?.versions[sourceIndex],
+      target = rerun ? models.find(item => item.id === rerun.modelId) : undefined;
+    if (existing && !c.turns.includes(existing)) return;
+    const plan = rerun && target && sourceVersion && existing ? chatRerunPlan(existing, sourceVersion, target, rerun.options) : undefined;
+    if (rerun && (!plan || plan.issue)) {
+      ui.toast(plan?.issue || '来源版本或模型已不可用', 'warn');
+      return;
+    }
+    const compareTo = rerun ? sourceIndex : sourceVersion?.compareTo,
+      comparison = compareTo !== undefined,
       shownCost = existing ? null : (quote?.cost ?? null),
       controller = new AbortController();
     busy = { cId: c.id, phase: "校验报价", startedAt: Date.now(), controller };
@@ -448,12 +461,12 @@ export function createChat(services: ApplicationServices, ui: Ui) {
       240_000,
     );
     try {
-      const p = await prepare(c, existing);
+      const p = await prepare(c, existing, plan?.settings ?? (existing ? chatVersionSettings(existing, sourceVersion) : undefined));
       const sourceAsset=p.snapshot.annotation?.sourceAssetId??p.snapshot.base;
-      const retryInput = existing?.versions[existing.selectedVersion]?.evolutionInput;
+      const retryInput = sourceVersion?.evolutionInput;
       const frozenBase = retryInput?.base !== undefined ? retryInput.base : sourceAsset ? inputImage(c, sourceAsset) : null;
       const frozenReferences = retryInput?.references ?? p.snapshot.refs.filter(id => id !== p.snapshot.annotation?.guideAssetId).map(id => inputImage(c, id));
-      const landed=evolution.begin(evolutionTarget('chat',c.id), frozenBase?.id ?? null, true, frozenReferences.map(ref => ref.id));
+      const landed=evolution.begin(evolutionTarget('chat',c.id), frozenBase?.id ?? null, !comparison, frozenReferences.map(ref => ref.id));
       const frozenMask=await evolutionMask(p.snapshot.annotation&&p.snapshot.annotation.snapshot.regions.length&&p.snapshot.annotation.snapshot.regions.every(r=>r.shape!=='point')?annotationMask(p.snapshot.annotation.snapshot):null);
       controller.signal.throwIfAborted();
       const result = await services.runTask(
@@ -466,7 +479,7 @@ export function createChat(services: ApplicationServices, ui: Ui) {
         async (task) => {
           if (existing) {
             turn = existing;
-            version = conversation.beginVersion(turn);
+            version = conversation.beginVersion(turn, !comparison);
           } else {
             ({ turn, version } = conversation.beginTurn(
               c,
@@ -476,7 +489,11 @@ export function createChat(services: ApplicationServices, ui: Ui) {
             ));
             c.prompt = "";
           }
-          version!.evolutionInput={...chatEvolutionInput(c,turn!,version!),base:frozenBase,references:frozenReferences,params:{model:p.model.id,...normalizeOptions(p.model,object(p.settings.options) as Record<string,string>)},mask:frozenMask,...(p.snapshot.annotation?{annotations:JSON.stringify(p.snapshot.annotation.snapshot.regions),params:{model:p.model.id,...normalizeOptions(p.model,object(p.settings.options) as Record<string,string>),...p.snapshot.annotation.snapshot.edges}}:{})};
+          version.settings = { model: p.model.id, modelName: p.model.name, options: { ...p.payload.image_options } };
+          if (comparison) version.compareTo = compareTo;
+          const params = { model: p.model.id, ...p.payload.image_options };
+          version.evolutionInput = { ...chatEvolutionInput(c, turn, version), base: frozenBase, references: frozenReferences, params, mask: frozenMask,
+            ...(p.snapshot.annotation ? { annotations: JSON.stringify(p.snapshot.annotation.snapshot.regions), params: { ...params, ...p.snapshot.annotation.snapshot.edges } } : {}) };
           const revision = c.selectionRevision;
           Object.assign(busy!, {
             version,
@@ -502,7 +519,7 @@ export function createChat(services: ApplicationServices, ui: Ui) {
               signal: controller.signal,
               onSource: source => {
                 p.model = source.model;
-                if (current === c) {
+                if (current === c && !comparison) {
                   applySource(source);
                   quote = source.quote;
                   emit();
@@ -530,9 +547,9 @@ export function createChat(services: ApplicationServices, ui: Ui) {
             version!,
             blocks,
             output.quote as Fields,
-            revision,
+            comparison ? null : revision,
           );
-          if (c.selectionRevision === revision && !turn!.snapshot.annotation && (c.baseFollows || !sourceAsset)) {
+          if (!comparison && c.selectionRevision === revision && !turn!.snapshot.annotation && (c.baseFollows || !sourceAsset)) {
             const image = blocks.find(b => b.type === 'image');
             if (image?.type === 'image') bindInput(c, image.assetId, chatImageId(c.id, turn!.id, version!.id, image.assetId));
           }
@@ -541,7 +558,7 @@ export function createChat(services: ApplicationServices, ui: Ui) {
           for(const block of blocks)if(block.type==='image')landed(chatImageId(c.id,turn!.id,version!.id,block.assetId));
           // Native CHAT decides which image becomes the next base (held base,
           // multi-image response and annotation review included).
-          if(c.mainId)evolution.move(evolutionTarget('chat',c.id),inputImage(c,c.mainId).id);
+          if(!comparison && c.mainId)evolution.move(evolutionTarget('chat',c.id),inputImage(c,c.mainId).id);
           save();
           emit();
         },
@@ -705,9 +722,10 @@ export function createChat(services: ApplicationServices, ui: Ui) {
       const version = turn?.versions.find(v => v.id === versionId), asset = assets.assets.get(assetId);
       if (!c || !turn || !version || version.status !== "done" || !asset || (!version.blocks.some(b => b.type === "image" && b.assetId === assetId) && !Object.values(version.composites??{}).includes(assetId)))
         throw new Error("这张对话图片已不可用");
-      const params: Fields = { ...chatImageOrigin(c, turn, version, assetId), tool: "chat", model: String(turn.settings.model ?? ""),
-        modelName: models.find(m => m.id === turn.settings.model)?.name ?? String(turn.settings.model ?? ""),
-        evolutionInput:JSON.parse(JSON.stringify(chatEvolutionInput(c,turn,version,assetId,asset))), prompt: turn.prompt, chat_options: structuredClone(object(turn.settings.options)) as Fields, width: asset.width, height: asset.height };
+      const settings = chatVersionSettings(turn, version);
+      const params: Fields = { ...chatImageOrigin(c, turn, version, assetId), tool: "chat", model: String(settings.model ?? ""),
+        modelName: chatVersionModelName(turn, version, models),
+        evolutionInput:JSON.parse(JSON.stringify(chatEvolutionInput(c,turn,version,assetId,asset))), prompt: turn.prompt, chat_options: structuredClone(object(settings.options)) as Fields, width: asset.width, height: asset.height };
       const record = { entity_key: `sha256:${asset.id}`, lineage: { via: "chat" as const }, id: chatImageId(c.id, turn.id, version.id, asset.id), createdAt: version.completedAt ?? Date.now(), blob: asset.blob,
         size: { width: asset.width, height: asset.height }, params, quote: version.quote ? structuredClone(version.quote) : null };
       const thumbBlob = await makeThumb(asset.blob);
@@ -791,6 +809,15 @@ export function createChat(services: ApplicationServices, ui: Ui) {
     setPrompt(text: string) {
       if (!mutable()) return;
       current.prompt = text;
+      changed();
+    },
+    editHistoricalText(conversationId: string, turnId: string, text: string) {
+      const turn = current.id === conversationId && current.turns.find((item) => item.id === turnId);
+      const value = text.trim();
+      if (!mutable() || !turn) throw new Error("对话已变化，上下文未保存");
+      if (!value || value.length > 24000) throw new Error("请输入 1–24000 字的上下文");
+      if (value === conversation.historicalText({ ...turn, contextText: undefined }).trim()) delete turn.contextText;
+      else turn.contextText = value;
       changed();
     },
     /** Plain composer drafts only; branch/context operations belong to ASK A3. */
@@ -1016,6 +1043,31 @@ export function createChat(services: ApplicationServices, ui: Ui) {
       if(track&&ids[0])evolution.handoff(evolutionTarget('chat',target.id),inputImage(target,ids[0]).id);
       return applied;
     },
+    async writeImageChildDraft(source: ConversationSource & { kind: 'image' }, expected: string) {
+      const parent = current;
+      if (!mutable() || parent.id !== source.conversationId || conversation.chatDraftKey(parent) !== expected)
+        throw new Error('会话或上下文已变化，请重新提议');
+      if (source.kind !== 'image' || !assets.assets.has(source.assetId)) throw new Error('这张对话图片已不可用');
+      const target = conversation.openResultConversation(parent, source);
+      const receipt = conversation.chatDraftKey(target), previousError = error;
+      hold();
+      conversations.push(target);
+      error = '';
+      show(target);
+      emit();
+      try {
+        await flush();
+      } catch (cause) {
+        conversations = conversations.filter(item => item !== target);
+        if (current === target) { error = previousError; show(parent); }
+        collect();
+        save();
+        emit();
+        throw cause;
+      }
+      handoffs.set(receipt, { before: null, source: parent.id, inputs: new Map() });
+      return receipt;
+    },
     /** Restore the prior context or remove a newly created conversation, only while unchanged. */
     async undoHandoffDraft(receipt: string, track = true) {
       const id = String(JSON.parse(receipt)[0]),
@@ -1136,6 +1188,17 @@ export function createChat(services: ApplicationServices, ui: Ui) {
       conversations.push(copy);
       switchConversation(copy);
       save();
+    },
+    openResultConversation(source: ConversationSource) {
+      if (!mutable() || current.id !== source.conversationId || !assets.assets.has(source.assetId))
+        throw new Error("这张对话图片已不可用");
+      const target = conversation.openResultConversation(current, source);
+      conversations.push(target);
+      hold();
+      error = "";
+      show(target);
+      save();
+      emit();
     },
     async remove(c: ConversationRecord) {
       if (!mutable()) return;

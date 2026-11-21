@@ -32,7 +32,7 @@ export const draftSchema = {
             cell: { type: "string", description: "V4.5 位置 A1–E5" }, x: { type: "number", minimum: 0, maximum: 1 }, y: { type: "number", minimum: 0, maximum: 1 }, placement: { type: "string", enum: ["auto", "manual"] },
           } },
           { type: "object", additionalProperties: false, required: ["kind", "source", "exclude", "text"], properties: {
-            kind: { type: "string", enum: ["chat_distill_branch"] }, source: { type: "string", description: "仅在 CHAT 提问时可用。本轮已读取的已完成图片 ID，可为版本演进读到的旧分支或未选中版本，如 #c2.1、#c2.1b 或带会话号的 #c1:2.1。应用时切换到该具体版本，不发送。" },
+            kind: { type: "string", enum: ["chat_distill_branch"] }, source: { type: "string", description: "仅在 CHAT 提问时可用。本轮已读取的已完成图片 ID，可为版本演进读到的旧分支或未选中版本，如 #c2.1、#c2.1b 或带会话号的 #c1:2.1。仅切换当前会话到该具体版本，不新建、不发送。" },
             exclude: { type: "array", items: { type: "string" }, description: "从 get_chat_context 读取的当前分支轮次 ID；仅排除其文字" }, text: { type: "string", maxLength: 24000 },
           } },
           { type: "object", additionalProperties: false, required: ["kind", "images", "options", "text"], properties: {
@@ -47,7 +47,12 @@ export const draftSchema = {
 
 /** Internal ASK only. Bridge and manual JSON retain draftSchema above. */
 export const internalDraftSchema = { ...draftSchema, properties: { ...draftSchema.properties,
-  steps: { ...draftSchema.properties.steps, items: { anyOf: [editReferencesStepSchema, ...draftSchema.properties.steps.items.anyOf.map(step => {
+  steps: { ...draftSchema.properties.steps, items: { anyOf: [editReferencesStepSchema, {
+    type: 'object', additionalProperties: false, required: ['kind', 'source'], properties: {
+      kind: { type: 'string', enum: ['chat_open_child'] },
+      source: { type: 'string', maxLength: 64, description: '仅在 CHAT 提问且为唯一草稿步骤。使用当前对话的已完成结果图编号，只新建一个图片子区；不带入消息、底图或参考图。' },
+    },
+  }, ...draftSchema.properties.steps.items.anyOf.map(step => {
     if ('image' in step.properties && step.properties.kind.enum.includes('edit_handoff')) return { ...step, properties: { ...step.properties, references: editReferencesSchema, image: { type: 'string', maxLength: 1024, description: '工作区 #h/#f/#c/#e、普通图片附件 #aN 或企划根相对图片路径；使用原图作为 EDIT 底图' } } };
     if ('images' in step.properties && step.properties.kind.enum.includes('chat_handoff')) return { ...step, properties: { ...step.properties,
       destination: { type: 'string', enum: ['new', 'current'], description: '默认 new 新开对话；仅在 CHAT 提问时可用 current 更新当前对话的本轮图片组合与输入框。images 是完整组合，要保留的当前图片也需列出；不改历史轮次，不发送。' },

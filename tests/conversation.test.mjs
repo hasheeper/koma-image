@@ -1,6 +1,8 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import * as c from "../src/domain/conversation.ts";
+import { chatRerunPlan, chatVersionModelName, chatVersionSettings } from "../src/domain/chat-options.ts";
+import { validateConversation } from "../src/storage/backup-schema.ts";
 import {
   buildChatPayload,
   buildEditorPayload,
@@ -21,6 +23,38 @@ const model = {
   maxPixels: 1048576,
   sourceMaxPixels: 32000000,
 };
+
+test('CHAT cross-model versions use one frozen input and leave the live head, base and selection alone', () => {
+  const conversation = c.newConversation({ model: 'model-a', options: { size: '1536x1024', image_size: '2K' } });
+  conversation.mainId = 'base'; conversation.keepIds = ['ref'];
+  const { turn, version } = c.beginTurn(conversation, c.contextSnapshot(conversation, 'original'), 'original', conversation.settings);
+  c.completeVersion(conversation, turn, version, [{ type: 'image', assetId: 'output-a' }], null, conversation.selectionRevision);
+  const next = c.beginTurn(conversation, c.contextSnapshot(conversation, 'next'), 'next', conversation.settings);
+  c.completeVersion(conversation, next.turn, next.version, [{ type: 'image', assetId: 'latest' }], null, conversation.selectionRevision);
+  const target = { ...model, name: 'Model B', chat: true, fields: { image_size: { options: ['1K'], default: '1K' } } };
+  assert.deepEqual(turn.snapshot.imageIds, ['base', 'ref']);
+  assert.match(chatRerunPlan(turn, version, { ...target, maxImages: 1 }).issue, /原请求含 2 张图/);
+  const same = { ...target, id: 'model-a', fields: model.fields };
+  const samePlan = chatRerunPlan(turn, version, same, { image_size: '1K', unsupported: 'ignored' });
+  assert.equal(samePlan.issue, ''); assert.deepEqual(samePlan.settings.options, { image_size: '1K' });
+  assert.deepEqual(chatRerunPlan(turn, version, same, { image_size: 'invalid' }).settings.options, { image_size: '1K' });
+  const annotated = { ...turn, snapshot: { ...turn.snapshot, annotation: { markup: {} } } };
+  assert.match(chatRerunPlan(annotated, version, target).issue, /原生标注/);
+  const plan = chatRerunPlan(turn, version, target);
+  assert.equal(plan.issue, ''); assert.deepEqual(plan.settings.options, { image_size: '1K' });
+  const alternate = c.beginVersion(turn, false);
+  alternate.settings = plan.settings; alternate.compareTo = 0;
+  c.completeVersion(conversation, turn, alternate, [{ type: 'image', assetId: 'output-b' }], null, null);
+  assert.equal(turn.selectedVersion, 0); assert.equal(conversation.headId, next.turn.id); assert.equal(conversation.mainId, 'latest');
+  assert.equal(chatVersionSettings(turn, version).model, 'model-a');
+  assert.equal(chatVersionModelName(turn, alternate, []), 'Model B');
+  assert.deepEqual(validateConversation(JSON.parse(JSON.stringify(conversation))).turns[0].versions[1].settings, plan.settings);
+  const fork = c.openResultConversation(conversation, { kind: 'fork', conversationId: conversation.id, turnId: turn.id, versionId: alternate.id, assetId: 'output-b' });
+  assert.equal(fork.settings.model, target.id); assert.equal(fork.turns[0].versions[0].compareTo, undefined);
+  assert.equal(alternate.compareTo, 0); assert.doesNotThrow(() => validateConversation(fork));
+  alternate.compareTo = 1;
+  assert.throws(() => validateConversation(conversation), /备份内容/);
+});
 test('editor: arbitrary upstream image-edit models use their input limits, independently of NAI output sizes', () => {
   const custom = { ...model, id: 'supplier/custom-editor', chat: true };
   const unsupported = { ...custom, id: 'text-only', tools: [] };
@@ -51,6 +85,35 @@ function done(con, prompt, id) {
   );
   return turn;
 }
+test("chat: image sub-conversations keep a source, while forks copy only the selected history", () => {
+  const parent = c.newConversation({ model: model.id });
+  const first = done(parent, "original", "first-image");
+  const second = done(parent, "anchor", "second-image");
+  const selected = second.versions[0];
+  selected.blocks.push({ type: "image", assetId: "other-image" });
+  const alternative = c.beginVersion(second);
+  c.completeVersion(parent, second, alternative, [{ type: "image", assetId: "alternative" }], null, parent.selectionRevision);
+  const later = done(parent, "later", "later-image");
+  first.contextText = "edited context";
+  const before = structuredClone(parent);
+  const origin = { conversationId: parent.id, turnId: second.id, versionId: selected.id, assetId: "other-image" };
+  const child = c.openResultConversation(parent, { ...origin, kind: "image" });
+  assert.equal(c.isBlank(child), false);
+  assert.deepEqual(c.contextSnapshot(child, "fresh").imageIds, []);
+  assert.equal(c.contextSnapshot(child, "fresh").text, "fresh");
+  assert.deepEqual([...c.assetRefs([child])], ["other-image"]);
+  const fork = c.openResultConversation(parent, { ...origin, kind: "fork" });
+  assert.deepEqual(fork.turns.map(turn => turn.prompt), ["original", "anchor"]);
+  assert.notEqual(fork.turns[0].id, first.id);
+  assert.equal(fork.turns[1].parentId, fork.turns[0].id);
+  assert.equal(fork.turns[1].versions.length, 1);
+  assert.deepEqual(fork.turns[1].versions[0].blocks, selected.blocks);
+  assert.equal(fork.mainId, "other-image");
+  assert.match(c.contextSnapshot(fork, "continue").text, /edited context/);
+  assert.equal(fork.turns[1].snapshot.text, second.snapshot.text);
+  assert.throws(() => c.openResultConversation(parent, { ...origin, kind: "fork", assetId: later.versions[0].blocks[0].assetId }));
+  assert.deepEqual(parent, before);
+});
 test("chat: context cap, upload consumption on failure, held base, branches and selection revision preserve exact source semantics", () => {
   const con = c.newConversation({ model: model.id });
   c.attachUpload(con, "upload-a");

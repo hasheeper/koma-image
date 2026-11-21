@@ -37,7 +37,7 @@ export function createDraftStack(writer: ReturnType<typeof createDraftWriter>) {
   let sequence = 0, undoStack: DraftRecord[] = [], redo: DraftRecord | null = null;
   const retain = () => {
     const records = [...undoStack, ...(redo ? [redo] : [])];
-    writer.retain?.(records.flatMap(r => r.plan ? [r.plan] : []), records.flatMap(r => r.plan?.handoff && r.status === 'applied' && r.receipt ? [r.receipt] : []));
+    writer.retain?.(records.flatMap(r => r.plan ? [r.plan] : []), records.flatMap(r => (r.plan?.handoff || r.plan?.chatChild) && r.status === 'applied' && r.receipt ? [r.receipt] : []));
   };
   function push(record: DraftRecord) {
     undoStack.push(record);

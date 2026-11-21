@@ -1,10 +1,12 @@
 <script setup lang="ts">
 import AppIcon from "../../shared/AppIcon.vue";
-defineProps<{ url: string; filename: string; favorite?: boolean; favoriteBusy?: boolean }>();
+defineProps<{ url: string; filename: string; favorite?: boolean; favoriteBusy?: boolean; canRerun?: boolean; rerunId?: string; rerunOpen?: boolean }>();
 const emit = defineEmits<{
   edit: [];
-  retry: [];
+  rerun: [event: MouseEvent];
   favorite: [];
+  newChat: [];
+  fork: [];
 }>();
 </script>
 <template>
@@ -19,12 +21,23 @@ const emit = defineEmits<{
         @click="emit('edit')"
       ><AppIcon name="i-edit" /></button>
       <button
+        v-if="rerunId"
         class="ibtn"
         type="button"
-        aria-label="重新生成此版本"
+        aria-label="重新生成"
         data-tip="重新生成"
-        @click="emit('retry')"
+        aria-haspopup="dialog"
+        :aria-expanded="!!rerunOpen"
+        :aria-controls="rerunOpen ? rerunId : undefined"
+        :disabled="!canRerun"
+        @click="emit('rerun', $event)"
       ><AppIcon name="i-retry" /></button>
+      <button class="ibtn" type="button" aria-label="基于此图新开对话" data-tip="基于此图新开对话" @click="emit('newChat')">
+        <AppIcon name="i-chat" />
+      </button>
+      <button class="ibtn" type="button" aria-label="从此处分支" data-tip="从此处分支" @click="emit('fork')">
+        <AppIcon name="i-branch" />
+      </button>
     </div>
     <span class="chat-result-tool-sep" aria-hidden="true"></span>
     <div class="chat-result-tool-group">
@@ -53,7 +66,8 @@ const emit = defineEmits<{
 .chat-result-tool-group { display: flex; align-items: center; gap: 2px; }
 .chat-result-tool-sep { flex: none; width: 1px; height: 14px; margin-inline: 4px; background: color-mix(in srgb, var(--fg) 18%, transparent); }
 .chat-result-tools :deep(.ibtn) { width: var(--chat-result-tool-size); height: var(--chat-result-tool-size); border-radius: var(--r1); }
-.chat-result-tools :deep(.ask-mark) { width: var(--chat-result-mark-size, 20px); height: var(--chat-result-mark-size, 20px); }
+.chat-result-tools :deep(.ask-mark) { width: var(--ico); height: var(--ico); }
+.chat-result-tools .ibtn[aria-expanded="true"] { color: var(--a); background: var(--ghost-hover); }
 .chat-result-tools .ibtn[aria-pressed="false"] { color: var(--fg-3); }
 .chat-result-tools .ibtn:hover { color: var(--fg); }
 .chat-result-tools .ibtn.is-on { color: var(--a); }

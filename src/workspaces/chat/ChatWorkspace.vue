@@ -3,7 +3,7 @@ import WorkspaceEvolutionEntry from "../../ask/retrospect/WorkspaceEvolutionEntr
 import BoardRetrospectEntry from "../../ask/retrospect/BoardRetrospectEntry.vue";
 import { useRetrospects } from "../../ask/retrospect/use-retrospects";
 import AnnotationCard from "../../shared/annotations/AnnotationCard.vue";
-import ModelParameterInput from "../../shared/ModelParameterInput.vue";
+import ChatParameterRows from "./ChatParameterRows.vue";
 import { computed, shallowRef, ref, watch, nextTick, onDeactivated, onBeforeUnmount } from "vue";
 import { useShell } from "../../app/shell";
 import { useAskPresentation } from "../../ask/presentation";
@@ -22,7 +22,7 @@ import { useServices } from "../../app/services";
 import { useUi, message } from "../../app/ui";
 import { useWorkspaceLifecycle } from "../../app/workspace-lifecycle";
 import { chatOptions } from "../../services/chat";
-import { chatOptionLabel, chatOptionNames } from "../../domain/chat-options";
+import { chatOptionLabel } from "../../domain/chat-options";
 import { names } from "../../storage/names";
 import { quoteLabel } from "../../domain/quote";
 import WorkspaceSwitch from "../../shared/WorkspaceSwitch.vue";
@@ -158,6 +158,10 @@ function newConversation() {
   shell.chat.sidebarOpen = false;
   prompt.value?.focus();
 }
+const sourceConversation = computed(() => {
+  const source = view.value.current.source;
+  return source ? view.value.conversations.find((record) => record.id === source.conversationId) : undefined;
+});
 async function startSearch() {
   if (shell.chat.railCollapsed && !coCreate.value) rail();
   searching.value = true;
@@ -235,8 +239,9 @@ function place(pop: HTMLElement | null, button: HTMLElement) {
   pop.style.maxHeight = `${Math.max(above, below)}px`;
   const up = pop.offsetHeight <= above || above >= below;
   pop.style.maxHeight = `${up ? above : below}px`;
-  const height = pop.getBoundingClientRect().height;
-  pop.style.right = `${Math.round(Math.max(8, document.documentElement.clientWidth - box.right))}px`;
+  const { width, height } = pop.getBoundingClientRect();
+  const left = Math.max(8, Math.min(box.right - width, document.documentElement.clientWidth - width - 8));
+  pop.style.left = `${Math.round(left)}px`;
   pop.style.top = `${Math.round(Math.max(top + 8, Math.min(bottom - height - 8, up ? box.top - 4 - height : box.bottom + 4)))}px`;
   pop.dataset.placement = up ? "top" : "bottom";
 }
@@ -495,7 +500,7 @@ onDeactivated(() => {
             class="sidebar-row"
             type="button"
             aria-label="新对话"
-            :aria-current="c.turns.length ? undefined : 'page'"
+            :aria-current="c.turns.length || c.source ? undefined : 'page'"
             @click="newConversation"
           >
             <AppIcon name="i-compose" /><span>新对话</span>
@@ -531,13 +536,13 @@ onDeactivated(() => {
       <main
         class="chat-workspace"
         :inert="(coCreate && shell.chat.sidebarOpen) || stageCovered"
-        :data-empty="!c.turns.length"
+        :data-empty="!c.turns.length && !c.source"
         :data-receded="stageCovered || undefined"
       >
         <header v-show="coCreate" class="chat-canvas-head canvas-recede-hide">
           <div ref="navFloat" class="chat-canvas-nav"></div>
           <button ref="menu" class="chat-canvas-conversation" type="button" aria-label="打开会话列表" aria-controls="chatSidebar" :aria-expanded="shell.chat.sidebarOpen" @click="shell.chat.sidebarOpen = !shell.chat.sidebarOpen">
-            <AppIcon name="i-sidebar" /><span>{{ c.turns.length ? c.title : "新对话" }}</span>
+            <AppIcon name="i-sidebar" /><span>{{ c.turns.length || c.source ? c.title : "新对话" }}</span>
           </button>
           <div class="chat-canvas-evolution"><BoardRetrospectEntry v-if="coCreate" /></div>
           <PopoverMenu id="chatCanvasOptions" label="对话画布选项" side="right" compact menu-class="canvas-options-menu" pointer-focus="menu">
@@ -558,7 +563,7 @@ onDeactivated(() => {
           aria-label="绘图消息"
           @scroll="latest = !near()"
         >
-          <div class="chat-empty" :hidden="!!c.turns.length">
+          <div class="chat-empty" :hidden="!!c.turns.length || !!c.source">
             <h1 class="chat-lock" aria-label="Koma Chat">
               <WaveMark class="chat-mark" surface="chat" /><span
                 class="chat-word"
@@ -568,6 +573,16 @@ onDeactivated(() => {
             </h1>
           </div>
           <div class="message-list" id="messageList">
+            <div v-if="c.source?.kind === 'image'" class="chat-image-origin" aria-label="图片子对话来源">
+              <button v-if="chat.assets.assets.has(c.source.assetId)" class="chat-image-origin-preview" type="button" aria-label="查看来源图" @click="show(c.source.assetId)">
+                <ChatImage :asset-id="c.source.assetId" alt="" width="56" height="56" />
+              </button>
+              <div class="chat-image-origin-copy">
+                <strong>图片子对话</strong>
+                <span>来源图不会自动用于生成</span>
+              </div>
+              <button v-if="sourceConversation" class="btn btn-sm btn-quiet" type="button" @click="chat.switchConversation(sourceConversation)">返回来源对话</button>
+            </div>
             <ChatTurn
               v-for="(t, i) in c.turns"
               :key="t.id"
@@ -750,7 +765,7 @@ onDeactivated(() => {
           }}</span>
         </form>
         <div
-          v-if="!c.turns.length"
+          v-if="!c.turns.length && !c.source"
           class="chat-starters"
           :class="{ 'canvas-recede-hide': coCreate }"
           role="group"
@@ -868,31 +883,7 @@ onDeactivated(() => {
       aria-label="参数"
       @toggle="panelToggled('param', $event as ToggleEvent)"
     >
-      <div class="param-rows">
-        <div
-          v-for="(field, key) in view.model?.fields"
-          :key="key"
-          class="param-row"
-          :role="field.options.length && !field.allowCustom && field.type !== 'number' ? 'radiogroup' : undefined"
-          :aria-label="chatOptionNames[key] || key"
-        >
-          <label class="param-name" :for="`chatOption-${key}`">{{ field.label || chatOptionNames[key] || key }}</label>
-          <div v-if="field.options.length && !field.allowCustom && field.type !== 'number'" class="param-chips">
-            <label
-              v-for="value in field.options"
-              :key="value"
-              class="param-chip"
-              ><input
-                type="radio"
-                :name="`chatOption-${key}`"
-                :checked="options[key] === value"
-                @change="chat.setOption(key, value)"
-              /><span>{{ field.type === 'boolean' ? value === 'true' ? '开启' : '关闭' : chatOptionLabel(value, key) }}</span></label
-            >
-          </div>
-          <ModelParameterInput v-else :id="`chatOption-${key}`" :field="field" :value="options[key]" :format="value => chatOptionLabel(value, key)" :disabled="!!view.busy" @change="chat.setOption(key, $event)" />
-        </div>
-      </div>
+      <ChatParameterRows :key="view.model?.id" id-prefix="chatOption" :fields="view.model?.fields" :options="options" :disabled="!!view.busy" @change="chat.setOption" />
     </div></Teleport
   >
 </template>

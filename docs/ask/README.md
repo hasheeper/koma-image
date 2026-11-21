@@ -49,7 +49,7 @@ ASK 感知工作台、按需查图查词并给出诊断；画板、任务和文�
 | `search_history` | 本轮历史、收藏、EDIT 版本与当前 CHAT 分支图片检索 |
 | `view_image` | glance／look／crop 按需看图 |
 | `view_sheet` | 2–6 图带 ID 拼图，用于预览与对比 |
-| `get_chat_context` | 冻结的当前 CHAT 分支、实际发送上下文与当前模型能力 |
+| `get_chat_context` | 冻结的当前 CHAT 会话类型、图片子区来源图、实际发送上下文与模型能力 |
 | `search_tags` | 共享在线词典的只读批量核验 |
 | `get_model_manual` | 四份按需手册：NAI 写法、漫画、服装与照图反推，见[手册索引](prompts.md#按需手册索引) |
 | `propose_draft` | 自动校验 NAI 候选后提议唯一待确认草稿；硬性错误可修正重提，不直接写入 |

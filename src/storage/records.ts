@@ -30,7 +30,10 @@ export interface ChatAnnotation {
   /** Present only for a native-markup turn; both assets are frozen and included in backups. */
   markup?: { inputAssetId: string; overlayAssetId: string };
 }
+export type ChatVersionSettings = { model: string; modelName: string; options: Record<string, string> };
 export interface ConversationVersion {
+  settings?: ChatVersionSettings;
+  compareTo?: number;
   evolutionInput?: import('../domain/evolution-input.ts').EvolutionInput;
   composites?: Record<string, string>;
   compositeSettings?: Record<string,{colorMatch:boolean;method:'local'|'photopea';boundaryColorVersion:1}>;
@@ -46,6 +49,7 @@ export interface ConversationTurn {
   id: string;
   parentId: string | null;
   prompt: string;
+  contextText?: string;
   settings: Fields;
   snapshot: {
     annotation?: ChatAnnotation;
@@ -60,8 +64,16 @@ export interface ConversationTurn {
   selectedVersion: number;
   versions: ConversationVersion[];
 }
+export interface ConversationSource {
+  kind: "image" | "fork";
+  conversationId: string;
+  turnId: string;
+  versionId: string;
+  assetId: string;
+}
 export interface ConversationRecord {
   pendingAnnotation?: ChatAnnotation;
+  source?: ConversationSource;
   id: string;
   title: string;
   prompt: string;
@@ -101,6 +113,7 @@ export function assetRefs(conversations: ConversationRecord[]): Set<string> {
   const annotation = (a?: ChatAnnotation) => { if(a) for(const id of [a.sourceAssetId,a.inputAssetId,a.guideAssetId,...a.referenceAssets?.map(r=>r.assetId)??[], ...(a.markup ? [a.markup.inputAssetId,a.markup.overlayAssetId] : [])]) refs.add(id); };
   for (const c of conversations) {
     annotation(c.pendingAnnotation);
+    if (c.source) refs.add(c.source.assetId);
     for (const id of [c.mainId, ...c.attachments, ...c.keepIds])
       if (id) refs.add(id);
     for (const t of c.turns) {

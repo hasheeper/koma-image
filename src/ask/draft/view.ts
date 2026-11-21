@@ -3,7 +3,7 @@ import { canonical } from "../canonical.ts";
 import type { SlateChange } from "../../slate/model.ts";
 
 /** Display-only model for the draft card; validation and writing never read it. */
-export type FieldKey = "evolution" | "slate" | "handoff" | "branch" | "prompt" | "negative" | "composer" | "params" | "characters" | `character:${string}`;
+export type FieldKey = "evolution" | "slate" | "handoff" | "chat-child" | "branch" | "prompt" | "negative" | "composer" | "params" | "characters" | `character:${string}`;
 export interface Piece { readonly op: "keep" | "del" | "ins"; readonly text: string }
 export interface Line { readonly sign: "del" | "ins"; readonly text: string }
 export type StepView =
@@ -28,14 +28,15 @@ const fields: Record<Exclude<FieldKey, `character:${string}`>, { label: string; 
   evolution: { label: "回退基底", icon: "i-branch" },
   slate: { label: "任务", icon: "i-tasks" },
   handoff: { label: "新对话", icon: "i-chat" },
-  branch: { label: "对话分支", icon: "i-branch" },
+  'chat-child': { label: '图片子区', icon: 'i-image' },
+  branch: { label: "当前对话起点", icon: "i-branch" },
   prompt: { label: "Prompt", icon: "i-brush" },
   negative: { label: "Negative", icon: "i-ban" },
   composer: { label: "对话输入框", icon: "i-chat" },
   characters: { label: "角色组", icon: "i-model" },
   params: { label: "参数", icon: "i-parameters" },
 };
-const order: readonly FieldKey[] = ["slate", "handoff", "branch", "evolution", "prompt", "negative", "composer", "characters", "params"];
+const order: readonly FieldKey[] = ["slate", "handoff", "chat-child", "branch", "evolution", "prompt", "negative", "composer", "characters", "params"];
 const paramIcons: Record<string, string> = { Seed: "i-dice", 模型: "i-model", 宽: "i-frame", 高: "i-frame" };
 
 export const tagsOf = (text: string) => text.split(/[,\n，]/).map((s) => s.trim()).filter(Boolean);
@@ -85,7 +86,7 @@ export function hunksOf(pieces: readonly Piece[]): Line[][] {
 }
 
 const fieldOf = (step: CheckedStep): FieldKey =>
-  step.id === "evolution-base" ? "evolution" : step.kind === "slate" ? "slate" : step.characterId ? `character:${step.characterId}` : step.kind === "handoff" || step.id.startsWith("0:option:") ? "handoff" : step.label.startsWith("角色组") ? "characters" : step.kind === "parameter" ? "params" : step.kind === "branch" ? "branch"
+  step.id === "evolution-base" ? "evolution" : step.kind === "chat-child" ? "chat-child" : step.kind === "slate" ? "slate" : step.characterId ? `character:${step.characterId}` : step.kind === "handoff" || step.id.startsWith("0:option:") ? "handoff" : step.label.startsWith("角色组") ? "characters" : step.kind === "parameter" ? "params" : step.kind === "branch" ? "branch"
     : step.label.startsWith("Prompt") ? "prompt" : step.label.startsWith("Negative") ? "negative" : "composer";
 
 function slateView(step: CheckedStep, change?: SlateChange): Extract<StepView, { kind: "slate" }> {
@@ -113,7 +114,7 @@ function stepView(step: CheckedStep, handoff: boolean, slate?: SlateChange): Ste
     return { kind: "param", step, name, source, icon: step.id.startsWith("0:option:") ? "i-frame" : paramIcons[name] ?? "i-parameters",
       before: step.displayBefore ?? (step.before || (name === "Seed" ? "随机" : "—")), after: step.displayAfter ?? (step.after || (name === "Seed" ? "随机" : "—")), added: changed, removed: changed };
   }
-  if (step.kind === "handoff") return { kind: "ref", step, label: step.after, added: 0, removed: 0 };
+  if (step.kind === "handoff" || step.kind === "chat-child") return { kind: "ref", step, label: step.after, added: 0, removed: 0 };
   // A new conversation has no text to compare; show its input verbatim.
   if (handoff && step.kind === "rewrite")
     return { kind: "text", step, hunks: step.after ? [[{ sign: "ins", text: step.after }]] : [], added: tagsOf(step.after).length, removed: 0 };

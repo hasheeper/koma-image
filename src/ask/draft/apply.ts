@@ -53,11 +53,13 @@ export function createDraftWriter(drawing: Drawing, chat: Chat, router: AppRoute
       if(!plan.editRollback&&side==='before'&&plan.edit.sourceKey!==undefined&&plan.edit.sourceKey!==editSourceKey(state,plan.edit.after))return '编辑来源或参数声明已变化，请重新提议';
       return side==='before'?checkEditConfiguration(plan.editRollback?{...state,...plan.editRollback.after,models:state.models}:state,plan.edit.after):'';
     }
-    // Current-context drafts freeze the conversation; new handoffs own their target.
-    if (plan.handoff) {
+    // Current-context drafts freeze the conversation; creating drafts own their target.
+    if (plan.handoff || plan.chatChild) {
       if (side === "before") {
-        const target = plan.handoff.current;
-        return !target ? '' : current.id !== target.id ? '当前对话已切换' : chatDraftKey(current) !== (receipt ?? target.key) ? '会话或上下文已变化，请重新提议' : '';
+        const target = plan.chatChild ? { id: plan.chatChild.source.conversationId, key: plan.chatChild.key } : plan.handoff?.current;
+        if (!target) return '';
+        const expected = plan.chatChild ? target.key : receipt ?? target.key;
+        return current.id !== target.id ? '当前对话已切换' : chatDraftKey(current) !== expected ? '会话或上下文已变化，请重新提议' : '';
       }
       const target = find(handoffTarget(receipt));
       return !target ? "新对话已删除" : chatDraftKey(target) !== receipt ? "新对话已继续编辑" : "";
@@ -126,7 +128,7 @@ export function createDraftWriter(drawing: Drawing, chat: Chat, router: AppRoute
     if (plan.treeChange && !plan.changes.length) return null;
     const reason = evolutionChange(plan) || plan.treeChange || plan.handoff || plan.editHandoff ? boardConflict(plan, undo ? "after" : "before", receipt) : conflict(plan, undo ? "after" : "before", receipt);
     if (reason) throw new Error(reason);
-    if (!plan.edit && !plan.changes.length && !plan.branch && !plan.handoff && !plan.slate && !plan.files?.length && !plan.rollbackBase && !plan.stagedLoad && !plan.createdBoard) throw new Error("草稿没有可写入内容");
+    if (!plan.edit && !plan.changes.length && !plan.branch && !plan.handoff && !plan.chatChild && !plan.slate && !plan.files?.length && !plan.rollbackBase && !plan.stagedLoad && !plan.createdBoard) throw new Error("草稿没有可写入内容");
     if (router.route.value.overlay) throw new Error("请先关闭当前面板");
     if(plan.edit) {
       const e=plan.edit,before=undo?e.after:e.before,after=undo?e.before:e.after;
@@ -162,11 +164,12 @@ export function createDraftWriter(drawing: Drawing, chat: Chat, router: AppRoute
       if (board) router.switchWorkspace("image");
       return null;
     }
-    if (!plan.edit && !plan.changes.length && !plan.branch && !plan.handoff && !plan.rollbackBase && !plan.stagedLoad && !plan.createdBoard) return null;
+    if (!plan.edit && !plan.changes.length && !plan.branch && !plan.handoff && !plan.chatChild && !plan.rollbackBase && !plan.stagedLoad && !plan.createdBoard) return null;
     const images = plan.handoff && !undo ? resolveHandoffImages(plan) : [];
     router.switchWorkspace(plan.workspace);
     if (router.route.value.workspace !== plan.workspace) throw new Error("未能切换到目标工作区");
     if (plan.handoff) return undo ? chat.undoHandoffDraft(receipt!, false) : chat.writeHandoffDraft({ ...plan.handoff, ...(plan.handoff.current ? { current: { ...plan.handoff.current, key: receipt ?? plan.handoff.current.key } } : {}), images }, false);
+    if (plan.chatChild) return undo ? chat.undoHandoffDraft(receipt!, false) : chat.writeImageChildDraft(plan.chatChild.source, plan.chatChild.key);
     if (plan.branch) return chat.writeBranchDraft(undo ? plan.branch.before : plan.branch.after, receipt ?? plan.branch.key, !evolutionChange(plan));
     if (plan.createdBoard && plan.boardId) {
       if (undo) await drawing.removeBoardDraft(plan.createdBoard.id, plan.createdBoard, plan.boardId);
@@ -284,7 +287,7 @@ export function createDraftWriter(drawing: Drawing, chat: Chat, router: AppRoute
           const reason = conflictAt(plan, "after", receipt, form, current, boards, (id) => conversations.get(id));
           if (reason) throw new Error(reason);
           if (plan.slate) { if (plan.slate.before) tasks.set(plan.slate.id, structuredClone(plan.slate.before)); else tasks.delete(plan.slate.id); }
-          if (plan.handoff) {
+          if (plan.handoff || plan.chatChild) {
             const id = handoffTarget(receipt), target = conversations.get(id)!, origin = chat.handoffOrigin(originalReceipt!);
             if (!origin) throw new Error("交接撤销记录已释放");
             if (origin?.before) Object.assign(target, origin.before, { selectionRevision: target.selectionRevision + 1 });

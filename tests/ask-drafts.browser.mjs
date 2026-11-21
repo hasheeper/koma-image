@@ -1,7 +1,7 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 
-import { useAskFixture, submitAsk, hosts, open, openai, text, tool, end, askSettings, generation, bind, addImage, drawer, openDraft, openApplyMenu, route, patchStep, proposal, askDraft, form, applyDraft, reverted, undoCheckpoint, restoreCheckpoint, billing, handoffStep, seedAskChat, islandMode, scripted, wireStates, savedAsk } from "./helpers/ask-fixture.mjs";
+import { useAskFixture, submitAsk, hosts, open, openai, text, tool, end, askSettings, generation, bind, addImage, drawer, openDraft, openApplyMenu, route, patchStep, proposal, askDraft, form, applyDraft, reverted, undoCheckpoint, restoreCheckpoint, billing, handoffStep, seedAskChat, islandMode, scripted, wireStates, savedAsk, toolReply, textReply, imageBlocks } from "./helpers/ask-fixture.mjs";
 
 useAskFixture();
 
@@ -402,6 +402,46 @@ test('ASK H3: CHAT handoff reuses the blank conversation, references #c2.1.2 wit
     assert.deepEqual(billing(requests.slice(start)),[]);
     assert.deepEqual(errors,[]);
   }finally{await context.close();}
+});
+
+test('ASK CHAT image child: one confirmed child, unmodified parent, undo and restore without billing',{timeout:60000},async()=>{
+  const {page,context,llm,calls,requests,errors}=await open('/#/chat',{ready:'#chatPrompt',ask:askSettings(),standard:true,chatModel:true});
+  try {
+    await bind(page);await page.waitForFunction(()=>chat.snapshot().ready);await seedAskChat(page);
+    const snapshot=()=>page.evaluate(()=>{const {current,conversations}=chat.snapshot();return {current,conversations};});
+    const before=await snapshot(),turn=before.current.turns[0],version=turn.versions[0];
+    const source={kind:'image',conversationId:before.current.id,turnId:turn.id,versionId:version.id,assetId:version.blocks[0].assetId};
+    await page.waitForTimeout(900);const start=requests.length;
+    await askDraft(page,llm,[{kind:'chat_open_child',source:'#c1.1'}],'依据第一轮的结果图新开图片子区','打开图片子区');
+    assert.equal(await page.locator('#askFullDraft .ask-draft-apply').textContent(),'新开图片子区');
+    assert.equal(await page.locator('#askFullDraft .draft-ref .ask-id').textContent(),'#c1.1');
+    assert.deepEqual(await snapshot(),before);
+    await applyDraft(page);
+    const created=await snapshot();
+    assert.equal(created.conversations.length,before.conversations.length+1);
+    assert.deepEqual(created.current.source,source);
+    assert.deepEqual(created.conversations.find(c=>c.id===before.current.id),before.current);
+    const empty=({turns,attachments,keepIds,mainId,prompt})=>({turns,attachments,keepIds,mainId,prompt});
+    assert.deepEqual(empty(created.current),{turns:[],attachments:[],keepIds:[],mainId:null,prompt:''});
+    await page.getByRole('button',{name:'查看来源图',exact:true}).waitFor();
+    await undoCheckpoint(page);assert.deepEqual(await snapshot(),before);
+    await restoreCheckpoint(page);
+    const restored=await snapshot();
+    assert.equal(restored.conversations.length,before.conversations.length+1);
+    assert.deepEqual(restored.current.source,source);assert.deepEqual(empty(restored.current),empty(created.current));
+    llm.push(toolReply('child-context','get_chat_context',{}),{body:body=>{
+      const result=body.messages.find(message=>message.tool_call_id==='child-context');
+      const read=JSON.parse(result.content.match(/<data>\n([\s\S]*?)\n<\/data>/)[1]);
+      assert.equal(read.conversation_kind,'image_child');assert.match(read.source_image,/^#c\d+:\d+\.\d+/);
+      assert.deepEqual(read.turns,[]);assert.deepEqual(read.input_images,[]);
+      return openai(tool('child-image','view_image',{id:read.source_image,spec:'glance'}),end('tool_calls'));
+    }},textReply('已查看子区来源图。'));
+    await page.evaluate(()=>ask.show());await page.locator('#askPrompt').fill('看一下这个子区的来源图');await submitAsk(page);
+    await page.waitForFunction(()=>!ask.running.value&&ask.entries.value.at(-1)?.turn?.status==='done');
+    assert.ok(imageBlocks(calls.at(-1).body).length>0);
+    assert.deepEqual(billing(requests.slice(start)),[]);assert.equal(generation(requests.slice(start)).length,0);assert.deepEqual(errors,[]);
+    await page.reload();await page.getByRole('button',{name:'查看来源图',exact:true}).waitFor();
+  } finally {await context.close();}
 });
 
 test("ASK H4: handoff card labels the base and references, previews outgoing text and blocks incomplete image sets",{timeout:60000},async()=>{

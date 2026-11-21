@@ -271,13 +271,18 @@ export function createBackupService({
           existing = new Map(saved.conversations.map((c) => [c.id, c]));
         const records: ConversationRecord[] = [],
           current = new Map<string, string>(), turnIds = new Map<string, string>(), versionIds = new Map<string, string>(), recordIds = new Map<string, string>();
-        for (const source of backup.conversations) {
-          const row = revive(source),
-            match = existing.get(row.id);
-          const target =
-            match && JSON.stringify(match) !== JSON.stringify(row)
-              ? importedCopy(row, `import-${backup.id}-${row.id}`)
-              : row;
+        const rows = backup.conversations.map(revive);
+        const copied = new Set(rows.filter(row => existing.has(row.id) && JSON.stringify(existing.get(row.id)) !== JSON.stringify(row)).map(row => row.id));
+        const dependents = new Map<string, string[]>();
+        for (const row of rows) if (row.source && existing.has(row.id)) {
+          const parent = row.source.conversationId;
+          const children = dependents.get(parent) ?? [];
+          children.push(row.id);
+          dependents.set(parent, children);
+        }
+        for (const parent of copied) for (const child of dependents.get(parent) ?? []) copied.add(child);
+        for (const row of rows) {
+          const target = copied.has(row.id) ? importedCopy(row, `import-${backup.id}-${row.id}`) : row;
           current.set(row.id, target.id);
           for (const [i, turn] of row.turns.entries()) {
             const importedTurn = target.turns[i];
@@ -289,6 +294,15 @@ export function createBackupService({
             }
           }
           if (!existing.has(target.id)) records.push(target);
+        }
+        for (const row of records) if (row.source) {
+          const source = row.source;
+          row.source = {
+            ...source,
+            conversationId: current.get(source.conversationId) ?? source.conversationId,
+            turnId: turnIds.get(`${source.conversationId}:${source.turnId}`) ?? source.turnId,
+            versionId: versionIds.get(`${source.conversationId}:${source.versionId}`) ?? source.versionId,
+          };
         }
         // Conversation records and their assets commit or abort together.
         const tx = databases().transaction(

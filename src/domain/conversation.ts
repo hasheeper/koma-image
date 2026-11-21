@@ -2,6 +2,7 @@ import { annotationPrompt } from './region-annotation.ts';
 import { assetRefs as storedAssetRefs } from "../storage/records.ts";
 import type {
   ConversationRecord,
+  ConversationSource,
   ConversationTurn,
   ConversationVersion,
   Fields,
@@ -32,7 +33,7 @@ export function newConversation(settings: Fields = {}): ConversationRecord {
    would only be a duplicate of this one. */
 export function isBlank(conversation: ConversationRecord): boolean {
   return (
-    !conversation.turns.length &&
+    !conversation.source && !conversation.turns.length &&
     !conversation.prompt.trim() &&
     !conversation.attachments.length
   );
@@ -80,8 +81,8 @@ export function matchesQuery(conversation: ConversationRecord, query: string): b
 /* Turn and version ids are fresh because the page caches rendered turns by id
    across every conversation; shared ids would let the copy drive the
    original's DOM. Asset ids stay shared — images are content-addressed and
-   collected by reference. The draft is not copied: a fork starts a new reply. */
-export function duplicateConversation(conversation: ConversationRecord): ConversationRecord {
+   collected by reference. The unsent draft is not copied. */
+function copyConversation(conversation: ConversationRecord, title: string): ConversationRecord {
   const source = structuredClone({
     ...conversation,
     prompt: "",
@@ -94,7 +95,7 @@ export function duplicateConversation(conversation: ConversationRecord): Convers
     turn.id = ids.get(turn.id)!;
     turn.parentId = ids.get(turn.parentId) ?? null;
     turn.snapshot.parentId = ids.get(turn.snapshot.parentId) ?? null;
-    turn.snapshot.turnIds = turn.snapshot.turnIds.map((t) => ids.get(t) ?? t);
+    turn.snapshot.turnIds = turn.snapshot.turnIds.map((turnId) => ids.get(turnId) ?? turnId);
     for (const version of turn.versions) {
       version.id = id();
       if (version.status === "pending")
@@ -107,13 +108,36 @@ export function duplicateConversation(conversation: ConversationRecord): Convers
   return {
     ...source,
     id: id(),
-    title: `${conversation.title}（副本）`.slice(0, 60),
+    title,
     renamed: true,
     headId: ids.get(conversation.headId) ?? null,
     skipTurnIds: source.skipTurnIds.map((t) => ids.get(t)).filter((id): id is string => Boolean(id)),
     pinned: false,
     updatedAt: Date.now(),
   };
+}
+export function duplicateConversation(conversation: ConversationRecord): ConversationRecord {
+  const copy = copyConversation(conversation, `${conversation.title}（副本）`.slice(0, 60));
+  if (copy.source?.kind === "fork") delete copy.source;
+  return copy;
+}
+
+export function openResultConversation(conversation: ConversationRecord, source: ConversationSource): ConversationRecord {
+  const turn = conversation.turns.find((item) => item.id === source.turnId);
+  const version = turn?.versions.find((item) => item.id === source.versionId);
+  if (source.conversationId !== conversation.id || !turn || version?.status !== "done" ||
+    !version.blocks.some((block) => block.type === "image" && block.assetId === source.assetId) &&
+    !Object.values(version.composites ?? {}).includes(source.assetId)) throw new Error("这张对话图片已不可用");
+  if (source.kind === "image") return { ...newConversation(conversation.settings), title: "图片子对话", source };
+  const turns = ancestry(conversation, turn.id);
+  turns[turns.length - 1] = { ...turn, versions: [{ ...version, compareTo: undefined }], selectedVersion: 0 };
+  const included = new Set(turns.map((item) => item.id));
+  return copyConversation({
+    ...conversation, turns: turns.map((item) => ({ ...item, snapshot: { ...item.snapshot, turnIds: item.snapshot.turnIds.filter((turnId) => included.has(turnId)) } })),
+    source, settings: version.settings ?? turn.settings, headId: turn.id, mainId: source.assetId,
+    keepIds: turn.snapshot.refs.filter((assetId) => assetId !== source.assetId && !isAnnotationGuide(conversation, assetId)),
+    baseFollows: true, selectionRevision: 0,
+  }, `${conversation.title.slice(0, 56)}（分支）`);
 }
 /* keepIds is the set the user wants to keep travelling with the conversation,
    whatever its provenance — an upload, or a result they promoted and then
@@ -259,6 +283,12 @@ export function branchTurns(conversation: ConversationRecord): ConversationTurn[
     (t) => t.versions[t.selectedVersion]?.status === "done",
   );
 }
+export function historicalText(turn: ConversationTurn): string {
+  const annotation = turn.snapshot.annotation;
+  return turn.contextText ?? (annotation
+    ? [turn.prompt.replace(annotation.text, "").trim(), ...annotation.snapshot.regions.map((region) => region.comment.trim())].filter(Boolean).join("；")
+    : turn.prompt);
+}
 export function contextSnapshot(
   conversation: ConversationRecord,
   prompt = conversation.prompt,
@@ -284,7 +314,7 @@ export function contextSnapshot(
   const text = turns.length
     ? [
         "此前的绘图要求（按顺序）：",
-        ...turns.map((t, i) => { const a=t.snapshot.annotation; const text=a ? [t.prompt.replace(a.text,'').trim(), ...a.snapshot.regions.map(r=>r.comment.trim())].filter(Boolean).join('；') : t.prompt; return `${i + 1}. ${text}`; }),
+        ...turns.map((turn, index) => `${index + 1}. ${historicalText(turn)}`),
         "",
         "本轮要求（以本轮修改为准）：",
         instruction,
@@ -329,7 +359,7 @@ export function beginTurn(
     conversation.title = prompt.replace(/\s+/g, " ").slice(0, 36);
   return { turn, version: beginVersion(turn) };
 }
-export function beginVersion(turn: ConversationTurn): ConversationVersion {
+export function beginVersion(turn: ConversationTurn, select = true): ConversationVersion {
   if (turn.versions.some((v) => v.status === "pending"))
     throw new Error("该轮仍在生成");
   const version: ConversationVersion = {
@@ -340,7 +370,7 @@ export function beginVersion(turn: ConversationTurn): ConversationVersion {
     quote: null,
   };
   turn.versions.push(version);
-  turn.selectedVersion = turn.versions.length - 1;
+  if (select) turn.selectedVersion = turn.versions.length - 1;
   return version;
 }
 export function completeVersion(
@@ -349,7 +379,7 @@ export function completeVersion(
   version: ConversationVersion,
   blocks: MessageBlock[],
   quote: Fields | null,
-  selectionRevision: number,
+  selectionRevision: number | null,
 ): boolean {
   if (version.status !== "pending") return false;
   const image = blocks.find((b) => b.type === "image");
@@ -385,7 +415,7 @@ export function applyChatSelection(c: ConversationRecord, selection: ChatSelecti
 /** Includes context/version changes and generation completions, excludes cosmetic titles. */
 export function chatDraftKey(c: ConversationRecord): string {
   return JSON.stringify([c.id, chatSelection(c), c.selectionRevision, c.keepIds, c.attachments, c.settings,
-    c.turns.map((t) => [t.id, t.parentId, t.prompt, t.selectedVersion, t.versions.map((v) => [v.id, v.status, v.blocks.filter((b) => b.type === "image").map((b) => b.assetId), v.composites])])]);
+    c.turns.map((t) => [t.id, t.parentId, t.prompt, t.selectedVersion, t.versions.map((v) => [v.id, v.status, v.blocks.filter((b) => b.type === "image").map((b) => b.assetId), v.composites]), ...(t.contextText === undefined ? [] : [t.contextText])])]);
 }
 
 /** Guide is a one-turn instruction asset, never a persistent reference. */

@@ -7,6 +7,7 @@ import {
   contextSnapshot,
   conversationImages,
   branchTurns,
+  historicalText,
   retainImage,
 } from "../../domain/conversation.ts";
 import { placeMenu, menuKeys } from "../../shared/popover";
@@ -262,7 +263,7 @@ defineExpose({ toggle, close });
           :class="{ 'context-now': !f.turn }"
           :data-off="c.skipTurnIds.includes(f.key) || undefined"
         >
-          <label v-if="f.turn" class="check context-text" :title="f.turn.prompt"
+          <label v-if="f.turn" class="check context-text" :title="historicalText(f.turn)"
             ><input
               type="checkbox"
               :checked="!c.skipTurnIds.includes(f.key)"
@@ -270,7 +271,7 @@ defineExpose({ toggle, close });
                 include(f.key, ($event.target as HTMLInputElement).checked)
               "
             /><span></span
-            ><span class="context-prompt">{{ f.turn.prompt }}</span></label
+            ><span class="context-prompt">{{ historicalText(f.turn) }}</span></label
           >
           <div v-else class="context-text">
             <span class="context-dot"></span

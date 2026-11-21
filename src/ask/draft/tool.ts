@@ -23,7 +23,7 @@ export const proposeDraft: ToolEntry = {
   async run(input, context) {
     if (!context.draftBase) throw new Error("本轮草稿快照不可用");
     const prepared = context.prepareDraftImages ? await context.prepareDraftImages(input) : input;
-    const draft = omitEmptyInsertions(parseDraft(prepared, context.draftBase, context.library ?? [], context.question, context.evolutionBase));
+    const draft = omitEmptyInsertions(parseDraft(prepared, context.draftBase, context.library ?? [], context.question, context.evolutionBase, true));
     context.signal?.throwIfAborted();
     if (!draft.steps.length && !draft.rollbackBase && !draft.editRollback && !draft.newBoardName && !draft.editHandoff) return {
       stat: '无需修改', content: [{ type: 'text', text: '仅包含空插入，无需修改；未创建待确认草稿。请直接回复用户，不必凑写步骤。' }],

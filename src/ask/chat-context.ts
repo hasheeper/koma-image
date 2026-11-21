@@ -1,12 +1,12 @@
 import { readEvolutionInput } from '../domain/evolution-input.ts';
 import { chatEvolutionInput, evolutionTurns } from '../domain/chat-evolution.ts';
 import { chatImageId, chatImageOrigin } from "../domain/image-origin.ts";
-import { ancestry, chatDraftKey, chatSelection, contextSnapshot } from "../domain/conversation.ts";
+import { ancestry, chatDraftKey, chatSelection, contextSnapshot, historicalText } from "../domain/conversation.ts";
 import type { ChatSelection } from "../domain/conversation.ts";
-import type { ConversationVersion, Fields } from "../storage/records.ts";
+import type { ConversationTurn, ConversationVersion } from "../storage/records.ts";
 import { normalizeOptions } from "../domain/catalog.ts";
 import type { CatalogModel } from "../domain/catalog.ts";
-import { chatReadOnlyKeys, chatSizeKeys } from "../domain/chat-options.ts";
+import { chatReadOnlyKeys, chatSizeKeys, chatVersionSettings } from "../domain/chat-options.ts";
 import { object } from "../domain/value.ts";
 import type { Chat } from "../services/chat.ts";
 import type { Picture } from "./library.ts";
@@ -22,6 +22,7 @@ export interface ChatSource {
   readonly prompt: string;
   /** Finished images of every version; absent in drafts saved before `#cN.M.K`. */
   readonly versions?: readonly (readonly string[])[];
+  readonly versionIds?: readonly string[];
   readonly imageLabels?: readonly (readonly string[])[];
 }
 export interface ChatDraftSnapshot {
@@ -35,6 +36,7 @@ export function chatSnapshot(state: ReturnType<Chat["snapshot"]>, evolution = fa
   const c = state.current;
   return { ...(c.pendingAnnotation ? { annotated: true } : {}), key: chatDraftKey(c), selection: chatSelection(c), sources: (evolution?evolutionTurns(c):ancestry(c)).map((t, i) => ({
     label: `#c${i + 1}.${t.selectedVersion + 1}`, turnId: t.id, prompt: t.prompt,
+    versionIds: t.versions.map(v => v.id),
     assetId: finished(t.versions[t.selectedVersion])[0] ?? null, versions: t.versions.map(v=>{const ids=finished(v);return evolution?[...ids,...v.blocks.flatMap(b=>v.status==='done'&&b.type==='image'&&!ids.includes(b.assetId)?[b.assetId]:[])]:ids;}),
     ...(ids ? { imageLabels: t.versions.map(v => { const assets = finished(v); return (evolution ? [...assets, ...v.blocks.flatMap(b => v.status === 'done' && b.type === 'image' && !assets.includes(b.assetId) ? [b.assetId] : [])] : assets).map(asset => ids.label(c.id, t.id, v.id, asset)); }) } : {}),
   })) };
@@ -92,12 +94,15 @@ export function chatDraftModel(state: ReturnType<Chat["snapshot"]>): ChatModelDr
   return s.ready ? { id: state.model!.id, name: s.name, maxImages: s.max_images, writable: s.writable } : null;
 }
 export function chatContext(state: ReturnType<Chat["snapshot"]>, library: readonly Picture[] = []) {
-  const c = state.current, snapshot = contextSnapshot(c, c.prompt, state.model?.maxImages ?? Infinity), sources = chatSnapshot(state).sources, images = chatImages(state);
-  const label = (asset: string | null) => !asset ? null : library.find(p => p.scope?.kind === 'chat' && p.scope.id === c.id && p.scope.asset_id === asset)?.label ?? images.find(p => p.assetId === asset)?.label ?? '用户参考图';
+  const c = state.current, snapshot = contextSnapshot(c, c.prompt, state.model?.maxImages ?? Infinity), sources = chatSnapshot(state).sources, images = chatImages(state), turns = ancestry(c);
+  const sourceImage = library.find(p => p.scope?.kind === 'chat' && p.scope.id === c.id && p.params.chatChildSource === true);
+  const label = (asset: string | null) => !asset ? null : library.find(p => p.scope?.kind === 'chat' && p.scope.id === c.id && p.scope.asset_id === asset && p !== sourceImage)?.label ?? images.find(p => p.assetId === asset)?.label ?? '用户参考图';
   return {
     scope: "当前会话的当前分支；其他分支不自动发送", title: c.title,
-    turns: sources.map((s, i) => ({ id: s.label, text: s.prompt, included: snapshot.turnIds.includes(s.turnId), has_image: !!s.assetId,
-      versions: ancestry(c)[i].versions.map((v, j) => ({ id: `#c${i + 1}.${j + 1}`, status: v.status, selected: s.label === `#c${i + 1}.${j + 1}`,
+    conversation_kind: c.source?.kind === 'image' ? 'image_child' : c.source?.kind === 'fork' ? 'history_branch' : 'ordinary',
+    source_image: sourceImage?.label ?? null,
+    turns: sources.map((s, i) => ({ id: s.label, text: s.prompt, context_text: historicalText(turns[i]), included: snapshot.turnIds.includes(s.turnId), has_image: !!s.assetId,
+      versions: turns[i].versions.map((v, j) => ({ id: `#c${i + 1}.${j + 1}`, status: v.status, selected: s.label === `#c${i + 1}.${j + 1}`, ...turnParams(turns[i], v, state.models),
         images: images.filter((p) => p.version === v).map((p) => p.label) })) })),
     base: label(snapshot.base),
     input_images: [...snapshot.imageIds, ...snapshot.dropped].map((asset, i) => ({ id: label(asset), role: i === 0 ? 'base' : 'reference', order: i + 1, included: i < snapshot.imageIds.length })),
@@ -107,8 +112,9 @@ export function chatContext(state: ReturnType<Chat["snapshot"]>, library: readon
   };
 }
 /** Turn settings as ASK may read them: the display name and known option values only. */
-function turnParams(settings: Fields, models: readonly CatalogModel[]) {
-  const name = models.find((m) => m.id === settings.model)?.name, options = object(settings.options);
+function turnParams(turn: ConversationTurn, version: ConversationVersion, models: readonly CatalogModel[] = []) {
+  const settings = chatVersionSettings(turn, version), options = object(settings.options);
+  const name = version.settings?.modelName || models.find(m => m.id === settings.model)?.name;
   const known = Object.fromEntries([...chatSizeKeys, ...chatReadOnlyKeys].flatMap((k) => typeof options[k] === "string" ? [[k, options[k]]] : []));
   return { ...(name ? { modelName: name } : {}), ...(Object.keys(known).length ? { chat_options: known } : {}) };
 }
@@ -121,11 +127,19 @@ export function chatPictures(state: ReturnType<Chat["snapshot"]>, chat: Chat, ev
     return asset ? [{ id: chatImageId(state.current.id, p.turn.id, p.version.id, p.assetId), entity_key: `sha256:${asset.id}`, lineage: asset.lineage ?? { via: "chat" as const },
       scope: { kind: "chat" as const, id: state.current.id, turn_id: p.turn.id, version_id: p.version.id, asset_id: asset.id }, label, aliases: [...new Set([...p.aliases, ...(qualified ? [qualified] : [])])], createdAt: p.version.completedAt ?? state.current.updatedAt,
       origins: [{ source: "chat" as const, label, order: ++order }, ...(qualified && qualified !== label ? [{ source: "chat" as const, label: qualified, order }] : [])],
-      params: { evolutionInput:JSON.parse(JSON.stringify(chatEvolutionInput(state.current,p.turn,p.version,p.assetId,asset))), ...chatImageOrigin(state.current,p.turn,p.version,p.assetId), basePrompt: p.turn.prompt, ...turnParams(p.turn.settings, state.models), version: p.number + 1, image_index: p.index + 1, selected: p.selected },
+      params: { evolutionInput:JSON.parse(JSON.stringify(chatEvolutionInput(state.current,p.turn,p.version,p.assetId,asset))), ...chatImageOrigin(state.current,p.turn,p.version,p.assetId), basePrompt: p.turn.prompt, ...turnParams(p.turn, p.version, state.models), version: p.number + 1, image_index: p.index + 1, selected: p.selected },
       size: { width: asset.width, height: asset.height }, blob: asset.blob }] : [];
   });
   if (ids) {
     const c = state.current, outputs = new Set(c.turns.flatMap(t => t.versions.flatMap(v => [...v.blocks.flatMap(b => b.type === 'image' ? [b.assetId] : []), ...Object.values(v.composites ?? {})])));
+    const source = c.source, sourceAsset = source?.kind === 'image' ? chat.assets.assets.get(source.assetId) : undefined;
+    if (source && sourceAsset) {
+      const label = ids.label(c.id, source.turnId, source.versionId, source.assetId);
+      pictures.push({ id: `chat-child-source:${c.id}:${source.assetId}`, entity_key: `sha256:${source.assetId}`, lineage: sourceAsset.lineage ?? { via: 'chat' },
+        scope: { kind: 'chat', id: c.id, asset_id: source.assetId }, label, aliases: [label], createdAt: 0,
+        origins: [{ source: 'chat', label, order: ++order }], params: { tool: 'chat', chatChildSource: true, sourceWorkspace: 'chat', chatConversationId: c.id, chatAssetId: source.assetId },
+        size: { width: sourceAsset.width, height: sourceAsset.height }, blob: sourceAsset.blob });
+    }
     const inputs = [...new Set([...contextSnapshot(c).imageIds, ...c.turns.flatMap(t => t.snapshot.imageIds)])];
     for (const assetId of inputs) {
       const asset = chat.assets.assets.get(assetId);

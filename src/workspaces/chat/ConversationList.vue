@@ -4,13 +4,14 @@ import {
   nextTick,
   ref,
   shallowRef,
+  watch,
   onDeactivated,
   onBeforeUnmount,
 } from "vue";
 import { useChat } from "../../app/chat";
 import { useShell } from "../../app/shell";
 import { useWorkspaceLifecycle } from "../../app/workspace-lifecycle";
-import type { ConversationRecord } from "../../storage/records";
+import type { ConversationRecord, ConversationSource } from "../../storage/records";
 import {
   conversationPeriod,
   coverImage,
@@ -31,27 +32,89 @@ const periods: Record<ConversationPeriod, string> = {
   week: "7 天内",
   earlier: "更早",
 };
-/* The conversation on screen that has sent nothing is the "新对话" row above
-   the list, not an entry in it; an untouched one elsewhere is reused by the
-   next "新对话", so it is not listed either. */
-const rows = computed(() => {
+const collapsed = shallowRef(new Set<string>());
+type RelatedKind = ConversationSource["kind"];
+const relatedKinds = ["fork", "image"] as const;
+const relatedLabels: Record<RelatedKind, string> = { fork: "分支", image: "子区" };
+const relatedIcons: Record<RelatedKind, string> = { fork: "i-branch", image: "i-image" };
+interface ConversationRow {
+  c: ConversationRecord;
+  title: string;
+  category?: RelatedKind;
+  cover?: string;
+  depth: number;
+  related?: RelatedKind;
+  expandable: boolean;
+  expanded: boolean;
+}
+function toggleChildren(id: string) {
+  const next = new Set(collapsed.value);
+  if (!next.delete(id)) next.add(id);
+  collapsed.value = next;
+}
+watch(() => view.value.current.id, () => {
+  const next = new Set(collapsed.value), seen = new Set<string>();
+  const records = new Map(view.value.conversations.map((record) => [record.id, record]));
+  let source = view.value.current.source;
+  while (source && !seen.has(source.conversationId)) {
+    const parent = source.conversationId;
+    seen.add(parent);
+    next.delete(parent);
+    source = records.get(parent)?.source;
+  }
+  collapsed.value = next;
+});
+const families = computed(() => {
   const { conversations, current } = view.value,
     now = Date.now();
-  return conversations
-    .filter(
-      (c) =>
-        !isBlank(c) &&
-        !(c.id === current.id && !c.turns.length) &&
-        matchesQuery(c, props.query),
-    )
-    .map((c) => {
-      const cover = coverImage(c);
-      return {
-        c,
-        group: c.pinned ? "置顶" : periods[conversationPeriod(c.updatedAt, now)],
-        cover: cover && chat.assets.assets.has(cover) ? cover : undefined,
-      };
-    });
+  const listed = conversations.filter((c) => !isBlank(c) && (c.source || c.id !== current.id || c.turns.length));
+  const byId = new Map(listed.map((c) => [c.id, c]));
+  const parents = new Map<string, string>(), children = new Map<string, Record<RelatedKind, ConversationRecord[]>>();
+  for (const c of listed) if (c.source && byId.has(c.source.conversationId)) {
+    const parent = c.source.conversationId;
+    const siblings = children.get(parent) ?? { fork: [], image: [] };
+    siblings[c.source.kind].push(c);
+    children.set(parent, siblings);
+    parents.set(c.id, parent);
+  }
+  const searching = !!props.query.trim();
+  const matches = new Set(listed.filter((c) => matchesQuery(c, props.query)).map((c) => c.id));
+  for (const id of matches) {
+    const parent = parents.get(id);
+    if (parent) matches.add(parent);
+  }
+  const visible: { id: string; group: string; rows: ConversationRow[] }[] = [];
+  const visited = new Set<string>();
+  function append(rows: ConversationRow[], c: ConversationRecord, depth: number, show: boolean, category?: RelatedKind) {
+    if (visited.has(c.id)) return;
+    visited.add(c.id);
+    const related = children.get(c.id);
+    const expanded = searching || !collapsed.value.has(c.id);
+    if (show && matches.has(c.id)) {
+      const cover = depth ? undefined : coverImage(c) ?? c.source?.assetId;
+      const kind = depth ? c.source?.kind : undefined;
+      const title = kind === "fork" ? c.title.replace(/（分支）$/, "") : c.title;
+      rows.push({ c, title, category, depth, related: kind, expandable: !searching && !!related, expanded,
+        cover: cover && chat.assets.assets.has(cover) ? cover : undefined });
+    }
+    if (related) for (const kind of relatedKinds) {
+      let heading: RelatedKind | undefined = kind;
+      for (const child of related[kind]) {
+        const count = rows.length;
+        append(rows, child, depth + 1, show && expanded, heading);
+        if (rows.length !== count) heading = undefined;
+      }
+    }
+  }
+  function root(c: ConversationRecord) {
+    if (visited.has(c.id)) return;
+    const rows: ConversationRow[] = [];
+    append(rows, c, 0, true);
+    if (rows.length) visible.push({ id: c.id, group: c.pinned ? "置顶" : periods[conversationPeriod(c.updatedAt, now)], rows });
+  }
+  for (const c of listed) if (!parents.has(c.id)) root(c);
+  for (const c of listed) root(c);
+  return visible;
 });
 const menu = shallowRef<HTMLElement | null>(null),
   target = shallowRef<ConversationRecord | null>(null),
@@ -171,82 +234,80 @@ onBeforeUnmount(cancelHold);
     aria-label="会话列表"
     @scroll="close()"
   >
-    <template v-for="({ c, group, cover }, i) in rows" :key="c.id">
-      <h2 v-if="group !== rows[i - 1]?.group" class="conversation-group">{{
-        group
-      }}</h2>
-      <div
-        class="conversation-item"
-        :data-id="c.id"
-        :data-current="c.id === view.current.id || undefined"
-        :data-busy="view.busy?.cId === c.id || undefined"
-        :data-renaming="renaming === c.id || undefined"
-        @contextmenu="open(c, $event)"
-        @pointerdown="down(c, $event)"
-        @pointermove="move"
-        @pointerup="cancelHold"
-        @pointercancel="cancelHold"
-        @pointerleave="cancelHold"
-      >
-        <span class="conversation-thumb" aria-hidden="true"
-          ><ChatImage
-            v-if="cover"
-            :asset-id="cover"
-            alt=""
-            width="26"
-            height="26"
-            /><AppIcon v-else name="i-image"
-        /></span>
-        <input
-          v-if="renaming === c.id"
-          v-model="name"
-          class="conversation-rename"
-          maxlength="60"
-          enterkeyhint="done"
-          aria-label="对话名称"
-          @blur="finish(c)"
-          @keydown="
-            (e) => {
-              if (e.isComposing) return;
-              if (e.key === 'Enter') {
-                e.preventDefault();
-                finish(c, true, true);
-              } else if (e.key === 'Escape') {
-                e.preventDefault();
-                e.stopPropagation();
-                finish(c, false, true);
-              }
-            }
-          "
-        />
-        <button
-          v-else
-          type="button"
-          class="conversation-open"
-          :title="c.title"
-          :aria-current="c.id === view.current.id ? 'page' : undefined"
-          @click="pick(c)"
-        >
-          <span class="conversation-title">{{ c.title }}</span
-          ><span v-if="view.busy?.cId === c.id" class="sr-only">，生成中</span>
-        </button>
-        <span
-          v-if="view.busy?.cId === c.id"
-          class="conversation-busy"
-          aria-hidden="true"
-        ></span>
-        <button
-          type="button"
-          class="ibtn ibtn-xs conversation-more"
-          :aria-label="`对话选项：${c.title}`"
-          aria-haspopup="menu"
-          :aria-expanded="menuOpen && target?.id === c.id"
-          @click="open(c, $event)"
-        >
-          <AppIcon name="i-more" />
-        </button></div
-    ></template>
-    <p v-if="query.trim() && !rows.length" class="conversation-empty">
+    <template v-for="({ id, group, rows }, index) in families" :key="id">
+      <h2 v-if="group !== families[index - 1]?.group" class="conversation-group">{{ group }}</h2>
+      <div class="conversation-family" :data-expanded="rows.length > 1 || undefined">
+        <template v-for="{ c, title, category, cover, depth, related, expandable, expanded } in rows" :key="c.id">
+          <h3 v-if="category" class="conversation-category" :style="{ '--conversation-indent': `${Math.min(depth - 1, 3) * 12}px` }">{{ relatedLabels[category] }}</h3>
+          <div
+            class="conversation-item"
+            :data-id="c.id"
+            :data-current="c.id === view.current.id || undefined"
+            :data-busy="view.busy?.cId === c.id || undefined"
+            :data-renaming="renaming === c.id || undefined"
+            :data-related="related"
+            :data-related-depth="depth || undefined"
+            :style="depth > 1 ? { '--conversation-indent': `${Math.min(depth - 1, 3) * 12}px` } : undefined"
+            @contextmenu="open(c, $event)"
+            @pointerdown="down(c, $event)"
+            @pointermove="move"
+            @pointerup="cancelHold"
+            @pointercancel="cancelHold"
+            @pointerleave="cancelHold"
+          >
+            <span v-if="related" class="conversation-related-icon" aria-hidden="true"><AppIcon :name="relatedIcons[related]" /></span>
+            <span v-else class="conversation-thumb" aria-hidden="true">
+              <ChatImage v-if="cover" :asset-id="cover" alt="" width="26" height="26" />
+              <AppIcon v-else name="i-image" />
+            </span>
+            <input
+              v-if="renaming === c.id"
+              v-model="name"
+              class="conversation-rename"
+              maxlength="60"
+              enterkeyhint="done"
+              aria-label="对话名称"
+              @blur="finish(c)"
+              @keydown="
+                (e) => {
+                  if (e.isComposing) return;
+                  if (e.key === 'Enter') {
+                    e.preventDefault();
+                    finish(c, true, true);
+                  } else if (e.key === 'Escape') {
+                    e.preventDefault();
+                    e.stopPropagation();
+                    finish(c, false, true);
+                  }
+                }
+              "
+            />
+            <button
+              v-else
+              type="button"
+              class="conversation-open"
+              :title="c.title"
+              :aria-label="related ? `${title}，${relatedLabels[related]}` : undefined"
+              :aria-current="c.id === view.current.id ? 'page' : undefined"
+              @click="pick(c)"
+            >
+              <span class="conversation-title">{{ title }}</span>
+              <span v-if="view.busy?.cId === c.id" class="sr-only">，生成中</span>
+            </button>
+            <button v-if="expandable" type="button" class="ibtn conversation-children-toggle" :aria-expanded="expanded"
+              :aria-label="`${expanded ? '折叠' : '展开'}关联会话：${c.title}`" @pointerdown.stop @click="toggleChildren(c.id)">
+              <AppIcon name="i-chevron" />
+            </button>
+            <span v-if="view.busy?.cId === c.id" class="conversation-busy" aria-hidden="true"></span>
+            <button type="button" class="ibtn ibtn-xs conversation-more" :aria-label="`对话选项：${c.title}`"
+              aria-haspopup="menu" :aria-expanded="menuOpen && target?.id === c.id" @click="open(c, $event)">
+              <AppIcon name="i-more" />
+            </button>
+          </div>
+        </template>
+      </div>
+    </template>
+    <p v-if="query.trim() && !families.length" class="conversation-empty">
       没有匹配的对话
     </p>
   </nav>

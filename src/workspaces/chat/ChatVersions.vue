@@ -5,6 +5,7 @@ import type {
   ConversationVersion,
 } from "../../storage/records";
 import { useChat } from "../../app/chat";
+import { chatVersionModelName } from "../../domain/chat-options.ts";
 import AppIcon from "../../shared/AppIcon.vue";
 import ChatImage from "./ChatImage.vue";
 const props = defineProps<{ turn: ConversationTurn }>();
@@ -64,6 +65,8 @@ function preview(version: ConversationVersion) {
       class="chat-version"
       :data-status="v.status"
       :aria-label="`第 ${i + 1} 个版本 · ${status[v.status]}`"
+      :aria-description="chatVersionModelName(turn, v, view.models)"
+      :title="`${chatVersionModelName(turn, v, view.models)} · ${status[v.status]}`"
       :aria-pressed="selected === i"
       @click="chat.mutate(() => (turn.selectedVersion = i), true)"
     >

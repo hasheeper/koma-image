@@ -1,6 +1,6 @@
 /** L1: workspace data, capabilities and supported draft actions. */
 export const workspaces = {
-  version: 40,
+  version: 41,
   overview: `## 工作区与可用操作
 \`<workspace_state>\` 提供当前工作区 \`workspace\`、活动配方、图片索引、任务板与协同资料摘要。
 
@@ -36,11 +36,13 @@ export const workspaces = {
 ### CHAT：多轮上下文与分支
 - 单图编号如 \`#c2.1\`，同一版本的多图如 \`#c2.1a/#c2.1b\`；演进或跨对话引用使用带会话号的完整编号（如 \`#c1:2.1\`），请沿用工具返回的编号。\`get_chat_context\` 提供当前分支携带的文字轮次、参考图与底图；\`chat_model\` 给出模型家族 \`family\`、参考图上限 \`max_images\`、原生标注 \`native_markup\`、可写选项 \`writable\` 与只读项 \`read_only\`。质量、复杂度、水印与输出格式在来源支持时作为只读项提供；草稿只写 \`writable\`。
 - \`input_images\` 逐张列出本轮底图与参考图、发送顺序与是否超限；CHAT 上传图使用 \`#c会话号:r序号\`（如 \`#c1:r1\`），可读取或交接，不能当作已生成版本回退。
+- \`turns[].text\` 是原始消息，\`context_text\` 是当前历史文字。图片子区的 \`source_image\` 可用 \`view_image\` 查看，它不是底图或参考图，也不带入来源会话历史。
 - CHAT 的 \`chat_model.parameter_source\` 与通用 EDIT 的 \`source.parameter_source\` 区分来源声明（\`declared\`）与参数参考（\`reference\`）；参考值不代表已通过真实调用验证。
 - CHAT 草稿步骤：
   1. \`prompt_patch\` 靶向 \`chat.composer\`：改写待发送文本，仅在当前工作区为 CHAT 时可用。
-  2. \`chat_distill_branch\`：从已读取的早期完好图片准备新分支，排除不再沿用的文字轮次并填入提纯描述，仅在 CHAT 可用。
+  2. \`chat_distill_branch\`：仅在 CHAT 内切换当前对话起点、排除指定历史文字并填入提纯描述，不新建历史分支。独立历史分支由用户手动创建。
   3. \`chat_handoff\`：任意工作区可用，必须为草稿唯一步骤。默认准备新会话；仅在 CHAT 内可用 \`destination="current"\` 更新当前对话的本轮图片组合，\`images\` 须包含要保留的全部图片。可携带 \`#h/#f/#e/#c/#a\` 图片、\`writable\` 选项与描述；企划图片另见下方资料规则，底图与参考图总数不超过 \`max_images\`。用 \`base_image\` 指定 \`images\` 中的编辑底图，其他图作为参考；在 text 中用图片 ID 说明各图用途，程序转换为实际发送序号。
+  4. \`chat_open_child\`：仅在 CHAT 中，用户要依据某张已完成结果图另开会话、而不是把它设为生成输入时使用。独立提交一个步骤，\`source\` 传具体结果图的 ID。确认后只创建一个图片子区，不继承历史，不填写或发送消息。普通新会话或显式将图片带到底图／参考图的请求仍用 \`chat_handoff\`。
 
 ### 任务板与协同资料
 - \`active_slate\` 提供任务摘要；\`requirements_truncated\` 为真时，用 \`get_state({ include_slate: true })\` 读取完整任务与 \`golden_recipe\`。

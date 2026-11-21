@@ -62,6 +62,7 @@ export function summarizePlan(plan: DraftPlan) {
       ...(enabled.some(s => s.kind === "rewrite") ? ["rewrite"] : []),
       ...(enabled.some(s => s.kind === "parameter") ? ["params"] : []),
       ...(enabled.some(s => s.kind === "branch") ? ["branch"] : []),
+      ...(enabled.some(s => s.kind === "chat-child") ? ["图片子区"] : []),
       ...(enabled.some(s => s.kind === "handoff") ? ["handoff"] : [])].join(" · "),
   };
 }

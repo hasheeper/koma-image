@@ -1,14 +1,16 @@
 import test from 'node:test';
 import { createChatPictureIds } from '../src/ask/chat-identity.ts';
 import assert from 'node:assert/strict';
-import { newConversation, beginTurn, beginVersion, completeVersion, contextSnapshot, chatDraftKey } from '../src/domain/conversation.ts';
+import { newConversation, beginTurn, beginVersion, completeVersion, contextSnapshot, chatDraftKey, openResultConversation } from '../src/domain/conversation.ts';
 import { chatImage, chatTurn, chatSnapshot, chatContext, chatDraftModel, chatModelState, chatPictures } from '../src/ask/chat-context.ts';
 import { draftView } from '../src/ask/draft/view.ts';
 import { summarizePlan } from '../src/ask/compact/ledger.ts';
 import { idPattern } from '../src/ask/ids.ts';
 import { searchHistory } from '../src/ask/search-history.ts';
+import { isRecipePicture } from '../src/ask/retrospect/recipe.ts';
 import { DEFAULTS } from '../src/domain/drawing.ts';
 import { handoffImage, parseDraft, stateHash, validateDraft } from '../src/ask/draft/validate.ts';
+import { draftSchema, internalDraftSchema } from '../src/ask/draft/schema.ts';
 import { createTools } from '../src/ask/tools.ts';
 import { normalizeCatalog } from '../src/domain/catalog.ts';
 import { nativeCatalog, nativeMappedCatalog } from '../src/gateway/native-protocols.ts';
@@ -27,6 +29,36 @@ test('ASK CHAT context: locked current branch, selected texts, image cap/drops, 
  assert.match(text,/#c3.1/);assert.match(text,/prompt 1/);assert.doesNotMatch(text,/not outbound/);
  const ctx=chatContext(s);assert.deepEqual(ctx.turns.map(t=>t.included),[true,false,true]);
  assert.equal(ctx.images.sent,2);assert.equal(ctx.images.dropped,1);assert.match(ctx.actual_text,/next input/);assert.doesNotMatch(ctx.actual_text,/prompt 2/);
+});
+test('ASK CHAT image child: freeze the exact result and keep its origin separate from history and input images',()=>{
+ const state={...fixture(),models:[]},parent=state.current,turn=parent.turns[0],version=turn.versions[0],ids=createChatPictureIds();
+ const head=parent.headId,alternate=beginVersion(turn);completeVersion(parent,turn,alternate,[{type:'image',assetId:'other'}],null,parent.selectionRevision);parent.headId=head;
+ turn.contextText='替换后的历史文字';
+ const ctx=chatContext(state);
+ assert.equal(ctx.turns[0].text,'prompt 1');assert.equal(ctx.turns[0].context_text,turn.contextText);assert.match(ctx.actual_text,/替换后的历史文字/);
+ const blob=new Blob(['synthetic']),asset={id:'image1',width:64,height:64,blob};
+ const chat={assets:{assets:new Map([[asset.id,asset]])}};
+ const base={workspace:'chat',conversationId:parent.id,composer:parent.prompt,form:DEFAULTS,chat:chatSnapshot(state,true,ids),models:[],samplers:[]};
+ const label=ids.label(parent.id,turn.id,version.id,asset.id),step={kind:'chat_open_child',source:label};
+ const wire={draft_title:'图片子区',base_hash:stateHash(base),steps:[step]};
+ const parse=(input=wire,snapshot=base,internal=true)=>parseDraft(input,snapshot,[],'',undefined,internal);
+ const offered=schema=>schema.properties.steps.items.anyOf.some(item=>item.properties.kind.enum.includes(step.kind));
+ assert.equal(offered(internalDraftSchema),true);assert.equal(offered(draftSchema),false);
+ assert.throws(()=>parse(wire,base,false),/仅能在当前 CHAT/);
+ assert.throws(()=>parse(wire,{...base,workspace:'home'}),/仅能在当前 CHAT/);
+ assert.throws(()=>parse({...wire,steps:[step,step]}),/只开一个子区/);
+ assert.throws(()=>parse({...wire,steps:[{...step,source:ids.input(parent.id,asset.id)}]}),/已完成结果图/);
+ assert.throws(()=>parse({...wire,steps:[{...step,source:ids.label('another',turn.id,version.id,asset.id)}]}),/已完成结果图/);
+ const draft=parse(),options={off:new Set()},plan=validateDraft(draft,base,options);
+ const source={kind:'image',conversationId:parent.id,turnId:turn.id,versionId:version.id,assetId:asset.id};
+ assert.deepEqual(plan.chatChild,{source,key:base.chat.key});assert.equal(plan.handoff,undefined);
+ assert.equal(validateDraft(draft,{...base,chat:{...base.chat,key:'changed'}},options).chatChild,undefined);
+ const child=openResultConversation(parent,source),childState={...state,current:child},pictures=chatPictures(childState,chat,false,ids);
+ const read=chatContext(childState,pictures);
+ assert.equal(read.conversation_kind,'image_child');assert.equal(read.source_image,pictures[0].label);assert.match(read.source_image,idPattern);
+ assert.equal(pictures[0].blob,blob);assert.equal(isRecipePicture(pictures[0]),false);assert.equal(read.base,null);assert.deepEqual(read.turns,[]);assert.deepEqual(read.input_images,[]);
+ const fork=openResultConversation(parent,{...source,kind:'fork'});
+ assert.equal(chatContext({...state,current:fork}).conversation_kind,'history_branch');
 });
 test('ASK CHAT model: declared family and whitelisted controls, no source identities or arbitrary settings',()=>{
  const s=fixture(),gemini={id:'gemini-3-pro-image',upstreamId:'private-upstream',connection:'private-connection',name:'Gemini Image',family:'gemini',parameterSource:'declared',maxImages:14,fields:{
@@ -81,6 +113,7 @@ test('ASK CHAT branch: source locked, optional text/exclusions, stale context bl
 test('ASK CHAT ids: every version and image is addressable, #cN.M aliases the first image, branch source uses the exact requested version',()=>{
  const s=fixture(),c=s.current,t2=c.turns[1],head=c.turns[2].id;
  const v=beginVersion(t2);completeVersion(c,t2,v,[{type:'image',assetId:'image2b'},{type:'text',text:'note'},{type:'image',assetId:'image2c'}],null,c.selectionRevision);
+ v.settings={model:'private-model-b',modelName:'Model B',options:{image_size:'1K'}};
  const failed=beginVersion(t2);failed.status='error';t2.selectedVersion=1;c.headId=head;
  t2.settings={model:'gpt',options:{size:'1536x1024',quality:'high',secret:'not outbound'}};
  const state={...s,ready:true,model:{name:'GPT Image',maxImages:2,fields:{}},models:[{id:'gpt',name:'GPT Image',connection:'private-connection',fields:{}}]};
@@ -92,13 +125,15 @@ test('ASK CHAT ids: every version and image is addressable, #cN.M aliases the fi
  assert.ok(library[2].aliases.includes('#c2.2'));assert.ok(library[1].aliases.includes('#c2.1.1'));
  const tools=createTools(),meta=JSON.parse(tools.get('get_meta').run({id:'#c2.2'},{library}).content[0].text.match(/\{[\s\S]*\}/)[0]);
  assert.equal(meta.id,'#c2.2');assert.equal(meta.version,2);assert.equal(meta.image_index,1);assert.equal(meta.selected,true);
- assert.equal(meta.modelName,'GPT Image');assert.deepEqual(meta.chat_options,{quality:'high',size:'1536x1024'});
+ assert.equal(meta.modelName,'Model B');assert.deepEqual(meta.chat_options,{image_size:'1K'});
  assert.doesNotMatch(JSON.stringify(library.map(p=>p.params)),/not outbound|private-connection/);
  assert.throws(()=>tools.get('get_meta').run({id:'#c2.3'},{library}),/不在本轮图片快照/);
  assert.deepEqual('#c2.2.2 与 #c2.1。'.match(idPattern),['#c2.2.2','#c2.1']);
  assert.deepEqual(searchHistory({scope:'chat',limit:15},library,0).matches.map(m=>m.id),['#c3.1','#c2.2b','#c2.2a','#c2.1','#c1.1']);
  const ctx=chatContext(state);
- assert.deepEqual(ctx.turns[1].versions,[{id:'#c2.1',status:'done',selected:false,images:['#c2.1']},{id:'#c2.2',status:'done',selected:true,images:['#c2.2a','#c2.2b']},{id:'#c2.3',status:'error',selected:false,images:[]}]);
+ const inherited={modelName:'GPT Image',chat_options:{quality:'high',size:'1536x1024'}};
+ assert.deepEqual(ctx.turns[1].versions,[{id:'#c2.1',status:'done',selected:false,images:['#c2.1'],...inherited},{id:'#c2.2',status:'done',selected:true,images:['#c2.2a','#c2.2b'],modelName:'Model B',chat_options:{image_size:'1K'}},{id:'#c2.3',status:'error',selected:false,images:[],...inherited}]);
+ assert.doesNotMatch(JSON.stringify(ctx),/private-model-b|not outbound/);
  assert.equal(ctx.turns[1].id,'#c2.2');
  const base={form:{...DEFAULTS},composer:c.prompt,conversationId:c.id,models:[],samplers:[],chat:chatSnapshot(state)};
  const branch=source=>parseDraft({title:'分支',base_hash:stateHash(base),steps:[{kind:'chat_distill_branch',source,exclude:['#c3.1.1'],text:'x'}]},base,[]);

@@ -79,7 +79,7 @@ export function comparisonRecipe(recipe: Recipe): Recipe {
   return { ...recipe, params, characters: recipe.characters?.filter(c => c.on && (c.prompt.trim() || c.negative.trim())) ?? null };
 }
 export function isRecipePicture(p: Picture) {
-  if (p.params.isComparison || p.params.editReference) return false;
+  if (p.params.isComparison || p.params.editReference || p.params.chatChildSource) return false;
   if (p.origins.some(o => o.source === 'edit' || o.source === 'chat') || readEvolutionInput(p.params.evolutionInput)) return true;
   return !p.params.tool && !p.params.editId && !p.params.editBoardId &&
     p.params.sourceWorkspace !== 'chat' && !p.params.chatConversationId &&

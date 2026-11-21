@@ -80,7 +80,7 @@ async function bind(page) {
       ];
   });
 }
-async function open(path = "#/chat") {
+async function open(path = "#/chat", extraModels = {}) {
   const context = await browser.newContext({
       viewport: { width: 1440, height: 900 },
       reducedMotion: "reduce",
@@ -165,7 +165,7 @@ async function open(path = "#/chat") {
     const payload = route.request().postDataJSON();
     requests.push({ path: url.pathname, payload });
     if (url.pathname.endsWith("/image/models"))
-      return route.fulfill({ json: catalog });
+      return route.fulfill({ json: { ...catalog, models: { ...catalog.models, ...extraModels } } });
     if (url.pathname.endsWith("/media/quota"))
       return route.fulfill({
         json: {
@@ -262,6 +262,14 @@ function resultAction(scope, name) {
 async function showResultTools(turn) {
   await turn.locator(".chat-result").first().hover();
 }
+async function openRerun(page, turn) {
+  await showResultTools(turn);
+  await resultAction(turn, '重新生成').click();
+  return page.getByRole('dialog', { name: '重新生成', exact: true });
+}
+async function rerunVersion(page, turn) {
+  await (await openRerun(page, turn)).getByRole('button', { name: '生成新版本' }).click();
+}
 async function editorSource(t, origin = "image", mode = "img2img") {
   await t.page.evaluate(
     async ({ png, origin, mode }) => {
@@ -325,8 +333,7 @@ test("[core] M5 chat UI: ordered response, exact context, consumption, version/b
     payload = posts(t)[1].payload;
     assert.match(payload.prompt, /此前的绘图要求/);
     assert.equal(payload.additional_images.length, 1);
-    await showResultTools(p.locator(".chat-turn").first());
-    await resultAction(p.locator(".chat-turn").first(), "重新生成此版本").click();
+    await rerunVersion(p, p.locator(".chat-turn").first());
     await p.waitForFunction(
       () =>
         chat.snapshot().current.turns[0].versions.length === 2 &&
@@ -338,7 +345,7 @@ test("[core] M5 chat UI: ordered response, exact context, consumption, version/b
         .first()
         .locator(".version-count")
         .textContent(),
-      "2/2",
+      "1/2",
     );
     await p
       .locator(".chat-turn")
@@ -385,6 +392,138 @@ test("[core] M5 chat UI: ordered response, exact context, consumption, version/b
     await t.close();
   }
 });
+test('CHAT 协创分屏保留参数浮层左侧选项的鼠标操作', async () => {
+  const model = 'gpt-image-2', original = catalog.models[model];
+  const fixture = await open('#/chat', { [model]: {
+    ...original,
+    image_capabilities: { fields: {
+      ...original.image_capabilities.fields,
+      quality: { options: ['auto', 'low', 'medium', 'high', 'xhigh'], default: 'auto' },
+      output_format: { options: ['png', 'jpeg', 'webp'], default: 'png' },
+    } },
+  } });
+  const { page } = fixture;
+  try {
+    await page.setViewportSize({ width: 1120, height: 850 });
+    await page.evaluate(() => location.hash = '#/chat/settings/general');
+    await page.locator('.s-toggle[title="画布协创 BETA"]').click();
+    await page.evaluate(() => location.hash = '#/chat');
+    await page.getByRole('group', { name: '对话侧栏内容' }).getByRole('button', { name: '上下文', exact: true }).click();
+    const divider = page.getByRole('separator', { name: '调整对话侧栏宽度' });
+    await divider.press('Shift+ArrowLeft');
+    await divider.press('Shift+ArrowLeft');
+    assert.equal(await divider.getAttribute('aria-valuenow'), '45');
+    await page.evaluate(model => chat.setModel(model), model);
+    await page.getByRole('button', { name: /^参数：/ }).click();
+    const params = page.getByRole('dialog', { name: '参数', exact: true });
+    await params.getByRole('radio', { name: '草稿', exact: true }).check({ timeout: 3000 });
+    assert.equal(await page.evaluate(() => chat.snapshot().current.settings.options.quality), 'low');
+    assert.equal(posts(fixture).length, 0);
+  } finally { await fixture.close(); }
+});
+
+test('CHAT同轮重新生成：可改模型与参数，复用原请求，版本可对比并持久保存', { timeout: 45000 }, async () => {
+  const target = 'gemini-3-pro-image';
+  const t = await open('#/chat', { [target]: {
+    ...catalog.models['gemini-3.1-flash-lite-image'], name: '模拟对比模型',
+    image_capabilities: { fields: { image_size: { options: ['1K', '2K'], default: '1K' } } },
+  } }), p = t.page;
+  try {
+    await p.evaluate(() => chat.setModel('gpt-image-2'));
+    await send(t, '准备底图');
+    await p.evaluate(async bytes => {
+      await chat.upload([new File([Uint8Array.from(atob(bytes), character => character.charCodeAt(0))], 'ref.png', { type: 'image/png' })]);
+      chat.setOption('size', '1536x1024');
+    }, t.ref.toString('base64'));
+    await send(t, '用同一张底图和参考图改造');
+    const original = posts(t).at(-1).payload;
+    assert.ok(original.init_image); assert.equal(original.additional_images.length, 1);
+    await send(t, '后续楼层应当保留');
+    await p.evaluate(() => {
+      const { current } = chat.snapshot();
+      chat.editHistoricalText(current.id, current.turns[0].id, '这段修改只给未来轮次使用');
+      chat.setPrompt('不要覆盖这段草稿');
+    });
+    const state = () => p.evaluate(() => {
+      const { headId, mainId, prompt, settings, turns, attachments, keepIds } = chat.snapshot().current;
+      return { headId, mainId, prompt, settings, attachments, keepIds, turns: turns.map(turn => ({ id: turn.id, selectedVersion: turn.selectedVersion })) };
+    });
+    const before = await state(), count = posts(t).length;
+    const source = p.locator('.chat-turn').nth(1);
+    const picker = await openRerun(p, source);
+    const models = picker.getByRole('combobox', { name: '重跑模型' }), submit = picker.getByRole('button', { name: '生成新版本' });
+    assert.equal(await models.inputValue(), 'gpt-image-2');
+    assert.equal(await picker.getByRole('radio', { name: '横向' }).isChecked(), true);
+    await picker.getByRole('radio', { name: '高质量' }).check();
+    await p.keyboard.press('Escape');
+    await picker.waitFor({ state: 'hidden' });
+    assert.equal(posts(t).length, count);
+    await openRerun(p, source);
+    assert.equal(await picker.getByRole('radio', { name: '高质量' }).isChecked(), false);
+    await models.selectOption('gemini-3.1-flash-lite-image');
+    assert.match(await picker.textContent(), /该模型最多支持 1 张/); assert.equal(await submit.isDisabled(), true);
+    await models.selectOption(target);
+    assert.match(await picker.textContent(), /输入图 2 张/);
+    assert.equal(await picker.getByRole('radio', { name: '横向' }).count(), 0);
+    assert.equal(await picker.getByRole('radio', { name: '1K' }).isChecked(), true);
+    await picker.getByRole('radio', { name: '2K' }).check();
+    assert.equal(posts(t).length, count);
+    t.state.hold = true; t.state.multiple = true;
+    const posted = p.waitForRequest(request => request.url().endsWith('/run') || request.url().endsWith('/generate'));
+    await submit.click();
+    await posted;
+    await source.getByRole('button', { name: '第 2 个版本 · 生成中', exact: true }).waitFor();
+    assert.equal(await source.getByRole('button', { name: '第 1 个版本 · 已完成', exact: true }).getAttribute('aria-pressed'), 'true');
+    assert.deepEqual(await state(), before);
+    t.state.hold = false; t.state.release?.();
+    await p.waitForFunction(() => !chat.snapshot().busy && chat.snapshot().current.turns[1].versions[1]?.status === 'done');
+    const next = posts(t).at(-1).payload;
+    assert.equal(posts(t).length, count + 1);
+    assert.equal(next.model, target);
+    assert.equal(next.prompt, original.prompt); assert.equal(next.init_image, original.init_image);
+    assert.deepEqual(next.additional_images, original.additional_images);
+    assert.deepEqual(next.image_options, { output_size: '2k' });
+    assert.deepEqual(await state(), before);
+
+    await resultAction(source, '对比版本').click();
+    const compare = p.getByRole('dialog', { name: '对比版本' });
+    assert.match(await compare.getByRole('combobox', { name: 'A 版本' }).locator('option:checked').textContent(), /^V1 · /);
+    assert.match(await compare.getByRole('combobox', { name: 'B 版本' }).locator('option:checked').textContent(), /^V2 · /);
+    assert.match(await compare.getByRole('figure', { name: 'A 图' }).textContent(), /横向/);
+    assert.match(await compare.getByRole('figure', { name: 'B 图' }).textContent(), /2K/);
+    await compare.getByRole('combobox', { name: 'B 图片' }).selectOption('1');
+    assert.match(await compare.getByRole('figure', { name: 'B 图' }).textContent(), /384×512/);
+    await p.setViewportSize({ width: 550, height: 780 });
+    await compare.getByRole('button', { name: 'B · V2', exact: true }).click();
+    assert.equal(await compare.getByRole('img', { name: 'B 结果图' }).isVisible(), true);
+    assert.equal(await compare.getByRole('img', { name: 'A 结果图' }).isVisible(), false);
+    await compare.getByRole('button', { name: '关闭对比' }).click();
+    await p.setViewportSize({ width: 1440, height: 900 });
+    assert.deepEqual(await state(), before);
+    assert.equal(posts(t).length, count + 1);
+    await openRerun(p, source);
+    await picker.getByRole('radio', { name: '高质量' }).check();
+    await submit.click();
+    await p.waitForFunction(() => !chat.snapshot().busy && chat.snapshot().current.turns[1].versions[2]?.status === 'done');
+    const same = posts(t).at(-1).payload;
+    assert.equal(posts(t).length, count + 2);
+    assert.equal(same.model, original.model);
+    assert.equal(same.prompt, original.prompt); assert.equal(same.init_image, original.init_image);
+    assert.deepEqual(same.additional_images, original.additional_images);
+    assert.deepEqual(same.image_options, { ...original.image_options, quality: 'high' });
+    assert.deepEqual(await state(), before);
+    await p.evaluate(() => chat.flush());
+    await p.reload(); await p.waitForSelector('#chatPrompt'); await bind(p);
+    const saved = await p.evaluate(() => chat.snapshot().current.turns[1].versions[1]);
+    assert.equal(saved.settings.model, target); assert.equal(saved.compareTo, 0);
+    assert.equal(saved.settings.options.image_size, '2K');
+    const rerun = p.locator('.chat-turn').nth(1).getByRole('button', { name: '第 2 个版本 · 已完成', exact: true });
+    assert.equal(await rerun.getAttribute('aria-description'), saved.settings.modelName);
+    await rerun.click();
+    assert.equal(await p.locator('.chat-turn').nth(1).locator('.msg-name').first().textContent(), saved.settings.modelName);
+  } finally { await t.close(); }
+});
+
 test("H1 chat rail: compact history, exact version states, responsive tools and retained selection", async () => {
   const t = await open(), p = t.page;
   try {
@@ -396,16 +535,15 @@ test("H1 chat rail: compact history, exact version states, responsive tools and 
     assert.equal(await last.getAttribute("data-base"), "");
     const source = await p.evaluate(() => ({ mainId: chat.snapshot().current.mainId, headId: chat.snapshot().current.headId }));
     t.state.fail = true;
-    await showResultTools(first);
-    await resultAction(first, "重新生成此版本").click();
+    await rerunVersion(p, first);
     await p.waitForFunction(() => !chat.snapshot().busy && chat.snapshot().current.turns[0].versions.length === 2);
     assert.equal(await first.locator(".chat-version[data-status=error]").count(), 1);
     await first.getByRole("button", { name: "第 1 个版本 · 已完成", exact: true }).click();
     assert.deepEqual(await p.evaluate(() => ({ mainId: chat.snapshot().current.mainId, headId: chat.snapshot().current.headId })), source);
     t.state.fail = false;
     t.state.hold = true;
-    await showResultTools(first);
-    await resultAction(first, "重新生成此版本").click();
+    await rerunVersion(p, first);
+    await first.getByRole('button', { name: '第 3 个版本 · 生成中', exact: true }).click();
     await p.waitForSelector(".chat-turn[data-pending] .chat-pending .tile-wave");
     assert.equal(await first.getAttribute("data-older"), null, "an earlier turn being regenerated stays full-size");
     assert.equal(await first.locator(".chat-version[data-status=pending]").count(), 1);
@@ -426,8 +564,7 @@ test("H1 chat rail: compact history, exact version states, responsive tools and 
       await first.scrollIntoViewIfNeeded();
       await showResultTools(first);
       const tools = first.getByRole("toolbar", { name: "图片操作" });
-      assert.deepEqual(await tools.locator("button, a").evaluateAll(nodes => nodes.map(node => node.getAttribute("aria-label"))), ["在 EDIT 编辑这张图", "重新生成此版本", "收藏图片", "下载图片"]);
-      // The pin changes the source; the action band keeps the same four operations.
+      assert.deepEqual(await tools.locator("button, a").evaluateAll(nodes => nodes.map(node => node.getAttribute("aria-label"))), ["在 EDIT 编辑这张图", "重新生成", "基于此图新开对话", "从此处分支", "收藏图片", "下载图片"]);
       await first.getByRole("button", { name: "设为底图", exact: true }).click();
       await p.waitForFunction(() => chat.snapshot().current.headId === chat.snapshot().current.turns[0].id);
       assert.equal(await first.locator(".chat-base-badge").count(), 1);
@@ -440,6 +577,10 @@ test("H1 chat rail: compact history, exact version states, responsive tools and 
     await first.getByRole("button", { name: "第 2 个版本 · 失败", exact: true }).click();
     assert.equal(await first.locator(".turn-output").getAttribute("data-status"), "error");
     await first.getByRole("button", { name: "第 1 个版本 · 已完成", exact: true }).click();
+    const mobileRerun = await openRerun(p, first);
+    await mobileRerun.getByRole('combobox', { name: '重跑模型' }).waitFor();
+    await mobileRerun.getByRole('button', { name: '关闭重新生成' }).click();
+    await mobileRerun.waitFor({ state: 'hidden' });
     await p.evaluate(() => location.hash = "#/tags");
     await p.waitForSelector("[data-workspace-root=tags]");
     await p.evaluate(() => location.hash = "#/chat");
@@ -450,6 +591,95 @@ test("H1 chat rail: compact history, exact version states, responsive tools and 
     await resultAction(first, "在 EDIT 编辑这张图").click();
     await p.locator("#imageEditor[data-active=true]").waitFor();
     assert.deepEqual(await p.evaluate(() => ({ origin: editor.session.origin, own: editor.session.conversationId === chat.snapshot().current.id, upscale: editor.snapshot().upscaleOpen })), { origin: "chat", own: true, upscale: false });
+  } finally { await t.close(); }
+});
+
+test("CHAT history edit, image sub-conversation and fork stay independent across reload", async () => {
+  const t = await open(), p = t.page;
+  try {
+    await t.context.grantPermissions(["clipboard-read", "clipboard-write"]);
+    t.state.multiple = true;
+    await send(t, "第一轮原文");
+    await send(t, "第二轮原文");
+    const first = p.locator(".chat-turn").first();
+    const result = first.locator(".chat-result").nth(1);
+    const beforeEdit = await p.evaluate(() => chat.snapshot().current);
+    await p.locator("#chatPrompt").fill("未发送草稿");
+    await first.getByRole("button", { name: "编辑上下文" }).click();
+    await first.getByRole("textbox", { name: "历史上下文文字" }).fill("不保存的文字");
+    await first.getByRole("button", { name: "取消" }).click();
+    await first.getByRole("button", { name: "编辑上下文" }).click();
+    assert.equal(await first.getByRole("textbox", { name: "历史上下文文字" }).inputValue(), "第一轮原文");
+    await first.getByRole("textbox", { name: "历史上下文文字" }).fill("后续引用的描述");
+    await first.getByRole("button", { name: "保存", exact: true }).click();
+    await first.getByRole("button", { name: "复制描述" }).click();
+    assert.equal(await p.evaluate(() => navigator.clipboard.readText()), "第一轮原文");
+    assert.equal(await p.locator("#chatPrompt").inputValue(), "未发送草稿");
+    const afterEdit = await p.evaluate(() => chat.snapshot().current);
+    assert.equal(afterEdit.headId, beforeEdit.headId);
+    assert.equal(afterEdit.mainId, beforeEdit.mainId);
+    assert.deepEqual(afterEdit.turns.map(turn => turn.snapshot), beforeEdit.turns.map(turn => turn.snapshot));
+    await send(t, "第三轮请求");
+    assert.match(posts(t).at(-1).payload.prompt, /后续引用的描述/);
+    assert.doesNotMatch(posts(t).at(-1).payload.prompt, /第一轮原文/);
+    await rerunVersion(p, first);
+    await p.waitForFunction(() => !chat.snapshot().busy && chat.snapshot().current.turns[0].versions.length === 2);
+    await first.getByRole("button", { name: "第 1 个版本 · 已完成", exact: true }).click();
+    const original = await p.evaluate(() => chat.snapshot().current);
+    const anchor = original.turns[0], version = anchor.versions[0], assetId = version.blocks.filter(block => block.type === "image")[1].assetId;
+    const postsBefore = posts(t).length;
+    await result.hover();
+    await resultAction(result, "基于此图新开对话").click();
+    await p.getByRole("button", { name: "查看来源图" }).waitFor();
+    const imageChild = await p.evaluate(() => chat.snapshot().current);
+    assert.deepEqual(imageChild.source, { kind: "image", conversationId: original.id, turnId: anchor.id, versionId: version.id, assetId });
+    assert.deepEqual(imageChild.turns, []);
+    assert.equal(imageChild.mainId, null);
+    assert.deepEqual(await p.evaluate(() => chat.snapshot().context.imageIds), []);
+    await p.evaluate(() => chat.flush());
+    await p.reload();
+    await p.getByRole("button", { name: "返回来源对话" }).click();
+    await bind(p);
+    await result.hover();
+    await resultAction(result, "从此处分支").click();
+    const fork = await p.evaluate(() => chat.snapshot().current);
+    assert.deepEqual(fork.source, { ...imageChild.source, kind: "fork" });
+    assert.deepEqual(fork.turns.map(turn => turn.prompt), ["第一轮原文"]);
+    assert.equal(fork.turns[0].contextText, "后续引用的描述");
+    assert.deepEqual(fork.turns[0].versions.map(item => item.blocks), [version.blocks]);
+    assert.equal(fork.mainId, assetId);
+    const originalRow = p.locator(`.conversation-item[data-id="${original.id}"]`);
+    const childRow = p.locator(`.conversation-item[data-id="${imageChild.id}"]`);
+    const forkRow = p.locator(`.conversation-item[data-id="${fork.id}"]`);
+    const categories = p.getByRole("navigation", { name: "会话列表" }).getByRole("heading", { level: 3 });
+    assert.deepEqual(await categories.allTextContents(), ["分支", "子区"]);
+    assert.equal(await childRow.getByRole("button", { name: /，子区$/ }).count(), 1);
+    assert.equal(await forkRow.getByRole("button", { name: /，分支$/ }).count(), 1);
+    await originalRow.getByRole("button", { name: /^折叠关联会话/ }).click();
+    assert.equal(await forkRow.count(), 0);
+    assert.equal(await childRow.count(), 0);
+    assert.equal(await categories.count(), 0);
+    await p.getByRole("button", { name: "搜索对话" }).click();
+    const search = p.getByRole("searchbox", { name: "搜索对话" });
+    await search.fill("图片子对话");
+    assert.deepEqual(await categories.allTextContents(), ["子区"]);
+    assert.equal(await originalRow.count(), 1);
+    assert.equal(await childRow.count(), 1);
+    assert.equal(await forkRow.count(), 0);
+    await search.press("Escape");
+    await originalRow.getByRole("button", { name: /^展开关联会话/ }).click();
+    await forkRow.waitFor();
+    await childRow.waitFor();
+    await p.evaluate(() => chat.flush());
+    await p.reload();
+    await forkRow.waitFor();
+    assert.deepEqual(await categories.allTextContents(), ["分支", "子区"]);
+    await bind(p);
+    assert.equal(await p.evaluate(() => chat.snapshot().current.id), fork.id);
+    await originalRow.getByRole("button", { name: original.title, exact: true }).click();
+    const returned = await p.evaluate(() => chat.snapshot().current);
+    assert.deepEqual(returned, original);
+    assert.equal(posts(t).length, postsBefore);
   } finally { await t.close(); }
 });
 

@@ -504,7 +504,7 @@ test("backup roundtrip merges conflicts, remaps turn links, preserves bytes and 
         title: "测试",
         prompt: "draft",
         settings: {},
-        turns: [turn("one", null), turn("two", "one")],
+        turns: [{ ...turn("one", null), contextText: "edited history" }, turn("two", "one")],
         headId: "two",
         mainId: id,
         attachments: [id],
@@ -516,6 +516,11 @@ test("backup roundtrip merges conflicts, remaps turn links, preserves bytes and 
         renamed: false,
         updatedAt: 1,
       };
+      const child = {
+        ...conversation, id: "image-child", title: "图片子对话", prompt: "", turns: [], headId: null,
+        mainId: null, attachments: [], skipTurnIds: [],
+        source: { kind: "image", conversationId: "chat", turnId: "two", versionId: "version-two", assetId: id },
+      };
       await app.data.write(async () => {
         const tx = app.databases.transaction(
           names.databases.chat,
@@ -524,6 +529,7 @@ test("backup roundtrip merges conflicts, remaps turn links, preserves bytes and 
         );
         const done = dbTools.transactionDone(tx);
         tx.objectStore("conversations").put(conversation);
+        tx.objectStore("conversations").put(child);
         tx.objectStore("assets").put({
           id,
           name: "synthetic.png",
@@ -591,7 +597,8 @@ test("backup roundtrip merges conflicts, remaps turn links, preserves bytes and 
       const chats = await dbTools.idbRequest(
         tx.objectStore("conversations").getAll(),
       );
-      const imported = chats.find((c) => c.id !== "chat");
+      const imported = chats.find((c) => c.id !== "chat" && c.turns.length);
+      const importedChild = chats.find((c) => c.id !== child.id && c.source?.kind === "image");
       const ft = app.databases.transaction(
           names.databases.favorites,
           "favorites",
@@ -633,6 +640,9 @@ test("backup roundtrip merges conflicts, remaps turn links, preserves bytes and 
         last: imported.turns[1].id,
         skip: imported.skipTurnIds[0],
         snapshot: imported.turns[1].snapshot.turnIds[0],
+        contextText: imported.turns[0].contextText,
+        sourceRemapped: importedChild.source.conversationId === imported.id && importedChild.source.turnId === imported.headId &&
+          importedChild.source.versionId === imported.turns[1].versions[0].id && importedChild.source.assetId === id,
         bytes: [...new Uint8Array(await copied.blob.arrayBuffer())],
         failed,
         failure,
@@ -640,7 +650,7 @@ test("backup roundtrip merges conflicts, remaps turn links, preserves bytes and 
         accepting: app.scheduler.accepting,
       };
     });
-    assert.deepEqual(result.counts, { favorites: 1, conversations: 1 });
+    assert.deepEqual(result.counts, { favorites: 1, conversations: 2 });
     assert.deepEqual(result.again, { favorites: 0, conversations: 0 });
     assert.deepEqual(result.recovered, result.again);
     assert.ok(result.noSecrets && result.failed);
@@ -650,6 +660,8 @@ test("backup roundtrip merges conflicts, remaps turn links, preserves bytes and 
     assert.equal(result.parent, result.turnId);
     assert.equal(result.skip, result.turnId);
     assert.equal(result.snapshot, result.turnId);
+    assert.equal(result.contextText, "edited history");
+    assert.ok(result.sourceRemapped);
     assert.equal(result.head, result.last);
     assert.deepEqual(result.bytes, [0, 128, 255, 10]);
     assert.equal(result.failure, "QuotaExceededError");

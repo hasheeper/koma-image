@@ -208,6 +208,11 @@ export function validateConversation(value: unknown): ConversationRecord {
   )
     throw bad();
   validateChatAnnotation(c.pendingAnnotation);
+  if (c.source !== undefined) {
+    const source = object(c.source);
+    if ((source.kind !== "fork" && source.kind !== "image") || !id(source.conversationId) || source.conversationId === c.id ||
+      !id(source.turnId) || !id(source.versionId) || !id(source.assetId)) throw bad();
+  }
   const seen = new Set<string>(), versions = new Set<string>(), parents = new Map<string, string | null>();
   for (const item of c.turns) {
     const t = object(item),
@@ -216,6 +221,7 @@ export function validateConversation(value: unknown): ConversationRecord {
       !id(t.id) ||
       seen.has(t.id) ||
       !nullableId(t.parentId) || typeof t.prompt !== "string" || !plain(t.settings) ||
+      t.contextText !== undefined && (typeof t.contextText !== "string" || !t.contextText.trim() || t.contextText.length > 24000) ||
       typeof snapshot.text !== "string" || !nullableId(snapshot.parentId) || !nullableId(snapshot.base) ||
       !ids(snapshot.refs) || !ids(snapshot.dropped) ||
       !ids(snapshot.imageIds) ||
@@ -227,12 +233,14 @@ export function validateConversation(value: unknown): ConversationRecord {
     validateChatAnnotation(snapshot.annotation);
     seen.add(t.id);
     parents.set(t.id, t.parentId as string | null);
-    for (const item of t.versions) {
-      const v = object(item);
+    for (const [index, item] of t.versions.entries()) {
+      const v = object(item), settings = object(v.settings);
       if (
         !id(v.id) || versions.has(v.id) || !quote(v.quote) ||
         v.error !== undefined && typeof v.error !== "string" ||
         v.completedAt !== undefined && !nonnegative(v.completedAt) ||
+        v.settings !== undefined && (!id(settings.model) || typeof settings.modelName !== 'string' || !plain(settings.options) || Object.values(object(settings.options)).some(option => typeof option !== 'string')) ||
+        v.compareTo !== undefined && (!Number.isSafeInteger(v.compareTo) || Number(v.compareTo) < 0 || Number(v.compareTo) >= index) ||
         v.evolutionInput !== undefined && !readEvolutionInput(v.evolutionInput) ||
         v.via !== undefined && (!id(object(v.via).connection) || typeof object(v.via).upstreamId !== "string" || !String(object(v.via).upstreamId).length || String(object(v.via).upstreamId).length > 512) ||
         !Array.isArray(v.blocks) ||

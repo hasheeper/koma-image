@@ -106,14 +106,8 @@
   .canvas-sheet :deep(.context-stat .mono) { color: var(--fg-2); font-size: var(--fz-xs); }
   .canvas-sheet[data-sheet-pane="context"] :deep(.context-body) { padding-bottom: calc(var(--composer-height, 120px) + 20px + env(safe-area-inset-bottom)); }
 }
-/* Phone and touch: a turn's tools never drop into the flow on demand, which pushed the stream up and
-   down while scrolling. The latest turn keeps them in flow and always shown; earlier turns float them
-   as a small glass capsule under the bubble when it is tapped or hovered. */
 @media (max-width: 860px), (hover: none) {
-  .chat-collaboration :deep(.chat-turn .msg-tools) { position: absolute; top: calc(100% + 6px); right: 0; bottom: auto; z-index: 2; display: flex; gap: 2px; margin: 0; padding: 2px; background: var(--glass-bg); border: 1px solid var(--line-2); border-radius: 10px; box-shadow: var(--sh-1); backdrop-filter: blur(var(--glass-blur)); opacity: 0; visibility: hidden; transition: opacity var(--t1) var(--e), visibility 0s linear var(--t1); }
-  .chat-collaboration :deep(.chat-turn .msg-user:is(:hover, :focus-within) .msg-tools) { opacity: 1; visibility: visible; transition: opacity var(--t1) var(--e), visibility 0s; }
-  .chat-collaboration :deep(.chat-turn:last-child .msg-tools) { position: static; margin-right: -4px; padding: 0; background: none; border: 0; box-shadow: none; backdrop-filter: none; opacity: 1; visibility: visible; }
-  .chat-collaboration :deep(.chat-turn .msg-tools .ibtn) { width: 32px; height: 32px; }
+  .chat-collaboration :deep(.msg-tools .ibtn) { width: 40px; height: 40px; }
 }
 @media (prefers-reduced-motion: reduce) {
   .chat-collaboration .chat-sidebar, .chat-collaboration.chat-drawer-open .chat-sidebar { transition: none; }
@@ -121,7 +115,7 @@
 
 /* Phone content belongs to the canvas workspace. Teleported menus retain this component scope. */
 @media (max-width: 860px) {
-  .chat-collaboration { --img-w: 100%; --img-h: 58dvh; --chat-result-tool-size: 28px; --chat-result-mark-size: 16px; }
+  .chat-collaboration { --img-w: 100%; --img-h: 58dvh; --chat-result-tool-size: 28px; }
   .chat-collaboration :deep(.chat-result-tools) { --ico: var(--ico-sm); }
   .chat-collaboration :deep(.chat-result-tool-group) { gap: 1px; }
   .chat-collaboration :deep(.chat-result-tool-sep) { height: 12px; margin-inline: 3px; }
@@ -129,10 +123,10 @@
   .chat-collaboration :deep(.chat-word .brand-subtitle) { font-size: 10.5px; }
   .chat-collaboration :deep(.sidebar-row) { height: 44px; font-size: var(--fz-md); }
   .chat-collaboration :deep(.sidebar-search input) { height: 44px; font-size: 16px; }
-  .chat-collaboration :deep(.conversation-item) { height: 44px; }
-  .chat-collaboration :deep(.conversation-title) { font-size: var(--fz-md); }
-  .chat-collaboration :deep(.conversation-rename) { height: 34px; margin-left: 38px; font-size: 16px; }
-  .chat-collaboration :deep(.conversation-item:is(:hover, :focus-within, [data-current]) .conversation-more), .chat-collaboration :deep(.conversation-more[aria-expanded="true"]) { width: 36px; height: 36px; }
+  .chat-collaboration :deep(.conversation-list) { --conversation-root-height: 44px; --conversation-related-height: 40px; --conversation-menu-size: 36px; }
+  .chat-collaboration :deep(.conversation-item:not([data-related]) .conversation-title) { font-size: var(--fz-md); }
+  .chat-collaboration :deep(.conversation-rename) { height: 34px; font-size: 16px; }
+  .chat-collaboration :deep(.conversation-more) { height: var(--conversation-menu-size); }
   .chat-collaboration :deep(.message-list) { padding: 20px 12px 20px 4px; }
   .chat-collaboration :deep(.chat-turn) { grid-template-columns: 24px minmax(0, 1fr); column-gap: 12px; }
   .chat-collaboration :deep(.turn-number) { width: 24px; height: 24px; font-size: var(--fz-2xs); }
@@ -150,9 +144,6 @@
   .chat-collaboration :deep(.chat-result:has(> .chat-versions) .chat-result-meta) { grid-column: 1 / -1; grid-row: 3; min-height: 0; margin-right: 0; }
   .chat-collaboration :deep(.chat-result:has(> .chat-versions) .chat-result-meta .chat-dimensions) { display: inline; }
   .chat-collaboration :deep(.msg-user) { max-width: 88%; }
-  .chat-collaboration :deep(.msg-tools) { position: static; display: none; padding: 0; margin-right: -6px; opacity: 1; }
-  .chat-collaboration :deep(.msg-user:hover .msg-tools), .chat-collaboration :deep(.msg-user:focus-within .msg-tools) { display: flex; }
-  .chat-collaboration :deep(.msg-tools .ibtn) { width: 40px; height: 40px; }
   .chat-collaboration :deep(.chat-composer) { order: 2; width: calc(100% - 16px); margin: 0 8px calc(8px + env(safe-area-inset-bottom)); }
   .chat-collaboration :deep(.chat-lock) { gap: 12px; }
   .chat-collaboration :deep(.chat-mark) { width: 38px; height: 38px; }
@@ -178,6 +169,13 @@
   .chat-collaboration :deep(.attachment-remove::before) { width: 22px; height: 22px; }
   .chat-collaboration :deep(.context-follow), .chat-collaboration :deep(.context-raw summary) { min-height: 44px; font-size: var(--fz-sm); }
   .chat-collaboration :deep(.latest-button) { bottom: calc(var(--composer-height, 180px) + 20px + env(safe-area-inset-bottom)); }
+}
+
+@media (max-width: 860px) {
+  @container chat-result (max-width: 300px) {
+    .chat-collaboration :deep(.chat-result > .chat-result-tools) { grid-column: 1 / -1; grid-row: 3; justify-self: start; flex-wrap: wrap; max-width: 100%; }
+    .chat-collaboration :deep(.chat-result:has(> .chat-versions) .chat-result-meta) { grid-row: 4; }
+  }
 }
 @media (max-width: 400px) {
   .chat-collaboration :deep(.context-button) { gap: 4px; padding-inline: 4px; }

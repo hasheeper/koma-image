@@ -1,4 +1,4 @@
-import { chatSizeKeys, chatReadOnlyKeys } from './chat-options.ts';
+import { chatSizeKeys, chatReadOnlyKeys, chatVersionSettings } from './chat-options.ts';
 import type { ConversationRecord, ConversationTurn, ConversationVersion } from '../storage/records.ts';
 import type { EvolutionInput, InputImage } from './evolution-input.ts';
 import { chatImageId } from './image-origin.ts';
@@ -29,8 +29,9 @@ export function chatEvolutionInput(c: ConversationRecord, t: ConversationTurn, v
   const raw = assetId && Object.keys(v.composites ?? {}).find(id => v.composites![id] === assetId);
   const composite = raw && v.compositeSettings?.[raw];
   const a = t.snapshot.annotation;
+  const settings = chatVersionSettings(t, v);
   const base = v.evolutionInput ?? { workspace: 'chat', operation: 'chat', prompt: a?.text ? t.prompt.replace(a.text,'').trim() : t.prompt,
-    negative: '', characters: [], params: { model: t.settings.model, ...Object.fromEntries([...chatSizeKeys,...chatReadOnlyKeys].flatMap(key=>typeof object(t.settings.options)[key]==='string'?[[key,object(t.settings.options)[key]]]:[])) },
+    negative: '', characters: [], params: { model: settings.model, ...Object.fromEntries([...chatSizeKeys,...chatReadOnlyKeys].flatMap(key=>typeof object(settings.options)[key]==='string'?[[key,object(settings.options)[key]]]:[])) },
     base: (a?.sourceAssetId ?? t.snapshot.base) ? chatInputImage(c,(a?.sourceAssetId ?? t.snapshot.base)!) : null,
     references: t.snapshot.refs.filter(id => id !== a?.guideAssetId).map(id => chatInputImage(c,id)),
     context: t.snapshot.turnIds.map(id => { const previous=c.turns.find(t=>t.id===id); return {id,text:previous?.prompt??'原轮次已移除'}; }),

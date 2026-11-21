@@ -538,6 +538,7 @@ export function createAsk(deps: {
     if (workspace === "edit" || plan?.files?.length) return "应用";
     if (plan?.slate && !plan.changes.length && !plan.newBoardName) return "应用到任务板";
     if (plan?.handoff?.current) return "应用到当前对话";
+    if (plan?.steps.some(s => s.kind === 'chat-child')) return '新开图片子区';
     if (plan?.steps.some((s) => s.kind === "handoff")) return router.route.value.workspace === "chat" ? "新开对话并应用" : "切到对话并新开";
     if (workspace === "image" && plan?.newBoardName) return router.route.value.workspace === "image" ? "新建并应用" : `${to}绘图并新建`;
     if (workspace === "image" && router.route.value.workspace !== "home" && plan?.boardId && drawing.snapshot().activeBoardId !== plan.boardId) return `切回${drawing.board(plan.boardId)?.name ?? "源画板"}并应用`;
@@ -576,7 +577,7 @@ export function createAsk(deps: {
     if (draft.value !== record || controller || disposed) return;
     let plan = validateDraft(record.draft, readDraftState(record.draft.base.boardId, record.draft.steps.find(s => s.kind === "slate_edit")?.change.before?.id, record.draft.base.edit?.id), { off: record.off, has: hasImage, hasRecord });
     if (plan.fingerprint !== fingerprint) { draftRevision.value++; notice.value = "内容已变化，请核对更新后的草稿再应用"; return; }
-    if (!plan.edit && !plan.changes.length && !plan.branch && !plan.handoff && !plan.slate && !plan.files?.length && !plan.rollbackBase && !plan.newBoardName) return;
+    if (!plan.edit && !plan.changes.length && !plan.branch && !plan.handoff && !plan.chatChild && !plan.slate && !plan.files?.length && !plan.rollbackBase && !plan.newBoardName) return;
     if ((plan.workspace === "edit" || plan.files?.length || plan.newBoardName) && plan.steps.some(step => step.issue)) { notice.value = "草稿有冲突，请先核对"; return; }
     writingDraft.value = true; notice.value = "";
     try {
@@ -599,7 +600,7 @@ export function createAsk(deps: {
       externalStatus(record, "applied", notice.value || undefined);
       draft.value = null;
       appliedDraft.value = { id: record.id, workspace: plan.workspace };
-      const count = plan.handoff ? plan.steps.filter((s) => s.enabled && !s.issue && s.id !== "0:new").length : (plan.edit ? 1:0) + plan.changes.length + (plan.createdBoard ? 1 : 0) + (plan.slate ? 1 : 0) + (plan.files?.length ?? 0);
+      const count = plan.handoff || plan.chatChild ? plan.steps.filter((s) => s.enabled && !s.issue && s.id !== "0:new").length : (plan.edit ? 1:0) + plan.changes.length + (plan.createdBoard ? 1 : 0) + (plan.slate ? 1 : 0) + (plan.files?.length ?? 0);
       say(`已应用草稿 ${plan.title} · ${count} 项 · ${plan.workspace !== "chat" ? "未生成" : "未发送"}`);
       await focusWritten(plan);
     } catch (error) { notice.value = message(error); externalStatus(record, "pending", notice.value); }

@@ -9,7 +9,7 @@ import type { WorkspaceId } from "../../app/routes.ts";
 import type { ChatSelection } from "../../domain/conversation.ts";
 import type { DrawingBoard, DrawingForm } from "../../domain/drawing.ts";
 import type { CatalogModel } from "../../domain/catalog.ts";
-import type { Fields } from "../../storage/records.ts";
+import type { ConversationSource, Fields } from "../../storage/records.ts";
 
 export type TextTarget = `edit.${"prompt"|"negative"}` | `edit.char.c${number}.${"prompt"|"negative"}` | "image.prompt" | "image.negative" | "chat.composer" | `image.char.c${number}.${"prompt" | "negative"}`;
 export type TextMode = "replace" | "before" | "after" | "append" | "rewrite";
@@ -37,6 +37,11 @@ export interface BranchStep {
   readonly source: string;
   readonly exclude: readonly string[];
   readonly text: string;
+}
+export interface ChatChildStep {
+  readonly kind: "chat_open_child";
+  readonly label: string;
+  readonly source: ConversationSource & { readonly kind: "image" };
 }
 /** A serializable reference; the Blob is read from IMAGE or CHAT only when writing. */
 export interface HandoffImage {
@@ -124,7 +129,7 @@ export interface Draft {
   readonly baseHash: string;
   /** Original request, reused by the explicit “重新提议” action. */
   readonly question: string;
-  readonly steps: readonly (EditReferencesStep | EditConfigStep | DirectorStep | FileStep | SlateStep | ParameterStep | TextStep | RestoreStep | BranchStep | CharacterStep | HandoffStep)[];
+  readonly steps: readonly (EditReferencesStep | EditConfigStep | DirectorStep | FileStep | SlateStep | ParameterStep | TextStep | RestoreStep | BranchStep | CharacterStep | HandoffStep | ChatChildStep)[];
   readonly base: DraftState;
 }
 export type Field = "composer" | keyof DrawingForm;
@@ -141,7 +146,7 @@ export interface CheckedStep {
   readonly characterLabel?: string;
   readonly id: string;
   readonly label: string;
-  readonly kind: "patch" | "rewrite" | "parameter" | "branch" | "handoff" | "slate" | "file";
+  readonly kind: "patch" | "rewrite" | "parameter" | "branch" | "handoff" | "chat-child" | "slate" | "file";
   readonly enabled: boolean;
   readonly locked?: boolean;
   readonly issue: string;
@@ -172,6 +177,7 @@ export interface DraftPlan {
   readonly newBoardName?: string;
   readonly createdBoard?: DrawingBoard;
   readonly branch?: { readonly before: ChatSelection; readonly after: ChatSelection; readonly key: string };
+  readonly chatChild?: { readonly source: ChatChildStep['source']; readonly key: string };
   /** Confirmed image set and text; current binds updates to one frozen CHAT context. */
   readonly handoff?: { readonly current?: { readonly id: string; readonly key: string }; readonly model: string; readonly options: Readonly<Record<string, string>>; readonly text: string; readonly images: readonly HandoffImage[] };
   readonly title: string;

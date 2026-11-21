@@ -9,8 +9,9 @@ import {
   onDeactivated,
   onBeforeUnmount,
   nextTick,
+  useId,
 } from "vue";
-import type { ConversationTurn } from "../../storage/records";
+import type { ConversationSource, ConversationTurn } from "../../storage/records";
 import { useAnnotations } from "../../app/annotations.ts";
 import { canMaskAnnotations } from "../../domain/region-annotation.ts";
 import { useChat } from "../../app/chat";
@@ -18,14 +19,17 @@ import { useDrawing } from "../../app/drawing";
 import { chatImageId, chatImageOrigin } from "../../domain/image-origin.ts";
 import { useUi, message } from "../../app/ui";
 import { useEditor } from "../../app/editor";
-import { selectSource } from "../../domain/conversation.ts";
-import { chatOptions } from "../../services/chat";
+import { historicalText, selectSource } from "../../domain/conversation.ts";
+import { chatVersionModelName, chatVersionSettings } from "../../domain/chat-options.ts";
+import { object } from "../../domain/value.ts";
 import { copyText } from "../../shared/files";
 import AppIcon from "../../shared/AppIcon.vue";
 import ModelIcon from "../../shared/ModelIcon.vue";
 import ChatPrint from "./ChatPrint.vue";
 import ChatImage from "./ChatImage.vue";
 import ChatVersions from "./ChatVersions.vue";
+import ChatVersionCompare from "./ChatVersionCompare.vue";
+import ChatRerunPanel from "./ChatRerunPanel.vue";
 import ChatResultTools from "./ChatResultTools.vue";
 import EvolutionAction from '../../ask/retrospect/EvolutionAction.vue';
 import { evolutionTarget } from '../../domain/evolution-input.ts';
@@ -47,6 +51,9 @@ const { chat, view } = useChat(),
   { editor } = useEditor();
 const { drawing, view: drawings } = useDrawing();
 const saving = shallowRef<ReadonlySet<string>>(new Set());
+const contextDraft = shallowRef<string | null>(null);
+const contextInput = shallowRef<HTMLTextAreaElement>();
+const contextTrigger = shallowRef<HTMLButtonElement>();
 const ask = useAsk(), { chatCanvas } = useAskPresentation();
 /* Canvas collaboration keeps ASK beside the stream, so a picture can be cited from where it sits. */
 function askAbout(assetId: string) { const label = ask.labelFor(favoriteId(assetId)); if (label) ask.show({ anchor: label }); }
@@ -68,8 +75,20 @@ const version = computed(() => {
     return props.turn.versions[props.turn.selectedVersion]!;
   }),
   model = computed(() =>
-    view.value.models.find((m) => m.id === props.turn.settings.model),
+    view.value.models.find((m) => m.id === chatVersionSettings(props.turn, version.value).model),
   );
+const modelName = computed(() => chatVersionModelName(props.turn, version.value, view.value.models));
+const rerunId = useId();
+const rerunAnchor = shallowRef<HTMLElement>();
+const comparisons = shallowRef(false);
+watch(() => version.value.id, () => { rerunAnchor.value = undefined; });
+const canCompare = computed(() => {
+  view.value;
+  return props.turn.versions.filter(item => item.status === 'done' && item.blocks.some(block => block.type === 'image' && chat.assets.assets.has(block.assetId))).length >= 2;
+});
+function openRerun(event: MouseEvent) {
+  rerunAnchor.value = rerunAnchor.value ? undefined : event.currentTarget as HTMLElement;
+}
 const images = computed(() => {
     view.value;
     return version.value.blocks.filter((block) => block.type === "image");
@@ -93,10 +112,7 @@ let tick: ReturnType<typeof setInterval> | undefined,
 const url = (id: string) => chat.assets.assets.get(id)?.url;
 const asset = (id: string) => chat.assets.assets.get(id);
 const ratio = computed(() => {
-  const options = chatOptions({
-    ...view.value.current,
-    settings: props.turn.settings,
-  });
+  const options = object(chatVersionSettings(props.turn, version.value).options) as Record<string, string>;
   const s = (
     options.size?.includes("x")
       ? options.size.replace("x", ":")
@@ -139,6 +155,8 @@ onActivated(() => {
 onDeactivated(() => {
   active = false;
   clearInterval(tick);
+  rerunAnchor.value = undefined;
+  comparisons.value = false;
 });
 onBeforeUnmount(() => clearInterval(tick));
 async function copy() {
@@ -149,19 +167,26 @@ async function copy() {
     ui.toast(message(e), "err");
   }
 }
-async function reuse() {
-  if (
-    view.value.current.prompt.trim() &&
-    view.value.current.prompt.trim() !== props.turn.prompt.trim() &&
-    !(await ui.confirm({
-      title: "替换输入框内容？",
-      message: "输入框里还有未发送的描述，会被这条替换。",
-      confirmLabel: "替换",
-    }))
-  )
-    return;
-  chat.setPrompt(props.turn.prompt);
-  document.getElementById("chatPrompt")?.focus();
+async function editContext() {
+  contextDraft.value = historicalText(props.turn);
+  await nextTick();
+  contextInput.value?.focus();
+}
+function closeContextEdit() {
+  contextDraft.value = null;
+  contextTrigger.value?.focus();
+}
+function saveContext() {
+  if (contextDraft.value === null) return;
+  try {
+    chat.editHistoricalText(view.value.current.id, props.turn.id, contextDraft.value);
+    closeContextEdit();
+  } catch (error) { ui.toast(message(error), "err"); }
+}
+function continueFrom(kind: ConversationSource["kind"], assetId: string) {
+  try {
+    chat.openResultConversation({ kind, conversationId: view.value.current.id, turnId: props.turn.id, versionId: version.value.id, assetId });
+  } catch (error) { ui.toast(message(error), "err"); }
 }
 /** One EDIT entry: upscale, inpaint and annotation live on the board, not on the print. */
 function openEdit(id: string) {
@@ -170,7 +195,7 @@ function openEdit(id: string) {
     void editor.open("chat", a.blob, a.name, {
       conversationId: view.value.current.id,
       sourceId: favoriteId(a.id),
-      settings: { ...chatImageOrigin(view.value.current, props.turn, version.value, a.id), tool: "chat", prompt: props.turn.prompt, model: String(props.turn.settings.model ?? "") },
+      settings: { ...chatImageOrigin(view.value.current, props.turn, version.value, a.id), tool: "chat", prompt: props.turn.prompt, model: String(chatVersionSettings(props.turn, version.value).model ?? ""), modelName: modelName.value },
     });
 }
 const isBase = (id: string) =>
@@ -204,18 +229,29 @@ const filename = (id: string) =>
       <AnnotationCard v-if="turn.snapshot.annotation" :regions="turn.snapshot.annotation.snapshot.regions" :references="turn.snapshot.annotation.snapshot.references" :preview="url(turn.snapshot.annotation.guideAssetId)" sent />
       <div v-if="turn.prompt" class="msg-bubble turn-prompt" tabindex="0">{{ turn.snapshot.annotation?.text ? turn.prompt.replace(turn.snapshot.annotation.text, '').trim() : turn.prompt }}</div>
       <div class="msg-tools">
-        <button class="ibtn" type="button" aria-label="复制描述" @click="copy">
-          <AppIcon name="i-copy" />
-        </button>
         <button
+          ref="contextTrigger"
           class="ibtn"
           type="button"
-          aria-label="填入输入框"
-          @click="reuse"
+          aria-label="编辑上下文"
+          data-tip="编辑上下文"
+          :aria-expanded="contextDraft !== null"
+          @click="contextDraft === null ? editContext() : closeContextEdit()"
         >
-          <AppIcon name="i-reuse" />
+          <AppIcon name="i-edit" />
+        </button>
+        <button v-if="turn.prompt" class="ibtn" type="button" aria-label="复制描述" data-tip="复制描述" @click="copy">
+          <AppIcon name="i-copy" />
         </button>
       </div>
+      <form v-if="contextDraft !== null" class="chat-context-edit" aria-label="编辑这轮上下文" @submit.prevent="saveContext" @keydown.esc.stop.prevent="closeContextEdit">
+        <textarea ref="contextInput" v-model="contextDraft" rows="3" maxlength="24000" aria-label="历史上下文文字" />
+        <div class="chat-context-edit-actions">
+          <span>只影响后续发送</span>
+          <button type="button" class="btn btn-sm btn-quiet" @click="closeContextEdit">取消</button>
+          <button type="submit" class="btn btn-sm" :disabled="!contextDraft.trim()">保存</button>
+        </div>
+      </form>
     </div>
     <div class="turn-rail" aria-hidden="true">
       <span class="turn-number mono">{{ number }}</span>
@@ -308,19 +344,26 @@ const filename = (id: string) =>
             <footer class="chat-meta chat-result-meta">
               <span class="msg-model-name">
                 <ModelIcon :family="model?.provider" />
-                <span class="msg-name" :title="model?.name || String(turn.settings.model)">{{ model?.name || turn.settings.model }}</span>
+                <span class="msg-name" :title="modelName">{{ modelName }}</span>
               </span>
+              <span v-if="turn.versions.length > 1" class="mono">V{{ turn.selectedVersion + 1 }}</span>
               <span class="chat-dimensions mono">{{ asset(displayed(b.assetId))!.width }}×{{ asset(displayed(b.assetId))!.height }}</span>
               <span v-if="b.assetId === images[0]?.assetId && Number(version.quote?.cost) > 0" class="chat-cost mono">{{ version.quote?.cost }} 积分</span>
+              <button v-if="b.assetId === images[0]?.assetId && canCompare" class="ibtn chat-compare-trigger" type="button" aria-label="对比版本" data-tip="对比版本" @click="comparisons = true"><AppIcon name="i-compare" /></button>
             </footer>
             <ChatResultTools
               :url="url(displayed(b.assetId))!"
               :filename="filename(displayed(b.assetId))"
               :favorite="favorite(displayed(b.assetId))"
               :favorite-busy="favoriteBusy(displayed(b.assetId))"
+              :rerun-id="b.assetId === images[0]?.assetId ? rerunId : undefined"
+              :rerun-open="!!rerunAnchor"
+              :can-rerun="view.ready && !view.busy && !view.uploading && !!view.models.length"
               @favorite="toggleFavorite(displayed(b.assetId))"
               @edit="openEdit(displayed(b.assetId))"
-              @retry="chat.execute(turn)"
+              @rerun="openRerun"
+              @new-chat="continueFrom('image', displayed(b.assetId))"
+              @fork="continueFrom('fork', displayed(b.assetId))"
             ><button v-if="chatCanvas.active.value" class="ibtn chat-result-ask" type="button" aria-label="Ask 这张图" data-tip="Ask" :disabled="version.status !== 'done'" @click="askAbout(displayed(b.assetId))"><AskMark /></button><EvolutionAction :record-id="favoriteId(displayed(b.assetId))" :target="evolutionTarget('chat', view.current.id)" :disabled="version.status !== 'done'" /></ChatResultTools>
             <div v-if="turn.snapshot.annotation && canMaskAnnotations(turn.snapshot.annotation.snapshot.regions)" class="chat-annotation-review">
               <button class="btn btn-sm btn-quiet" @click="review(b.assetId)"><AppIcon name="i-mask" />{{ version.composites?.[b.assetId] ? '重新审核' : '审核并应用蒙版' }}</button>
@@ -338,10 +381,11 @@ const filename = (id: string) =>
           <ModelIcon :family="model?.provider" />
           <span
             class="msg-name"
-            :title="model?.name || String(turn.settings.model)"
-            >{{ model?.name || turn.settings.model }}</span
+            :title="modelName"
+            >{{ modelName }}</span
           >
         </span>
+        <button v-if="canCompare" class="ibtn chat-compare-trigger" type="button" aria-label="对比版本" data-tip="对比版本" @click="comparisons = true"><AppIcon name="i-compare" /></button>
         <template v-if="version.status === 'done'">
           <span v-if="Number(version.quote?.cost) > 0" class="chat-cost mono"
             >{{ version.quote?.cost }} 积分</span
@@ -354,9 +398,14 @@ const filename = (id: string) =>
         </p></template
       >
     </div>
+    <Teleport to="body">
+      <ChatRerunPanel v-if="rerunAnchor" :id="rerunId" :turn="turn" :source="version" :anchor="rerunAnchor" @close="rerunAnchor = undefined" />
+      <ChatVersionCompare v-if="comparisons" :turn="turn" @close="comparisons = false" />
+    </Teleport>
   </article>
 </template>
 
 <style scoped>
+.chat-compare-trigger { --ico: var(--ico-sm); flex: none; }
 .chat-annotation-review { grid-column: 1 / -1; display: flex; gap: var(--sp-2); flex-wrap: wrap; padding-top: var(--sp-2); }
 </style>

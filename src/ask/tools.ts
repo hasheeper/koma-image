@@ -188,11 +188,11 @@ const viewSheet: ToolEntry = {
   },
 };
 const readChat: ToolEntry = {
-  tool: { name: "get_chat_context", description: "读取本轮锁定的当前 CHAT 分支：文字勾选、各轮版本与图片 ID、逐张底图／参考图及发送顺序（input_images）、图片数量限制、当前模型能力与可写／只读选项（chat_model）、已有额度与实际发送文字。不包含其他分支；不请求报价或发送。", schema: schema({}) },
+  tool: { name: "get_chat_context", description: "读取本轮锁定的当前 CHAT 会话：会话类型、图片子区来源图（source_image，可用 view_image 读取，不是输入）、各轮原文及实际使用的 context_text、文字勾选、版本与图片 ID、逐张底图／参考图及发送顺序（input_images）、图片限制、模型能力、已有额度及实际发送文字。不包含其他会话或分支的历史；不请求报价或发送。", schema: schema({}) },
   verb: "读取", object: () => "对话上下文",
   run(_input, context) {
     if (!context.chatContext) throw new Error("当前会话尚未就绪");
-    return reply(context.chatContext, "当前分支");
+    return reply(context.chatContext, "当前会话");
   },
 };
 const searchTags: ToolEntry = {

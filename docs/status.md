@@ -1,10 +1,10 @@
 # 当前状态与待办
 
-更新：2026-11-16。本文维护发布边界、本地未发布能力、剩余问题与真实待验事项；操作和实现细节见[专题索引](README.md)，产品介绍见[产品总览](product/overview.md)。
+更新：2026-11-21。本文维护发布边界、本地未发布能力、剩余问题与真实待验事项；操作和实现细节见[专题索引](README.md)，产品介绍见[产品总览](product/overview.md)。
 
 ## 发布与本地工作区
 
-当前产品版本为 **0.7.3**，产品提交 `c73d11f` 与标签 `v0.7.3` 已推送，Pages 部署为 [e540913f](https://e540913f.koma-image.pages.dev/)。本版修复 IMAGE 画板与演进节点检视的长历史滚动、主图及生成占位偏移，统一 IMAGE／EDIT 底部工具与窄画布菜单，并补清企划协作指南。更新内容见[更新摘要](../CHANGELOG.md#073---2026-11-16)，提交、部署与 CI 边界见[发布证据](archive/README.md#发布记录)。
+本地产品版本为 **0.8.0**，包含 CHAT 上下文编辑、图片子区与历史分支、同轮重新生成与对比，以及 ASK 经确认新开图片子区；详见[更新日志](../CHANGELOG.md#080---2026-11-21)和[CHAT 工作区](workspaces/chat.md)。Pages 已核验的上一版为 [0.7.3](https://e540913f.koma-image.pages.dev/)；发布结果与 CI 边界见[发布证据](archive/README.md#发布记录)。
 
 **0.7.2 补充修正已发布**：ASK 移除出站整包原词拦截，避免协议字段、图片数据、签名历史及替换目标误触发停止发送；创作配置导入仍整体覆盖，词条规范化去重，同原文替换取文件最后一条，合并后再检查容量与逆向映射冲突。词表和文本替换均新增垃圾桶，确认后仅清空对应列表，取消保留内容与编辑状态。严格类型、561 项单元测试、构建、12 项核心冒烟、创作配置浏览器回归与相关样式检查通过，Git 历史、本次改动和 dist 脱敏扫描通过；[main CI](https://github.com/hasheeper/koma-image/actions/runs/43722852318) 全部通过。线上 10 项主要资源与构建一致，合并日志、重复导入、模拟 ASK 发送、手机清空确认／取消与刷新保持及五工作区导航通过，无页面错误或意外外部请求。未执行真实上游请求；三协议模拟发送与 Gemini 签名历史由单元回归覆盖，桌面／手机按钮及确认弹窗已目视检查。行为见 [ASK 设置](ask/README.md#设置自由创作与附件)及[提示词维护](ask/prompts.md#自由创作)。
 
@@ -23,7 +23,7 @@ ASK 创作分组另已完成独立 JSON 导入／导出、条目与替换长度�
 | 三工作区画布协创 BETA | 设置 → 通用统一开启 IMAGE／EDIT／CHAT 协创；同一 ASK 与表单／配方／上下文切换，桌面可调宽侧栏，手机返回工作区默认展示画布。IMAGE 历史与 EDIT 版本在手机使用自适应瀑布流。传统三工作区移除手机外壳，窄屏提示切换 BETA；HOME／TAGS／设置仍保留小屏适配，开启 BETA 时换用同款角落岛、玻璃浮层，设置为舞台底加顶部分组岛。共享交互见[ASK UI](ask/ui.md#12-画布协创beta)，各工作区负责自己的画布和工具 |
 | 演进与工坊 | IMAGE 唯一实时主干、阶段相册、单图提拔与并行预设；EDIT／CHAT 显式交接、交付、续交和接力，恢复／提拔／交付共用撤销。CHAT 图片编号带会话身份；IMAGE 保留完整历史索引、缩略图和配方，按保留策略释放不受保护的原图。见[版本演进](workspaces/recipe-retrospect.md)、[IMAGE](workspaces/image.md) |
 | ASK 参数与模型选择 | 按连接／模型配置可选生成参数，默认关闭留空，Anthropic 保留协议必填上限；推理、命名和压缩按对应模型配置执行。快捷菜单只展示当前供应商已选模型。见[每模型参数](ask/runtime.md#每模型参数)、[ASK UI](ask/ui.md#7-输入框与附件) |
-| ASK 会话与诊断 | ASK／CHAT 共用自动命名设置；普通附件可经草稿交接 CHAT／EDIT；轮次导航不预留单侧留白；调试导出默认省略 Base64 并去重，原始请求仍可完整导出。见[命名](ask/prompts.md#ai-命名)、[运行与调试](ask/runtime.md) |
+| ASK 会话与诊断 | ASK／CHAT 共用自动命名设置；普通附件可经草稿交接 CHAT／EDIT；CHAT 内可确认新开一个图片子区，历史分支仍由用户创建；轮次导航不预留单侧留白；调试导出默认省略 Base64 并去重。见[运行与调试](ask/runtime.md)、[命名](ask/prompts.md#ai-命名) |
 | EDIT 参考与批注 | 参考图与区域批注关联，ASK 可读取并通过确认草稿管理组合或交接；生成冻结引用与图序，沿用每轮图片上限。见[批注参考](workspaces/annotations.md#edit-参考图与批注关联)、[ASK × EDIT](ask/edit.md) |
 | 压缩 | 账本去除重复完整图片绑定，来源留在本地轮次供召回；近期原文预算收紧，保护至少一轮及待确认草稿，已有冻结记忆在下次成功压缩时替换。见[压缩契约](ask/compaction.md) |
 | 维护清理 | 修复紧凑协创 ASK 引用定位后的空侧栏；移除无消费者的尺寸测量、合成／恢复包装与样式，精简装饰性和重复测试。现行文档按主题维护，必要证据已并入集成专题与发布索引 |
@@ -44,7 +44,7 @@ IMAGE／EDIT 协创已用合成图片和模拟接口检查相关面板、蒙版�
 | 外壳与数据 | 单一 App Shell、工作区保活、全应用默认并发 1、数据租约、原图实体／持久编号／冻结引用、新版 Koma ZIP。见[架构](architecture.md)、[数据与任务](engineering/data-and-tasks.md)、[图片身份](engineering/image-identity.md) |
 | HOME | 创作线、继续入口、收藏定稿、布局／封面、来源链及同一 ASK 停靠。见[HOME](workspaces/home.md) |
 | IMAGE | 独立画板、多角色、参数往返、串行批量、历史／收藏及冻结的任务归属。见[IMAGE](workspaces/image.md) |
-| CHAT | 持久会话、上下文、分支、多版本、逐图收藏及显式交接。见[CHAT](workspaces/chat.md) |
+| CHAT | 持久会话、上下文、分支、多版本、同轮重新生成（可改模型和参数）与 A/B 检视、逐图收藏及显式交接。见[CHAT](workspaces/chat.md) |
 | EDIT | 独立编辑画板、版本／蒙版、通用图像编辑、NAI 工具、参考与来源回流；编辑现场仅本页。见[EDIT](workspaces/edit.md) |
 | 批注与融合 | 共享选区、ASK 原图／指示图、CHAT 双图／原生标注、本地边界色彩对齐与人工回贴；Photopea 单 iframe、分层保活与正式结果回传。见[区域批注](workspaces/annotations.md)、[Photopea](integrations/photopea.md) |
 | 图像协议 | 标准网关、Seedream、OpenAI Images、Gemini、NovelAI 官方；具体能力、费用和限制见[图像协议](integrations/image-protocols.md)、[NovelAI](integrations/novelai.md) |
