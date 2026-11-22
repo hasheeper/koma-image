@@ -21,6 +21,8 @@ export interface AskImage {
   readonly mime: "image/png" | "image/jpeg" | "image/webp";
   /** Base64 without the data: prefix. */
   readonly data: string;
+  /** Drop these pixels from committed history, including mixed contact sheets. */
+  readonly turnOnly?: boolean;
   /** Local estimate only; adapters never serialize this. */
   readonly size?: { readonly width: number; readonly height: number };
   /** Local provenance; adapters omit it. Used when old images become text. */

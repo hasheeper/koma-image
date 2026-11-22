@@ -1,6 +1,7 @@
 import { names } from "./names.ts";
 
 export const schemas = [
+  { name: names.databases.layer, version: 1, stores: [{ name: "projects", keyPath: undefined }, { name: "index", keyPath: undefined }, { name: "undo", keyPath: undefined }] },
   { name: names.databases.home, version: 1, stores: [{ name: "previews", keyPath: "boardId" }] },
   { name: names.databases.slate, version: 1, stores: [{ name: "state", keyPath: undefined }, { name: "assets", keyPath: "id" }] },
   { name: names.databases.favorites, version: 3, stores: [{ name: "favorites", keyPath: "id" }, { name: "identity", keyPath: undefined }, { name: "favoriteTags", keyPath: "seq" }, { name: "referenceAssets", keyPath: "id" }, { name: "vibeEncodings", keyPath: "id" }] },
@@ -14,8 +15,13 @@ export const idbRequest = <T>(request: IDBRequest<T>) => new Promise<T>((resolve
   request.onerror = () => reject(request.error);
 });
 export const transactionDone = (tx: IDBTransaction) => new Promise<void>((resolve, reject) => {
+  let requestError: DOMException | null = null;
   tx.oncomplete = () => resolve();
-  tx.onerror = tx.onabort = () => reject(tx.error ?? new DOMException("保存被中断", "AbortError"));
+  // Request errors bubble before IndexedDB assigns tx.error. Only abort is terminal.
+  tx.onerror = event => {
+    if (event.target instanceof IDBRequest) requestError ??= event.target.error;
+  };
+  tx.onabort = () => reject(tx.error ?? requestError ?? new DOMException("保存被中断", "AbortError"));
 });
 async function open(factory: IDBFactory, schema: typeof schemas[number]): Promise<IDBDatabase> {
   return new Promise((resolve, reject) => {

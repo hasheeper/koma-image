@@ -25,9 +25,10 @@ export const proposeDraft: ToolEntry = {
     const prepared = context.prepareDraftImages ? await context.prepareDraftImages(input) : input;
     const draft = omitEmptyInsertions(parseDraft(prepared, context.draftBase, context.library ?? [], context.question, context.evolutionBase, true));
     context.signal?.throwIfAborted();
-    if (!draft.steps.length && !draft.rollbackBase && !draft.editRollback && !draft.newBoardName && !draft.editHandoff) return {
+    if (!draft.steps.length && !draft.layerPatch?.edits.length && !draft.rollbackBase && !draft.editRollback && !draft.newBoardName && !draft.editHandoff) return {
       stat: '无需修改', content: [{ type: 'text', text: '仅包含空插入，无需修改；未创建待确认草稿。请直接回复用户，不必凑写步骤。' }],
     };
+    if (draft.layerPatch) return {content:[{type:'text' as const,text:'分件草稿已交给画师确认。'}],stat:draft.layerPatch.edits.length+' 项分件修改',draft};
     const candidate=draft.editHandoff?.proposal??draft, edit=candidate.base.edit;
     const plan=validateDraft(candidate,candidate.base,{off:new Set()});
     const stepErrors=plan.steps.flatMap(s=>s.enabled&&s.issue&&s.anchorIssue?[s.anchorIssue]:[]);

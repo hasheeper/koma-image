@@ -4,7 +4,7 @@ import { HANDOFF_MAX_AGE } from "../storage/records";
 import type { HandoffRecord } from "../storage/records";
 import { names } from "../storage/names";
 import { transactionDone, idbRequest } from "../storage/databases";
-export async function fitReference(blob: Blob, name: string) {
+export async function fitReference(blob: Blob, name: string, { preserveAlpha = false } = {}) {
   const bitmap = await createImageBitmap(blob);
   try {
     const initial = Math.min(
@@ -18,9 +18,16 @@ export async function fitReference(blob: Blob, name: string) {
         Math.max(1, Math.floor(bitmap.height * scale)),
       );
       const ctx = canvas.getContext("2d")!;
-      ctx.fillStyle = "#fff";
-      ctx.fillRect(0, 0, canvas.width, canvas.height);
+      if (!preserveAlpha) {
+        ctx.fillStyle = "#fff";
+        ctx.fillRect(0, 0, canvas.width, canvas.height);
+      }
       ctx.drawImage(bitmap, 0, 0, canvas.width, canvas.height);
+      if (preserveAlpha) {
+        const out = await canvas.convertToBlob({ type: "image/png" });
+        if (out.size <= MAX_INPUT_BYTES) return { blob: out, name: name.replace(/\.\w+$/, "") + ".png" };
+        continue;
+      }
       for (const quality of [0.92, 0.82, 0.72]) {
         const out = await canvas.convertToBlob({ type: "image/jpeg", quality });
         if (out.size <= MAX_INPUT_BYTES)

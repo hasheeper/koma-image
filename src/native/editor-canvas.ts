@@ -258,9 +258,7 @@ export function createEditorCanvas(
       (e) => {
         e.preventDefault();
         start = e.clientX;
-        width = root
-          .querySelector("#editorForm")!
-          .getBoundingClientRect().width;
+        width = (root.querySelector(".layer-host") ?? root.querySelector("#editorForm"))!.getBoundingClientRect().width;
         dragging = true;
         splitter.setPointerCapture(e.pointerId);
         root.dataset.drag = "on";
@@ -296,7 +294,7 @@ export function createEditorCanvas(
         if (!["ArrowLeft", "ArrowRight"].includes(e.key)) return;
         e.preventDefault();
         paint(
-          root.querySelector("#editorForm")!.getBoundingClientRect().width +
+          (root.querySelector(".layer-host") ?? root.querySelector("#editorForm"))!.getBoundingClientRect().width +
             (e.key === "ArrowLeft" ? -1 : 1) * (e.shiftKey ? 40 : 12),
         );
         deps.panel(last);

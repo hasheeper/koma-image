@@ -5,6 +5,7 @@ import EvolutionAction from '../../ask/retrospect/EvolutionAction.vue';
 import { evolutionTarget } from '../../domain/evolution-input.ts';
 import {
   computed,
+  defineAsyncComponent,
   ref,
   shallowRef,
   watch,
@@ -16,7 +17,7 @@ import {
 import { useEditor } from "../../app/editor";
 import { useShell } from "../../app/shell";
 import { useAskPresentation } from "../../ask/presentation";
-const { fullscreen: askFullscreen, editCanvas: layout, selectCanvasPanel } = useAskPresentation();
+const { fullscreen: askFullscreen, editCanvas: layout, selectCanvasPanel, showTodos } = useAskPresentation();
 const coCreate = layout.active;
 /* Any compact pane closes version browsing; only a full sheet pauses painting. */
 const compactPanel = layout.covered;
@@ -112,6 +113,38 @@ import DrawingBottomPanel from "../../shared/nai/DrawingBottomPanel.vue";
 import EditorParameters from "../../overlays/EditorParameters.vue";
 import EditImageParameters from "./EditImageParameters.vue";
 import { usePhotopea } from "../../app/photopea.ts";
+const LayerPanel=defineAsyncComponent(()=>import('../../layer/LayerPanel.vue'));
+const layerOpen=ref(false), layerStage=shallowRef<HTMLElement|null>(null);
+const layerSize=shallowRef<{width:number;height:number}>();
+const layerDock = shallowRef<HTMLElement | null>(null);
+const layerPeekHost = shallowRef<HTMLElement | null>(null);
+const layerPanel = shallowRef<InstanceType<typeof LayerPanel>>();
+async function toggleLayer() {
+  const opening = !layerOpen.value;
+  if(opening) {
+    closeSelection(); saveMask(); focusRegion?.cancel(); canvas?.setHand(false);
+    if(coCreate.value) layout.panel.value='context';
+  } else if (await layerPanel.value?.readyToClose() === false) return;
+  layerOpen.value=opening;
+  layerSize.value=undefined;
+  void nextTick(()=>canvas?.layout());
+}
+function locateLayerForm() {
+  if (coCreate.value) layout.panel.value = 'context';
+  else ask.hide();
+}
+function sizeLayer(size:{width:number;height:number}) {
+  const fit = layerSize.value?.width !== size.width || layerSize.value?.height !== size.height;
+  layerSize.value=size; void nextTick(()=>fit ? canvas?.fit() : canvas?.layout());
+}
+async function layerBackground(source:Blob) {
+  layerOpen.value=false;
+  try {
+    const target=await editor.open('edit',source,'Koma Layer 去背景.png');
+    if(!target || editor.session.id!==target.boardId)return;
+    editor.setDirectorTool('bg-removal');editor.directorToggle(true);
+  } catch(e){ui.toast(message(e),'err');}
+}
 const photopeaService=usePhotopea();
 const { editor, view } = useEditor(),
   { router } = useShell(),
@@ -124,6 +157,7 @@ const dialog = shallowRef<HTMLElement | null>(null),
   focusHost = shallowRef<HTMLElement | null>(null),
   maskCanvas = shallowRef<HTMLCanvasElement | null>(null),
   elapsed = shallowRef<HTMLElement | null>(null);
+watch([()=>view.value.session.id,()=>view.value.open],()=>{layerOpen.value=false;layerSize.value=undefined;});
 const boards = shallowRef<InstanceType<typeof EditBoards>>();
 const inpaintMode = shallowRef<InstanceType<typeof EditToolMode>>();
 const upscaleMode = shallowRef<InstanceType<typeof EditToolMode>>();
@@ -155,10 +189,10 @@ const switchTarget = computed(() => layout.switchInTray.value ? switchSide.value
 const versionTarget = computed(() => layout.compact.value ? versionBrowserBody.value : versionSlot.value);
 /* The tray keeps the form on screen while it leaves; display:none follows the exit. */
 const formShown = computed(() => coCreate.value && layout.shownPanel.value === 'context');
-const panelOptions = [
-  { value: 'context', label: '表单', icon: 'i-menu', controls: 'editorForm' },
+const panelOptions = computed(() => [
+  { value: 'context', label: layerOpen.value ? '分件' : '表单', icon: layerOpen.value ? 'i-layers' : 'i-menu', controls: 'editorForm' },
   { value: 'ask', label: 'ASK', icon: 'i-ask', controls: 'askDrawer' },
-];
+]);
 watch(askHost, host => { layout.askHost.value = host; });
 function selectPanel(panel: 'ask' | 'context') {
   bottomPanel.value?.close();
@@ -193,7 +227,7 @@ const tab = ref<"prompt" | "negative_prompt">("prompt"),
   drop = ref("");
 const summaryModel = computed(() => view.value.model?.name ?? '未配置模型');
 const summaryModelShort = computed(() => summaryModel.value.replace(/^NAI Diffusion\s+/, ''));
-const versionsBeside = computed(() => coCreate.value && !layout.compact.value && rail.value && view.value.session.versions.length > 0);
+const versionsBeside = computed(() => !layerOpen.value && coCreate.value && !layout.compact.value && rail.value && view.value.session.versions.length > 0);
 const versionsVisible = computed(() => view.value.open && (coCreate.value && layout.compact.value ? versionBrowserOpen.value : rail.value));
 const comparisonMode = shallowRef<'source' | 'raw' | 'composite'>('raw'), previewImage = shallowRef<EditorVersion>();
 const colorMatch=shallowRef(true);
@@ -738,6 +772,12 @@ function key(e: KeyboardEvent) {
   if ((e.target as Element).closest('#askIsland') || versionBrowserOpen.value) return;
   if (photopea.value || annotations.active.value && !selecting.value || annotations.review.value) return;
   if (e.defaultPrevented || e.isComposing || e.keyCode === 229) return;
+  if (layerOpen.value) {
+    if (e.key === ' ' && (e.target as Element).closest('#editorViewport')) {
+      e.preventDefault(); canvas?.setSpace(true);
+    } else layerPanel.value?.shortcut(e);
+    return;
+  }
   const key = e.key.toLowerCase(),
     mod = e.metaKey || e.ctrlKey;
   if (key === "escape") {
@@ -809,7 +849,7 @@ function keyup(e: KeyboardEvent) {
   if (e.key === "\\") compare(false);
 }
 function dragenter(e: DragEvent) {
-  if (photopea.value || (e.target as Element).closest('#askIsland')) return;
+  if (layerOpen.value || photopea.value || (e.target as Element).closest('#askIsland')) return;
   if ((e.target as Element).closest('[data-reference-composer],[data-comment]')) {
     drop.value = '';
     return;
@@ -829,7 +869,7 @@ function dragVersion(id: number, e: DragEvent) {
   e.dataTransfer?.setData(names.dragType, String(id));
 }
 function dropImage(e: DragEvent) {
-  if (photopea.value || (e.target as Element).closest('#askIsland')) return;
+  if (layerOpen.value || photopea.value || (e.target as Element).closest('#askIsland')) return;
   e.preventDefault();
   e.stopPropagation();
   drop.value = "";
@@ -845,7 +885,7 @@ function dropImage(e: DragEvent) {
   if (f) void editor.addSource(f, f.name);
 }
 function paste(e: ClipboardEvent) {
-  if (photopea.value || (e.target as Element).closest('#askIsland')) return;
+  if (layerOpen.value || photopea.value || (e.target as Element).closest('#askIsland')) return;
   if ((e.target as Element).closest("textarea,input,select,[contenteditable]"))
     return;
   const f = [...(e.clipboardData?.files || [])].find((f) =>
@@ -866,15 +906,15 @@ onMounted(async () => {
   unwatchTheme = watchTheme(() => mask?.retint());
   focusRegion = createFocusRegion(dialog.value!, focusHost.value!, {
     size: () => view.value.base, rect: () => editor.session.focus.rect,
-    visible: () => maskActive.value && view.value.focusing && !comparing.value && !selecting.value,
+    visible: () => !layerOpen.value && maskActive.value && view.value.focusing && !comparing.value && !selecting.value,
     selecting: () => focusTool.value, locked: () => locked.value || !maskActive.value || comparing.value || selecting.value,
     commit: rect => { editor.setFocusRect(rect); },
     settled: () => editor.retry("edit"),
   });
   canvas = createEditorCanvas(dialog.value!, mask, {
-    size: () => comparison.value?.compatible ? comparison.value.source : shown.value,
-    maskActive: () => maskActive.value,
-    focus: { selecting: () => focusTool.value || selecting.value, cancel: () => { focusRegion?.cancel(); selection.value?.cancel(); } },
+    size: () => layerOpen.value ? layerSize.value : comparison.value?.compatible ? comparison.value.source : shown.value,
+    maskActive: () => !layerOpen.value && maskActive.value,
+    focus: { selecting: () => focusTool.value || selecting.value, cancel: () => { focusRegion?.cancel(); selection.value?.cancel(); layerPanel.value?.cancelStroke(); } },
     brush: () => brush.value,
     compare,
     panel: (width) => preference("editorPanel", width),
@@ -920,7 +960,8 @@ async function copyReference(v: EditorVersion) {
     :style="{ '--canvas-ask-width': `${layout.ratio.value * 100}%` }"
     :data-mode="s.mode"
     :data-active="view.open ? 'true' : undefined"
-    :data-rail="coCreate || rail ? 'on' : 'off'"
+    :data-layer="layerOpen || undefined"
+    :data-rail="!layerOpen && (coCreate || rail) ? 'on' : 'off'"
     :data-photopea="photopea ? 'on' : undefined"
     data-workspace-root="edit"
     :inert="askFullscreen || !!photopeaService.task.value"
@@ -941,6 +982,7 @@ async function copyReference(v: EditorVersion) {
     <header class="topbar editor-bar" :hidden="!!photopea || coCreate" :inert="!!photopea">
       <div ref="navHome" class="edit-home-slot"></div>
       <Teleport :to="navTarget || 'body'" :disabled="!navTarget"><WorkspaceSwitch workspace="edit" :compact="coCreate" /></Teleport>
+      <button v-if="!coCreate" type="button" class="btn layer-launch" aria-label="Koma Layer" :aria-pressed="layerOpen" :disabled="locked || unsavedPreview" @click="toggleLayer"><AppIcon name="i-layers" />Koma Layer · 分件</button>
       <div ref="toolsHome" class="edit-home-slot"></div>
       <Teleport :to="toolsTarget || 'body'" :disabled="!toolsTarget">
       <div class="topbar-end editor-bar-end" role="group" aria-label="工具">
@@ -948,7 +990,7 @@ async function copyReference(v: EditorVersion) {
         <button
           class="ibtn"
           type="button"
-          v-show="!coCreate" aria-label="版本栏"
+          v-show="!coCreate && !layerOpen" aria-label="版本栏"
           data-tip="版本"
           :aria-pressed="rail"
           @click="
@@ -984,8 +1026,9 @@ async function copyReference(v: EditorVersion) {
     <div class="editor-shell" :hidden="!!photopea" :inert="!!photopea">
       <div ref="formHome" class="edit-form-home"></div>
       <Teleport :to="formTarget || 'body'" :disabled="!formTarget">
+      <div v-if="layerOpen" class="composer layer-host"><LayerPanel ref="layerPanel" :stage="layerStage" :dock="layerDock" :compact="coCreate && layout.compact.value" @panel="selectPanel('context')" @locate-form="locateLayerForm" @todos="showTodos('layer', $event)" @ask-scalpel="ask.show({ question: '请结合当前补画部件、已选参考图与参考图层的用途，帮我拟一份局部补画说明。' })" @review-rejections="ask.show({ question: '列出这个分件项目最近三轮淘汰的部件，查看代表图并描述画面内容。' })" :source="shown" :source-key="s.sourceKey" @size="sizeLayer" @close="toggleLayer" :models="view.models" :active-model="view.model?.id" :background-available="view.director.available" @background="layerBackground" /></div>
       <form
-        v-show="!coCreate || formShown"
+        v-show="!layerOpen && (!coCreate || formShown)"
         class="composer generation-form"
         id="editorForm"
         novalidate
@@ -1182,7 +1225,7 @@ async function copyReference(v: EditorVersion) {
           <header v-show="coCreate" class="edit-canvas-head canvas-recede-hide">
             <div ref="navFloat" class="edit-canvas-nav"></div>
             <div ref="boardFloat" class="edit-canvas-board"></div>
-            <button class="edit-canvas-summary" type="button" aria-label="调整编辑模型与参数" :title="summaryModel" @click="layout.panel.value = 'context'">
+            <button v-show="!layerOpen" class="edit-canvas-summary" type="button" aria-label="调整编辑模型与参数" :title="summaryModel" @click="layout.panel.value = 'context'">
               <span class="edit-canvas-lead"><AppIcon name="i-edit" /><strong>{{ summaryModelShort }}</strong></span>
               <span v-if="view.base" class="edit-canvas-chip">{{ view.base.width }}<span class="edit-canvas-times">×</span>{{ view.base.height }}</span>
             </button>
@@ -1190,14 +1233,15 @@ async function copyReference(v: EditorVersion) {
               <template #trigger="{ open, toggle }"><button class="ibtn edit-canvas-options" type="button" aria-label="编辑画布选项" aria-haspopup="menu" :aria-expanded="open" @click="toggle"><AppIcon name="i-more" /></button></template>
               <template #default><div class="edit-canvas-account"><div ref="accountFloat"></div><div ref="toolsFloat"></div></div></template>
             </PopoverMenu>
+            <button class="edit-canvas-options layer-entry" type="button" aria-label="Koma Layer" title="Koma Layer" :aria-pressed="layerOpen" :disabled="locked || unsavedPreview" @click="toggleLayer"><AppIcon name="i-layers" />分件</button>
             <div ref="switchHome" class="edit-switch-home"></div>
           </header>
           <div class="editor-viewport" :class="{ 'canvas-recede': coCreate }" id="editorViewport" :inert="canvasPaused" tabindex="-1">
             <div class="edit-print-layout" :class="{ 'with-versions': versionsBeside }">
             <div ref="versionSlot" v-show="versionsBeside" class="edit-version-slot" :data-groove-motion="grooveMotion.on.value || undefined"></div>
-            <div class="editor-print" id="editorStage" :hidden="!shown" :data-transparent="shown?.director?.tool === 'bg-removal' || undefined">
+            <div ref="layerStage" class="editor-print" id="editorStage" :hidden="!shown && !layerSize" :data-transparent="shown?.director?.tool === 'bg-removal' || undefined">
               <img
-                v-if="shown"
+                v-if="shown && !layerOpen"
                 id="editorImage"
                 :src="shown.url"
                 alt="当前版本"
@@ -1206,10 +1250,10 @@ async function copyReference(v: EditorVersion) {
               /><canvas
                 ref="maskCanvas"
                 id="editorMask"
-                :hidden="!maskActive"
+                :hidden="!maskActive || layerOpen"
                 aria-label="蒙版：涂抹要重绘的区域"
               ></canvas>
-              <div ref="focusHost" id="editorFocusRegion" class="focus-region" hidden>
+              <div v-show="!layerOpen" ref="focusHost" id="editorFocusRegion" class="focus-region" hidden>
                 <div class="focus-box" role="group" hidden>
                   <span class="focus-label mono" aria-hidden="true"></span>
                   <span v-for="corner in ['nw', 'n', 'ne', 'e', 'se', 's', 'sw', 'w']" :key="corner" class="focus-handle" :data-corner="corner" aria-hidden="true"></span>
@@ -1220,7 +1264,15 @@ async function copyReference(v: EditorVersion) {
             </div>
             </div>
           </div>
-          <div class="blank editor-empty" :hidden="!!view.base">
+          <div v-if="layerOpen" ref="layerDock" class="layer-tools-host" :inert="canvasPaused">
+            <div v-if="layerSize" class="layer-zoom" role="group" aria-label="分件画布缩放">
+              <button type="button" aria-label="缩小分件画布" title="缩小" @click="canvas?.step(-1)"><AppIcon name="i-zoom-out" /></button>
+              <button type="button" title="适应画布" @click="canvas?.fit()">适应</button>
+              <button type="button" aria-label="放大分件画布" title="放大" @click="canvas?.step(1)"><AppIcon name="i-zoom-in" /></button>
+            </div>
+          </div>
+          <div v-if="layerOpen && sheetMode" ref="layerPeekHost" class="layer-peek-host"></div>
+          <div class="blank editor-empty" :hidden="!!view.base || layerOpen">
             <div class="editor-empty-sheet" aria-hidden="true">
               <span class="editor-empty-crop editor-empty-crop-tl"></span>
               <span class="editor-empty-crop editor-empty-crop-tr"></span>
@@ -1249,7 +1301,7 @@ async function copyReference(v: EditorVersion) {
           <div
             class="editor-info"
             :class="{ 'canvas-recede-hide': coCreate }"
-            :hidden="!view.viewed"
+            :hidden="!view.viewed || layerOpen"
             :data-compare="comparing ? 'on' : 'off'"
           >
             <p class="editor-info-meta">
@@ -1287,7 +1339,7 @@ async function copyReference(v: EditorVersion) {
             :class="{ 'canvas-recede-hide': coCreate }"
             role="toolbar"
             aria-label="画布工具"
-            :hidden="!shown && !coCreate"
+            :hidden="layerOpen || (!shown && !coCreate)"
           >
             <span v-if="comparison && (previewError || previewBusy || !comparison.compatible)" class="editor-comparison-note" role="status">{{ previewError || (previewBusy ? '准备预览…' : '画幅不一致，仅保留 AI 生成图') }}</span>
             <div v-show="selecting" ref="annotationToolbar"></div>
@@ -1351,15 +1403,17 @@ async function copyReference(v: EditorVersion) {
             </div>
             <EditComparisonTools v-if="comparison" v-show="!selecting" :mode="comparisonMode" :compact="coCreate && layout.compact.value" :color-match="colorMatch" :can-composite="!!comparison.info.mask && comparison.compatible" :busy="previewBusy" :locked="locked" :can-apply="unsavedPreview" :reason="!comparison.info.mask ? '本轮没有明确范围的蒙版' : !comparison.compatible ? '方向或宽高比不符，无法应用蒙版' : undefined" @select="showComparison" @color="toggleColorMatch" @fusion="openFusion" @apply="applyComparison" />
             <button v-show="coCreate" ref="versionToggle" class="edit-versions-toggle editor-tool-capsule" type="button" aria-label="浏览编辑版本" :aria-expanded="layout.compact.value ? versionBrowserOpen : rail" @click="toggleVersions"><AppIcon name="i-history" /><span>版本</span><b>{{ ordered.length }}</b><AppIcon name="i-chevron" /></button>
-            <div v-if="sheetMode" class="canvas-sheet-peek" role="group" aria-label="创作面板">
+            <Teleport v-if="sheetMode" :to="layerPeekHost ?? 'body'" :disabled="!layerPeekHost">
+            <div class="canvas-sheet-peek" role="group" aria-label="创作面板">
               <div class="canvas-peek-surface">
                 <button class="canvas-sheet-grip canvas-peek-grip" type="button" data-sheet-grip aria-label="展开创作面板" title="上拉展开" @click="canvasSheet.tap()"></button>
                 <div class="canvas-peek-entries">
-                  <button type="button" aria-label="打开表单" title="表单" @click="selectPanel('context')"><AppIcon name="i-menu" /></button>
+                  <button type="button" :aria-label="layerOpen ? '打开分件' : '打开表单'" :title="layerOpen ? '分件' : '表单'" @click="selectPanel('context')"><AppIcon :name="layerOpen ? 'i-layers' : 'i-menu'" /></button>
                   <button type="button" aria-label="打开 ASK" title="ASK" @click="selectPanel('ask')"><AppIcon name="i-ask" /></button>
                 </div>
               </div>
             </div>
+            </Teleport>
             <div v-show="!selecting && !!shown" class="editor-tool-controls">
               <!-- One capsule, hairlines between purposes: edit modes, picture actions, view. -->
               <div class="editor-main-tools editor-tool-capsule">
@@ -1436,12 +1490,12 @@ async function copyReference(v: EditorVersion) {
         <header v-show="layout.compact.value" class="edit-sidebar-head canvas-tray-head" :class="{ 'is-folded': layout.headFolded.value && !sheetMode }"><button v-if="sheetMode" class="canvas-sheet-grip" type="button" data-sheet-grip :aria-label="layout.detent.value === 'half' ? '展开到全屏' : '收回半屏'" title="拖动调整高度" @click="canvasSheet.tap()"></button><div class="canvas-sheet-actions"><button class="ibtn" type="button" aria-label="收起编辑面板" @click="layout.panel.value = null"><AppIcon name="i-close" /></button><button class="ibtn canvas-fold" type="button" aria-label="收起顶栏" @click="layout.toggleHead($event)"><AppIcon name="i-chevron" /></button></div><div ref="switchSide"></div><button v-show="layout.headFolded.value" class="canvas-head-handle" type="button" aria-label="展开顶栏" @click="layout.toggleHead($event)"></button></header>
         <div class="edit-sidebar-content canvas-sheet-content" :data-pane-motion="layout.paneMotion.value || undefined">
           <div ref="askHost" class="edit-canvas-ask canvas-sheet-ask" @focusin="canvasSheet.focus"></div>
-          <section v-show="formShown" class="edit-canvas-form" aria-label="EDIT 表单" @focusin="canvasSheet.focus"><div class="edit-form-title"><AppIcon name="i-menu" />表单</div><div ref="formSide" class="edit-form-side"></div></section>
+          <section v-show="formShown" class="edit-canvas-form" aria-label="EDIT 表单" @focusin="(!layerOpen || ($event.target as HTMLElement)?.matches('textarea, input:not([type]), input[type=text], input[type=number]')) && canvasSheet.focus($event)"><div v-show="!layerOpen" class="edit-form-title"><AppIcon name="i-menu" />表单</div><div ref="formSide" class="edit-form-side"></div></section>
         </div>
       </aside>
       </Transition>
       <Teleport :to="versionTarget || 'body'" :disabled="!coCreate || !versionTarget">
-      <aside class="gallery editor-rail" :class="{ 'edit-canvas-versions': coCreate, 'mobile-versions': coCreate && layout.compact.value }" aria-label="版本">
+      <aside v-show="!layerOpen" class="gallery editor-rail" :class="{ 'edit-canvas-versions': coCreate, 'mobile-versions': coCreate && layout.compact.value }" aria-label="版本">
         <div class="gallery-head">
           <span class="mono">{{ ordered.length }}</span>
         </div>
@@ -1610,5 +1664,40 @@ async function copyReference(v: EditorVersion) {
 <style scoped src="../../shared/canvas-motion.css"></style>
 <style scoped src="../../shared/canvas-surface.css"></style>
 <style scoped src="../../shared/canvas-sheet.css"></style>
+<style scoped>
+.layer-host { display: block; overflow-y: auto; }
+.layer-launch { flex: none; gap: 6px; }
+.layer-launch[aria-pressed="true"] { color: var(--a); background: var(--a-dim); }
+.layer-zoom { position: absolute; bottom: 14px; right: 14px; display: flex; align-items: center; border-radius: 9px; background: var(--glass-bg); border: 1px solid var(--line-2); pointer-events: auto; }
+.layer-zoom button { display: grid; min-width: 31px; height: 34px; place-items: center; border-radius: 7px; color: var(--fg-2); font-size: var(--fz-xs); --ico: var(--ico-sm); }
+.layer-zoom button:hover { color: var(--fg); background: var(--hover); }
+@container editor-mat (max-width: 680px) { .layer-zoom { display: none; } }
+@media (max-width: 680px) {
+  .editor[data-layer]:not(.edit-collaboration) .editor-bar-end,
+  .editor[data-layer]:not(.edit-collaboration) .editor-bar :deep(#meters) { display: none; }
+  .editor[data-layer]:not(.edit-collaboration) .topbar-account { margin-left: auto; }
+}
+@media (max-width: 1079px) {
+  .editor[data-layer]:not(.edit-collaboration) { overflow: hidden; }
+  .editor[data-layer]:not(.edit-collaboration) > .editor-bar,
+  .editor[data-layer]:not(.edit-collaboration) > .editor-shell { min-width: 0; }
+  .editor[data-layer]:not(.edit-collaboration) > .editor-bar { overflow-x: auto; }
+  .editor[data-layer]:not(.edit-collaboration) .editor-shell { grid-template: minmax(0, 1fr) minmax(0, .9fr) / minmax(0, 1fr); }
+  .editor[data-layer]:not(.edit-collaboration) #editorCanvas { grid-area: 1 / 1; }
+  .editor[data-layer]:not(.edit-collaboration) .layer-host { grid-area: 2 / 1; border-top: 1px solid var(--line-2); }
+  .editor[data-layer]:not(.edit-collaboration) #editorSplitter { display: none; }
+}
+.edit-canvas-head .layer-entry { display: inline-flex; align-items: center; justify-content: center; gap: 5px; width: auto; padding-inline: 9px; white-space: nowrap; }
+.layer-entry[aria-pressed="true"] { color: var(--a); }
+.layer-tools-host { position: absolute; z-index: 5; inset: 0; display: flex; align-items: flex-end; justify-content: center; padding: 0 8px 14px; pointer-events: none; }
+.editor[data-layer] .editor-viewport { padding-top: 18px; padding-bottom: 72px; }
+.edit-collaboration[data-layer] .editor-viewport { padding-top: 62px; }
+.layer-peek-host { position: absolute; right: 0; bottom: max(16px, env(safe-area-inset-bottom)); left: 0; z-index: 6; display: flex; justify-content: center; pointer-events: none; }
+.layer-peek-host .canvas-sheet-peek { pointer-events: auto; }
+.editor.canvas-sheet[data-layer]:not([data-sheet-pane]) .layer-tools-host { padding-bottom: max(34px, calc(env(safe-area-inset-bottom) + 22px)); }
+.editor.canvas-sheet[data-layer][data-sheet-pane] .layer-tools-host { bottom: var(--sheet-cover, 0px); padding-bottom: 6px; }
+.editor.canvas-sheet[data-layer][data-sheet-pane] .editor-viewport { padding-bottom: 54px; }
+.editor.canvas-sheet[data-layer][data-sheet-pane="context"] .edit-canvas-form { bottom: 0; }
+</style>
 <style scoped src="./edit-canvas.css"></style>
 <style scoped src="../../shared/canvas-history.css"></style>

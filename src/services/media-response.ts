@@ -3,9 +3,20 @@ import type { ImagePayload } from "../gateway/routes";
 import { decodeImage } from "./image-response";
 import { decodeNativeImages } from "../native/native-images.ts";
 import type { NativeImageLimits } from "../native/native-images.ts";
+export interface MediaImageMeta {
+  name?: string;
+  zIndex?: number;
+  background?: string;
+  /** Native Seedream bounding_box uses per-thousand normalized integers. */
+  seedreamBox?: boolean;
+  /** Absolute [left, top, right, bottom] in the provider's base output pixel space. */
+  box?: [number, number, number, number];
+  /** Normalized [left, top, right, bottom] (0..1000 or 0..1) relative to canvas. */
+  normalizedBox?: [number, number, number, number];
+}
 export type MediaBlock =
   | { type: "text"; text: string }
-  | { type: "image"; blob: Blob; size: { width: number; height: number } };
+  | { type: "image"; blob: Blob; size: { width: number; height: number }; meta?: MediaImageMeta };
 /** Preserve ordered text and every embedded image; never fetch remote output URLs with credentials. */
 export async function consumeMedia(
   response: Response,
@@ -16,7 +27,7 @@ export async function consumeMedia(
 ): Promise<MediaBlock[]> {
   const blocks: (
     | { type: "text"; text: string }
-    | { type: "image"; blob: Blob }
+    | { type: "image"; blob: Blob; meta?: MediaImageMeta }
   )[] = [];
   const type = response.headers.get("content-type") || "";
   if (native && !type.includes("json"))
@@ -55,11 +66,42 @@ export async function consumeMedia(
           atob(encoded.replace(/^data:image\/(?:png|jpeg|webp);base64,/, "")),
           (c) => c.charCodeAt(0),
         );
+        const tuple4 = (v: unknown): [number, number, number, number] | undefined =>
+          Array.isArray(v) && v.length === 4 && v.every((n) => typeof n === "number" && Number.isFinite(n))
+            ? (v as [number, number, number, number])
+            : undefined;
+        const bboxObj = object(part.bounding_box);
+        const box = tuple4(bboxObj.absolute) ?? tuple4(part.box) ?? tuple4(part.bbox);
+        const normalizedBox = tuple4(bboxObj.normalized);
+        const rawZ =
+          typeof part.z_index === "number" && Number.isFinite(part.z_index)
+            ? part.z_index
+            : typeof part.layer_index === "number" && Number.isFinite(part.layer_index)
+              ? part.layer_index
+              : undefined;
+        const rawName =
+          typeof part.name === "string" && part.name.trim()
+            ? part.name.trim()
+            : typeof part.description === "string" && part.description.trim()
+              ? part.description.trim()
+              : undefined;
+        const meta: MediaImageMeta | undefined =
+          rawName || rawZ !== undefined || typeof part.background === "string" || box || normalizedBox
+            ? {
+                ...(rawName ? { name: rawName } : {}),
+                ...(rawZ !== undefined ? { zIndex: rawZ } : {}),
+                ...(typeof part.background === "string" ? { background: part.background } : {}),
+                ...(payload.layerDecomposition && (tuple4(bboxObj.absolute) || normalizedBox) ? { seedreamBox: true } : {}),
+                ...(box ? { box } : {}),
+                ...(normalizedBox ? { normalizedBox } : {}),
+              }
+            : undefined;
         blocks.push({
           type: "image",
           blob: native
             ? (await decodeNativeImages(bytes.buffer, nativeLimits))[0]
             : new Blob([bytes], { type: mime }),
+          ...(meta ? { meta } : {}),
         });
       }
     }

@@ -23,3 +23,30 @@ NAI token 计数使用 `@huggingface/tokenizers` 0.2.0（Apache-2.0）与自托�
 NAI 提示词组织、漫画与服装构思的方法参考 [Miint-Sunny/nai5-prompting](https://github.com/Miint-Sunny/nai5-prompting)。该上游技能包采用 GPL-3.0，未作为完整技能包随本项目分发；ASK 内置的是结合本应用工具和能力边界整理的简要指引，不含用户个人 OC 资料。上游原始文件仍受其自身许可约束，本项目的非商业许可不改变它们的授权。
 
 README 的产品拼图位于 `docs/assets/screenshots/workspaces.jpg`，由 Pages 中已有真实创作案例的 IMAGE／CHAT 截图，以及用户提供的 EDIT／ASK 完整界面截图组成。裁去浏览器栏与窗口边框，保留余额等界面信息，以 2×2 排列；不含 API Key 或私有连接地址。截图中的作品不因被收录而改变其原有权利归属。该文件仅作产品介绍，不作为浏览器测试的截图基线，也不放入静态应用构建。
+
+Koma Layer 的直通 RGBA 编码使用 fast-png、fflate 和 iobuffer。[fast-png](https://github.com/image-js/fast-png) · [fflate](https://github.com/101arrowz/fflate) · [iobuffer](https://github.com/image-js/iobuffer)
+
+```text
+MIT License
+
+fast-png / iobuffer: Copyright (c) 2015 Michaël Zasso
+fflate: Copyright (c) 2026 Arjun Barrett
+
+Permission is hereby granted, free of charge, to any person obtaining a copy
+of this software and associated documentation files (the "Software"), to deal
+in the Software without restriction, including without limitation the rights
+to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+copies of the Software, and to permit persons to whom the Software is
+furnished to do so, subject to the following conditions:
+
+The above copyright notice and this permission notice shall be included in all
+copies or substantial portions of the Software.
+
+THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+SOFTWARE.
+```

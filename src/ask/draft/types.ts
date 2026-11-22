@@ -81,6 +81,7 @@ export interface CharacterStep {
   readonly placement?: "auto" | "manual";
 }
 export interface DraftState {
+  readonly layer?: import('../../layer/planning.ts').LayerContext;
   readonly edit?: EditDraftState;
   readonly editBoards?: readonly EditDraftState[];
   readonly fileContext?: FileContext;
@@ -117,6 +118,7 @@ export interface EditRollback {
   readonly label: string;
 }
 export interface Draft {
+  readonly layerPatch?: import('../../layer/planning.ts').LayerPatch;
   readonly editRollback?: EditRollback;
   readonly rollbackBase?: RollbackBase;
   readonly editHandoff?: EditHandoff;
@@ -135,6 +137,7 @@ export interface Draft {
 export type Field = "composer" | keyof DrawingForm;
 export interface Change { readonly field: Field; readonly before: DrawingForm[keyof DrawingForm]; readonly after: DrawingForm[keyof DrawingForm] }
 export interface CheckedStep {
+  readonly layerTodos?: Extract<import('../../layer/planning.ts').LayerEdit, { kind: 'todos' }>;
   readonly anchorIssue?: {
     readonly code: "anchor_not_found" | "anchor_ambiguous";
     readonly step: number;
@@ -159,6 +162,8 @@ export interface CheckedStep {
   readonly suffix?: string;
 }
 export interface DraftPlan {
+  readonly layerTitle?: string;
+  readonly layerPatch?: import('../../layer/planning.ts').LayerPatch;
   readonly treeChange?: import('../retrospect/store.ts').EvolutionTreeChange;
   /** Ordinary ASK edits reserve their next version in the same write/undo transaction. */
   readonly evolution?: import('../retrospect/store.ts').EvolutionChange;

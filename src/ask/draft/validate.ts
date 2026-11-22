@@ -1,3 +1,4 @@
+import {parseLayerPatch,validateLayer} from './layer.ts';
 import { idPattern } from "../ids.ts";
 import { recipeOf } from '../retrospect/recipe.ts';
 import { isEmptyInsertion } from './text.ts';
@@ -34,7 +35,7 @@ const text = (value: unknown, max = 24000) => {
   if (typeof value !== "string" || value.length > max) throw new Error("草稿文字长度或类型无效");
   return value;
 };
-export const stateHash = (s: DraftState) => s.workspace === "edit" && s.edit ? editStateHash(s.edit) : workspaceHash(s.form, s.composer, s.boardId);
+export const stateHash = (s: DraftState) => s.workspace === "edit" && s.layer ? hash(canonical(s.layer)) : s.workspace === "edit" && s.edit ? editStateHash(s.edit) : workspaceHash(s.form, s.composer, s.boardId);
 /** Asked outside CHAT, a CHAT write always opens a new conversation. */
 const outsideChat = (base: DraftState) => {
   if (base.workspace && base.workspace !== "chat") throw new Error("在 HOME／IMAGE／TAGS 提问时，写入 CHAT 一律新开会话：请改用 chat_handoff");
@@ -62,6 +63,14 @@ export function handoffImage(label: string, base: DraftState, library: readonly 
   return { label, source: origin.source, ref: picture.id, ...(picture.bindings?.[label] ? {binding:picture.bindings[label]} : {}) };
 }
 export function parseDraft(input: Readonly<Record<string, unknown>>, base: DraftState, library: readonly Picture[], question = "", evolutionBase?: (recordId: string) => EvolutionChange | { edit?: import("../../domain/edit-draft.ts").EditDraftState }, internal = false): Draft {
+  if (base.layer && base.workspace==='edit') {
+    if (!internal || input.base_hash!==stateHash(base) || !Array.isArray(input.steps) || input.new_board_name!==undefined || input.base_image_id!==undefined)
+      throw new Error('请使用当前分件项目的内置 ASK 草稿');
+    const title=text(input.draft_title??input.title,120).trim();
+    if (!title) throw new Error('请填写草稿标题');
+    return {title,baseHash:stateHash(base),base:structuredClone(base),steps:[],question,
+      layerPatch:parseLayerPatch(base.layer,input.steps,question)};
+  }
   if (Array.isArray(input.steps) && input.steps.some(step => step?.kind === 'chat_open_child')) {
     if (!internal || base.workspace !== 'chat' || !base.chat) throw new Error('仅能在当前 CHAT 中提议图片子区');
     if (input.steps.length !== 1 || input.new_board_name !== undefined || input.base_image_id !== undefined) throw new Error('图片子区必须独立提交，每份草稿只开一个子区');
@@ -251,6 +260,7 @@ const roleGroupText = (chars: DraftState["form"]["characters"], placement: strin
 const labels: Partial<Record<Field, string>> = { prompt: "Prompt", negative: "Negative", composer: "对话输入框", width: "宽", height: "高", steps: "步数", scale: "Guidance", cfg: "中转 CFG（旧）", cfgRescale: "Guidance Rescale", noiseSchedule: "噪声调度", varietyPlus: "Variety+", naiMode: "模式", complexity: "Complexity", qualityPreset: "质量预设", negativePreset: "负向预设", transparentBg: "透明底", sampler: "采样器", seed: "Seed", model: "模型", batchCount: "批次" };
 
 export function validateDraft(draft: Draft, now: DraftState, options: ValidateOptions): DraftPlan {
+  if(draft.layerPatch) return validateLayer(draft,now,options.off);
   if(draft.editRollback) {
     const r=draft.editRollback,live=now.edit;
     const pristine=now===draft.base||canonical(live?.config)===canonical(r.after.config)&&live?.baseId===r.after.baseId;

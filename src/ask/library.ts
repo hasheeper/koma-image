@@ -29,6 +29,8 @@ export interface Picture extends DigestImage {
   readonly origins: readonly PictureOrigin[];
   readonly blob: Blob;
   readonly thumbnailOnly?: boolean;
+  /** Consult in the current turn; the owning workspace controls retention. */
+  readonly turnOnly?: boolean;
   readonly previewBlob?: Blob;
   readonly attachment?: Readonly<Record<string, unknown>>;
 }

@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import { computed, onMounted, shallowRef } from 'vue';
 import { useChat } from '../../app/chat.ts';
-import { chatRerunPlan, chatVersionSettings } from '../../domain/chat-options.ts';
+import { chatRerunPlan, chatVersionSettings, coerceModelOptions } from '../../domain/chat-options.ts';
 import { resolveModel } from '../../domain/catalog.ts';
 import type { ConversationTurn, ConversationVersion } from '../../storage/records.ts';
 import AppIcon from '../../shared/AppIcon.vue';
@@ -30,7 +30,7 @@ function selectModel(event: Event) {
   if (plan.value) options.value = plan.value.settings.options;
 }
 function setOption(key: string, value: string) {
-  options.value = { ...options.value, [key]: value };
+  options.value = coerceModelOptions(model.value, { ...(plan.value?.settings.options ?? options.value), [key]: value }, key);
 }
 
 const popover = usePopover(panel, {

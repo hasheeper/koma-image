@@ -66,18 +66,42 @@ test('Seedream: Lite/Pro/Flash sizes and image limits follow template even for c
   validateSeedreamSize('1024x1024', SEEDREAM_PRO);
 });
 
-test('Seedream 5.5: manual model binding works without discovery and disabled mappings remain disabled', async () => {
+test('Seedream 5.5: manual model binding works without discovery, supports transparent background with PNG guard, and auto-matches official aliases', async () => {
   const t = await setup(seedreamProfile, { error: 'no listing' }, { template: SEEDREAM_55, alias: 'vendor/future-image', manual: true, discoveryStatus: 404 });
   const [model] = (await t.gateway.catalog()).models;
   assert.equal(model.name, 'Seedream 5.5');
-  await t.gateway.execute(buildChatPayload(model, 'test', { size: '3072x2048' }), r => r.json());
+  assert.deepEqual(model.fields.size.options, ['1K', '1.5K', '2K']);
+  assert.deepEqual(model.fields.background.options, ['auto', 'transparent', 'opaque']);
+  assert.equal(model.fields.background.default, 'auto');
+  await t.gateway.execute(buildChatPayload(model, 'test', { size: '3072x2048', background: 'transparent', output_format: 'png' }), r => r.json());
   assert.equal(t.calls.at(-1).body.model, 'vendor/future-image');
+  assert.equal(t.calls.at(-1).body.background, 'transparent');
+  assert.equal(t.calls.at(-1).body.output_format, 'png');
+  // Transparent background rejects JPEG both at payload builder and native request boundary.
+  assert.throws(() => buildChatPayload(model, 'test', { background: 'transparent', output_format: 'jpeg' }), /PNG/);
+  assert.throws(() => nativeRequest(seedreamProfile, { model: 'vendor/future-image', prompt: 'test', image_options: { background: 'transparent', output_format: 'jpeg' } }), /PNG/);
   await t.gateway.catalog();
   assert.equal(t.calls.filter(c => c.path.endsWith('/models')).length, 1);
   t.routing.links.test[SEEDREAM_55].on = false;
   await t.connections.save(t.routing);
   await assert.rejects(createGateway(t.connections.context('test'), t.fetcher).catalog());
   assert.equal(t.calls.filter(c => c.path.endsWith('/generations')).length, 1);
+
+  // Official Seedream 5.5 aliases auto-match without manual links and standard gateway forwards background.
+  const auto = await setup(seedreamProfile, { data: [{ id: 'dola-seedream-5-5-261028' }] }, { template: SEEDREAM_55, alias: 'dola-seedream-5-5-261028', manual: false });
+  const [matched] = (await auto.gateway.catalog()).models;
+  assert.equal(matched.id, SEEDREAM_55);
+  assert.equal(matched.upstreamId, 'dola-seedream-5-5-261028');
+  assert.equal(matched.fields.background.default, 'auto');
+
+  const stdRaw = { studio_features: { version: 2, max_cost: true }, models: { 'doubao-seedream-5-5': {
+    provider_id: 'byteplus', editor_family: 'seedream', operations: ['generate', 'edit'], tools: ['image-edit'],
+  } } };
+  const std = await setup(standardProfile, stdRaw, { template: SEEDREAM_55, alias: 'doubao-seedream-5-5', manual: false });
+  const [stdModel] = (await std.gateway.catalog()).models;
+  await std.gateway.execute(buildChatPayload(stdModel, 'transparent sticker', { background: 'transparent' }), r => r.json());
+  assert.equal(std.calls.at(-1).body.image_options.background, 'transparent');
+  assert.equal(std.calls.at(-1).body.image_options.output_format, 'png');
 });
 
 test('Seedream: unsupported result modes fail before submission and server rejection never retries', async () => {
@@ -85,6 +109,43 @@ test('Seedream: unsupported result modes fail before submission and server rejec
   for (const image_options of [{ response_format: 'url' }, { sequential_image_generation: 'auto' }, { layer_decomposition: true }, { stream: true }, { n: 4 }])
     assert.throws(() => nativeRequest(seedreamProfile, { ...payload, image_options }));
   assert.throws(() => nativeRequest(seedreamProfile, { ...payload, tool: 'image-edit', init_image: png, mask_image: png }), /蒙版/);
+  // Layer decomposition accepts strictly 1 image, expands nested max_images, omits background, and rejects invalid counts.
+  const decomp = nativeRequest(seedreamProfile, {
+    model: 'doubao-seedream-5-5',
+    prompt: '拆出右马尾和袖子',
+    tool: 'image-edit',
+    init_image: png,
+    additional_images: [],
+    image_options: {
+      layer_decomposition: true,
+      'layer_decomposition_options.max_images': 10,
+      background: 'transparent',
+      size: 'auto',
+      output_format: 'png',
+      watermark: false,
+    },
+  });
+  assert.equal(decomp.path, '/images/generations');
+  assert.equal(decomp.body.layer_decomposition, true);
+  assert.deepEqual(decomp.body.layer_decomposition_options, { max_images: 10 });
+  assert.equal(decomp.body.background, undefined);
+  assert.equal(decomp.body.size, 'auto');
+  assert.equal(decomp.body.image, png);
+  assert.throws(() => nativeRequest(seedreamProfile, {
+    model: 'doubao-seedream-5-5',
+    prompt: '',
+    tool: 'image-edit',
+    init_image: png,
+    additional_images: [png],
+    image_options: { layer_decomposition: true },
+  }), /1 张输入图/);
+  assert.throws(() => nativeRequest(seedreamProfile, {
+    model: 'doubao-seedream-5-5',
+    prompt: '',
+    tool: 'image-edit',
+    init_image: png,
+    image_options: { layer_decomposition: true, 'layer_decomposition_options.max_images': 1 },
+  }), /2 至 100/);
   const t = await setup(seedreamProfile, { data: [{ id: SEEDREAM_LITE }] }, { generationStatus: 503 });
   const [model] = (await t.gateway.catalog()).models;
   await assert.rejects(t.gateway.execute(buildChatPayload(model, 'test', {}), r => r.json()), /synthetic failure/);

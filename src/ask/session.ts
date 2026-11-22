@@ -12,10 +12,11 @@ const placeholder = (image: AskImage) => ({
   type: "text" as const,
   text: `[Image ${image.viewed?.ids.join(", ") ?? "unknown"} (${image.viewed?.spec ?? "view"}, ${Math.ceil((image.viewed?.bytes ?? 0) / 1024)}KB) was viewed in an earlier turn; call view_image again if re-inspection is needed]`,
 });
-export function dehydrate(messages: readonly AskMessage[]): AskMessage[] {
+export function dehydrate(messages: readonly AskMessage[], release: (image: AskImage) => boolean = () => true): AskMessage[] {
+  const replace = (image: AskImage) => release(image) ? placeholder(image) : image;
   return messages.map((message) => ({ ...message, content: message.content.map((block) =>
-    block.type === "image" ? placeholder(block)
-      : block.type === "result" ? { ...block, content: block.content.map((part) => part.type === "image" ? placeholder(part) : part) }
+    block.type === "image" ? replace(block)
+      : block.type === "result" ? { ...block, content: block.content.map((part) => part.type === "image" ? replace(part) : part) }
         : block,
   ) }));
 }
@@ -231,7 +232,7 @@ export function createSession(total?: (usage: AskUsage) => void, from: readonly 
         commit(meta = {}) {
           close();
           const turnId: TurnId = `T${nextTurnId++}`;
-          const turns = dehydrateTurns([...committed.map((t) => t.messages), pending]);
+          const turns = dehydrateTurns([...committed.map((t) => t.messages), dehydrate(pending, image => !!image.turnOnly)]);
           const viewed = [...(meta.viewed ?? [])];
           committed = [...committed, { turnId, messages: pending, viewed, pictureRefs:meta.pictureRefs, inputTokens, question: meta.question ?? questionOf(pending),
             attachments: [...(meta.attachments ?? [])], targets: [...(meta.targets ?? viewed)], boards: [...(meta.boards ?? [])],

@@ -231,6 +231,8 @@ export function buildChatPayload(
   if (images.length > model.maxImages)
     throw new Error(`本模型最多带入 ${model.maxImages} 张图片（包含底图）`);
   const image_options = normalizeOptions(model, options);
+  if (image_options.background === "transparent" && image_options.output_format === "jpeg")
+    throw new Error("透明背景仅支持 PNG 格式，请将格式切换为 PNG");
   const payload: PayloadBase & { image_options: Record<string, string> } = {
     model: model.id,
     prompt,

@@ -1,9 +1,18 @@
 import { INBOX_LIMIT } from "./protocol.ts";
 export type Directory = FileSystemDirectoryHandle & {
-  queryPermission(options: { mode: "readwrite" }): Promise<PermissionState>;
-  requestPermission(options: { mode: "readwrite" }): Promise<PermissionState>;
+  queryPermission(options: { mode: "read" | "readwrite" }): Promise<PermissionState>;
+  requestPermission(options: { mode: "read" | "readwrite" }): Promise<PermissionState>;
 };
-export const directoryPicker = () => (window as Window & { showDirectoryPicker?: (options: { mode: "readwrite"; id: string }) => Promise<Directory> }).showDirectoryPicker;
+export const directoryPicker = () => (window as Window & { showDirectoryPicker?: (options: { mode: "read" | "readwrite"; id: string }) => Promise<Directory> }).showDirectoryPicker;
+/** Native directory reads have no AbortSignal. Ignore their result if the mount ends first. */
+export async function readWhileMounted<T>(signal: AbortSignal, read: () => Promise<T>): Promise<T> {
+  signal.throwIfAborted();
+  let abort!: () => void;
+  const cancelled = new Promise<never>((_, reject) => { abort = () => reject(signal.reason); });
+  signal.addEventListener("abort", abort, { once: true });
+  try { return await Promise.race([cancelled, read()]); }
+  finally { signal.removeEventListener("abort", abort); }
+}
 export function safePath(path: string) {
   const parts = path.split("/");
   if (!path || parts.some(p => !p || p === "." || p === ".." || /[\\:\x00-\x1f]/.test(p))) throw new Error("协同路径无效");

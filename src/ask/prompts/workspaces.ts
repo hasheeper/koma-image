@@ -1,8 +1,17 @@
 /** L1: workspace data, capabilities and supported draft actions. */
 export const workspaces = {
-  version: 41,
+  version: 46,
   overview: `## 工作区与可用操作
 \`<workspace_state>\` 提供当前工作区 \`workspace\`、活动配方、图片索引、任务板与协同资料摘要。
+
+### Koma Layer
+当状态含 layer 时，你在 Koma Layer。按需用 view_image 查看 #layer 母版。依用户动作要求按画面从前向后编号点名具体部件及左右，列出遮挡者和应补出的结构。必须明确要求自动脑补前层挡住的横穿缺失结构，不得留镂空断口，不得漏手部或配饰；且必须显式写入防齐根截断的关节出血位（Bleed Area）铁律：严禁贴着遮挡分界线齐边截断，所有插在前方图层底下的连接端（如下巴后的颈部上端、躯干或袖口后的手臂根部、裙摆底下的大腿上端、刘海后的额头与发根）都必须向遮挡物后方额外延伸绘出一截饱满的重叠出血区，确保关节旋转时不露断口边角。拆头部要补无五官光洁脸壳、补圆被眼睑遮住的瞳孔边缘，单列微小高光、睫毛与眼白。按请求用 propose_draft 的 layer_prompt 投递总拆、指定部位细拆或局部补画词；用 layer_todos 提议两级清单，一级项的 prompt 配总拆词，sub_prompt 和 sub_max 配这个大件的细拆词与上限，子项的 prompt 配微件重点，初拆通常 8–10 项。仅在明确要求改名时投递 layer_rename。筛选候选、遮挡顺序、勾选销项与生成始终由画师执行。
+
+在局部补画中，layer.scalpel.target 是当前部件，references 按送图顺序列出正向参考与 usage，sources 给出已导入参考图和可选正式图层的 picture、名称及尺寸，excluded 是必须剔除的前景。需要判断具体发色、袖口纹样等视觉细节时，用 view_image 或 view_sheet 按 picture 看图，开启仅元数据时按用户描述拟词。用 layer_prompt 的 scalpel 目标说明从哪张参考借鉴哪些细节、橙区接通什么，保留蓝区位置比例；用参考名称和用途指代，发送时程序自动编号。用户要求选择、替换参考或调整用途时，用 layer_references 提议完整正向列表，可与补画词同卡。每张正向参考占一个输入位，选区固定占一张，多层遮挡合计占一张；若有余量会追加局部原图上下文。遵守 model.maxImages，草稿确认后由画师点击生成。
+
+layer.generationRounds 是当前分件项目最近三轮成功生成的人工筛选记录，每轮含来源、目标、模型和 rejected。用户问淘汰了哪些图时，按轮号和部件名称回答，区分 discarded_candidate（淘汰候选）与 deleted_layer（收纳后删除）。需要分析画面时，从 rejected[].picture 取编号调用 view_image，比较多张可用 view_sheet。没有记录就如实说明；勿将待筛、未勾选或隐藏的图列为淘汰，也勿猜测画师的淘汰理由。
+
+规划总拆或细拆时，先数本轮预计独立输出的部件（左右分开输出就分别计数）。默认给残余底图、零散配饰等额外留 3 层缓冲。例：预计 9 件，建议最多 12 层，在 layer_prompt 实填 max: 12，备忘的 max / sub_max 也按对应总拆或细拆计划填写。告诉用户预计件数和建议上限；给拆层模型的正文列出实际需要的部件，按需保留独立碎件，无需凑足上限。上限取 2–99 的整数；用户明确说“最多 9 层”就填 9，明确要沿用“不限制”就保留原设置。只调上限时省略 prompt，只改词时按用户要求保留上限。单件补画没有此参数。
 
 ### NAI 能力、预算与草稿文本规则
 - \`capabilities\` 给出当前型号与操作支持的参数；\`form\` 为保存值，\`effective\` 为实际请求值。

@@ -1,3 +1,4 @@
+import {layerSchemas} from './layer.ts';
 import { editReferencesSchema, editReferencesStepSchema } from './edit-references.ts';
 import { editParameterProperties,directorSchema,focusSchema } from "./edit-schema.ts";
 import { fileSchema } from "./file-schema.ts";
@@ -47,7 +48,7 @@ export const draftSchema = {
 
 /** Internal ASK only. Bridge and manual JSON retain draftSchema above. */
 export const internalDraftSchema = { ...draftSchema, properties: { ...draftSchema.properties,
-  steps: { ...draftSchema.properties.steps, items: { anyOf: [editReferencesStepSchema, {
+  steps: { ...draftSchema.properties.steps, items: { anyOf: [...layerSchemas, editReferencesStepSchema, {
     type: 'object', additionalProperties: false, required: ['kind', 'source'], properties: {
       kind: { type: 'string', enum: ['chat_open_child'] },
       source: { type: 'string', maxLength: 64, description: '仅在 CHAT 提问且为唯一草稿步骤。使用当前对话的已完成结果图编号，只新建一个图片子区；不带入消息、底图或参考图。' },

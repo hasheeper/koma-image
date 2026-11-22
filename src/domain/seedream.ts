@@ -13,11 +13,18 @@ export const seedreamLimits = (templateId: string) => templateId === SEEDREAM_LI
 
 export function seedreamFields(templateId: string): ParameterFields {
   const limits = seedreamLimits(templateId);
+  const is55 = templateId === SEEDREAM_55;
   return {
-    size: { label: '尺寸', options: limits?.sizes ?? ['2K'], default: '2K', allowCustom: true },
+    size: { label: '尺寸', options: limits?.sizes ?? (is55 ? ['1K', '1.5K', '2K'] : ['2K']), default: '2K', allowCustom: true },
+    ...(is55 ? { background: { label: '背景', options: ['auto', 'transparent', 'opaque'], default: 'auto' } } : {}),
     output_format: { label: '格式', options: ['png', 'jpeg'], default: 'png' },
     watermark: { label: '水印', type: 'boolean', options: ['true', 'false'], default: 'true' },
   };
+}
+
+export function validateSeedreamBackground(options: Record<string, unknown>) {
+  if (options.background === 'transparent' && options.output_format === 'jpeg')
+    throw new Error('透明背景仅支持 PNG 格式，请将格式切换为 PNG');
 }
 
 export function validateSeedreamSize(value: unknown, templateId?: string) {

@@ -55,12 +55,19 @@ onBeforeUnmount(()=>{dialog.value?.close();if(originalFocus instanceof HTMLEleme
         <nav aria-label="企划栏目"><button v-for="t in tabs" :key="t.id" type="button" :class="{active:tab===t.id}" :aria-pressed="tab===t.id" :aria-label="t.label" :title="t.label" @click="tab=t.id"><AppIcon :name="t.icon"/><span>{{ t.label }}</span><small>{{ t.count }}</small></button></nav>
         <div v-if="bridge.refs.value.limited || project?.issues.length" class="project-issues"><span v-if="bridge.refs.value.limited">资料较多，当前索引未包含全部文件。</span><details v-if="project?.issues.length"><summary>{{ project.issues.length }} 项资料需检查</summary><p v-for="issue in project.issues" :key="issue">{{ issue }}</p></details></div>
         <footer class="nav-footer"><span class="directory-name" :title="bridge.directory.value || ''">{{ bridge.directory.value }}</span><button class="ibtn" type="button" aria-label="刷新企划" title="刷新企划" :disabled="refreshing || bridge.busy.value" @click="refresh"><AppIcon name="i-retry"/></button>
-          <PopoverMenu :id="id+'-manage'" label="企划目录选项" side="right"><template #trigger="{open,toggle}"><button class="ibtn" type="button" aria-label="企划目录选项" :aria-expanded="open" aria-haspopup="menu" @click="toggle"><AppIcon name="i-more"/></button></template><template #default="{close:dismiss}"><button class="menu-item" role="menuitem" :disabled="bridge.busy.value" @click="dismiss(); bridge.mount()"><AppIcon name="i-swap"/><span class="menu-label">切换企划目录</span></button><button class="menu-item" role="menuitem" @click="dismiss(); close(); ask.openSettings()"><AppIcon name="i-settings"/><span class="menu-label">协同设置</span></button><button class="menu-item danger" role="menuitem" :disabled="bridge.busy.value" @click="dismiss(); bridge.unmount()"><AppIcon name="i-close"/><span class="menu-label">卸载目录</span></button></template></PopoverMenu>
+          <PopoverMenu :id="id+'-manage'" label="企划目录选项" side="right"><template #trigger="{open,toggle}"><button class="ibtn" type="button" aria-label="企划目录选项" :aria-expanded="open" aria-haspopup="menu" @click="toggle"><AppIcon name="i-more"/></button></template><template #default="{close:dismiss}"><button class="menu-item" role="menuitem" :disabled="bridge.busy.value" @click="dismiss(); bridge.mount()"><AppIcon name="i-swap"/><span class="menu-label">切换企划目录</span></button><button class="menu-item" role="menuitem" @click="dismiss(); close(); ask.openSettings()"><AppIcon name="i-settings"/><span class="menu-label">协同设置</span></button><button class="menu-item danger" role="menuitem" :disabled="!bridge.canUnmount.value" @click="dismiss(); bridge.unmount()"><AppIcon name="i-close"/><span class="menu-label">卸载目录</span></button></template></PopoverMenu>
         </footer>
       </aside>
-      <div v-if="bridge.phase.value !== 'active'" class="project-notice" role="status"><span>{{ bridge.error.value || '企划目录未连接' }}</span><button class="btn btn-quiet btn-sm" :disabled="bridge.busy.value" @click="bridge.resume()">恢复连接</button></div>
+      <div v-if="bridge.phase.value !== 'active' && bridge.phase.value !== 'readonly'" class="project-notice" role="status">
+        <span>{{ bridge.error.value || (bridge.phase.value === 'occupied' ? '其他页面正在使用此企划目录' : bridge.busy.value ? '正在连接企划目录…' : bridge.phase.value === 'permission' ? '请点击「恢复连接」并允许读取此企划目录。' : '企划目录未连接') }}</span>
+        <button type="button" class="btn btn-quiet btn-sm" :disabled="bridge.busy.value" @click="bridge.resume()">恢复连接</button>
+        <button type="button" class="btn btn-quiet btn-sm" :disabled="!bridge.canUnmount.value" @click="bridge.unmount()">卸载目录</button>
+      </div>
       <template v-else>
         <section class="project-collection">
+          <div v-if="bridge.phase.value === 'readonly'" class="project-readonly">
+            <span>{{ bridge.temporaryReader.value ? '本次只读浏览 · 目录身份待确认' : '只读浏览' }}</span><button type="button" class="btn btn-quiet btn-sm" :disabled="bridge.busy.value" @click="bridge.resume()">启用读写同步</button>
+          </div>
           <header class="collection-head"><div class="collection-heading"><h1>{{ tabs.find(t=>t.id===tab)?.label }}</h1><span>{{ rows.length }} {{ tab==='characters' ? '位' : '项' }}</span></div><select v-if="tab==='results'" v-model="filter" class="result-filter" aria-label="筛选资料"><option value="">全部</option><option value="assets">作品</option><option value="slates">任务</option><option value="refs">沉淀资料</option></select><GalleryLayoutSwitch v-if="tab==='results'" v-model="resultLayout" label="成果排列"/><label class="project-search"><AppIcon name="i-search"/><input v-model="search" aria-label="查找企划资料" placeholder="查找…" type="search"/></label></header>
           <select v-if="groups.length && tab!=='results'" v-model="filter" class="collection-filter" aria-label="筛选资料"><option value="">全部</option><option v-for="g in groups" :key="g" :value="g">{{ g }}</option></select>
           <template v-if="fileTree"><ProjectFileTree v-if="rows.length" v-model:collapsed="collapsedFolders" :files="rows" :selected="selected?.path" :search="search" @select="choose"/><p v-else class="project-empty">{{ search || filter ? '没有匹配资料' : '暂无资料' }}</p></template>
@@ -150,6 +157,7 @@ onBeforeUnmount(()=>{dialog.value?.close();if(originalFocus instanceof HTMLEleme
 .result-controls { display: flex; align-items: center; flex-wrap: wrap; gap: 12px; margin-left: auto; }
 .result-warning { color: var(--warn); font-size: var(--fz-sm); }
 .project-notice { display: flex; grid-column: 2 / -1; align-items: center; justify-content: center; gap: 16px; padding: 24px; color: var(--warn); }
+.project-readonly { display: flex; align-items: center; gap: 8px; color: var(--fg-2); font-size: var(--fz-xs); }
 .project-empty { margin: 24px 12px; color: var(--fg-3); font-size: var(--fz-sm); }
 .project-issues { flex: 0 1 auto; max-height: 120px; margin-top: 24px; overflow: auto; color: var(--warn); font-size: var(--fz-xs); }
 .project-issues p { margin: 8px 0; overflow-wrap: anywhere; }

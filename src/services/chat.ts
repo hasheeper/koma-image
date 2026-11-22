@@ -12,7 +12,7 @@ import type { CatalogModel } from "../domain/catalog";
 import { normalizeOptions, resolveModel, selectCatalogSources } from "../domain/catalog";
 import { removedModel } from "../domain/models";
 import { buildChatPayload, chatModels } from "../domain/media.ts";
-import { chatRerunPlan, chatVersionModelName, chatVersionSettings } from "../domain/chat-options.ts";
+import { chatRerunPlan, chatVersionModelName, chatVersionSettings, coerceModelOptions } from "../domain/chat-options.ts";
 import * as conversation from "../domain/conversation.ts";
 import { object } from "../domain/value";
 import type { Quote } from "../domain/quote";
@@ -1156,7 +1156,8 @@ export function createChat(services: ApplicationServices, ui: Ui) {
     },
     setOption(key: string, value: string) {
       if (!mutable()) return;
-      current.settings.options = { ...chatOptions(current), [key]: value };
+      const m = resolveModel(models, String(current.settings.model ?? ""));
+      current.settings.options = coerceModelOptions(m, { ...chatOptions(current), [key]: value }, key);
       void services.preferences
         .set(names.chatSettings, current.settings)
         .catch(() => {});

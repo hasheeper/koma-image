@@ -6,6 +6,7 @@ import { summary as replySummary } from "./format.ts";
 import { createCanvasPresentation } from "./canvas-presentation.ts";
 import type { ApplicationServices } from "../services/application.ts";
 import { createHomeTransitions } from "../home/transition.ts";
+import { layerPort } from "../layer/planning.ts";
 
 /** Tool rows in the conversation and the call inspector share one glyph per tool. */
 export const toolIcons: Readonly<Record<string, string>> = { get_state: "i-layers", search_history: "i-search", get_meta: "i-info", diff_meta: "i-layers", view_image: "i-image", view_sheet: "i-layers", search_tags: "i-search", propose_draft: "i-edit", get_chat_context: "i-layers", get_model_manual: "i-info", get_turn: "i-layers", read_ref: "i-file", save_ref: "i-download", slate_edit: "i-tasks", deliver: "i-image", get_recipe_clusters: "i-layers", show_retrospect: "i-branch", set_retrospect_status: "i-check" };
@@ -15,6 +16,8 @@ export function createAskPresentation(ask: Ask, router: AppRouter, preferences: 
   const shown = shallowRef(ask.visible.value), homeSize = shallowRef<'half' | 'full'>('half');
   const viewport = shallowRef(innerWidth), home = computed(() => router.route.value.workspace === 'home' && !ask.retrospects.host.value);
   const canvas = createCanvasPresentation(router, viewport, preferences);
+  const layerChecklist = computed(() => router.route.value.workspace === 'edit' ? layerPort()?.checklist() : undefined);
+  const todoRequest = shallowRef<{ source: 'layer' | 'slate'; id: string }>();
   const editCanvas = createCanvasPresentation(router, viewport, preferences, 'edit');
   const chatCanvas = createCanvasPresentation(router, viewport, preferences, 'chat');
   /* EDIT and CHAT lend the sidebar to an opened evolution, then take ASK back when it closes. */
@@ -96,6 +99,11 @@ export function createAskPresentation(ask: Ask, router: AppRouter, preferences: 
   }, { flush: 'sync' });
   onScopeDispose(() => { transitions.cancel(); clearTimeout(doneTimer); window.removeEventListener('resize', resize); });
   return { canvas, editCanvas, chatCanvas, dockedCanvas, shown, mode, note, home, mobile, fullscreen, dock, canDock, dockWidth, reserve, homeSize, latest, tools, compactDraft, completed, activity, outcome, summary, dismiss,
+    layerChecklist, todoRequest,
+    showTodos(source: 'layer' | 'slate', id: string) {
+      todoRequest.value = { source, id };
+      ask.show();
+    },
     selectCanvasPanel(layout: typeof canvas, panel: 'ask' | 'context') {
       layout.panel.value = layout.panel.value === panel ? null : panel;
       if (layout.panel.value === 'ask') ask.show();

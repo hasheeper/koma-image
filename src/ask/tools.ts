@@ -41,6 +41,8 @@ export interface ToolContext {
   /** Full form text on demand; the initial snapshot is the draft base. */
   readonly state: (scope: "initial" | "latest", boardId?: string, editBoardId?: string) => { readonly text: string; readonly images: number } | Promise<{ readonly text: string; readonly images: number }>;
   readonly library?: readonly Picture[];
+  readonly rejectedPictures?: ReadonlyMap<string, Picture>;
+  readonly layerReferences?: ReadonlyMap<string, () => Picture>;
   readonly recipes?: RecipeReader;
   readonly refreshRecipeReviews?: () => void;
   readonly stageEvolutionBranch?: (input: import('./retrospect/staged.ts').StagedInput) => Promise<{ value: Retrospect; receipt: unknown; reused?: boolean }>;
@@ -103,10 +105,25 @@ const string = (input: Readonly<Record<string, unknown>>, key: string, optional 
   return value.trim();
 };
 const picture = (id: string, context: ToolContext) => {
-  if (!isPictureId(id)) throw new Error("请使用有效图片 ID，如 #h1、#f3、#e2.3a、当前板 #e3 或附件 #a1");
+  if (id !== "#layer" && !isPictureId(id)) throw new Error("请使用有效图片 ID，如 #h1、#f3、#e2.3a、当前板 #e3 或附件 #a1");
   const found = context.library?.find((p) => p.aliases.includes(id));
   if (!found) throw new Error(`${id} 不在本轮图片快照中，可能已移除；新图请在下一轮查看`);
   return { ...found, label:id };
+};
+// Layer review IDs are read-only previews, scoped to the current turn's project.
+const visualPicture = (id: string, context: ToolContext) => {
+  if (id.startsWith('#lref-')) {
+    if (context.metadataOnly) throw new Error('本轮仅发送元数据，未发送图片');
+    const resolve = context.layerReferences?.get(id);
+    if (!resolve) throw new Error('参考图不在本轮分件项目快照中');
+    return resolve();
+  }
+  if (id.startsWith('#lr-')) {
+    const item = context.rejectedPictures?.get(id);
+    if (!item) throw new Error('该淘汰图不在本轮分件项目的最近三轮生成记录中');
+    return item;
+  }
+  return picture(id, context);
 };
 const reply = (value: unknown, stat: string, picks?: readonly string[]): ToolOutcome => ({
   content: [{ type: "text", text: dataBlock(canonical(value)) }], stat, ...(picks ? { picks } : {}),
@@ -156,7 +173,7 @@ const viewImage: ToolEntry = {
   }, ["id", "spec"]) },
   verb: "查看", object: (input) => String(input.id ?? "图片"),
   async run(input, context) {
-    const { vision, visual } = visualContext(context), item = picture(string(input, "id"), context);
+    const { vision, visual } = visualContext(context), item = visualPicture(string(input, "id"), context);
     const spec = input.spec;
     if (spec !== "glance" && spec !== "look" && spec !== "crop") throw new Error("spec 需为 glance、look 或 crop");
     let region: Region | undefined;
@@ -171,7 +188,7 @@ const viewImage: ToolEntry = {
       region = annotationCrop(item.annotations, input.annotation);
     }
     const result = await vision.image(item, spec, region, visual, input.reinspect === true);
-    return { content: [{ type: "text", text: dataBlock(canonical({ id: item.label, spec, image_availability:item.thumbnailOnly ? "thumbnail_only" : "original", ...(item.thumbnailOnly ? { note: "原图已释放；当前是缩略图概览，完整配方仍可读取与恢复，无法精细裁切或交接原图。" } : {}), ...(result.duplicate ? {already_viewed_this_turn:true} : {}), bytes: result.bytes, pixels: result.pixels })) }, ...(result.image ? [result.image] : [])], stat: result.duplicate ? "本轮已查看" : `${specLabel[spec]} · ${Math.ceil(result.bytes / 1024)} KB` };
+    return { content: [{ type: "text", text: dataBlock(canonical({ id: item.label, spec, image_availability:item.thumbnailOnly ? "thumbnail_only" : "original", ...(item.thumbnailOnly ? { note: context.rejectedPictures?.has(item.label) ? "分件淘汰图预览，长边最多 512px。" : "原图已释放；当前是缩略图概览，完整配方仍可读取与恢复，无法精细裁切或交接原图。" } : {}), ...(result.duplicate ? {already_viewed_this_turn:true} : {}), bytes: result.bytes, pixels: result.pixels })) }, ...(result.image ? [result.image] : [])], stat: result.duplicate ? "本轮已查看" : `${specLabel[spec]} · ${Math.ceil(result.bytes / 1024)} KB` };
   },
 };
 const viewSheet: ToolEntry = {
@@ -181,7 +198,7 @@ const viewSheet: ToolEntry = {
   async run(input, context) {
     const { vision, visual } = visualContext(context);
     if (!Array.isArray(input.ids) || !input.ids.every((id) => typeof id === "string")) throw new Error("ids 需要图片 ID 数组");
-    const items = input.ids.map((id) => picture(id, context)), spec = input.spec ?? "look";
+    const items = input.ids.map((id) => visualPicture(id, context)), spec = input.spec ?? "look";
     if (spec !== "glance" && spec !== "look") throw new Error("拼图 spec 需为 glance 或 look");
     const result = await vision.sheet(items, spec, visual);
     return { content: [{ type: "text", text: dataBlock(canonical({ ids: items.map((i) => i.label), thumbnail_only:items.filter(i => i.thumbnailOnly).map(i => i.label), spec: "sheet", ...(result.duplicate ? { already_viewed_this_turn: true } : {}), bytes: result.bytes, pixels: result.pixels })) }, ...(result.image ? [result.image] : [])], stat: result.duplicate ? "本轮已查看" : `${items.length} 张 · ${Math.ceil(result.bytes / 1024)} KB` };

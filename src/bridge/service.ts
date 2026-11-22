@@ -2,7 +2,7 @@ import { draftFilePort } from "./draft-files.ts";
 import type { Slates } from "../slate/service.ts";
 import { createSlateSync } from "../slate/sync.ts";
 import { externalEdit, SLATE_SCHEMA } from "../slate/documents.ts";
-import { shallowRef, watch } from "vue";
+import { computed, shallowRef, watch } from "vue";
 import type { Ask } from "../ask/service.ts";
 import type { Drawing } from "../services/drawing.ts";
 import type { ApplicationServices } from "../services/application.ts";
@@ -16,7 +16,8 @@ import { canonical } from "../ask/canonical.ts";
 import { stateHash } from "../ask/draft/validate.ts";
 import { bridgeStorage } from "./storage.ts";
 import type { Mount, Received } from "./storage.ts";
-import { directoryPicker, fileDriver, readInbox } from "./fs-driver.ts";
+import { directoryPicker, fileDriver, readInbox, readWhileMounted } from "./fs-driver.ts";
+import type { Directory } from "./fs-driver.ts";
 import { inboxObject, inboxId, inboxDigest, receiveDraft, INBOX_LIMIT, InvalidInbox } from "./protocol.ts";
 import type { BridgeSnapshot, InboxReceipt, ExternalOrigin } from "./protocol.ts";
 import { liveState, previewPictures } from "./state.ts";
@@ -27,16 +28,24 @@ import type { RefCatalog } from "./refs.ts";
 import type { MetadataCache } from "./project/scan.ts";
 import { emptyRefs } from "../ask/reference-source.ts";
 
+type DirectoryReader = { id: string; root: FileSystemDirectoryHandle; signal: AbortSignal; abort: AbortController };
+const registryWaitMs = 1500;
 
 export function createBridge(deps: { services: ApplicationServices; ask: Ask; drawing: Drawing; router: AppRouter; ui: Pick<Ui, "toast">; slates?: Slates }) {
   const { services, ask, drawing, router } = deps, storage = bridgeStorage(services), cache = previewCache();
-  const phase = shallowRef<"off" | "permission" | "occupied" | "active" | "error">("off"), directory = shallowRef(""), error = shallowRef("");
+  const phase = shallowRef<"off" | "permission" | "readonly" | "occupied" | "active" | "error">("off"), directory = shallowRef(""), error = shallowRef("");
   const receipt = shallowRef<InboxReceipt | null>(null), busy = shallowRef(false), mountRevision = shallowRef(0);
+  const cancelLookup = shallowRef<() => void>();
+  const mountStep = shallowRef("");
+  const canUnmount = computed(() => !!directory.value && (!busy.value || !!cancelLookup.value));
+  let currentOperation = Promise.resolve();
   const refs = shallowRef(emptyRefs()), refFiles = shallowRef<RefCatalog["files"]>([]);
   let catalog: RefCatalog = { files: [], limited: false };
   const project = shallowRef<RefCatalog["project"]>(), projectOpen = shallowRef(false), metadataCache: MetadataCache = new Map();
   const pageScope = crypto.randomUUID();
-  let mount: Mount | null = null, active: { id: string; root: FileSystemDirectoryHandle; driver: ReturnType<typeof fileDriver>; signal: AbortSignal; abort: AbortController; release: () => Promise<void> } | null = null;
+  let mount: Mount | null = null, active: (DirectoryReader & { driver: ReturnType<typeof fileDriver>; release: () => Promise<void> }) | null = null;
+  let reader: DirectoryReader | null = null;
+  const unregistered = shallowRef<Directory | null>(null);
   let disposed = false, revision = 0, lastSignature = "", lastInbox = "", requested = false;
   let cycle: Promise<void> | null = null, receiving = Promise.resolve(), saving = Promise.resolve();
   let timer: ReturnType<typeof setTimeout> | undefined, heartbeat: ReturnType<typeof setInterval> | undefined;
@@ -63,8 +72,11 @@ export function createBridge(deps: { services: ApplicationServices; ask: Ask; dr
       return job.finally(() => { fileJobs.delete(job); busy.value = false; resumeMaintenance(); });
     },
   });
-  const disconnectRefs = ask.connectReferences({ index: () => refs.value,
-    snapshot: () => active && refs.value.available ? referenceSnapshot(active.root, catalog, active.signal, active.id) : null });
+  function readSnapshot() {
+    const source = active ?? reader;
+    return source && refs.value.available ? referenceSnapshot(source.root, catalog, source.signal, source.id) : null;
+  }
+  const disconnectRefs = ask.connectReferences({ index: () => refs.value, snapshot: readSnapshot });
   function remember(snapshot: BridgeSnapshot) {
     const key = `${snapshot.pictureScope}:${stateHash(snapshot.base)}`;
     // Old form snapshots only need recipes. Do not pin all IMAGE originals in 16 exported states.
@@ -158,12 +170,12 @@ export function createBridge(deps: { services: ApplicationServices; ask: Ask; dr
   async function synchronize(session: NonNullable<typeof active>) {
     session.signal.throwIfAborted();
     await slateSync?.scan(session);
-    const files = await scanRefs(session.root, session.signal, metadataCache);
+    const files = await readWhileMounted(session.signal, () => scanRefs(session.root, session.signal, metadataCache));
     session.signal.throwIfAborted(); setRefs(files);
-    const raw = await session.driver.read("draft.inbox.json");
+    const raw = await readWhileMounted(session.signal, () => session.driver.read("draft.inbox.json"));
     if (raw && raw.text !== lastInbox) {
       let inbox: Awaited<ReturnType<typeof readInbox>> = null;
-      try { inbox = await readInbox(session.driver, session.signal); }
+      try { inbox = await readWhileMounted(session.signal, () => readInbox(session.driver, session.signal)); }
       catch (e) {
         session.signal.throwIfAborted();
         if (!(e instanceof SyntaxError)) throw e;
@@ -192,7 +204,7 @@ export function createBridge(deps: { services: ApplicationServices; ask: Ask; dr
     await cache.commit(paths, session.driver, session.signal, saveOwned);
   }
   function sync() {
-    if (!active || disposed || document.visibilityState === "hidden" || services.data.phase !== "ready") return Promise.resolve();
+    if (!active || phase.value !== "active" || disposed || document.visibilityState === "hidden" || services.data.phase !== "ready") return Promise.resolve();
     requested = true;
     if (!cycle) {
       cycle = (async () => {
@@ -201,7 +213,7 @@ export function createBridge(deps: { services: ApplicationServices; ask: Ask; dr
           try { await synchronize(session); }
           catch (e) {
             if (!session.signal.aborted) {
-              error.value = message(e); phase.value = e instanceof DOMException && e.name === "NotAllowedError" ? "permission" : "error";
+              directoryError(e);
               clearInterval(heartbeat); session.abort.abort(); active = null; setRefs();
               await Promise.allSettled([...fileJobs]); await session.release(); cache.clear(); lastSignature = "";
             }
@@ -216,16 +228,68 @@ export function createBridge(deps: { services: ApplicationServices; ask: Ask; dr
   async function stop() {
     clearTimeout(timer); clearInterval(heartbeat); requested = false;
     const previous = active; active = null; mountRevision.value++;
+    reader?.abort.abort(); reader = null;
     setRefs(); metadataCache.clear();
     previous?.abort.abort(new DOMException("协同已暂停", "AbortError"));
     await cycle; await Promise.allSettled([...fileJobs]); await slateSync?.detach(); await previous?.release(); cache.clear(); lastSignature = ""; lastInbox = "";
+  }
+  function directoryError(e: unknown) {
+    phase.value = e instanceof DOMException && e.name === "NotAllowedError" ? "permission" : "error";
+    error.value = e instanceof DOMException && e.name === "NotFoundError"
+      ? "找不到企划目录，可能已移动或删除。"
+      : message(e);
+  }
+  async function waitForConnection<T>(work: (signal: AbortSignal) => Promise<T>): Promise<T> {
+    const abort = new AbortController();
+    cancelLookup.value = () => abort.abort();
+    try { return await readWhileMounted(abort.signal, () => work(abort.signal)); }
+    finally { cancelLookup.value = undefined; }
+  }
+  async function scanReader(source: DirectoryReader) {
+    try {
+      const files = await readWhileMounted(source.signal, () => scanRefs(source.root, source.signal, metadataCache));
+      if (reader === source) { setRefs(files); phase.value = "readonly"; error.value = ""; }
+    } catch (e) {
+      if (reader !== source || source.signal.aborted) return;
+      source.abort.abort(); reader = null; setRefs(); directoryError(e);
+    }
+  }
+  async function openReader(handle: Directory, id = "") {
+    const abort = new AbortController();
+    const source = { id, root: handle, signal: abort.signal, abort };
+    reader = source;
+    await waitForConnection(() => scanReader(source));
+  }
+  async function identify(handle: Directory): Promise<Mount | null> {
+    return waitForConnection(async signal => {
+      const bounded = AbortSignal.any([signal, AbortSignal.timeout(registryWaitMs)]);
+      try { return await readWhileMounted(bounded, () => storage.register(handle, bounded)); }
+      catch {
+        signal.throwIfAborted();
+        // Permissions to browse come from the selected handle. Only sync needs a durable ID.
+        return null;
+      }
+    });
+  }
+  async function browseUnregistered(handle: Directory) {
+    const previous = mount;
+    await stop();
+    mount = null; unregistered.value = handle; directory.value = handle.name;
+    phase.value = "permission"; receipt.value = null; snapshots.clear();
+    if (previous) await storage.clearActive(previous.id);
+    await openReader(handle);
   }
   async function activate(entry: Mount) {
     if (disposed) return;
     if (services.data.phase !== "ready") throw new Error("数据维护期间暂不能恢复同步");
     await stop();
-    mount = entry; directory.value = entry.handle.name; receipt.value = null; snapshots.clear();
-    if (await entry.handle.queryPermission({ mode: "readwrite" }) !== "granted") { phase.value = "permission"; return; }
+    mount = entry; unregistered.value = null; directory.value = entry.handle.name; phase.value = "permission"; receipt.value = null; snapshots.clear();
+    if (await waitForConnection(() => entry.handle.queryPermission({ mode: "readwrite" })) !== "granted") {
+      if (await waitForConnection(() => entry.handle.queryPermission({ mode: "read" })) === "granted") {
+        await openReader(entry.handle, entry.id);
+      }
+      return;
+    }
     let acquired!: (held: boolean) => void, release!: () => void;
     const ready = new Promise<boolean>(resolve => { acquired = resolve; }), held = new Promise<void>(resolve => { release = resolve; });
     const lock = navigator.locks.request(names.bridgeWriter(entry.id), { ifAvailable: true }, async value => { acquired(!!value); if (value) await held; });
@@ -236,7 +300,7 @@ export function createBridge(deps: { services: ApplicationServices; ask: Ask; dr
     try {
       await slateSync?.attach(session);
       cache.adopt(await storage.read<string[]>(`previews:${entry.id}`) ?? []);
-      const previous = await session.driver.read("state.live.json", 16 * INBOX_LIMIT);
+      const previous = await waitForConnection(() => session.driver.read("state.live.json", 16 * INBOX_LIMIT));
       if (previous) {
         try {
           const saved = inboxObject(JSON.parse(previous.text)), id = inboxId(saved.last_inbox_receipt);
@@ -246,19 +310,22 @@ export function createBridge(deps: { services: ApplicationServices; ask: Ask; dr
       await session.driver.write("PROTOCOL.md", protocolDocument(), session.signal);
       phase.value = "active"; error.value = "";
       heartbeat = setInterval(() => void sync(), 1500);
-      await sync();
-    } catch (e) { await stop(); phase.value = "error"; throw e; }
+      await waitForConnection(sync);
+    } catch (e) { await stop(); throw e; }
   }
-  const restored = (async () => {
+  const restored = operation(async () => {
     await ask.restored;
     const saved = await storage.read<Mount | null>("active");
     if (saved && !disposed) await activate(saved);
-  })().catch(e => { error.value = message(e); phase.value = "error"; });
-  async function operation(work: () => Promise<void>) {
-    if (busy.value || disposed) return;
+  }, directoryError);
+  function operation(work: () => Promise<void>, failed: (e: unknown) => void = e => { error.value = message(e); }) {
+    if (busy.value || disposed) return Promise.resolve();
     busy.value = true; error.value = "";
-    try { await work(); } catch (e) { if (!(e instanceof DOMException && e.name === "AbortError")) error.value = message(e); }
-    finally { busy.value = false; resumeMaintenance(); }
+    currentOperation = (async () => {
+      try { await work(); } catch (e) { if (!(e instanceof DOMException && e.name === "AbortError")) failed(e); }
+      finally { busy.value = false; resumeMaintenance(); }
+    })();
+    return currentOperation;
   }
   function visibility() { if (document.visibilityState === "visible") void sync(); else clearTimeout(timer); }
   document.addEventListener("visibilitychange", visibility); window.addEventListener("focus", visibility);
@@ -268,7 +335,7 @@ export function createBridge(deps: { services: ApplicationServices; ask: Ask; dr
     if (!resumeAfterMaintenance || !mount || busy.value || disposed || services.data.phase !== "ready") return;
     resumeAfterMaintenance = false;
     const entry = mount;
-    void operation(() => activate(entry));
+    void operation(() => activate(entry), directoryError);
   }
   const unregister = services.data.register({
     async flush(write) {
@@ -286,18 +353,69 @@ export function createBridge(deps: { services: ApplicationServices; ask: Ask; dr
     project, projectOpen, projectEpoch: mountRevision,
     openProject() { projectOpen.value = true; void sync(); },
     closeProject() { projectOpen.value = false; },
-    refreshProject() { metadataCache.clear(); return sync(); },
-    referenceSnapshot() { return active ? referenceSnapshot(active.root, catalog, active.signal, active.id) : null; },
-    phase, directory, error, receipt, busy, restored, refs, refFiles, supported: !!directoryPicker(),
-    mount() {
-      // Invoke picker in the click stack, before any await consumes user activation.
-      const picker = directoryPicker(); if (!picker) { error.value = "浏览器不支持目录挂载，请使用 JSON 导入导出"; return Promise.resolve(); }
-      return operation(async () => { const handle = await picker({ mode: "readwrite", id: "koma-bridge" }); await restored; const entry = await storage.register(handle); await storage.put("active", entry); await activate(entry); });
+    refreshProject() { metadataCache.clear(); return reader ? scanReader(reader) : sync(); },
+    referenceSnapshot: readSnapshot,
+    phase, directory, error, receipt, busy, canUnmount, mountStep, restored, refs, refFiles,
+    temporaryReader: computed(() => !!unregistered.value), supported: !!directoryPicker(),
+    cancelMount() {
+      if (!mountStep.value || !cancelLookup.value) return Promise.resolve();
+      cancelLookup.value();
+      return currentOperation;
     },
-    resume() { return operation(async () => { if (!mount) return; if (await mount.handle.requestPermission({ mode: "readwrite" }) !== "granted") { phase.value = "permission"; return; } await activate(mount); }); },
-    unmount() { return operation(async () => { await restored; resumeAfterMaintenance = false; await stop(); mount = null; projectOpen.value = false; snapshots.clear(); directory.value = ""; phase.value = "off"; receipt.value = null; await storage.put("active", null); }); },
+    async mount(dropped?: Directory, showProject = false) {
+      // Invoke picker in the click stack, before any await consumes user activation.
+      const picker = directoryPicker();
+      if (!dropped && !picker) { error.value = "浏览器不支持目录挂载，请使用 JSON 导入导出"; return false; }
+      let selected = false, stage = "选择企划目录";
+      await operation(async () => {
+        let handle: Directory, entry: Mount | null;
+        try {
+          mountStep.value = "等待选择目录";
+          handle = dropped ?? await waitForConnection(() => picker!({ mode: "read", id: "koma-bridge" }));
+          stage = "识别企划目录"; mountStep.value = stage;
+          entry = await identify(handle);
+        } finally { mountStep.value = ""; }
+        stage = "读取企划目录";
+        selected = true;
+        if (showProject) projectOpen.value = true;
+        try {
+          if (entry) await activate(entry);
+          else await browseUnregistered(handle);
+        } catch (e) { if (!(e instanceof DOMException && e.name === "AbortError")) directoryError(e); }
+      }, e => {
+        error.value = `${stage}失败：${message(e)}`;
+        deps.ui.toast(error.value, "err");
+      });
+      return selected;
+    },
+    resume() { return operation(async () => {
+      const handle = mount?.handle ?? unregistered.value;
+      if (!handle) return;
+      const mode = reader ? "readwrite" : "read";
+      if (await waitForConnection(() => handle.requestPermission({ mode })) !== "granted") {
+        phase.value = reader ? "readonly" : "permission"; return;
+      }
+      const entry = mount ?? await identify(handle);
+      if (entry) await activate(entry);
+      else if (!reader) await openReader(handle);
+      else throw new Error("历史目录身份暂时无法核对。企划可继续只读浏览，稍后可重试同步。");
+    }, e => { if (reader) { error.value = message(e); deps.ui.toast(error.value, "err"); } else directoryError(e); }); },
+    async unmount() {
+      if (!canUnmount.value) return;
+      resumeAfterMaintenance = false;
+      if (cancelLookup.value) {
+        cancelLookup.value();
+        await currentOperation;
+      }
+      return operation(async () => {
+        if (mount) await storage.clearActive(mount.id);
+        await stop();
+        mount = null; unregistered.value = null; projectOpen.value = false; snapshots.clear(); directory.value = ""; phase.value = "off"; receipt.value = null;
+      });
+    },
     importFile(file: File) { return operation(async () => {
       await restored;
+      if (unregistered.value) throw new Error("目录身份尚未确认。请先启用读写同步，或卸载目录后导入草稿。");
       if (file.size > INBOX_LIMIT) throw new Error("草稿 JSON 超过 1 MB");
       let value: unknown = JSON.parse(await file.text());
       if (value && typeof value === "object" && (value as { schema?: string }).schema === SLATE_SCHEMA) {
@@ -314,7 +432,7 @@ export function createBridge(deps: { services: ApplicationServices; ask: Ask; dr
     }); },
     exportState() { return operation(async () => { await restored; const { state } = capture(); download(new Blob([JSON.stringify(state, null, 2)], { type: "application/json" }), "state.live.json"); }); },
     exportProtocol() { download(new Blob([protocolDocument()], { type: "text/markdown" }), "PROTOCOL.md"); },
-    async dispose() { disposed = true; disconnectFiles(); disconnectSlates?.(); disconnectRefs(); unsubscribe(); stops.forEach(stop => stop()); unregister(); document.removeEventListener("visibilitychange", visibility); window.removeEventListener("focus", visibility); await restored; await stop(); await receiving; await flush(); snapshots.clear(); },
+    async dispose() { disposed = true; cancelLookup.value?.(); disconnectFiles(); disconnectSlates?.(); disconnectRefs(); unsubscribe(); stops.forEach(stop => stop()); unregister(); document.removeEventListener("visibilitychange", visibility); window.removeEventListener("focus", visibility); await restored; await stop(); await receiving; await flush(); snapshots.clear(); },
   };
 }
 export type Bridge = ReturnType<typeof createBridge>;

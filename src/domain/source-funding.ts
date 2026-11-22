@@ -47,6 +47,12 @@ export function insufficientFunds(model: CatalogModel, quota: QuotaStatus | null
 export function supportsSourcePayload(model: CatalogModel, payload?: ImagePayload): boolean {
   if (!payload) return true;
   if (payload.markup_image !== undefined && !model.markup) return false;
+  if (payload.layerDecomposition) {
+    if (model.profileId !== "seedream-v1" || payload.tool !== "image-edit" || typeof payload.init_image !== "string") return false;
+    const extra = Array.isArray(payload.additional_images) ? payload.additional_images.length : 0;
+    const max = payload.layerDecomposition.maxImages;
+    if (extra !== 0 || (max !== undefined && (!Number.isInteger(max) || max < 2 || max > 100))) return false;
+  }
   if (payload.tool === "director") {
     if (model.profileId !== "nai-official-v1" || !model.tools.includes("director")) return false;
     // Operation-only capability checks have no encoded source yet.

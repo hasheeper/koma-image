@@ -143,3 +143,91 @@ export function exportPhotopea(id: string, maskIndex: number, carrierIndex: numb
     }catch(e){failure=e;}
     finish();if(failure)return reply("error",String(failure));`;
 }
+
+// ── Koma Layer PSD round-trip scripts ────────────────────────────────────────
+
+export function initializePhotopeaLayer(id: string) {
+  return `if(!app.documents.length)return reply("error","分层文件未打开");
+    var d=app.activeDocument;d.source=${literal(`koma:${id}`)};d.name="Koma Layer";
+    var refId=0;
+    for(var j=d.layers.length-1;j>=0;j--){
+      if(d.layers[j].typename==="ArtLayer"&&d.layers[j].name==="锁定原图"){refId=d.layers[j].id;break;}
+    }
+    reply("layerState",{refId:refId,width:Number(d.width),height:Number(d.height)});
+    d.clearHistory();app.UI.fitTheArea();`;
+}
+
+export function resumePhotopeaLayer(previous: string, id: string, refId: number) {
+  return `${findDocument(previous)}
+    app.activeDocument=d;d.source=${literal(`koma:${id}`)};
+    reply("layerState",{refId:${refId},width:Number(d.width),height:Number(d.height)});`;
+}
+
+export function preparePhotopeaLayerExport(id: string, refId: number) {
+  return `${owned(id)}
+    if(Number(d.width)*Number(d.height)>32000000)return reply("error","图片最多 3200 万像素");
+    reply("layerState",{refId:${refId},width:Number(d.width),height:Number(d.height)});
+    reply("project");d.saveToOE("psd:true");`;
+}
+
+export function exportPhotopeaLayers(id: string, refId: number) {
+  return `var temp=app.activeDocument;${findDocument(id)}
+    if(temp.source===d.source)return reply("error","临时导出文档无效");
+    function finish(){app.activeDocument=temp;temp.close(SaveOptions.DONOTSAVECHANGES);app.activeDocument=d;}
+    if(Number(temp.width)!==Number(d.width)||Number(temp.height)!==Number(d.height)){finish();return reply("error","临时导出文档无效");}
+    reply("document",d.source);var failure=null;
+    try{
+      app.activeDocument=temp;
+      var items=[],meta=[],skipped=[];
+      function isAdj(layer){
+        var k=String(layer.kind||"");
+        if(/^(5|6|7|8|9|10|11|12|13|14|15|16)$/.test(k))return true;
+        return /(LEVELS|CURVES|COLORBALANCE|BRIGHTNESSCONTRAST|HUESATURATION|SELECTIVECOLOR|CHANNELMIXER|GRADIENTMAP|INVERSION|THRESHOLD|POSTERIZE|VIBRANCE|EXPOSURE|BLACKANDWHITE|PHOTOFILTER|COLORLOOKUP)/i.test(k);
+      }
+      function hideAll(container){
+        for(var j=0;j<container.layers.length;j++){
+          var l=container.layers[j];
+          if(l.typename==="LayerSet")hideAll(l);
+          try{l.visible=false;}catch(e){}
+        }
+      }
+      function walk(container,groups,ancestors,parentVisible){
+        var list=container.layers;
+        for(var i=list.length-1;i>=0;i--){
+          var l=list[i];
+          var vis=parentVisible&&!!l.visible;
+          if(l.typename==="LayerSet"){
+            walk(l,groups.concat([String(l.name||"图层组")]),ancestors.concat([l]),vis);
+            continue;
+          }
+          if(l.typename!=="ArtLayer")continue;
+          if(l.grouped)continue;
+          var clips=[];
+          for(var c=i-1;c>=0;c--){
+            var above=list[c];
+            if(above.typename==="ArtLayer"&&above.grouped){
+              if(above.visible)clips.push(above);
+            }else break;
+          }
+          if(groups.length===0&&((${refId}>0&&l.id===${refId})||l.name==="锁定原图"))continue;
+          if(isAdj(l)){skipped.push(String(l.name||"调整层"));continue;}
+          items.push({layer:l,ancestors:ancestors.slice(),clips:clips});
+          meta.push({id:Number(l.id)||0,name:String(l.name||"图层"),groups:groups.slice(),visible:vis,locked:!!l.allLocked});
+        }
+      }
+      walk(temp,[],[],true);
+      hideAll(temp);
+      reply("layerTree",{width:Number(temp.width),height:Number(temp.height),items:meta,skipped:skipped});
+      for(var idx=0;idx<items.length;idx++){
+        var entry=items[idx];
+        for(var a=0;a<entry.ancestors.length;a++)entry.ancestors[a].visible=true;
+        entry.layer.visible=true;
+        for(var c=0;c<entry.clips.length;c++)entry.clips[c].visible=true;
+        reply("layer");temp.saveToOE("png");
+        for(var c=0;c<entry.clips.length;c++)entry.clips[c].visible=false;
+        entry.layer.visible=false;
+        for(var a=0;a<entry.ancestors.length;a++)entry.ancestors[a].visible=false;
+      }
+    }catch(e){failure=e;}
+    finish();if(failure)return reply("error",String(failure));`;
+}

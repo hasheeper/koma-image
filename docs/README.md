@@ -40,6 +40,7 @@ docs/
 | [IMAGE](workspaces/image.md) | 绘图、历史／收藏、参数导入、独立画板、多角色及坐标 |
 | [CHAT](workspaces/chat.md) | 会话、上下文、分支、多版本与图片交接 |
 | [EDIT](workspaces/edit.md) | 独立编辑画板、版本、蒙版、编辑工具与来源回流 |
+| [Koma Layer](workspaces/layer.md) | EDIT 内 Seedream 两级递归与母版框选、候选与归档组、ASK 两级备忘、局部补画、Rig 切片与分层 PSD 导出 |
 | [图片区域批注](workspaces/annotations.md) | 共享选区、ASK 坐标、双图／原生标注、人工局部回贴与边界色彩对齐 |
 | [设置与 TAGS](workspaces/settings-and-tags.md) | 供应商／Key、模型优先级、备份、词典与补全 |
 

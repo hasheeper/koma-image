@@ -1,3 +1,4 @@
+import {layerConflict,layerPort,patchedForm,type LayerContext} from '../../layer/planning.ts';
 import { checkEditConfiguration } from "./edit-configuration.ts";
 import { editSourceKey } from './edit-options.ts';
 import { makeThumb } from "../../services/image-response.ts";
@@ -41,6 +42,7 @@ export function createDraftWriter(drawing: Drawing, chat: Chat, router: AppRoute
   const handoffTarget = (receipt: string | null) => receipt ? String(JSON.parse(receipt)[0]) : "";
   function conflictAt(plan: DraftPlan, side: "before" | "after", receipt: string | null, fallback: DrawingForm, current: ConversationRecord, boards: ReadonlyMap<string, DrawingBoard>,
     find: (id: string) => ConversationRecord | undefined) {
+    if(plan.layerPatch) return layerConflict(router.route.value.workspace==='edit'?layerPort()?.read():undefined,plan.layerPatch,side);
     if(plan.edit) {
       const state=editor?.askSnapshot(plan.edit.id);
       if(plan.editHandoff?.created&&side==='before'&&!state)return '';
@@ -125,6 +127,12 @@ export function createDraftWriter(drawing: Drawing, chat: Chat, router: AppRoute
     if(!r?.blob)throw new Error(`${image.label} 参考原图已释放或移除`);return r;
   }
   async function writeLocal(plan: DraftPlan, undo: boolean, receipt: string | null) {
+    if(plan.layerPatch) {
+      const port=layerPort();
+      if (!port || router.route.value.workspace!=='edit') throw new Error('请打开来源分件项目');
+      await port.write(plan.layerPatch,undo);
+      return null;
+    }
     if (plan.treeChange && !plan.changes.length) return null;
     const reason = evolutionChange(plan) || plan.treeChange || plan.handoff || plan.editHandoff ? boardConflict(plan, undo ? "after" : "before", receipt) : conflict(plan, undo ? "after" : "before", receipt);
     if (reason) throw new Error(reason);
@@ -256,11 +264,24 @@ export function createDraftWriter(drawing: Drawing, chat: Chat, router: AppRoute
         if (issue) throw new Error(issue);
         treeStates.set(change.id, change.before); evolutionKeys.set(change.id, change.before.cursorKey);
       };
+      let layerState:LayerContext|undefined;
       const edits=new Map<string,import("../../domain/edit-draft.ts").EditDraftState>();
       const tasks = new Map(slates?.list.value.map(s => [s.id, structuredClone(s)]) ?? []);
       let current = conversations.get(snapshot.current.id) ?? structuredClone(snapshot.current);
       return {
         undo(plan: DraftPlan, receipt: string | null, originalReceipt = receipt) {
+          if(plan.layerPatch) {
+            layerState ??= structuredClone(layerPort()?.read());
+            const issue=layerConflict(layerState,plan.layerPatch,'after');
+            if(issue || !layerState) throw new Error(issue);
+            for(const e of plan.layerPatch.edits) {
+              if(e.kind==='todos') layerState.todos=e.before;
+              else if(e.kind==='references') layerState.scalpel.references=e.before;
+              else if(e.kind==='prompt') layerState.forms[e.key]=patchedForm(layerState.forms[e.key],e,'before');
+              else layerState.stack.find(l=>l.id===e.key)!.name=e.before;
+            }
+            return null;
+          }
           const workshop = workshopWrites.get(plan);
           if (workshop) undoTree(workshop);
           if (plan.treeChange) { undoTree(plan.treeChange); if (!plan.changes.length) return null; }

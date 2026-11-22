@@ -7,7 +7,7 @@ import type { GatewayProfile } from "./profile.ts";
 import type { Quote } from "../domain/quote.ts";
 import { naiCapabilities, naiMediumNegative } from "../domain/nai.ts";
 import { naiNoiseSchedule, naiVarietySigma, validateNaiParameters } from "../domain/nai-parameters.ts";
-export type ImagePayload = { model: string; tool?: string; cache?: boolean; markup_image?: string; referencePlan?: ReferencePlan; preparedReferences?: PreparedReferences; referenceMinimum?: number; [key: string]: unknown };
+export type ImagePayload = { model: string; tool?: string; cache?: boolean; markup_image?: string; layerDecomposition?: { maxImages?: number; textRecognition?: boolean }; referencePlan?: ReferencePlan; preparedReferences?: PreparedReferences; referenceMinimum?: number; [key: string]: unknown };
 export const usesNative = (payload: ImagePayload, quote: Quote | null) => !payload.tool && payload.model.startsWith("nai-") && quote?.cost === 0 && payload.cache !== true;
 export function executionRoute(payload: ImagePayload, quote: Quote | null, profile: GatewayProfile) {
   const route = payload.tool ? "tools" : profile.executionRoutes.nativeFree && usesNative(payload, quote) ? "native" : "studio";
@@ -18,6 +18,7 @@ export const naiPrompt = (prompt: unknown) => typeof prompt === "string" && prom
 /** Standard gateway wire fields; the application keeps its complete role snapshot. */
 export function toStandardPayload(payload: ImagePayload): ImagePayload {
   if (payload.markup_image !== undefined) throw new Error("此连接未声明原生标注协议，请选择双图标注或支持原生标注的来源");
+  if (payload.layerDecomposition) throw new Error("一键图层拆分仅支持 Seedream 原生连接（火山方舟 / BytePlus）");
   if (payload.tool === "director") throw new Error("Director Tools 仅支持 NovelAI 官方连接");
   if (payload.inpaintFocus !== undefined) throw new Error("聚焦重绘仅支持 NovelAI 官方连接");
   if (payload.enhance || payload.upscaled_enhance !== undefined) throw new Error("此连接未声明 Enhance 协议");

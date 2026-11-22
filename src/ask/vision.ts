@@ -64,17 +64,17 @@ export function createVision() {
     if (context.metadataOnly) throw new Error("本轮仅发送元数据，未发送图片");
 
   }
-  async function result(key: string, render: () => Promise<OffscreenCanvas>, context: VisionContext, labels: readonly string[], spec: string, reinspect = false) {
+  async function result(key: string, render: () => Promise<OffscreenCanvas>, context: VisionContext, labels: readonly string[], spec: string, options: { reinspect?: boolean; turnOnly?: boolean } = {}) {
     allowed(context);
     let already = sent.get(context.budget);
     if (!already) { already = new Set(); sent.set(context.budget,already); }
-    if (!reinspect && already.has(key)) return { bytes:0,pixels:0,duplicate:true as const,image:undefined };
+    if (!options.reinspect && already.has(key)) return { bytes:0,pixels:0,duplicate:true as const,image:undefined };
     let value = cache.get(key)?.value;
     if (!value) {
       value = await encode(await render());
       allowed(context);
       // Oversize encodings are never retained or sent; no quiet quality reduction.
-      if (value.bytes <= LIMITS.vision.bytes) {
+      if (!options.turnOnly && value.bytes <= LIMITS.vision.bytes) {
         cache.set(key, { value, labels });
         while (cache.size > 16) cache.delete(cache.keys().next().value!);
       }
@@ -83,7 +83,7 @@ export function createVision() {
     already.add(key);
     return {
       ...value,
-      image: { ...value.image, viewed: { ids: [...labels], spec, bytes: value.bytes } },
+      image: { ...value.image, ...(options.turnOnly ? { turnOnly: true } : {}), viewed: { ids: [...labels], spec, bytes: value.bytes } },
     };
   }
   return {
@@ -106,7 +106,7 @@ export function createVision() {
           g.drawImage(bitmap, box.x, box.y, box.width, box.height, 0, 0, size.width, size.height);
           return canvas;
         } finally { bitmap.close(); }
-      }, context, [picture.label], spec, reinspect);
+      }, context, [picture.label], spec, { reinspect, turnOnly: picture.turnOnly });
       if (spec !== "crop" && !picture.thumbnailOnly) context.viewed.add(picture.entity_key ?? picture.id);
       return value;
     },
@@ -115,7 +115,7 @@ export function createVision() {
         throw new Error("拼图需要 2–6 张不同图片");
       return result(`sheet:${spec}:${pictures.map((p) => `${identity(p)}:${p.label}`).join("|")}`,
         () => makeContactSheet(pictures.map((p) => ({ blob: p.blob, label: p.label })), spec === "glance" ? 384 : 768, context.signal),
-        context, pictures.map((p) => p.label), "sheet");
+        context, pictures.map((p) => p.label), "sheet", { turnOnly: pictures.some(p => p.turnOnly) });
     },
     forget(id: string) { for (const [key, item] of cache) if (item.labels.includes(id)) cache.delete(key); },
     dispose() { disposed = true; cache.clear(); },

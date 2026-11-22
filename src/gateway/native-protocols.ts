@@ -1,4 +1,4 @@
-import { seedreamLimits, validateSeedreamSize } from "../domain/seedream.ts";
+import { seedreamLimits, validateSeedreamBackground, validateSeedreamSize } from "../domain/seedream.ts";
 import type { CatalogModel } from "../domain/catalog.ts";
 import { MODELS, configuredModels, imageModelFields } from "../domain/models.ts";
 import { object } from "../domain/value.ts";
@@ -118,6 +118,9 @@ export function nativeRequest(profile: GatewayProfile, payload: ImagePayload, mo
   if (profile.protocol === "seedream") {
     if (!payload.model?.trim() || payload.model.length > 512 || /[\x00-\x1f\x7f]/.test(payload.model)) throw new Error("模型 ID 无效");
     const templateId = model?.templateId ?? payload.model;
+    const decomposing = !!payload.layerDecomposition || options.layer_decomposition === true;
+    if (decomposing && input.length !== 1)
+      throw new Error("Seedream 图层拆分需要且仅接受 1 张输入图");
     const limit = model?.maxImages ?? seedreamLimits(templateId)?.images ?? 10;
     if (input.length > limit) throw new Error(`本模型最多带入 ${limit} 张图片（包含底图）`);
     const body: Record<string, unknown> = { model: payload.model, prompt: String(payload.prompt || ""), response_format: "b64_json" };
@@ -128,11 +131,30 @@ export function nativeRequest(profile: GatewayProfile, payload: ImagePayload, mo
         continue;
       }
       if (!validParameterKey(key) || !["string", "number", "boolean"].includes(typeof value)) throw new Error(`Seedream 参数 ${key} 无效`);
-      if (key === 'layer_decomposition' && value !== false || key === 'sequential_image_generation' && value !== 'disabled')
-        throw new Error('Seedream 当前接入单图生成与参考图编辑，尚未接入图层拆分或组图');
+      if (key === 'sequential_image_generation' && value !== 'disabled')
+        throw new Error('Seedream 当前尚未接入组图模式');
+      if (decomposing && key === 'background') continue;
+      if (key === 'layer_decomposition_options.max_images') {
+        if (typeof value !== 'number' || !Number.isInteger(value) || value < 2 || value > 100)
+          throw new Error('图层拆分最大层数须为 2 至 100 之间的整数');
+      }
       setParameter(body, key, value);
     }
-    validateSeedreamSize(body.size, templateId);
+    if (payload.layerDecomposition) {
+      const { maxImages, textRecognition } = payload.layerDecomposition;
+      if (maxImages !== undefined && (!Number.isInteger(maxImages) || maxImages < 2 || maxImages > 100))
+        throw new Error('图层拆分最大层数须为 2 至 100 之间的整数');
+      body.layer_decomposition = true;
+      const decomposeOptions: Record<string, unknown> = {};
+      if (maxImages !== undefined) decomposeOptions.max_images = maxImages;
+      if (textRecognition) decomposeOptions.text_recognition = true;
+      if (Object.keys(decomposeOptions).length) body.layer_decomposition_options = decomposeOptions;
+      if (body.size === undefined) body.size = 'auto';
+    }
+    if (!decomposing || (body.size !== undefined && body.size !== 'auto')) {
+      validateSeedreamSize(body.size, templateId);
+    }
+    validateSeedreamBackground(body);
     if (input.length) body.image = input.length === 1 ? payload.init_image : [payload.init_image, ...(payload.additional_images as string[] ?? [])];
     return { path, body, native: false };
   }

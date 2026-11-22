@@ -180,7 +180,7 @@ test("[core] single document, cached drafts and nodes, back/forward, and global 
     {
       local: ["koma.chat.rail.v1", "koma.home.v1", "koma.prefs.v1", "koma.tag.categories.v1"],
       session: [],
-      dbs: ["koma-ask", "koma-bridge", "koma-chat", "koma-handoff", "koma-home", "koma-image-favorites", "koma-slate"],
+      dbs: ["koma-ask", "koma-bridge", "koma-chat", "koma-handoff", "koma-home", "koma-image-favorites", "koma-layer", "koma-slate"],
     },
   );
   await clean(result);

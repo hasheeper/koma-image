@@ -31,12 +31,18 @@ let exitDecision: Promise<boolean> | undefined;
 type Retained = {
   sessionId: string; sourceId: number; width: number; height: number; documentId: string; roles: PhotopeaRoles;
   maskKey?: string; bakedVersion?: number; baked: number[]; alive?: () => boolean;
+  layerRefId?: number; layerRevision?: number;
 };
 let retained: Retained | undefined;
 const documents = new Map<string, Retained>();
 type EditorStart = ReturnType<Editor["beginExternalEdit"]>;
 function startOf(task: PhotopeaTask): EditorStart {
   if (task.editor) return task.editor;
+  if (task.layer) {
+    const l = task.layer;
+    return { id: task.id, sessionId: `layer:${l.key}`, sourceId: 0, parentId: 0, kind: 'manual', ancestors: [], mode: 'img2img',
+      image: new Blob(), width: l.width, height: l.height, maskRevision: 0, mask: undefined };
+  }
   const f=task.fusion;
   return {id:task.id,sessionId:`fusion:${f.key}`,sourceId:0,parentId:0,kind:'manual',ancestors:[],mode:'img2img',image:f.source,
     width:f.mask.width,height:f.mask.height,maskRevision:0,mask:undefined};
@@ -77,7 +83,7 @@ function enqueue(work: () => Promise<void>) {
 }
 
 async function load(task: PhotopeaTask, reload = false) {
-  const start=startOf(task), fusion=task.fusion;
+  const start=startOf(task), fusion=task.fusion, layer=task.layer;
   cancelReflow();
   const current = ++revision;
   ready.value = false; working.value = true; error.value = "";
@@ -100,6 +106,33 @@ async function load(task: PhotopeaTask, reload = false) {
         src.value = photopeaUrl(start.id, document.documentElement.dataset.theme === "light" ? "light" : "dark");
       }
       const connection = client;
+      if (layer) {
+        if (!layer.valid()) throw new Error('分件项目已变化，请重新打开');
+        const previous = documents.get(start.sessionId);
+        const reuse = previous && previous.layerRevision === layer.revision && previous.width === layer.width && previous.height === layer.height && previous.layerRefId !== undefined
+          ? { documentId: previous.documentId, refId: previous.layerRefId }
+          : undefined;
+        if (previous && !reuse) { await connection.closeDocument(previous.documentId); documents.delete(start.sessionId); }
+        let initialized = false;
+        try {
+          const state = await connection.openLayerPsd(reuse ? new Blob() : layer.psd(), start.id, reuse);
+          if (disposed || current !== revision) return;
+          if (!layer.valid()) throw new Error('分件项目已变化，请重新打开');
+          retained = {
+            sessionId: start.sessionId, sourceId: 0, width: layer.width, height: layer.height,
+            documentId: start.id, roles: { baseId: 0, scratchId: 0, maskId: 0, carrierId: 0 },
+            baked: [], alive: layer.alive, layerRefId: state.refId, layerRevision: layer.revision,
+          };
+          documents.set(start.sessionId, retained); initialized = true;
+          ready.value = true; working.value = false;
+          scheduleReflow(current);
+          await nextTick();
+          if (!disposed && current === revision) frame.value?.focus({ preventScroll: true });
+        } finally {
+          if (!initialized && !reuse && !disposed && !connection.failed) await connection.closeDocument(start.id);
+        }
+        return;
+      }
       if (fusion && !fusion.valid()) throw new Error('融合来源已变化，请重新打开');
       const images = await photopeaInput(start.image, start.mask);
       const key = await maskKey(start.mask), previous = documents.get(start.sessionId);
@@ -140,7 +173,7 @@ async function load(task: PhotopeaTask, reload = false) {
 }
 watch([view,chatView,()=>props.start], () => {
   const ids=view.value.boards.map(b=>b.id);
-  const removed = [...documents.entries()].filter(([id,doc]) => doc.documentId!==props.start?.id && (doc.alive ? !doc.alive() : !id.startsWith('fusion:') && !ids.includes(id)));
+  const removed = [...documents.entries()].filter(([id,doc]) => doc.documentId!==props.start?.id && (doc.alive ? !doc.alive() : !id.startsWith('fusion:') && !id.startsWith('layer:') && !ids.includes(id)));
   if (!removed.length) return;
   void enqueue(async () => {
     for (const [id, doc] of removed) {
@@ -162,6 +195,20 @@ async function apply() {
   try {
     await enqueue(async () => {
       if (disposed || current !== revision) return;
+      if (task.layer) {
+        if (!task.layer.valid()) throw new Error('分件项目已变化，请重新打开');
+        const result = await connection.exportLayers();
+        if (exitDecision && await exitDecision) return;
+        if (disposed || current !== revision) return;
+        applying.value = true;
+        if (!task.layer.valid()) throw new Error('分件项目已变化，请重新打开');
+        const nextRevision = await task.layer.apply(result);
+        if (retained && retained.documentId === start.id && typeof nextRevision === 'number') {
+          retained.layerRevision = nextRevision;
+        }
+        if (!disposed && current === revision) emit('close');
+        return;
+      }
       if (task.fusion && !task.fusion.valid()) throw new Error("融合来源已变化，请重新打开");
       const result = await connection.export(returnMode);
       // A pending discard question must not race a successful return into Koma.
@@ -197,7 +244,7 @@ async function requestBack() {
       exitDecision = ui.confirm({ title: "暂不应用并返回？", message: "分层编辑保留在本页的 Photopea 中，尚未写回 Koma。", confirmLabel: "暂不应用" });
       if (!await exitDecision) return;
     }
-    if (!disposed && props.start === start) { revision++; if(start.editor)editor.cancelExternalEdit(start.id, ready.value);else start.fusion.cancel?.(ready.value); emit("close"); }
+    if (!disposed && props.start === start) { revision++; if(start.editor)editor.cancelExternalEdit(start.id, ready.value);else if(start.layer)start.layer.cancel?.(ready.value);else start.fusion.cancel?.(ready.value); emit("close"); }
   } finally { confirming = false; exitDecision = undefined; }
 }
 async function reload() {
@@ -239,7 +286,7 @@ watch(() => props.start, start => {
   menu.value?.hidePopover();
   window.removeEventListener("resize", position); window.removeEventListener("beforeunload", beforeLeave);
   if (start) {
-    mode.value = start.fusion ? "image" : "auto";
+    mode.value = start.fusion || start.layer ? "image" : "auto";
     window.addEventListener("resize", position); window.addEventListener("beforeunload", beforeLeave);
     void load(start);
   } else { revision++; ready.value = false; working.value = false; error.value = ""; }
@@ -248,19 +295,19 @@ onBeforeUnmount(() => {
   cancelReflow();
   disposed = true; revision++; client?.dispose();
   window.removeEventListener("resize", position); window.removeEventListener("beforeunload", beforeLeave);
-  if (props.start?.editor) editor.cancelExternalEdit(props.start.id);else props.start?.fusion.cancel?.(false);
+  if (props.start?.editor) editor.cancelExternalEdit(props.start.id);else if(props.start?.layer)props.start.layer.cancel?.(false);else props.start?.fusion.cancel?.(false);
 });
 defineExpose({ requestBack });
 </script>
 <template>
   <section class="photopea-panel" aria-label="Photopea 高级编辑" @keydown="onKeys">
     <header class="photopea-bar">
-      <button class="ibtn" type="button" :aria-label="start?.fusion ? '返回' : '返回 EDIT'" :title="start?.fusion ? '返回' : '返回 EDIT'" :disabled="applying" @click="requestBack"><AppIcon name="i-back" /></button>
+      <button class="ibtn" type="button" :aria-label="start?.fusion || start?.layer ? '返回' : '返回 EDIT'" :title="start?.fusion || start?.layer ? '返回' : '返回 EDIT'" :disabled="applying" @click="requestBack"><AppIcon name="i-back" /></button>
       <div class="photopea-title"><strong :title="title">Photopea</strong></div>
       <span v-if="working" class="photopea-status sr-only" role="status">{{ ready ? '正在回传…' : '正在载入…' }}</span>
       <div class="photopea-apply">
         <button class="btn btn-primary btn-sm photopea-submit" type="button" aria-label="应用并返回" title="应用并返回" :disabled="frozen || client?.failed" @click="apply"><AppIcon name="i-check" /></button>
-        <button v-if="!start?.fusion" ref="choice" class="btn btn-primary btn-sm photopea-choice" type="button" :disabled="frozen"
+        <button v-if="!start?.fusion && !start?.layer" ref="choice" class="btn btn-primary btn-sm photopea-choice" type="button" :disabled="frozen"
           aria-haspopup="menu" aria-controls="photopea-return-menu" :aria-expanded="expanded" :aria-label="`回传方式：${labels[mode]}`" popovertarget="photopea-return-menu" @keydown="choiceKeys">
           <span>{{ labels[mode] }}</span><AppIcon name="i-chevron" />
         </button>

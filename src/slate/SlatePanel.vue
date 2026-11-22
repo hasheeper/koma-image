@@ -2,6 +2,7 @@
 import { computed, nextTick, onBeforeUnmount, onMounted, shallowRef } from "vue";
 import { useSlates } from "../app/slate.ts";
 import { useAsk } from "../app/ask.ts";
+import { useAskPresentation } from "../ask/presentation.ts";
 import { useBridge } from "../app/bridge.ts";
 import { useDrawing } from "../app/drawing.ts";
 import { message } from "../app/ui.ts";
@@ -10,6 +11,7 @@ import AppIcon from "../shared/AppIcon.vue";
 import PopoverMenu from "../shared/ui/PopoverMenu.vue";
 import { parseSlateEdit } from "./edit.ts";
 const slates = useSlates(), ask = useAsk(), bridge = useBridge(), { drawing } = useDrawing();
+const { layerChecklist, showTodos } = useAskPresentation();
 const dialog = shallowRef<HTMLDialogElement | null>(null), importer = shallowRef<HTMLInputElement | null>(null);
 const creating = shallowRef(false), title = shallowRef(''), error = shallowRef('');
 const issues = computed(() => bridge.slateMappings.value.filter(m => m.status === 'conflict' || m.status === 'error'));
@@ -17,7 +19,11 @@ const unmapped = computed(() => bridge.phase.value === 'active' && slates.active
 const activeIssue = computed(() => issues.value.find(m => m.id === slates.activeId.value));
 const originalFocus = document.activeElement;
 function close() { dialog.value?.close(); slates.visible.value = false; }
-async function open(id: string, fresh = false) { if (!ask.canManage.value) return; if (await ask.openSlate(id, fresh)) close(); }
+async function open(id: string, fresh = false) {
+  if (!ask.canManage.value || !(await ask.openSlate(id, fresh))) return;
+  close();
+  if (layerChecklist.value) showTodos('slate', id);
+}
 function remove(id: string) { if (ask.proposeSlateAction(id, 'delete')) close(); }
 async function create() {
   try { const change = parseSlateEdit({ kind: 'slate_edit', op: 'create', slate_title: title.value }, null, drawing.snapshot().form, []).change; await slates.commit(change); open(change.id); }
@@ -45,7 +51,11 @@ onBeforeUnmount(() => { dialog.value?.close(); if (originalFocus instanceof HTML
         <button class="ibtn" type="button" aria-label="关闭任务总览" @click="close"><AppIcon name="i-close" /></button>
       </div>
     </header>
-    <div class="overview-body"><OverviewRetrospects /><h3 v-if="slates.list.value.length && ask.retrospects.records.value.length" class="overview-section-title">待办清单</h3>
+    <div class="overview-body"><OverviewRetrospects /><h3 v-if="(layerChecklist || slates.list.value.length) && ask.retrospects.records.value.length" class="overview-section-title">待办清单</h3>
+      <div v-if="layerChecklist" class="overview-row">
+        <button class="overview-item" type="button" @click="close(); showTodos('layer', layerChecklist.projectId)"><AppIcon name="i-layers" /><span :title="layerChecklist.title">拆件待办 · {{ layerChecklist.title }}</span><small>{{ layerChecklist.todos.filter(t => t.done).length }}/{{ layerChecklist.todos.length }}</small><AppIcon name="i-chevron" /></button>
+        <button class="ibtn overview-delete" type="button" :aria-label="`删除拆件待办 · ${layerChecklist.title}`" title="删除拆件待办" :disabled="!ask.canDeleteLayerChecklist.value" @click="ask.proposeDeleteLayerChecklist(layerChecklist.projectId) && close()"><AppIcon name="i-trash" /></button>
+      </div>
       <div v-for="s in slates.list.value" :key="s.id" class="overview-row">
         <button class="overview-item" type="button" :disabled="!ask.canManage.value || slates.busy.value" @click="open(s.id)"><AppIcon name="i-tasks" :class="{ current: ask.activeSlate.value?.id === s.id }" /><span :title="s.title">{{ s.title }}</span><small>{{ s.todos.filter(t => t.status === 'done').length }}/{{ s.todos.length }}</small><AppIcon name="i-chevron" /></button>
         <PopoverMenu compact :id="`slate-${s.id}-options`" :label="`${s.title} · 清单选项`" side="right">
@@ -53,7 +63,7 @@ onBeforeUnmount(() => { dialog.value?.close(); if (originalFocus instanceof HTML
           <template #default="{ close: dismiss }"><button class="menu-item danger" role="menuitem" type="button" :disabled="!ask.canManageTasks.value" @click="dismiss(); remove(s.id)"><AppIcon name="i-trash" /><span class="menu-label">删除清单</span></button></template>
         </PopoverMenu>
       </div>
-      <p v-if="!slates.list.value.length && !ask.retrospects.records.value.length" class="overview-empty">暂无任务</p>
+      <p v-if="!layerChecklist && !slates.list.value.length && !ask.retrospects.records.value.length" class="overview-empty">暂无任务</p>
     </div>
     <form v-if="creating" class="overview-create" @submit.prevent="create"><input v-model="title" type="text" aria-label="清单名称" placeholder="清单名称…" maxlength="120" /><button type="submit" :disabled="!title.trim() || slates.busy.value">创建</button></form>
     <div v-for="issue in issues" :key="issue.id" class="overview-issue"><span :title="issue.error">{{ slates.get(issue.id)?.title || '目录任务' }}</span><button type="button" @click="bridge.resolveSlate(issue.id, 'review'); close(); ask.show()">审阅修改</button></div>
@@ -71,6 +81,7 @@ onBeforeUnmount(() => { dialog.value?.close(); if (originalFocus instanceof HTML
 .slate-panel .ibtn { width: var(--overview-action-size); height: var(--overview-action-size); }
 .slate-panel .ibtn .ico { --ico: var(--ico-sm); }
 .slate-panel .ibtn[aria-expanded="true"] { color: var(--fg); background: var(--hover); }
+.overview-delete:is(:hover, :focus-visible):not(:disabled) { color: var(--err); background: var(--err-dim); }
 .slate-panel .ibtn:focus-visible, .overview-item:focus-visible { outline: 1.5px solid color-mix(in srgb, var(--a) 70%, transparent); outline-offset: -1.5px; }
 .overview-section-title { margin: 8px 6px 4px; color: var(--fg-3); font-size: var(--fz-xs); font-weight: var(--fw-medium); }
 .overview-body { max-height: min(360px, 50dvh); overflow: auto; }

@@ -69,6 +69,7 @@ function paste(event: ClipboardEvent) {
   else if (text.length > ATTACHMENT_LIMITS.paste) { event.preventDefault(); void ask.addPastedText(text); }
 }
 function drag(event: DragEvent) {
+  if (event.target instanceof Element && event.target.closest('.directory-chip')) { clearDrop(); event.stopPropagation(); return; }
   const data = event.dataTransfer;
   if (!acceptsInput() || !data || !["Files", names.historyDragType, homePictureType].some(type => data.types.includes(type))) return;
   event.stopPropagation();

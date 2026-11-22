@@ -22,7 +22,7 @@ watch(() => !!plan.value, () => { fulls.value = new Set(); });
 const view = computed(() => plan.value ? draftView(plan.value) : null);
 const issues = computed(() => plan.value?.steps.some((s) => !!s.issue));
 const toggles = computed(() => (plan.value?.steps.length ?? 0) > 1);
-const blocked = computed(() => !plan.value || (!plan.value.edit && !plan.value.changes.length && !plan.value.branch && !plan.value.handoff && !plan.value.chatChild && !plan.value.slate && !plan.value.files?.length && !plan.value.rollbackBase && !plan.value.newBoardName) || (!!(plan.value.edit || plan.value.slate || plan.value.files?.length || plan.value.rollbackBase || plan.value.newBoardName) && issues.value) || ask.writingDraft.value || ask.running.value);
+const blocked = computed(() => !plan.value || (!plan.value.layerPatch && !plan.value.edit && !plan.value.changes.length && !plan.value.branch && !plan.value.handoff && !plan.value.chatChild && !plan.value.slate && !plan.value.files?.length && !plan.value.rollbackBase && !plan.value.newBoardName) || (!!(plan.value.layerPatch || plan.value.edit || plan.value.slate || plan.value.files?.length || plan.value.rollbackBase || plan.value.newBoardName) && issues.value) || ask.writingDraft.value || ask.running.value);
 const menuId = `draftApply-${useId()}`;
 const menu = shallowRef<HTMLElement | null>(null), menuTrigger = shallowRef<HTMLButtonElement | null>(null), menuOpen = shallowRef(false);
 const hasApplyMenu = computed(() => !props.compact);
@@ -34,7 +34,7 @@ const destinations = [
   { newBoard: false, label: "应用到来源画板" },
   { newBoard: true, label: "应用到新画板" },
 ];
-const applyTitle = computed(() => plan.value?.workspace === "edit" ? "写入编辑画板，不会生成 · Tab" : plan.value?.slate && !plan.value.changes.length && !plan.value.newBoardName ? "写入任务板，不会生成 · Tab" : plan.value?.newBoardName ? `新建画板「${plan.value.newBoardName}」并应用，不会生成 · Tab`
+const applyTitle = computed(() => plan.value?.layerPatch ? ask.draftApplyLabel.value : plan.value?.workspace === "edit" ? "写入编辑画板，不会生成 · Tab" : plan.value?.slate && !plan.value.changes.length && !plan.value.newBoardName ? "写入任务板，不会生成 · Tab" : plan.value?.newBoardName ? `新建画板「${plan.value.newBoardName}」并应用，不会生成 · Tab`
   : plan.value?.chatChild ? '新开图片子区，不继承历史或生成输入 · Tab'
   : plan.value?.handoff?.current ? "更新当前对话的底图、参考图和输入框，不会发送 · Tab"
   : view.value?.destination ? "新开对话写入底图、参考图、画幅和输入框，不会发送 · Tab"
@@ -135,7 +135,10 @@ function discard() { closeMenu(); ask.ignoreDraft(); }
       </div>
       <p v-if="plan.aligned" class="draft-aligned">已按当前内容对齐，请核对后应用</p>
       <div v-show="open && !compact" id="askDraftBody" ref="body" class="draft-body" :class="{ more }" @scroll.passive="fade">
-        <DraftSlate v-if="slateStep" :key="`${plan.title}-${slateStep.after}`" :change="plan.slate" :step="slateStep" />
+        <div v-if="slateStep" class="draft-step" :class="{ off: !slateStep.enabled }" :data-step="slateStep.id">
+          <DraftSlate :key="`${plan.title}-${slateStep.after}`" :change="plan.slate" :step="slateStep" />
+          <button v-if="slateStep.layerTodos && toggles" class="draft-undo" type="button" :disabled="!!slateStep.issue || ask.writingDraft.value || ask.running.value" :aria-label="`${slateStep.enabled ? '撤回' : '恢复'} ${slateStep.label}`" @click="ask.toggleDraftStep(slateStep.id)"><AppIcon :name="slateStep.enabled ? 'i-undo' : 'i-redo'" /></button>
+        </div>
         <section v-for="field in view.fields.filter(f => f.key !== 'slate')" :key="field.key" class="draft-field" :data-field="field.key">
           <header class="draft-field-head">
             <span class="draft-name"><AppIcon :name="field.icon" /><span>{{ field.label }}</span></span>

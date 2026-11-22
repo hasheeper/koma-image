@@ -17,6 +17,7 @@ import { editAwareness } from "../services/edit-awareness.ts";
 import { naiAwareness,naiSourceKey,naiAccountSnapshot } from "../services/nai-awareness.ts";
 import { imageEntity } from "../domain/image-identity.ts";
 import type { Editor } from "../services/editor.ts";
+import {layerPort} from '../layer/planning.ts';
 import { editPictures, editContext, editWorkspaceContext, withEditPictures, freezePictureRefs, bindPictures } from "./edit-context.ts";
 import type { ImageTagBinding } from "../domain/image-identity.ts";
 import type { PictureRefs } from "./edit-context.ts";
@@ -467,7 +468,7 @@ export function createAsk(deps: {
   function readDraftState(boardId?: string, slateId?: string, editId?:string): DraftState {
     const d = drawing.snapshot(), c = chat.snapshot().current;
     const board = d.boards.find(b => b.id === (boardId ?? d.activeBoardId));
-    return { edit: deps.editor?.askSnapshot(editId), editBoards:deps.editor?.boards().map(b=>deps.editor!.askSnapshot(b.id)!), fileContext: filePort?.context(), slate: deps.slates?.get(slateId ?? conversations.current.slateId ?? "") ?? null, boardId: boardId ?? d.activeBoardId, boardName: board?.name, boardPresent: !!board, nextCharacterId: board?.nextCharacterId, form: structuredClone({ ...d.form, ...board?.form }), composer: c.prompt, conversationId: c.id, chat: chatSnapshot(chat.snapshot(),true,chatIds), models: [...d.models], samplers: [...d.samplers], samplersByModel: Object.fromEntries(d.models.map((m) => [m.id, drawing.samplersFor(m.id)])),
+    return { ...(router.route.value.workspace==='edit'?{layer:layerPort()?.read()}:{}), edit: deps.editor?.askSnapshot(editId), editBoards:deps.editor?.boards().map(b=>deps.editor!.askSnapshot(b.id)!), fileContext: filePort?.context(), slate: deps.slates?.get(slateId ?? conversations.current.slateId ?? "") ?? null, boardId: boardId ?? d.activeBoardId, boardName: board?.name, boardPresent: !!board, nextCharacterId: board?.nextCharacterId, form: structuredClone({ ...d.form, ...board?.form }), composer: c.prompt, conversationId: c.id, chat: chatSnapshot(chat.snapshot(),true,chatIds), models: [...d.models], samplers: [...d.samplers], samplersByModel: Object.fromEntries(d.models.map((m) => [m.id, drawing.samplersFor(m.id)])),
       workspace: router.route.value.workspace, chatModel: chatDraftModel(chat.snapshot()) };
   }
   /** Handoff images are checked live: IMAGE records by ID, CHAT pictures by asset. */
@@ -535,6 +536,10 @@ export function createAsk(deps: {
   const draftApplyLabel = computed(() => {
     const plan = draftPlan.value, workspace = plan?.workspace;
     const to = router.route.value.workspace === "home" ? "切到" : "切回";
+    if (plan?.layerPatch) {
+      const edits = plan.layerPatch.edits;
+      return edits.length === 1 && edits[0].kind === 'todos' && !edits[0].after.length ? '确认删除' : '应用到分件项目';
+    }
     if (workspace === "edit" || plan?.files?.length) return "应用";
     if (plan?.slate && !plan.changes.length && !plan.newBoardName) return "应用到任务板";
     if (plan?.handoff?.current) return "应用到当前对话";
@@ -577,7 +582,7 @@ export function createAsk(deps: {
     if (draft.value !== record || controller || disposed) return;
     let plan = validateDraft(record.draft, readDraftState(record.draft.base.boardId, record.draft.steps.find(s => s.kind === "slate_edit")?.change.before?.id, record.draft.base.edit?.id), { off: record.off, has: hasImage, hasRecord });
     if (plan.fingerprint !== fingerprint) { draftRevision.value++; notice.value = "内容已变化，请核对更新后的草稿再应用"; return; }
-    if (!plan.edit && !plan.changes.length && !plan.branch && !plan.handoff && !plan.chatChild && !plan.slate && !plan.files?.length && !plan.rollbackBase && !plan.newBoardName) return;
+    if (!plan.layerPatch && !plan.edit && !plan.changes.length && !plan.branch && !plan.handoff && !plan.chatChild && !plan.slate && !plan.files?.length && !plan.rollbackBase && !plan.newBoardName) return;
     if ((plan.workspace === "edit" || plan.files?.length || plan.newBoardName) && plan.steps.some(step => step.issue)) { notice.value = "草稿有冲突，请先核对"; return; }
     writingDraft.value = true; notice.value = "";
     try {
@@ -600,7 +605,7 @@ export function createAsk(deps: {
       externalStatus(record, "applied", notice.value || undefined);
       draft.value = null;
       appliedDraft.value = { id: record.id, workspace: plan.workspace };
-      const count = plan.handoff || plan.chatChild ? plan.steps.filter((s) => s.enabled && !s.issue && s.id !== "0:new").length : (plan.edit ? 1:0) + plan.changes.length + (plan.createdBoard ? 1 : 0) + (plan.slate ? 1 : 0) + (plan.files?.length ?? 0);
+      const count = plan.handoff || plan.chatChild ? plan.steps.filter((s) => s.enabled && !s.issue && s.id !== "0:new").length : (plan.layerPatch?.edits.length ?? 0) + (plan.edit ? 1:0) + plan.changes.length + (plan.createdBoard ? 1 : 0) + (plan.slate ? 1 : 0) + (plan.files?.length ?? 0);
       say(`已应用草稿 ${plan.title} · ${count} 项 · ${plan.workspace !== "chat" ? "未生成" : "未发送"}`);
       await focusWritten(plan);
     } catch (error) { notice.value = message(error); externalStatus(record, "pending", notice.value); }
@@ -690,7 +695,8 @@ export function createAsk(deps: {
 
   function pictureLibrary(chats = chatLibrary()) {
     const d = drawing.snapshot();
-    return withEditPictures(snapshotPictures(d.history, d.favorites, ids), editPictures(deps.editor, ids, chats));
+    const master=router.route.value.workspace==='edit'?layerPort()?.picture():undefined;
+    return withEditPictures(snapshotPictures(d.history, d.favorites, ids), [...editPictures(deps.editor, ids, chats),...(master?[master]:[])]);
   }
   // Rendering can resolve many nodes/references in one update. Keep this index
   // separate from live tool/draft reads, and release its Blobs on invalidation.
@@ -818,6 +824,7 @@ export function createAsk(deps: {
     return { ...digest, baseHash:stateHash(readDraftState()), json: JSON.stringify({ ...state, base_hash:stateHash(readDraftState()),
       ...(workspace === "home" && deps.home ? { home: homeContext(deps.home, ids, chat) } : {}),
       image: state.image.form ? { ...state.image, ...naiAwareness({form: d.form, models:d.models, samplers:d.samplers, quote:d.quote, quoteKey:d.quoteKey,quoteAt:d.quoteAt,account:d.quota?.media.subscription, accountAt:d.quotaAt,accountSource:naiSourceKey(d.model),referenceCosts:Object.fromEntries(d.models.map(m=>[m.id,services.references.cachedCost(d.form.naiReferences,m.id)]))}).snapshot } : state.image,
+      ...(workspace==='edit' && layerPort()?.read() ? {layer:layerPort()!.read()} : {}),
       picture_ref_version: 2, picture_scope_id: pictureScope(), favorites_scope_id:drawing.favoritesScopeId,
       edit: (()=>{const directory=editWorkspaceContext(deps.editor,pictureLibrary()); const edit=deps.editor?.askSnapshot(); return workspace==='edit'&&edit?.ready ? {...directory,...editAwareness(edit).snapshot}:directory;})(),
       image_input: { enabled: !metadataOnly, mode: metadataOnly ? "metadata_only" : "on_demand",
@@ -1222,6 +1229,8 @@ export function createAsk(deps: {
     const snapshotTime = Date.now(), snapshot = drawing.snapshot(),
       frozenBoards = structuredClone(snapshot.boards),
       library = bindPictures([...withEditPictures(pictureLibrary(), chatLibrary()), ...attachmentPictures(attachments.read([...new Set([...entryAttachments(entries.value), ...attached.map(a => a.id)])]), owner.scope.id)], pictureScopes()),
+      rejectedPictures = router.route.value.workspace === 'edit' ? layerPort()?.rejectionPictures() : undefined,
+      layerReferences = router.route.value.workspace === 'edit' ? layerPort()?.referencePictures() : undefined,
       turnChatContext = chatContext(chat.snapshot(), library),
       known = owner.session.viewed(),
       turnViewed = new Set(known),
@@ -1375,6 +1384,8 @@ export function createAsk(deps: {
           signal: abort.signal,
           metadataOnly,
           library,
+          rejectedPictures,
+          layerReferences,
           recipes,
           refreshRecipeReviews: branchTurn.refresh,
           stageEvolutionBranch: branchTurn.stage,
@@ -1488,7 +1499,7 @@ export function createAsk(deps: {
       if (proposed) pacer.push(() => {}, PACE.beforeDraft);
       await pacer.settled();
       abort.signal.throwIfAborted();
-      working.turnId = turn.commit({ pictureRefs: working.pictureRefs, viewed: [...turnViewed].filter((id) => !known.has(id)), question,
+      working.turnId = turn.commit({ pictureRefs: working.pictureRefs, viewed: [...turnViewed].filter((id) => !known.has(id) && !layerReferences?.has(id)), question,
         attachments: attached.map(a => a.id), targets: [...new Set([...(`${turnAnchor ?? ""} ${question}`.match(idPattern) ?? []),
           ...attached.filter(a => a.kind === "image").map(a => a.id), ...readTargets])],
         boards: [...readBoards],
@@ -1883,7 +1894,30 @@ export function createAsk(deps: {
       draftRevision.value++; saveFavorite();
     } catch (error) { notice.value = message(error); }
   }
-  const canManageTasks = computed(() => !running.value && manageable() && !preparing.value && !draft.value && !!deps.slates?.ready.value && !deps.slates.busy.value && !deps.slates.recovery.value);
+  const canReviewTaskChange = computed(() => !running.value && manageable() && !preparing.value && !draft.value);
+  const canManageTasks = computed(() => canReviewTaskChange.value && !!deps.slates?.ready.value && !deps.slates.busy.value && !deps.slates.recovery.value);
+  const canDeleteLayerChecklist = computed(() => {
+    if (!canReviewTaskChange.value || router.route.value.workspace !== 'edit') return false;
+    const list = layerPort()?.checklist();
+    return !!list && !list.busy;
+  });
+  function reviewTaskChange(base: DraftState, title: string, change: Pick<Draft, 'steps' | 'layerPatch'>) {
+    const entryId = ++sequence;
+    const record = history.create({ title, baseHash: stateHash(base), question: '', base, ...change }, conversations.current.id, entryId);
+    entries.value = [...entries.value, { type: 'note', id: entryId, text: title }];
+    draft.value = record;
+    draftRevision.value++; saveFavorite(); reveal();
+    return true;
+  }
+  function proposeDeleteLayerChecklist(projectId: string) {
+    if (!canDeleteLayerChecklist.value) return false;
+    const base = readDraftState(), layer = base.layer;
+    if (!layer || layer.projectId !== projectId || !layer.todos.length) return false;
+    return reviewTaskChange(base, `删除拆件待办 · ${layer.title}`, {
+      steps: [],
+      layerPatch: { projectId, edits: [{ kind: 'todos', key: 'todos', label: '删除拆件待办', before: layer.todos, after: [] }] },
+    });
+  }
   function detachSlate() {
     if (!canManageTasks.value) return;
     setSlateLink(conversations.current, null);
@@ -1899,11 +1933,7 @@ export function createAsk(deps: {
       const step = parseSlateEdit({ kind: 'slate_edit', op: action === 'delete' ? 'delete' : 'update', slate_id: slate.id, expected_version: slate.version,
         ...(action === 'delete' ? {} : { todos: [{ op: action === 'remove' ? 'remove' : 'update', id: todo!.id,
           ...(action === 'remove' ? {} : { status: action === 'abandon' ? 'abandoned' : 'todo' }) }] }) }, slate, base.form, [], base.fileContext?.id ?? null);
-      const entryId = ++sequence;
-      entries.value = [...entries.value, { type: 'note', id: entryId, text: title }];
-      draft.value = history.create({ title, baseHash: stateHash(base), question: '', base, steps: [step] }, conversations.current.id, entryId);
-      draftRevision.value++; saveFavorite(); reveal();
-      return true;
+      return reviewTaskChange(base, title, { steps: [step] });
     } catch (error) { notice.value = message(error); return false; }
   }
   async function openSlate(id: string, fresh = false) {
@@ -1921,7 +1951,7 @@ export function createAsk(deps: {
   const restored = Promise.resolve(deps.slates?.restored).then(() => restoreFavorites());
 
   return {
-    proposeFile, openSlate, canManageTasks, detachSlate, proposeSlateAction,
+    proposeFile, openSlate, canManageTasks, detachSlate, proposeSlateAction, canDeleteLayerChecklist, proposeDeleteLayerChecklist,
     activeSlate: computed(() => { void conversationId.value; void draftRevision.value; return deps.slates?.get(conversations.current.slateId ?? "") ?? null; }),
     connectFileExports(port: FilePort) { filePort = port; draftRevision.value++; return () => { if (filePort === port) filePort = null; }; },
     connectReferences(source: RefSource) { referenceSource = source; stateRevision.value++; return () => { if (referenceSource === source) { referenceSource = null; stateRevision.value++; } }; },

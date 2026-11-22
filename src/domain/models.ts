@@ -40,7 +40,10 @@ export const MODELS: ModelIdentity[] = [
   seedream(SEEDREAM_LITE, "Seedream 5.0 Lite", 14, { aliases: ["doubao-seedream-5-0-lite-260128"] }),
   seedream(SEEDREAM_PRO, "Seedream 5.0 Pro", 10),
   seedream(SEEDREAM_FLASH, "Seedream 5.0 Flash", 10),
-  seedream(SEEDREAM_55, "Seedream 5.5", 10, { referenceNote: "5.5 的 API 参数待核验；请绑定供应商实际提供的模型 ID，当前基础参数为参考值。" }),
+  seedream(SEEDREAM_55, "Seedream 5.5", 10, {
+    aliases: ["doubao-seedream-5-5", "dola-seedream-5-5-261028"],
+    referenceNote: "5.5 支持原生透明背景（需搭配 PNG 格式）；其余 API 参数待核验，请绑定供应商实际提供的模型 ID，当前基础参数为参考值。",
+  }),
   gemini("gemini-2.5-flash-image", "Nano Banana", 3),
   gemini("gemini-3-pro-image", "Nano Banana Pro", 14),
   gemini("gemini-3-pro-image-preview", "Nano Banana Pro Preview", 14),
@@ -66,7 +69,7 @@ export function removedModel(configuration: { models?: readonly ManagedModel[] }
     (id.startsWith("model-") || editablePresets.some(m => m.id === id || m.aliases.includes(id)));
 }
 export const parameterLabels: Record<string, string> = {
-  quality: "质量（Images）", complexity: "复杂度（Images）", size: "尺寸（Images）", output_format: "格式（Images）",
+  quality: "质量（Images）", complexity: "复杂度（Images）", size: "尺寸（Images）", background: "背景（Seedream / Images）", output_format: "格式（Images）",
   watermark: "水印（Seedream）",
   aspect_ratio: "比例（Gemini 原生）", image_size: "分辨率（Gemini 原生）",
 };

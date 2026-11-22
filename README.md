@@ -56,6 +56,7 @@
 
 - **NAI 编辑工具链**：支持图生图、Enhance（1× / 1.5× / 2×）与 V5 Max Enhance、普通蒙版重绘、**聚焦重绘（Focused Inpainting，手动框选参考范围 + 自动裁切放大至约 1MP 重绘后缩回贴合原图）**、官方 4× 放大，以及 6 项 **Director Tools**（去背景三结果同组切换、线稿、草图、上色、24 种表情、去杂物）。同尺寸切换衍生版本时默认保留画布蒙版。
 - **内嵌 Photopea 工作栈**：页内一键打开保活的 Photopea 实例，自动建立 **「原图 + 涂鸦与修补 + Koma 蒙版」** 三层结构；应用返回时自动分离干净底图与重绘蒙版，并保留各画板独立分层现场。纯手动修图结果无需再跑生成，即可直接收藏或绑入任务交付。
+- **Koma Layer 立绘分层（衔接 [Koma Live](https://github.com/hasheeper/koma-live)）**：在 EDIT 内将平面立绘定稿拆分为可绑骨驱动的分层素材，支持 Seedream 5.5 自动拆层与递归细拆、框选／套索切分、蓝橙标记局部补画、画布精修与 Photopea 嵌套分组往返，直接导出分层 PSD 或 `koma-rig.slices.v2` 切片包送入兄弟项目 **[Koma Live](https://github.com/hasheeper/koma-live)** 完成 2D 绑骨、轮廓网格与实时 WebGL 活立绘演出。详见[Koma Layer](docs/workspaces/layer.md)。
 - **结果融合精修**：蒙版回贴默认进行边界色彩／明度对齐，可关闭对比；EDIT／CHAT 可将原图、AI 结果和软图层蒙版送入同一 Photopea 修边，应用后保留正式合成与原始直出。详见[局部回贴](docs/workspaces/annotations.md#人工审核与合成边界)。
 
 ### 🏷️ TAGS · 标签词典
@@ -157,7 +158,8 @@ npm start
 
 - **总览与设计**：[产品总览](docs/product/overview.md) · [设计语言](docs/product/design-language.md) · [当前状态](docs/status.md)
 - **架构与契约**：[文档索引](docs/README.md) · [系统架构](docs/architecture.md) · [业务契约](docs/business-contracts.md)
-- **专题说明**：[NovelAI 适配](docs/integrations/novelai.md) · [Photopea 工作栈](docs/integrations/photopea.md) · [ASK 架构](docs/ask/README.md) · [外部协同与任务板](docs/integrations/bridge.md)
+- **专题说明**：[NovelAI 适配](docs/integrations/novelai.md) · [Photopea 工作栈](docs/integrations/photopea.md) · [Koma Layer 立绘分层](docs/workspaces/layer.md) · [ASK 架构](docs/ask/README.md) · [外部协同与任务板](docs/integrations/bridge.md)
+- **兄弟项目**：[Koma Live](https://github.com/hasheeper/koma-live)（承接 Koma Layer 导出的 `koma-rig.slices.v2` 切片包与分层 PSD，完成 2D 绑骨、轮廓网格校准与实时 WebGL 活立绘驱动）
 
 ## 💜 致谢
 

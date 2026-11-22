@@ -39,6 +39,7 @@ import type { AppRouter } from "../app/router";
 import type { Drawing } from "./drawing";
 import type { Chat } from "./chat";
 import { normalizeOptions, resolveModel } from "../domain/catalog";
+import { coerceModelOptions } from "../domain/chat-options.ts";
 import { removedModel } from "../domain/models";
 import type { SourceSelection } from "./source-priority.ts";
 import type { CatalogModel } from "../domain/catalog";
@@ -1832,10 +1833,14 @@ export function createEditor(
     setOption(key: string, value: string, mode: EditorMode = 'upscale') {
       const m = selected(mode);
       if (!m || locked()) return;
-      current.options[m.id] = {
-        ...(current.options[m.id] || normalizeOptions(m)),
-        [key]: value,
-      };
+      current.options[m.id] = coerceModelOptions(
+        m,
+        {
+          ...(current.options[m.id] || normalizeOptions(m)),
+          [key]: value,
+        },
+        key,
+      );
       changed();
     },
     setImageEdit(values: Partial<ImageEditSettings>) {

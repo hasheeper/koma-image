@@ -21,7 +21,7 @@ export interface FieldView {
   readonly full: readonly Piece[] | null;
 }
 /** Where a creating draft writes, shown under its title. */
-export interface Destination { readonly label: "新画板" | "新对话" | "当前对话" | "编辑画板"; readonly name: string }
+export interface Destination { readonly label: "新画板" | "新对话" | "当前对话" | "编辑画板" | "分件项目"; readonly name: string }
 export interface DraftView { readonly fields: readonly FieldView[]; readonly added: number; readonly removed: number; readonly destination: Destination | null }
 
 const fields: Record<Exclude<FieldKey, `character:${string}`>, { label: string; icon: string }> = {
@@ -90,6 +90,13 @@ const fieldOf = (step: CheckedStep): FieldKey =>
     : step.label.startsWith("Prompt") ? "prompt" : step.label.startsWith("Negative") ? "negative" : "composer";
 
 function slateView(step: CheckedStep, change?: SlateChange): Extract<StepView, { kind: "slate" }> {
+  if (step.layerTodos) {
+    const { before, after } = step.layerTodos;
+    if (!after.length) return { kind: 'slate', step, heading: '拆件待办', summary: `删除 ${before.length} 项`,
+      recipe: '', caution: '', added: 0, removed: before.length };
+    return { kind: 'slate', step, heading: '拆件待办', summary: step.after, recipe: '', caution: '',
+      added: after.length ? 1 : 0, removed: before.length ? 1 : 0 };
+  }
   const before = change?.before, after = change?.after, counts: string[] = [];
   if (change) {
     const old = new Map(before?.todos.map(t => [t.id, t]) ?? []), next = new Map(after?.todos.map(t => [t.id, t]) ?? []);
@@ -149,6 +156,7 @@ export function draftView(plan: DraftPlan): DraftView {
     const change = opened || key === "params" || key === "branch" || key === "characters" ? undefined : plan.changes.find((c) => c.field === key);
     out.push({ key, ...(key === "handoff" && plan.handoff?.current ? { label: "本轮图片", icon: "i-chat" } : key.startsWith("character:") ? { label: steps[0].step.characterLabel ?? key, icon: "i-model" } : fields[key as keyof typeof fields]), steps, full: change ? diffTags(tagsOf(String(change.before)), tagsOf(String(change.after))) : null });
   }
-  const destination: Destination | null = plan.workspace === "edit" ? {label:"编辑画板",name:[plan.boardName,plan.editSourceTag].filter(Boolean).join(" · ")} : plan.newBoardName ? { label: "新画板", name: plan.newBoardName } : opened ? { label: opened.label === "当前对话" ? "当前对话" : "新对话", name: opened.after } : null;
+  const destination: Destination | null = plan.layerTitle ? { label: "分件项目", name: plan.layerTitle }
+    : plan.workspace === "edit" ? {label:"编辑画板",name:[plan.boardName,plan.editSourceTag].filter(Boolean).join(" · ")} : plan.newBoardName ? { label: "新画板", name: plan.newBoardName } : opened ? { label: opened.label === "当前对话" ? "当前对话" : "新对话", name: opened.after } : null;
   return { fields: out, added, removed, destination };
 }

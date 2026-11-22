@@ -1,13 +1,14 @@
 /** Option keys a new conversation may take from an ASK draft; other controls stay the user's choice. */
 export const chatSizeKeys: readonly string[] = ["size", "aspect_ratio", "image_size"];
 /** Shown to ASK so it can remind the user, never written by a draft. */
-export const chatReadOnlyKeys: readonly string[] = ["quality", "complexity", "output_format", "watermark"];
+export const chatReadOnlyKeys: readonly string[] = ["quality", "complexity", "background", "output_format", "watermark"];
 
 /** Parameter panel names and values, shared by CHAT and ASK draft cards. */
 export const chatOptionNames: Readonly<Record<string, string>> = {
   quality: "质量",
   complexity: "复杂度",
   size: "画幅",
+  background: "背景",
   aspect_ratio: "比例",
   image_size: "分辨率",
   output_format: "格式",
@@ -15,6 +16,8 @@ export const chatOptionNames: Readonly<Record<string, string>> = {
 };
 const values: Readonly<Record<string, string>> = {
   auto: "自动",
+  transparent: "透明",
+  opaque: "不透明",
   low: "草稿",
   medium: "标准",
   high: "高质量",
@@ -26,6 +29,24 @@ const values: Readonly<Record<string, string>> = {
 };
 export const chatOptionLabel = (v: string, key?: string) =>
   key === 'complexity' ? ({ low: '低', medium: '中', high: '高' }[v] || v) : values[v] || v.toUpperCase();
+
+/** Keep transparent background paired with PNG (or clear transparent when explicitly switching to JPEG). */
+export function coerceModelOptions(
+  model: Pick<CatalogModel, 'fields'> | null | undefined,
+  options: Record<string, string>,
+  changedKey: string,
+): Record<string, string> {
+  const next = { ...options };
+  if (changedKey === 'background' && next.background === 'transparent' && next.output_format === 'jpeg' && model?.fields.output_format?.options.includes('png')) {
+    next.output_format = 'png';
+  } else if (changedKey === 'output_format' && next.output_format === 'jpeg' && next.background === 'transparent') {
+    const fallback = model?.fields.background?.options.includes('auto')
+      ? 'auto'
+      : model?.fields.background?.options.find(v => v !== 'transparent');
+    if (fallback) next.background = fallback;
+  }
+  return next;
+}
 import { normalizeOptions } from './catalog.ts';
 import type { CatalogModel } from './catalog.ts';
 import type { ConversationTurn, ConversationVersion } from '../storage/records.ts';

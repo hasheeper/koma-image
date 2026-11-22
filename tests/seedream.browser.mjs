@@ -211,3 +211,27 @@ test('Seedream connection card: directory limits, model setup and successful req
     assert.deepEqual(t.errors, []);
   } finally { await t.context.close(); }
 });
+
+test('Seedream 5.5 CHAT: background=transparent automatically aligns format to PNG and sends native background parameter', async () => {
+  const t = await open('seedream-v1', true, 'doubao-seedream-5-5'), { page } = t;
+  try {
+    await page.waitForFunction(id => chat.snapshot().ready && chat.snapshot().model?.id === id, SEEDREAM_55);
+    await page.evaluate(() => {
+      chat.setOption('output_format', 'jpeg');
+      chat.setOption('background', 'transparent');
+    });
+    const opts = await page.evaluate(() => chat.snapshot().current.settings.options);
+    assert.equal(opts.background, 'transparent');
+    assert.equal(opts.output_format, 'png');
+    await page.locator('#chatPrompt').fill('透明底贴纸角色');
+    await page.getByRole('button', { name: '发送绘图请求', exact: true }).click();
+    await page.waitForFunction(() => !chat.snapshot().busy && chat.snapshot().current.turns.length === 1 && chat.snapshot().current.turns[0].versions[0].status === 'done');
+    const post = t.requests.find(r => r.method === 'POST');
+    assert.ok(post);
+    const body = JSON.parse(post.body);
+    assert.equal(body.model, 'doubao-seedream-5-5');
+    assert.equal(body.background, 'transparent');
+    assert.equal(body.output_format, 'png');
+    assert.deepEqual(t.errors, []);
+  } finally { await t.context.close(); }
+});

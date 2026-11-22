@@ -93,7 +93,7 @@ test("real browser schemas, atomic chat transactions, original Blob bytes and on
         });
         await done;
       });
-      let aborted = false;
+      let abortReason;
       try {
         await app.data.write(async () => {
           const tx = app.databases.transaction(
@@ -106,8 +106,8 @@ test("real browser schemas, atomic chat transactions, original Blob bytes and on
           tx.objectStore("assets").add({ id: "synthetic" }); // Duplicate key aborts both stores.
           await done;
         });
-      } catch {
-        aborted = true;
+      } catch (error) {
+        abortReason = error.name;
       }
       const tx = app.databases.transaction(names.databases.chat, [
         "conversations",
@@ -122,7 +122,7 @@ test("real browser schemas, atomic chat transactions, original Blob bytes and on
       return {
         known,
         details,
-        aborted,
+        abortReason,
         rolledBack: missing === undefined,
         bytes: [...new Uint8Array(await asset.blob.arrayBuffer())],
         local: Object.keys(localStorage),
@@ -139,15 +139,17 @@ test("real browser schemas, atomic chat transactions, original Blob bytes and on
       "koma-handoff",
       "koma-home",
       "koma-image-favorites",
+      "koma-layer",
       "koma-slate",
     ]);
     assert.deepEqual(
       result.details.map((d) => d.stores),
-      [["previews"], ["assets", "state"], ["favoriteTags", "favorites", "identity", "referenceAssets", "vibeEncodings"], ["assets", "conversations"], ["items"], ["conversations"], ["state"]],
+      [["index", "projects", "undo"], ["previews"], ["assets", "state"], ["favoriteTags", "favorites", "identity", "referenceAssets", "vibeEncodings"], ["assets", "conversations"], ["items"], ["conversations"], ["state"]],
     );
-    assert.deepEqual(result.details.map(d=>d.version),[1,1,3,1,1,1,1]);
+    assert.deepEqual(result.details.map(d=>d.version),[1,1,1,3,1,1,1,1]);
     assert.deepEqual(result.bytes, [0, 128, 255, 10]);
-    assert.ok(result.aborted && result.rolledBack);
+    assert.equal(result.abortReason, 'ConstraintError');
+    assert.ok(result.rolledBack);
     assert.deepEqual(result.local, []);
     assert.deepEqual(result.session, []);
     assert.deepEqual(result.dataLocks, ["shared"]);

@@ -32,6 +32,7 @@ const dropping = shallowRef(false);
 let dragDepth = 0;
 function clearDrop() { dragDepth = 0; dropping.value = false; }
 function drag(event: DragEvent) {
+  if (event.target instanceof Element && event.target.closest('.directory-chip')) { clearDrop(); event.stopPropagation(); return; }
   if (!event.dataTransfer?.types.includes('Files')) return;
   if (event.type === 'dragleave') { if (--dragDepth <= 0) clearDrop(); return; }
   event.preventDefault();

@@ -7,7 +7,7 @@ import { assetReceipt, externalEdit, slateFile } from "./documents.ts";
 import type { bridgeStorage } from "../bridge/storage.ts";
 import type { InboxReceipt } from "../bridge/protocol.ts";
 import { DRAFT_SCHEMA } from "../bridge/protocol.ts";
-import { fileDriver, safePath } from "../bridge/fs-driver.ts";
+import { fileDriver, readWhileMounted, safePath } from "../bridge/fs-driver.ts";
 
 export interface SlateSession { id: string; root: FileSystemDirectoryHandle; signal: AbortSignal }
 interface Delivery { path: string; sha256: string; asset_id: string; delivered_at: string }
@@ -30,7 +30,12 @@ export function createSlateSync(slates: Slates, storage: ReturnType<typeof bridg
   }
   async function bytes(s: SlateSession, path: string) {
     const parts = safePath(path), name = parts.pop()!; let dir = s.root;
-    try { for (const part of parts) dir = await dir.getDirectoryHandle(part); return await (await dir.getFileHandle(name)).getFile(); }
+    try {
+      return await readWhileMounted(s.signal, async () => {
+        for (const part of parts) dir = await dir.getDirectoryHandle(part);
+        return (await dir.getFileHandle(name)).getFile();
+      });
+    }
     catch (e) { if (e instanceof DOMException && e.name === "NotFoundError") return null; throw e; }
   }
   async function verifiedWrite(s: SlateSession, map: Mapping, all: Mapping[], path: string, value: Blob | string) {
@@ -114,11 +119,12 @@ export function createSlateSync(slates: Slates, storage: ReturnType<typeof bridg
   async function scan(s: SlateSession) {
     s.signal.throwIfAborted();
     const all = await read(s), known = new Set(all.map(m => m.path));
-    try {
+    async function discover() {
       const dir = await s.root.getDirectoryHandle("slates");
       const iterable = dir as FileSystemDirectoryHandle & { values(): AsyncIterableIterator<FileSystemHandle> };
       let count = 0;
       for await (const handle of iterable.values()) {
+        s.signal.throwIfAborted();
         if (++count > 100) break;
         if (handle.kind !== "file" || !handle.name.endsWith(".slate.json")) continue;
         const path = `slates/${handle.name}`; if (known.has(path)) continue;
@@ -126,7 +132,9 @@ export function createSlateSync(slates: Slates, storage: ReturnType<typeof bridg
         const map: Mapping = { id: `external-${crypto.randomUUID()}`, path, hash: null, version: 0, status: "pending", deliveries: [] };
         all.push(map); known.add(path);
       }
-    } catch (e) { if (!(e instanceof DOMException && e.name === "NotFoundError")) throw e; }
+    }
+    try { await readWhileMounted(s.signal, discover); }
+    catch (e) { if (!(e instanceof DOMException && e.name === "NotFoundError")) throw e; }
     for (const map of all) {
       try {
         s.signal.throwIfAborted();
@@ -152,8 +160,9 @@ export function createSlateSync(slates: Slates, storage: ReturnType<typeof bridg
           }
           await propose(s, map, await file.text(), hash!);
         }
-      } catch (e) { map.status = "conflict"; map.error = e instanceof Error ? e.message : String(e); }
+      } catch (e) { s.signal.throwIfAborted(); map.status = "conflict"; map.error = e instanceof Error ? e.message : String(e); }
     }
+    s.signal.throwIfAborted();
     await save(s, all);
     for (const map of all) if (!map.proposal && map.status !== "conflict") {
       const local = slates.get(map.id);

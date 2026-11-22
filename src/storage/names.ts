@@ -8,6 +8,7 @@ export const names = Object.freeze({
     bridge: "koma-bridge",
     slate: "koma-slate",
     home: "koma-home",
+    layer: "koma-layer",
   },
   preferences: "koma.prefs.v1",
   theme: "koma.theme.v1",

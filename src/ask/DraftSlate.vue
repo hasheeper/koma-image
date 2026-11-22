@@ -6,6 +6,7 @@ import { statusNames } from '../slate/model.ts';
 import type { SlateChange, Todo, TodoStatus } from '../slate/model.ts';
 import type { CheckedStep } from './draft/types.ts';
 import type { BoardForm } from '../domain/drawing.ts';
+import type { LayerTodo } from '../layer/planning.ts';
 
 
 const props=defineProps<{change?:SlateChange;step:CheckedStep;imageUrl?:string;initiallyOpen?:boolean}>();
@@ -26,6 +27,29 @@ function text(key:string,value:unknown):string {
   return typeof value==='object'?canonical(value):String(value);
 }
 const rows=computed<Row[]>(()=>{
+  const parts = props.step.layerTodos;
+  if (parts) {
+    const original = new Map(parts.before.map(t => [t.id, t]));
+    const names = new Map(parts.after.map(t => [t.id, t.name]));
+    const fields = { name: '名称', prompt: '拆层说明', max: '最多层数', subPrompt: '细拆说明', subMax: '细拆上限' } satisfies Partial<Record<keyof LayerTodo, string>>;
+    const changed = parts.after.flatMap<Row>(part => {
+      const prior = original.get(part.id);
+      const details: Detail[] = [];
+      for (const key of Object.keys(fields) as (keyof typeof fields)[]) {
+        if (prior?.[key] === part[key] || (key === 'name' && !prior)) continue;
+        details.push({ key, label: fields[key], before: String(prior?.[key] ?? ''), after: String(part[key] ?? '') });
+      }
+      if (prior && !details.length) return [];
+      const title = part.parent ? [names.get(part.parent), part.name].filter(Boolean).join(' / ') : part.name;
+      return [{ id: part.id, title, kind: prior ? 'mod' : 'add', details }];
+    });
+    for (const part of parts.before) {
+      if (names.has(part.id)) continue;
+      const parent = part.parent && original.get(part.parent);
+      changed.push({ id: part.id, title: parent ? parent.name + ' / ' + part.name : part.name, kind: 'del', details: [] });
+    }
+    return changed;
+  }
   const before=props.change?.before,after=props.change?.after,out:Row[]=[];
   if(!before&&after)out.push({id:'slate-created',title:`新建「${after.title}」`,kind:'add',details:[]});
   else if(before&&!after)out.push({id:'slate-deleted',title:`删除「${before.title}」`,kind:'del',details:[]});
@@ -75,7 +99,7 @@ const recipeSummary=computed(()=>{
 </script>
 <template>
   <section v-if="rows.length||step.issue" class="slate-field" aria-label="任务变更">
-    <header class="slate-field-head"><AppIcon name="i-tasks" /><span>任务</span></header>
+    <header class="slate-field-head"><AppIcon name="i-tasks" /><span>{{ step.layerTodos ? '拆件待办' : '任务' }}</span></header>
     <div class="slate-lines">
       <div v-for="row in visibleRows" :key="row.id" class="slate-change">
         <button class="slate-row" :class="[row.kind,{'is-open':activeRow===row.id}]" type="button" :disabled="!row.details.length" :aria-expanded="row.details.length?activeRow===row.id:undefined" :aria-controls="row.details.length?`${id}-${row.id}`:undefined" :aria-label="`${row.title} · ${row.kind==='add'?'新增':row.kind==='del'?'删除':'修改'}详情`" @click="toggleRow(row)">

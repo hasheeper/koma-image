@@ -65,6 +65,306 @@ const receive=(page,value)=>page.evaluate(value=>bridge.importFile(new File([JSO
 const apply=page=>page.evaluate(()=>ask.applyDraft(ask.draftPlan.value.fingerprint));
 const waitReceipt=(page,id,status)=>poll(page,async({id,status})=>{try{const r=JSON.parse(await directoryFile('state.live.json')).last_inbox_receipt;return r?.draft_id===id&&r.status===status}catch{return false}},{id,status});
 
+test('ASK can cancel an invisible chooser, mount a dropped directory and ignore a late picker result', async t => {
+  const { page, context, errors } = await setup();
+  t.after(() => context.close());
+  await page.evaluate(async () => {
+    window.oldFolder = await showDirectoryPicker();
+    window.droppedFolder = await (await navigator.storage.getDirectory()).getDirectoryHandle('selected-folder', { create: true });
+    const f = await (await droppedFolder.getFileHandle('project.json', { create: true })).createWritable();
+    await f.write(JSON.stringify({ title: '拖入的企划' })); await f.close();
+    window.pendingPickers = [];
+    window.showDirectoryPicker = () => new Promise(resolve => { window.pendingPickers.push(resolve); });
+    ask.show();
+  });
+  const mount = page.getByRole('button', { name: '挂载企划目录', exact: true });
+  await mount.click();
+  const cancel = page.getByRole('button', { name: '取消挂载', exact: true });
+  assert.match(await cancel.textContent(), /等待选择目录/);
+  await cancel.click();
+  await mount.waitFor();
+  await mount.click();
+  await cancel.evaluate(el => {
+    const transfer = new DataTransfer(); transfer.items.add(new File([], 'selected-folder'));
+    DataTransferItem.prototype.getAsFileSystemHandle = async () => window.droppedFolder;
+    for (const type of ['dragenter', 'dragover', 'drop'])
+      el.dispatchEvent(new DragEvent(type, { bubbles: true, cancelable: true, dataTransfer: transfer }));
+  });
+  await page.getByRole('dialog', { name: '企划集' }).getByRole('heading', { name: '拖入的企划' }).waitFor({ state: 'attached' });
+  await page.evaluate(() => pendingPickers.forEach(resolve => resolve(oldFolder)));
+  await page.reload(); await bind(page);
+  assert.equal(await page.evaluate(() => bridge.directory.value), 'selected-folder');
+  assert.deepEqual(errors, []);
+});
+
+test('cancel a stalled directory identity comparison and retry using its original project ID', async t => {
+  const { page, context, errors } = await setup();
+  t.after(() => context.close());
+  const id = await page.evaluate(async () => {
+    await bridge.mount();
+    const id = (await navigator.locks.query()).held.find(l => l.name.startsWith('koma-bridge-writer-v1:')).name;
+    await bridge.unmount();
+    const same = FileSystemHandle.prototype.isSameEntry;
+    FileSystemHandle.prototype.isSameEntry = () => new Promise(resolve => {
+      window.unstall = () => { FileSystemHandle.prototype.isSameEntry = same; resolve(true); };
+    });
+    ask.show(); return id;
+  });
+  await page.getByRole('button', { name: '挂载企划目录', exact: true }).click();
+  await page.waitForFunction(() => !!window.unstall);
+  const cancel = page.getByRole('button', { name: '取消挂载', exact: true });
+  assert.match(await cancel.textContent(), /识别企划目录/);
+  await cancel.click();
+  await page.waitForFunction(() => !bridge.busy.value);
+  assert.equal(await page.evaluate(async () => (await navigator.locks.query()).held.some(l => l.name === 'koma-bridge-registry-v1')), false);
+  await page.evaluate(() => unstall());
+  await page.getByRole('button', { name: '挂载企划目录', exact: true }).click();
+  await page.waitForFunction(() => bridge.phase.value === 'active');
+  assert.ok(await page.evaluate(async id => (await navigator.locks.query()).held.some(l => l.name === id), id));
+  assert.deepEqual(errors, []);
+});
+
+test('a stalled historical handle opens the selected project read-only and a retry recovers its original ID', async t => {
+  const { page, context, errors } = await setup();
+  t.after(() => context.close());
+  const writer = await page.evaluate(async () => {
+    await directoryFile('project.json', JSON.stringify({ title: '旧句柄企划' }));
+    await directoryFile('lore/story.md', '可直接读取的设定');
+    await bridge.mount();
+    const lock = (await navigator.locks.query()).held.find(l => l.name.startsWith('koma-bridge-writer-v1:')).name;
+    await bridge.unmount();
+    const same = FileSystemHandle.prototype.isSameEntry, writable = FileSystemFileHandle.prototype.createWritable;
+    FileSystemHandle.prototype.isSameEntry = () => new Promise(() => {});
+    window.repairHandles = () => { FileSystemHandle.prototype.isSameEntry = same; };
+    window.writes = 0;
+    FileSystemFileHandle.prototype.createWritable = function (...args) { window.writes++; return writable.apply(this, args); };
+    ask.show(); return lock;
+  });
+  await page.getByRole('button', { name: '挂载企划目录', exact: true }).click();
+  const panel = page.getByRole('dialog', { name: '企划集' });
+  await panel.getByRole('heading', { name: '旧句柄企划' }).waitFor();
+  await panel.getByRole('button', { name: '设定', exact: true }).click();
+  assert.equal(await panel.getByRole('region', { name: '资料原文' }).textContent(), '可直接读取的设定');
+  await panel.getByRole('button', { name: '启用读写同步' }).click();
+  await page.waitForFunction(() => !bridge.busy.value);
+  assert.deepEqual(await page.evaluate(async () => [bridge.phase.value, writes,
+    (await navigator.locks.query()).held.some(l => l.name.startsWith('koma-bridge-'))]), ['readonly', 0, false]);
+  await page.evaluate(() => repairHandles());
+  await panel.getByRole('button', { name: '启用读写同步' }).click();
+  await page.waitForFunction(() => !bridge.busy.value && bridge.phase.value === 'active');
+  assert.ok(await page.evaluate(async writer => (await navigator.locks.query()).held.some(l => l.name === writer), writer));
+  assert.deepEqual(errors, []);
+});
+
+test('another tab can hold the registry while the user opens, switches and unloads actual project contents', async t => {
+  const { page, context, errors } = await setup();
+  t.after(() => context.close());
+  const other = await context.newPage();
+  await other.goto(origin + '/assets/favicon-image.svg');
+  await other.evaluate(() => new Promise(held => {
+    void navigator.locks.request('koma-bridge-registry-v1', () => new Promise(release => {
+      window.releaseRegistry = release; held();
+    }));
+  }));
+  await page.bringToFront();
+  await page.evaluate(async () => { await directoryFile('project.json', JSON.stringify({title:'登记锁被占用的企划'})); ask.show(); });
+  await page.getByRole('button', { name: '挂载企划目录', exact: true }).click();
+  const panel = page.getByRole('dialog', { name: '企划集' });
+  await panel.getByRole('heading', { name: '登记锁被占用的企划' }).waitFor();
+  assert.deepEqual(await page.evaluate(async () => [bridge.phase.value, ...await Array.fromAsync((await showDirectoryPicker()).keys())]),
+    ['readonly', 'project.json']);
+  await page.evaluate(async () => {
+    const root = await navigator.storage.getDirectory();
+    await bridge.mount(await root.getDirectoryHandle('second', {create:true}));
+  });
+  await panel.getByRole('heading', { name:'second', exact:true }).waitFor();
+  await panel.getByRole('button', { name: '企划目录选项' }).click();
+  await panel.getByRole('menuitem', { name: '卸载目录' }).click();
+  await other.evaluate(() => releaseRegistry());
+  await page.reload(); await bind(page);
+  assert.deepEqual(await page.evaluate(async () => [bridge.phase.value, bridge.directory.value,
+    (await navigator.locks.query()).held.some(l => l.name.startsWith('koma-bridge-'))]), ['off', '', false]);
+  assert.deepEqual(errors, []);
+});
+
+test('a deleted project folder can be unmounted from ASK without reauthorizing, including after reload', async t => {
+  const { page, context, errors } = await setup();
+  t.after(() => context.close());
+  await page.evaluate(async () => {
+    await bridge.mount();
+    const root = await navigator.storage.getDirectory();
+    await root.removeEntry('bridge-test', { recursive: true });
+    await bridge.refreshProject();
+  });
+  await page.waitForFunction(() => bridge.phase.value === 'error');
+  await page.reload();
+  await bind(page);
+  await page.evaluate(() => {
+    ask.show();
+    // A stale native handle can leave its permission prompt pending indefinitely.
+    FileSystemHandle.prototype.requestPermission = () => { window.permissionRequests++; return new Promise(() => {}); };
+  });
+  await page.getByRole('button', { name: '打开企划集 · bridge-test', exact: true }).click();
+  const panel = page.getByRole('dialog', { name: '企划集', exact: true });
+  await panel.getByRole('button', { name: '卸载目录', exact: true }).click();
+  await page.waitForFunction(() => bridge.phase.value === 'off' && !bridge.busy.value);
+  assert.equal(await page.evaluate(() => permissionRequests), 0);
+  await page.reload();
+  await bind(page);
+  assert.equal(await page.evaluate(() => bridge.directory.value), '');
+  await page.evaluate(() => {
+    ask.show();
+    window.showDirectoryPicker = async () => (await navigator.storage.getDirectory()).getDirectoryHandle('replacement', { create: true });
+  });
+  await page.getByRole('button', { name: '挂载企划目录', exact: true }).click();
+  await page.waitForFunction(() => bridge.phase.value === 'active' && bridge.directory.value === 'replacement');
+  assert.deepEqual(errors, []);
+});
+
+test('read-only project opens its real files before sync permission and writes only after opt-in', async t => {
+  const { page, context, errors } = await setup();
+  t.after(() => context.close());
+  await page.evaluate(async () => {
+    await directoryFile('project.json', JSON.stringify({ title: '山间企划' }));
+    await directoryFile('lore/story.md', '树林与泉水');
+    const pick = window.showDirectoryPicker;
+    window.showDirectoryPicker = options => { window.pickerMode = options?.mode; return pick(); };
+    window.permission = 'prompt';
+    window.readPermission = 'prompt';
+    FileSystemHandle.prototype.queryPermission = async o => o.mode === 'read' ? window.readPermission : window.permission;
+    FileSystemHandle.prototype.requestPermission = async o => {
+      window.requestedMode = o.mode;
+      window.permissionRequests++;
+      if (o.mode === 'read') return window.readPermission = 'granted';
+      return window.permission;
+    };
+    ask.show();
+  });
+  await page.getByRole('button', { name: '挂载企划目录', exact: true }).click();
+  const panel = page.getByRole('dialog', { name: '企划集', exact: true });
+  await panel.getByRole('button', { name: '恢复连接' }).click();
+  const enable = panel.getByRole('button', { name: '启用读写同步' });
+  await enable.waitFor();
+  await panel.getByRole('button', { name: '设定', exact: true }).click();
+  assert.equal(await panel.getByRole('region', { name: '资料原文' }).textContent(), '树林与泉水');
+  const folderFiles = () => page.evaluate(async () => {
+    const dir = await (await navigator.storage.getDirectory()).getDirectoryHandle('bridge-test');
+    return Array.fromAsync(dir.keys());
+  });
+  assert.deepEqual((await folderFiles()).sort(), ['lore', 'project.json']);
+  assert.deepEqual(await page.evaluate(() => [pickerMode, requestedMode, permissionRequests, bridge.phase.value]), ['read', 'read', 1, 'readonly']);
+  await page.evaluate(() => { window.permission = 'denied'; });
+  await enable.click();
+  await page.waitForFunction(() => !bridge.busy.value);
+  assert.equal(await page.evaluate(() => bridge.phase.value), 'readonly');
+  assert.deepEqual((await folderFiles()).sort(), ['lore', 'project.json']);
+  await page.evaluate(() => { window.permission = 'granted'; });
+  await enable.click();
+  await page.waitForFunction(() => bridge.phase.value === 'active' && !bridge.busy.value);
+  assert.equal(await page.evaluate(() => requestedMode), 'readwrite');
+  assert.ok((await folderFiles()).includes('state.live.json'));
+  assert.deepEqual(errors, []);
+});
+
+test('unmount cancels a stalled permission lookup and a late grant cannot reconnect the old folder', async t => {
+  const { page, context, errors } = await setup();
+  t.after(() => context.close());
+  await page.evaluate(async () => {
+    await bridge.mount();
+    sessionStorage.setItem('bridge-test-permission', 'prompt');
+  });
+  await page.reload();
+  await bind(page);
+  await page.evaluate(() => {
+    ask.show();
+    FileSystemHandle.prototype.requestPermission = () => new Promise(resolve => { window.grantOldFolder = () => resolve('granted'); });
+  });
+  await page.getByRole('button', { name: '打开企划集 · bridge-test', exact: true }).click();
+  const panel = page.getByRole('dialog', { name: '企划集', exact: true });
+  await panel.getByRole('button', { name: '恢复连接' }).click();
+  await page.waitForFunction(() => !!window.grantOldFolder);
+  await panel.getByRole('button', { name: '卸载目录', exact: true }).click();
+  await page.waitForFunction(() => bridge.phase.value === 'off' && !bridge.busy.value);
+  await page.evaluate(async () => {
+    window.permission = 'granted';
+    window.showDirectoryPicker = async () => (await navigator.storage.getDirectory()).getDirectoryHandle('new-project', { create: true });
+    await bridge.mount();
+    grantOldFolder();
+  });
+  await page.reload();
+  await bind(page);
+  assert.equal(await page.evaluate(() => bridge.directory.value), 'new-project');
+  const protocol = await page.evaluate(async () => {
+    const old = await (await navigator.storage.getDirectory()).getDirectoryHandle('bridge-test');
+    return (await (await old.getFileHandle('PROTOCOL.md')).getFile()).size;
+  });
+  assert.ok(protocol > 0);
+  assert.deepEqual(errors, []);
+});
+
+test('HOME can forget a stalled startup file read while another page keeps its new project', async t => {
+  const { page, context, errors } = await setup();
+  t.after(() => context.close());
+  await page.evaluate(() => bridge.mount());
+  await page.addInitScript(() => {
+    const getFile = FileSystemFileHandle.prototype.getFile;
+    FileSystemFileHandle.prototype.getFile = function () {
+      if (this.name !== 'state.live.json') return getFile.call(this);
+      return new Promise(resolve => { window.finishOldRead = () => resolve(getFile.call(this)); });
+    };
+  });
+  await page.goto(origin + '/#/home');
+  await page.reload();
+  await page.waitForFunction(() => !!window.finishOldRead);
+  const second = await context.newPage();
+  await second.goto(origin + '/#/image');
+  await bind(second);
+  await second.evaluate(async () => {
+    window.showDirectoryPicker = async () => (await navigator.storage.getDirectory()).getDirectoryHandle('another-project', { create: true });
+    await bridge.mount();
+  });
+  const chip = page.locator('.home-settings').getByRole('button', { name: '打开企划集 · bridge-test' });
+  await chip.click();
+  await page.getByRole('dialog', { name: '企划集' }).getByRole('button', { name: '卸载目录', exact: true }).click();
+  await page.locator('.home-settings').getByRole('button', { name: '挂载企划目录' }).waitFor();
+  await page.evaluate(() => finishOldRead());
+  await second.reload();
+  await bind(second);
+  assert.equal(await second.evaluate(() => bridge.directory.value), 'another-project');
+  const locks = await page.evaluate(async () => (await navigator.locks.query()).held.filter(l => l.name.startsWith('koma-bridge-writer-v1:')));
+  assert.equal(locks.length, 1);
+  assert.deepEqual(errors, []);
+});
+
+test('unmount releases the writer while background directory enumeration is still pending', async t => {
+  const { page, context, errors } = await setup();
+  t.after(() => context.close());
+  for (const folder of ['slates', 'bridge-test']) {
+    await page.evaluate(async folder => {
+      await directoryFile('slates/notes.txt', 'keep');
+      await bridge.mount();
+      ask.show();
+      const proto = FileSystemDirectoryHandle.prototype, values = proto.values;
+      proto.values = async function* () {
+        if (this.name === folder) {
+          await new Promise(resolve => { window.resumeDisk = () => { proto.values = values; resolve(); }; });
+        }
+        yield* values.call(this);
+      };
+      void bridge.refreshProject();
+    }, folder);
+    await page.waitForFunction(() => typeof window.resumeDisk === 'function');
+    await page.getByRole('button', { name: '打开企划集 · bridge-test', exact: true }).click();
+    const panel = page.getByRole('dialog', { name: '企划集' });
+    await panel.getByRole('button', { name: '企划目录选项' }).click();
+    await panel.getByRole('menuitem', { name: '卸载目录' }).click();
+    await page.waitForFunction(() => bridge.phase.value === 'off' && !bridge.busy.value);
+    assert.equal(await page.evaluate(async () => (await navigator.locks.query()).held.some(l => l.name.startsWith('koma-bridge-writer-v1:'))), false);
+    await page.evaluate(() => { resumeDisk(); delete window.resumeDisk; });
+  }
+  assert.deepEqual(errors, []);
+});
+
 test('P2 project switches do not adopt local tasks; captured pending creates cannot land in the next directory',async()=>{
   const {page,context,errors}=await setup();
   try {

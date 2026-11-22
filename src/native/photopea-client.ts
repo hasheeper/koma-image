@@ -1,15 +1,39 @@
-import { applyPhotopeaFusion, exportPhotopea, initializePhotopea, copyPhotopeaInput, applyPhotopeaInput, closePhotopeaInput, preparePhotopeaExport, closePhotopeaDocument, resumePhotopea, photopeaScript, PHOTOPEA_ORIGIN } from "./photopea-scripts.ts";
+import {
+  applyPhotopeaFusion,
+  exportPhotopea,
+  initializePhotopea,
+  initializePhotopeaLayer,
+  resumePhotopeaLayer,
+  preparePhotopeaLayerExport,
+  exportPhotopeaLayers,
+  copyPhotopeaInput,
+  applyPhotopeaInput,
+  closePhotopeaInput,
+  preparePhotopeaExport,
+  closePhotopeaDocument,
+  resumePhotopea,
+  photopeaScript,
+  PHOTOPEA_ORIGIN,
+} from "./photopea-scripts.ts";
 import type { PhotopeaReturnMode, PhotopeaRoles } from "./photopea-scripts.ts";
 import type { EditReturn } from "../services/editor.ts";
+import type { PhotopeaLayerResult } from "../services/photopea.ts";
 import { MAX_INPUT_BYTES } from "../domain/media.ts";
 import { decodeMask, maskBitmapPixels, validateMaskCarrier } from "./edit-input.ts";
 import { validatePhotopeaProject } from "./photopea-project.ts";
 
 type EventData = { koma?: unknown; command?: unknown; event?: unknown; detail?: unknown; source?: unknown };
 export interface PhotopeaStack extends PhotopeaRoles { layers: number[]; visible: number[]; width: number; height: number; selection: number[] | null; maskIndex: number; carrierIndex: number }
+export interface PhotopeaLayerState { refId: number; width: number; height: number }
+interface LayerTreeMeta {
+  width: number;
+  height: number;
+  items: { id: number; name: string; groups: string[]; visible: boolean; locked: boolean }[];
+  skipped: string[];
+}
 type Pending = {
   command: number; source: string; started: boolean; complete: boolean; document: boolean;
-  expected: readonly string[]; buffers: ArrayBuffer[]; next?: string; error?: string;
+  expected: string[]; buffers: ArrayBuffer[]; next?: string; error?: string;
   resolve: (buffers: ArrayBuffer[]) => void; reject: (error: Error) => void;
   timer: ReturnType<typeof setTimeout>;
 };
@@ -20,6 +44,8 @@ export function createPhotopeaClient(frame: HTMLIFrameElement, id: string, optio
   let pending: Pending | undefined, sequence = 0, dead = false, initialized = false;
   let documentId = id;
   let stack: PhotopeaStack | undefined;
+  let layerState: PhotopeaLayerState | undefined;
+  let layerTree: LayerTreeMeta | undefined;
   let readyResolve!: () => void, readyReject!: (error: Error) => void;
   const ready = new Promise<void>((resolve, reject) => { readyResolve = resolve; readyReject = reject; });
   // The host may unmount before it starts awaiting ready.
@@ -48,11 +74,12 @@ export function createPhotopeaClient(frame: HTMLIFrameElement, id: string, optio
     if (event.data instanceof ArrayBuffer) {
       const p = pending, bytes = new Uint8Array(event.data);
       if (!p) return; // A user's File → Export never applies itself to Koma.
-      const project = p.next === "project", header = project ? [56,66,80,83,0,1] : [137,80,78,71,13,10,26,10];
+      const project = p.next === "project", isLayer = p.next === "layer", header = project ? [56,66,80,83,0,1] : [137,80,78,71,13,10,26,10];
       if (!p.started || !p.document || !p.next || p.complete || !bytes.length || !header.every((v,i)=>bytes[i]===v)) {
         fatal("Photopea 返回的图片格式、大小或顺序异常，请重新载入"); return;
       }
-      if (bytes.length > (project ? 128*1024*1024 : MAX_INPUT_BYTES)) p.error = project ? "分层文档超过临时导出上限，请先另存 PSD 并简化图层" : "回传图片超过 8MB，请在 Photopea 调整尺寸后再应用";
+      const byteLimit = project ? 128*1024*1024 : isLayer ? 32*1024*1024 : MAX_INPUT_BYTES;
+      if (bytes.length > byteLimit) p.error = project ? "分层文档超过临时导出上限，请先另存 PSD 并简化图层" : isLayer ? "单个回传图层 PNG 超过 32MB，请在 Photopea 简化后重试" : "回传图片超过 8MB，请在 Photopea 调整尺寸后再应用";
       p.buffers.push(p.error ? new ArrayBuffer(0) : event.data); p.next = undefined;
       return;
     }
@@ -86,6 +113,36 @@ export function createPhotopeaClient(frame: HTMLIFrameElement, id: string, optio
       }
       stack = value as PhotopeaStack; return;
     }
+    if (data.event === "layerState" && !p.next && !p.buffers.length) {
+      const value = data.detail as Partial<PhotopeaLayerState> | undefined;
+      if (!value || !Number.isInteger(value.refId) || Number(value.refId) < 0 || !Number.isInteger(value.width) || Number(value.width) <= 0 || !Number.isInteger(value.height) || Number(value.height) <= 0) {
+        fatal("Photopea 分层文档信息无效，请重新载入"); return;
+      }
+      layerState = value as PhotopeaLayerState; return;
+    }
+    if (data.event === "layerTree" && !p.next && !p.buffers.length) {
+      const value = data.detail as Partial<LayerTreeMeta> | undefined;
+      if (!value || !Number.isInteger(value.width) || Number(value.width) <= 0 || !Number.isInteger(value.height) || Number(value.height) <= 0 || !Array.isArray(value.items) || !Array.isArray(value.skipped)) {
+        fatal("Photopea 图层列表无效，请重新载入"); return;
+      }
+      const tree: LayerTreeMeta = {
+        width: Number(value.width),
+        height: Number(value.height),
+        items: value.items.map((item) => ({
+          id: Number(item.id) || 0,
+          name: String(item.name || "图层"),
+          groups: Array.isArray(item.groups) ? item.groups.map(String) : [],
+          visible: !!item.visible,
+          locked: !!item.locked,
+        })),
+        skipped: value.skipped.map(String),
+      };
+      layerTree = tree;
+      p.expected = tree.items.map(() => "layer");
+      clearTimeout(p.timer);
+      p.timer = setTimeout(() => fatal("Photopea 多图层导出超时；未应用，请重新载入"), timeout + tree.items.length * 5_000);
+      return;
+    }
     if (data.event === "complete") { p.complete = true; return; }
     if (p.next || data.event !== p.expected[p.buffers.length]) { fatal("Photopea 导出顺序异常，请重新载入"); return; }
     p.next = String(data.event);
@@ -99,7 +156,7 @@ export function createPhotopeaClient(frame: HTMLIFrameElement, id: string, optio
     return new Promise<ArrayBuffer[]>((resolve, reject) => {
       // Binary imports have only a done acknowledgement. A global on-open script adds a
       // second done and can swallow the next command; only explicit scripts are used.
-      pending = { command, source: `koma:${documentId}`, expected, buffers: [], document: false, started: typeof value !== "string", complete: typeof value !== "string",
+      pending = { command, source: `koma:${documentId}`, expected: [...expected], buffers: [], document: false, started: typeof value !== "string", complete: typeof value !== "string",
         resolve, reject, timer: setTimeout(() => fatal("Photopea 操作超时；未应用，请重新载入"), timeout) };
       try {
         if (typeof value === "string") frame.contentWindow!.postMessage(photopeaScript(id, command, value), PHOTOPEA_ORIGIN);
@@ -111,7 +168,42 @@ export function createPhotopeaClient(frame: HTMLIFrameElement, id: string, optio
     ready,
     get failed() { return dead; },
     get stack() { return stack; },
+    get layerState() { return layerState; },
     async closeDocument(id: string) { await send(closePhotopeaDocument(id)); },
+    async openLayerPsd(psd: Blob, sourceId = id, reuse?: { documentId: string; refId: number }) {
+      documentId = sourceId;
+      if (reuse) {
+        await send(resumePhotopeaLayer(reuse.documentId, sourceId, reuse.refId));
+      } else {
+        layerState = undefined;
+        await send(await psd.arrayBuffer());
+        await send(initializePhotopeaLayer(documentId));
+      }
+      if (!layerState) throw new Error("Photopea 分层文档信息缺失，请重新载入");
+      return layerState;
+    },
+    async exportLayers(): Promise<PhotopeaLayerResult> {
+      if (!layerState) throw new Error("Photopea 分层文档未初始化");
+      const [project] = await send(preparePhotopeaLayerExport(documentId, layerState.refId), ["project"]);
+      const current = layerState;
+      if (current.width * current.height > 32_000_000) throw new Error("图片最多 3200 万像素");
+      layerTree = undefined;
+      await send(project);
+      const buffers = await send(exportPhotopeaLayers(documentId, current.refId));
+      const tree = layerTree as LayerTreeMeta | undefined;
+      if (!tree || buffers.length !== tree.items.length) {
+        throw new Error("Photopea 返回的图层数据不完整，请重新载入");
+      }
+      return {
+        width: tree.width,
+        height: tree.height,
+        layers: tree.items.map((item, index) => ({
+          ...item,
+          blob: new Blob([buffers[index]], { type: "image/png" }),
+        })),
+        skipped: tree.skipped,
+      };
+    },
     async open(image: Blob, mask?: Blob, sourceId = id, reuse?: {
       documentId: string; roles: PhotopeaRoles; sameImage: boolean; refreshMask: boolean; baked: number[];
     }, maskMode = false) {
