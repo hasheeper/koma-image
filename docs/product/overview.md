@@ -38,7 +38,7 @@ HOME 已作为默认创作桌面，以现有画板、会话和收藏组织「继
 
 图像接入包括 Koma 标准网关、Seedream 原生、OpenAI Images、Gemini 原生和 NovelAI 官方；ASK 使用 OpenAI Chat 兼容、Gemini 原生或 Anthropic Messages 推理协议。OpenAI 与 Gemini 可在同一连接共用地址和 Key，独立开启文字与图像用途。用户显式配置协议、地址、Key 和模型能力，不按服务名称猜测协议。
 
-NAI 已接入 V4.5／V5 型号、多角色、Anime／Furry、适用型号的 Effort／Complexity／预设／透明底及独立 Guidance Rescale。V4.5 官方来源另有 Vibe 与 Precise Reference，和参数共用底部抽屉；V5 的两种参考当前不开放。官方五型号已接入图生图与普通 Enhance（复用图生图入口的倍率／强度预设，V5 另有 Max 倍率），V4.5 与 V5 Full High／Medium 已接普通与聚焦蒙版重绘，并提供独立 4× 放大，以及去背景、线稿、草图、上色、表情、去杂物六项 Director Tools；V5 Curated 无独立重绘接口，用户可明确选择其他型号。重绘中的图片参考仅开放 V4.5 Precise，聚焦重绘由用户手动画蒙版并框选周边范围，处理后回到原尺寸整图。各型号的限制、编辑工具缺口和真实消费待验项以 [NAI 专题](../integrations/novelai.md)为准。
+NAI 已接入 V4.5／V5 型号、多角色、Anime／Furry、适用型号的 Effort／Complexity／预设／透明底及独立 Guidance Rescale。V4.5 官方来源另有 Vibe 与 Precise Reference，和参数共用底部抽屉；V5 官方来源在同一抽屉提供 Precise，支持角色、风格和衣装参考。官方五型号已接入图生图与普通 Enhance（复用图生图入口的倍率／强度预设，V5 另有 Max 倍率），V4.5 与 V5 Full High／Medium 已接普通与聚焦蒙版重绘，并提供独立 4× 放大，以及去背景、线稿、草图、上色、表情、去杂物六项 Director Tools；V5 Curated 无独立重绘接口，用户可明确选择其他型号。重绘中的图片参考仅开放 V4.5 Precise，聚焦重绘由用户手动画蒙版并框选周边范围，处理后回到原尺寸整图。各型号的限制、编辑工具缺口和真实消费待验项以 [NAI 专题](../integrations/novelai.md)为准。
 
 每条连接只显示一张卡，卡内按开启用途提供图像和文字模型入口；同一多模态 ID 可用于两边。主卡保持添加顺序，生图来源单独排序，在模型与操作匹配、没有明确额度不足时优先使用；余额未知仍按顺序选择，提交失败后不换源重试。ASK 保持用户手动选模。
 

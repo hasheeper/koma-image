@@ -1,7 +1,7 @@
 import { decodeNativeImages } from "../native/native-images.ts";
 import { stripPngMetadata } from "../native/image-meta.ts";
 import { object } from "../domain/value.ts";
-import type { ImagePayload } from "../gateway/routes.ts";
+import type { GatewayImageResponse, ImagePayload } from "../gateway/routes.ts";
 export async function decodeImage(blob: Blob) {
   const url = URL.createObjectURL(blob),
     image = new Image();
@@ -18,15 +18,16 @@ export async function decodeImage(blob: Blob) {
   }
 }
 export async function consumeImage(
-  response: Response,
+  response: GatewayImageResponse,
   native: boolean,
   signal: AbortSignal,
   payload: ImagePayload,
   stripMetadata = false,
 ) {
-  const type = response.headers.get("content-type") || "";
+  const type = response instanceof Response ? response.headers.get("content-type") || "" : "";
   const blobs: Blob[] = [];
-  if (native && !type.includes("json"))
+  if (!(response instanceof Response)) blobs.push(...response.images.map(image => image.blob));
+  else if (native && !type.includes("json"))
     blobs.push(...(await decodeNativeImages(await response.arrayBuffer())));
   else if (type.startsWith("image/")) blobs.push(await response.blob());
   else {

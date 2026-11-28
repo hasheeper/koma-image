@@ -30,7 +30,7 @@ import {
 } from '../src/layer/stack.ts';
 import { alignRasterToReference } from '../src/layer/align.ts';
 import { packageFiles, psdLayers } from '../src/layer/export.ts';
-import { layeredPsd } from '../src/layer/psd.ts';
+import { layeredPsd, photopeaLayerPsd } from '../src/layer/psd.ts';
 import { recordGuide, travelGuide } from '../src/layer/mask-history.ts';
 
 function makeRaster(width, height, paint) {
@@ -344,11 +344,12 @@ test('groups: toggleGroupVisible, applyPhotopeaReturn diffing, PSD 8BIMlsct fold
   p = admitPoolLayers(p, [hair]);
 
   // Simulate Photopea return: 后发 moved into ['头部', '头发'] and modified + brand new layer '发饰' in same group.
+  const groups = [{ id: 20, name: '头部', visible: true }, { id: 21, name: '头发', visible: true }];
   const incoming = [
     {
-      photopeaId: 10,
+      photopeaId: 2,
       name: '后发',
-      groups: ['头部', '头发'],
+      groups,
       visible: true,
       locked: false,
       raster: makeRaster(32, 32, (x, y) => (x >= 4 && x < 14 && y >= 4 && y < 14 ? [130, 135, 145, 255] : null)),
@@ -356,22 +357,23 @@ test('groups: toggleGroupVisible, applyPhotopeaReturn diffing, PSD 8BIMlsct fold
     {
       photopeaId: 11,
       name: '发饰',
-      groups: ['头部', '头发'],
+      groups,
       visible: true,
       locked: false,
       raster: makeRaster(32, 32, (x, y) => (x >= 16 && x < 22 && y >= 6 && y < 12 ? [20, 20, 25, 255] : null)),
     },
   ];
-  const { layers, changes } = applyPhotopeaReturn(p.layers, incoming);
+  const { layers, changes } = applyPhotopeaReturn(p.layers, incoming, { documentId: 'test', ...photopeaLayerPsd(p) });
   assert.equal(layers.length, 2);
   assert.equal(changes[layers[0].id], 'updated');
   assert.equal(changes[layers[1].id], 'new');
   assert.deepEqual(layers[0].groups, ['头部', '头发']);
 
   // Group visibility toggles all members in the group together.
-  const hiddenGroup = toggleGroupVisible(layers, ['头部']);
+  const root = layers[0].groupIds.slice(0, 1);
+  const hiddenGroup = toggleGroupVisible(layers, root);
   assert.equal(hiddenGroup.every((l) => !layerVisible(l)), true);
-  const shownGroup = toggleGroupVisible(hiddenGroup, ['头部']);
+  const shownGroup = toggleGroupVisible(hiddenGroup, root);
   assert.equal(shownGroup.every(layerVisible), true);
 
   // Rig manifest exports groups array and PSD encodes 8BIMlsct + 8BIMpass folder markers.
@@ -388,15 +390,56 @@ test('groups: toggleGroupVisible, applyPhotopeaReturn diffing, PSD 8BIMlsct fold
   assert.ok(ascii.includes('8BIMpass'), 'PSD must include 8BIMpass folder blend mode');
 
   // Group rename, ungroup (preserving layers), and group deletion (blocking locked members).
-  const renamed = renameGroup(shownGroup, ['头部', '头发'], '发丝');
+  const renamed = renameGroup(shownGroup, layers[0].groupIds, '发丝');
   assert.deepEqual(renamed[0].groups, ['头部', '发丝']);
-  const ungrouped = ungroupLayers(renamed, ['头部', '发丝']);
+  const ungrouped = ungroupLayers(renamed, layers[0].groupIds);
   assert.deepEqual(ungrouped[0].groups, ['头部']);
   assert.equal(ungrouped.length, 2);
   const locked = toggleLayerLock(renamed, renamed[0].id);
-  assert.throws(() => deleteGroup(locked, ['头部']), /已锁定/);
-  const deleted = deleteGroup(renamed, ['头部']);
+  assert.throws(() => deleteGroup(locked, root), /已锁定/);
+  const deleted = deleteGroup(renamed, root);
   assert.equal(deleted.length, 0);
+});
+
+test('Photopea moves layers between same-name folders and keeps their visibility and identities separate', () => {
+  const raster = makeRaster(1, 1, () => [80, 90, 100, 255]);
+  const p = newProject('pp', 'Photopea', raster);
+  const stackLayer = (id, groupId) => ({
+    id, name: id, groups: ['发饰'], groupIds: [groupId], photopeaId: 10,
+    x: 0, y: 0, width: 1, height: 1, pixels: raster.data, visible: true, locked: false,
+  });
+  const archiveOrigin = { groups: ['头部'], groupIds: ['head'], index: 1, visible: true };
+  p.layers = [
+    stackLayer('留在 A', 'a'),
+    { ...stackLayer('归档原件', 'a'), archived: true, archiveOrigin, batchId: 'a', visible: false },
+    stackLayer('移到 A', 'b'),
+    stackLayer('留在 B', 'b'),
+  ];
+  const binding = { documentId: 'test', ...photopeaLayerPsd(p) };
+  const folder = (id, visible) => [{ id, name: '发饰', visible }];
+  const inA = folder(5, false), inB = folder(9, true), inNew = folder(12, true);
+  const item = (photopeaId, name, groups, visible = true) => ({ photopeaId, name, groups, visible, locked: false, raster });
+  const incoming = [
+    item(3, '留在 A', inA),
+    item(7, '移到 A', inA),
+    item(4, '归档原件', inA, false),
+    item(8, '留在 B', inB),
+    item(11, '留在 B', inNew),
+  ];
+  const { layers, changes } = applyPhotopeaReturn(p.layers, incoming, binding);
+  assert.deepEqual(layers.slice(0, 4).map((l) => l.id), ['留在 A', '移到 A', '归档原件', '留在 B']);
+  assert.deepEqual(layers.slice(0, 4).map((l) => l.groupIds), [['a'], ['a'], ['a'], ['b']]);
+  assert.notEqual(layers[4].groupIds[0], 'b');
+  assert.equal(changes['移到 A'], 'updated');
+  assert.equal(changes[layers[4].id], 'new');
+  assert.equal(layers[2].archived, true);
+  assert.equal(layers[2].archiveOrigin, archiveOrigin);
+  assert.deepEqual(layers.map(layerVisible), [false, false, false, true, true]);
+  assert.deepEqual(toggleGroupVisible(layers, ['a']).map(layerVisible), [true, true, false, true, true]);
+
+  const reapplied = applyPhotopeaReturn(layers, incoming, { ...binding, initialLayers: undefined });
+  assert.deepEqual(reapplied.layers.map(l => [l.id, l.groupIds]), layers.map(l => [l.id, l.groupIds]));
+  assert.deepEqual(reapplied.changes, {});
 });
 
 test('importImageLayers preserves 1:1 offset on full-canvas PNGs, centers smaller PNGs, and rejects empty rasters', () => {

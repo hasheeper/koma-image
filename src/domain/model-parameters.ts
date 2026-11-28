@@ -86,6 +86,16 @@ export function applyParameterOverrides(fields: ParameterFields, overrides: Para
   }
   return result;
 }
+/** Keep a saved subset and default within the options still supported by a fixed image channel. */
+export function channelParameterField(declared: ParameterField, saved?: ParameterField | null): ParameterField {
+  if (!saved) return declared;
+  const subset = saved.options.length && !saved.allowCustom
+    ? declared.options.filter(option => saved.options.includes(option)) : declared.options;
+  const field = { ...declared, options: subset.length ? subset : declared.options };
+  field.default = acceptsParameter(field, saved.default) ? saved.default
+    : acceptsParameter(field, declared.default) ? declared.default : "";
+  return field;
+}
 export function parameterValue(field: ParameterField, value: string): string | number | boolean {
   if (!acceptsParameter(field, value)) throw new Error("参数值不符合此来源的配置");
   return field.type === "number" ? Number(value) : field.type === "boolean" ? value === "true" : value;

@@ -1,7 +1,7 @@
 import { MAX_INPUT_BYTES, MAX_TOTAL_BYTES } from "../domain/media.ts";
-import { decodeImage, makeThumb } from "./image-response";
-import { assetRefs } from "../storage/records";
-import type { AssetRecord, ConversationRecord } from "../storage/records";
+import { decodeImage, makeThumb } from "./image-response.ts";
+import { assetRefs } from "../storage/records.ts";
+import type { AssetRecord, ConversationRecord } from "../storage/records.ts";
 export const dataUrl = (blob: Blob) =>
   new Promise<string>((resolve, reject) => {
     const reader = new FileReader();

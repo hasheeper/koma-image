@@ -6,7 +6,7 @@ import type { DrawingForm } from './drawing.ts';
 import { canonical } from '../ask/canonical.ts';
 import { hash } from '../ask/digest/index.ts';
 
-export type EditConfiguration = Pick<EditorSession,'mode'|'chosen'|'strength'|'noise'|'focus'|'enhance'|'fields'|'characters'|'placement'|'naiReferences'|'director'|'options'> & {references?:import('./edit-references.ts').EditReference[];upscaleOpen:boolean;directorOpen:boolean};
+export type EditConfiguration = Pick<EditorSession,'mode'|'chosen'|'strength'|'noise'|'focus'|'enhance'|'img2imgScale'|'fields'|'characters'|'placement'|'naiReferences'|'director'|'options'> & {references?:import('./edit-references.ts').EditReference[];upscaleOpen:boolean;directorOpen:boolean};
 export interface EditDraftState {
  nextReferenceNumber?:number;
  imageEditing?:ReturnType<typeof import('./edit-image-context.ts').imageEditContext>;

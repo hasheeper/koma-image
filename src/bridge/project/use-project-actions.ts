@@ -7,7 +7,7 @@ import { useEditor } from '../../app/editor.ts';
 import { useShell } from '../../app/shell.ts';
 import { useServices } from '../../app/services.ts';
 import { useUi, message } from '../../app/ui.ts';
-import { referenceModel, readReferences } from '../../domain/nai-references.ts';
+import { referenceName, readReferences } from '../../domain/nai-references.ts';
 import type { ReferenceKind } from '../../domain/nai-references.ts';
 import { download } from '../../shared/files.ts';
 
@@ -33,10 +33,15 @@ export function useProjectActions() {
     edit(path:string){return run(async()=>{const {file,origin}=await read(path);await editor.open('edit',file,file.name.split('/').at(-1),{sourceId:`project:${origin.projectId}:${origin.path}:${origin.version}`,settings:{projectSource:{...origin}}});bridge.closeProject();});},
     reference(path:string,kind:ReferenceKind){return run(async()=>{
       const d=drawing.snapshot(),form=d.form,boardId=d.activeBoardId;
-      if(!referenceModel(form.model))throw new Error('当前 IMAGE 模型不支持 Vibe / Precise Reference');
-      const refs=readReferences(form.naiReferences);if(refs[kind].length>=16)throw new Error('此类参考图已达 16 张');
+      if (!d.referenceKinds.includes(kind)) throw new Error(`当前 IMAGE 型号或来源不支持 ${referenceName(kind)}`);
+      if(form.naiReferences[kind].length>=16)throw new Error('此类参考图已达 16 张');
       const {file}=await read(path), rows=await services.references.upload([file],kind,form.model);
-      controller.signal.throwIfAborted();refs[kind].push(...rows);refs.active=kind;
+      controller.signal.throwIfAborted();
+      const board = drawing.board(boardId);
+      if (!board || board.form.model !== form.model || !drawing.snapshot().referenceModelIds.includes(form.model)) throw new Error('来源画板或型号已变化，请重新添加');
+      const refs = readReferences(board.form.naiReferences);
+      if (refs[kind].length + rows.length > 16) throw new Error('此类参考图已达 16 张');
+      refs[kind].push(...rows); refs.active=kind;
       await drawing.editReferences(refs,boardId);ui.toast('已加入 IMAGE 参考图');
     });},
   };

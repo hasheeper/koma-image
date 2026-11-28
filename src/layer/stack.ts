@@ -1,3 +1,4 @@
+import type { PhotopeaLayerBinding, PhotopeaReturnedLayer } from '../services/photopea.ts';
 import { layerVisible } from './project.ts';
 import {
   alphaBounds,
@@ -114,21 +115,25 @@ export function admitPoolLayers(p: LayerProject, items: readonly PoolLayer[]): L
   };
 }
 
-/** Import external raster images as new formal layers (explicit x/y, or centered when smaller / 1:1 when matching canvas). */
+/** Append imported images and already-positioned PSD layers together, in file order. */
 export function importImageLayers(
   p: LayerProject,
-  items: readonly {
+  items: readonly (StackLayer | {
     name: string;
     raster: Raster;
     x?: number;
     y?: number;
     rawSize?: { width: number; height: number };
     rawScale?: number;
-  }[],
+  })[],
 ): { project: LayerProject; added: StackLayer[] } {
   if (!items.length) throw new Error('请选择至少一张图像');
   const added: StackLayer[] = [];
   for (const item of items) {
+    if ('pixels' in item) {
+      added.push(item);
+      continue;
+    }
     const cleanName = item.name.replace(/\.[^.]+$/, '').trim() || `导入图层 #${p.layers.length + added.length + 1}`;
     const x = item.x ?? Math.floor((p.reference.width - item.raster.width) / 2);
     const y = item.y ?? Math.floor((p.reference.height - item.raster.height) / 2);
@@ -310,33 +315,31 @@ function pixelsEqual(a: Uint8Array, b: Uint8Array): boolean {
 /** Reconcile layers returned from Photopea with the previous stack to identify new and modified layers. */
 export function applyPhotopeaReturn(
   previous: readonly StackLayer[],
-  incoming: readonly {
-    photopeaId: number;
-    name: string;
-    groups?: string[];
-    visible: boolean;
-    locked: boolean;
-    raster: Raster;
-  }[],
+  incoming: readonly (Omit<PhotopeaReturnedLayer, 'id' | 'blob'> & { photopeaId: number; raster: Raster })[],
+  binding: PhotopeaLayerBinding,
 ): { layers: StackLayer[]; changes: Record<string, 'new' | 'updated'> } {
   const byPhotopeaId = new Map<number, StackLayer>();
-  const byName = new Map<string, StackLayer[]>();
-  for (const prev of previous) {
-    if (prev.photopeaId !== undefined) byPhotopeaId.set(prev.photopeaId, prev);
-    const list = byName.get(prev.name) ?? [];
-    list.push(prev);
-    byName.set(prev.name, list);
+  if (binding.initialLayers) {
+    const byId = new Map(previous.map((layer) => [layer.id, layer]));
+    for (const [photopeaId, id] of binding.initialLayers) {
+      const layer = byId.get(id);
+      if (layer) byPhotopeaId.set(photopeaId, layer);
+    }
+  } else {
+    for (const layer of previous) {
+      if (layer.photopeaId !== undefined) byPhotopeaId.set(layer.photopeaId, layer);
+    }
   }
+  const groupKeys = new Map<number, string>();
+  const claimedPaths = new Set<string>();
   const used = new Set<string>();
   const layers: StackLayer[] = [];
   const changes: Record<string, 'new' | 'updated'> = {};
 
   for (const item of incoming) {
-    const cleanGroups = item.groups?.map((g) => g.trim()).filter(Boolean);
     const trimmed = trimLayer({
       id: crypto.randomUUID(),
       name: item.name.trim() || '图层',
-      groups: cleanGroups?.length ? cleanGroups : undefined,
       photopeaId: item.photopeaId,
       x: 0,
       y: 0,
@@ -348,14 +351,28 @@ export function applyPhotopeaReturn(
     });
     if (!trimmed) continue;
 
-    let match = byPhotopeaId.get(item.photopeaId);
-    if (match && used.has(match.id)) match = undefined;
-    if (!match) {
-      const candidates = byName.get(trimmed.name);
-      match = candidates?.find((c) => !used.has(c.id));
+    if (item.groups.length) {
+      const ids: string[] = [], muted: string[] = [];
+      for (const folder of item.groups) {
+        let key = groupKeys.get(folder.id);
+        if (key === undefined) {
+          const original = binding.groups.get(folder.id);
+          key = original !== undefined && !claimedPaths.has(groupKey([...ids, original]))
+            ? original
+            : `photopea:${binding.documentId}:${folder.id}`;
+          groupKeys.set(folder.id, key);
+          claimedPaths.add(groupKey([...ids, key]));
+        }
+        ids.push(key);
+        if (!folder.visible) muted.push(groupKey(ids));
+      }
+      trimmed.groups = item.groups.map((folder) => folder.name.trim() || '图层组');
+      trimmed.groupIds = ids;
+      if (muted.length) trimmed.mutedGroups = muted;
     }
 
-    if (match) {
+    const match = byPhotopeaId.get(item.photopeaId);
+    if (match && !used.has(match.id)) {
       used.add(match.id);
       const next: StackLayer = {
         ...trimmed,
@@ -364,9 +381,6 @@ export function applyPhotopeaReturn(
         batchId: match.batchId,
         archived: match.archived,
         archiveOrigin: match.archiveOrigin,
-        ...(groupKey(trimmed.groups) === groupKey(match.groups)
-          ? { groupIds: match.groupIds, mutedGroups: match.mutedGroups }
-          : {}),
         visible: match.archived ? false : item.visible,
         id: match.id,
       };
@@ -379,6 +393,8 @@ export function applyPhotopeaReturn(
       const sameMeta =
         match.name === next.name &&
         groupKey(match.groups) === groupKey(next.groups) &&
+        groupKey(match.groupIds ?? match.groups) === groupKey(next.groupIds) &&
+        groupKey(match.mutedGroups) === groupKey(next.mutedGroups) &&
         match.visible === next.visible &&
         match.locked === next.locked;
       if (!samePixels || !sameMeta) changes[next.id] = 'updated';

@@ -17,7 +17,7 @@ import type { LocalGateway } from "../config/runtime.ts";
 import { createSourcePriority } from "./source-priority.ts";
 import type { SourceOptions } from "./source-priority.ts";
 import type { CatalogModel } from "../domain/catalog.ts";
-import type { ImagePayload } from "../gateway/routes.ts";
+import type { GatewayImageResponse, ImagePayload } from "../gateway/routes.ts";
 
 export function createApplicationServices(deps: {
   storage: Pick<Storage, "getItem" | "setItem" | "removeItem">;
@@ -171,7 +171,7 @@ export function createApplicationServices(deps: {
       work: (
         context: TaskContext<T> & {
           gateway: (id: string) => ReturnType<typeof createGateway>;
-          execute: <V>(model: CatalogModel, payload: ImagePayload, consume: (response: Response, native: boolean, signal: AbortSignal) => Promise<V>, options?: SourceOptions) => ReturnType<typeof priority.execute<V>>;
+          execute: <V>(model: CatalogModel, payload: ImagePayload, consume: (response: GatewayImageResponse, native: boolean, signal: AbortSignal) => Promise<V>, options?: SourceOptions) => ReturnType<typeof priority.execute<V>>;
         },
       ) => Promise<R>,
       signal?: AbortSignal,

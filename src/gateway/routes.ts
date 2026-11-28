@@ -1,5 +1,5 @@
 import { readInpaintFocus, focusedCharacters } from "../domain/inpaint-focus.ts";
-import { referenceModel, referenceWire } from "../domain/nai-references.ts";
+import { referenceOperation, referenceWire } from "../domain/nai-references.ts";
 import type { PreparedReferences, ReferencePlan } from "../domain/nai-references.ts";
 import { readCharacters, activeCharacters } from "../domain/characters.ts";
 import { profilePath } from "./profile.ts";
@@ -8,6 +8,8 @@ import type { Quote } from "../domain/quote.ts";
 import { naiCapabilities, naiMediumNegative } from "../domain/nai.ts";
 import { naiNoiseSchedule, naiVarietySigma, validateNaiParameters } from "../domain/nai-parameters.ts";
 export type ImagePayload = { model: string; tool?: string; cache?: boolean; markup_image?: string; layerDecomposition?: { maxImages?: number; textRecognition?: boolean }; referencePlan?: ReferencePlan; preparedReferences?: PreparedReferences; referenceMinimum?: number; [key: string]: unknown };
+export interface GatewayImages { images: { blob: Blob; metadata?: Record<string, unknown> }[] }
+export type GatewayImageResponse = Response | GatewayImages;
 export const usesNative = (payload: ImagePayload, quote: Quote | null) => !payload.tool && payload.model.startsWith("nai-") && quote?.cost === 0 && payload.cache !== true;
 export function executionRoute(payload: ImagePayload, quote: Quote | null, profile: GatewayProfile) {
   const route = payload.tool ? "tools" : profile.executionRoutes.nativeFree && usesNative(payload, quote) ? "native" : "studio";
@@ -18,12 +20,13 @@ export const naiPrompt = (prompt: unknown) => typeof prompt === "string" && prom
 /** Standard gateway wire fields; the application keeps its complete role snapshot. */
 export function toStandardPayload(payload: ImagePayload): ImagePayload {
   if (payload.markup_image !== undefined) throw new Error("此连接未声明原生标注协议，请选择双图标注或支持原生标注的来源");
-  if (payload.layerDecomposition) throw new Error("一键图层拆分仅支持 Seedream 原生连接（火山方舟 / BytePlus）");
+  if (payload.layerDecomposition) throw new Error("此连接未声明图层拆分能力");
   if (payload.tool === "director") throw new Error("Director Tools 仅支持 NovelAI 官方连接");
   if (payload.inpaintFocus !== undefined) throw new Error("聚焦重绘仅支持 NovelAI 官方连接");
   if (payload.enhance || payload.upscaled_enhance !== undefined) throw new Error("此连接未声明 Enhance 协议");
   if (payload.referencePlan || payload.preparedReferences) throw new Error("此连接未声明参考生成协议");
-  const { characters: value, placement, cfg: _legacyCfg, noiseSchedule: _schedule, varietyPlus: _variety, skip_cfg_above_sigma: _sigma, referenceMinimum: _minimum, ...rest } = payload;
+  // The tools API uses target width and height. The multiplier stays in Koma's recipe.
+  const { characters: value, placement, cfg: _legacyCfg, noiseSchedule: _schedule, varietyPlus: _variety, skip_cfg_above_sigma: _sigma, referenceMinimum: _minimum, img2imgScale: _img2imgScale, ...rest } = payload;
   // The standard gateway has not declared configurable noise schedules.
   if (rest.noise_schedule !== undefined) rest.noise_schedule = "karras";
   const characters = readCharacters(value).filter(c => c.on);
@@ -38,8 +41,10 @@ export function toNativePayload(payload: ImagePayload, random = Math.random, off
   if (!official && (payload.enhance || payload.upscaled_enhance !== undefined)) throw new Error("此连接未声明 Enhance 协议");
   const model = payload.model.replace(/@local$/, "");
   if (!/^nai-diffusion-[\w-]+$/.test(model)) throw new Error("原生接口只接受 NAI 模型");
-  if ((payload.referencePlan || payload.preparedReferences) && (!official || !referenceModel(model))) throw new Error("当前模型或连接不支持参考生成，配置已保留");
-  if (payload.referencePlan && !payload.preparedReferences) throw new Error("参考图片尚未准备完成");
+  const references = payload.referencePlan ?? payload.preparedReferences;
+  if (references && (!official || !referenceOperation(model, references.kind, payload.tool))) throw new Error("当前模型或连接不支持参考生成，配置已保留");
+  if (payload.referencePlan && (!payload.preparedReferences || payload.referencePlan.kind !== payload.preparedReferences.kind ||
+      payload.referencePlan.items.length !== payload.preparedReferences.images.length)) throw new Error("参考图片尚未准备完成");
   const cap = naiCapabilities(model);
   if (official) validateNaiParameters({ ...payload, model });
   const varietySigma = official ? naiVarietySigma(model, payload.varietyPlus, payload.width, payload.height) : undefined;
@@ -49,7 +54,7 @@ export function toNativePayload(payload: ImagePayload, random = Math.random, off
   const characters = focus ? focusedCharacters(roles, focus) : roles;
   const caption = (text: unknown, negative = false) => ({ caption: { base_caption: text, char_captions: characters.map(c => ({ char_caption: negative ? cap.medium ? "" : c.negative : c.prompt, centers: c.centers })) }, use_coords: characters.length > 0 && payload.placement === "manual", use_order: true });
   return { input: prompt, model, action: "generate", max_cost: payload.max_cost,
-    parameters: { ...(payload.preparedReferences ? referenceWire(payload.preparedReferences) : {}), width: payload.width, height: payload.height, n_samples: 1,
+    parameters: { ...(payload.preparedReferences ? referenceWire(payload.preparedReferences, model) : {}), width: payload.width, height: payload.height, n_samples: 1,
       seed: typeof payload.seed === "number" && payload.seed >= 0 ? payload.seed : Math.floor(random() * 4294967296),
       scale: payload.scale,
       ...(varietySigma !== undefined ? { skip_cfg_above_sigma: varietySigma } : {}),

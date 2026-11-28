@@ -1,3 +1,6 @@
+import { normalizeBaseUrl } from "./base-url.ts";
+export { normalizeBaseUrl } from "./base-url.ts";
+import { CUSTOM_IMAGES_ID, readImageChannel, type ImageChannelConfig } from "./image-channel.ts";
 import { object } from "../domain/value.ts";
 import { profileFor, NOVELAI_IMAGE_URL, isOpenAIConnection, isGeminiConnection } from "../gateway/profile.ts";
 import { editablePresets, parameterLabels } from "../domain/models.ts";
@@ -10,6 +13,7 @@ export interface Connection {
   name: string;
   baseUrl: string;
   profileId: string;
+  imageChannel?: ImageChannelConfig;
   credentialRef: string;
   revision: string;
 }
@@ -98,31 +102,6 @@ export function validId(value: unknown): value is string {
     !["constructor", "prototype", "__proto__"].includes(value)
   );
 }
-export function normalizeBaseUrl(value: unknown): string {
-  if (typeof value !== "string" || !value.trim())
-    throw new Error("请配置连接 URL");
-  let url: URL;
-  try {
-    url = new URL(value.trim());
-  } catch {
-    throw new Error("连接 URL 无效");
-  }
-  if (
-    !(
-      url.protocol === "https:" ||
-      (url.protocol === "http:" &&
-        ["localhost", "127.0.0.1", "[::1]"].includes(url.hostname))
-    ) ||
-    url.username ||
-    url.password ||
-    url.search ||
-    url.hash
-  )
-    throw new Error(
-      "请使用不含凭据、查询参数和片段的 HTTPS 地址或本机 HTTP 地址",
-    );
-  return url.href.replace(/\/+$/, "");
-}
 /** Only non-secret configuration is accepted; unknown fields never persist. */
 export function validateRouting(value: unknown): Routing {
   const input = object(value);
@@ -152,12 +131,15 @@ export function validateRouting(value: unknown): Routing {
     const baseUrl = normalizeBaseUrl(c.baseUrl);
     if (profile.protocol === "novelai" && baseUrl !== NOVELAI_IMAGE_URL)
       throw new Error("NovelAI 官方连接使用固定的图片与账户地址");
+    if (profile.transport.fixedBaseUrl && baseUrl !== profile.transport.fixedBaseUrl)
+      throw new Error("此协议使用固定的公开 API 地址");
     out.connections[id] = {
       id,
       name: c.name.trim(),
       baseUrl,
       credentialRef: c.credentialRef,
       profileId: profile.id,
+      ...(profile.id === CUSTOM_IMAGES_ID ? { imageChannel: readImageChannel(c.imageChannel) } : {}),
       revision: c.revision,
     };
   }
@@ -188,7 +170,10 @@ export function prepareRoutingImport(value: unknown, current: unknown): Routing 
     const sameProtocol = known && (known.profileId === connection.profileId ||
       isOpenAIConnection(known.profileId) && isOpenAIConnection(connection.profileId) ||
       isGeminiConnection(known.profileId) && isGeminiConnection(connection.profileId));
-    if (!known || known.credentialRef !== connection.credentialRef || known.baseUrl !== connection.baseUrl || !sameProtocol) {
+    const before = known?.imageChannel, after = connection.imageChannel;
+    if (!known || known.credentialRef !== connection.credentialRef || known.baseUrl !== connection.baseUrl || !sameProtocol ||
+        before?.format !== after?.format || (before?.uploadBaseUrl ?? known.baseUrl) !== (after?.uploadBaseUrl ?? connection.baseUrl) ||
+        JSON.stringify(before?.paths) !== JSON.stringify(after?.paths)) {
       connection.credentialRef = `key-${crypto.randomUUID()}`;
       connection.revision = crypto.randomUUID();
     }

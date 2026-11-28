@@ -1,5 +1,7 @@
 import { decodeImage } from "../services/image-response.ts";
 import { MAX_INPUT_BYTES } from "../domain/media.ts";
+import { dataUrl } from "../services/assets.ts";
+import { base64Blob } from "./reference-images.ts";
 
 export type MaskFormat = "grayscale" | "alpha";
 /** Immutable, packed binary coverage. One bit per source pixel, shared by undo snapshots. */
@@ -12,6 +14,28 @@ export async function validateEditImage(blob: Blob) {
   const size = await decodeImage(blob);
   if (size.width * size.height > 32_000_000) throw new Error("图片最多 3200 万像素");
   return size;
+}
+
+export async function resizeImg2ImgInput(image: string, width: number, height: number) {
+  const separator = image.indexOf(",");
+  const mime = /^data:(image\/(?:png|jpeg|webp));base64$/.exec(image.slice(0, separator))?.[1];
+  if (!mime) throw new Error("底图须为 PNG、JPEG 或 WebP 图片数据");
+  const bitmap = await createImageBitmap(base64Blob(image.slice(separator + 1), mime, MAX_INPUT_BYTES));
+  let canvas: OffscreenCanvas;
+  try {
+    if (bitmap.width === width && bitmap.height === height) return image;
+    canvas = new OffscreenCanvas(width, height);
+    const ctx = canvas.getContext("2d");
+    if (!ctx) throw new Error("当前浏览器不支持图片处理");
+    ctx.imageSmoothingEnabled = true;
+    ctx.imageSmoothingQuality = "high";
+    ctx.drawImage(bitmap, 0, 0, width, height);
+  } finally { bitmap.close(); }
+  const png = await canvas.convertToBlob({ type: "image/png" });
+  if (png.size <= MAX_INPUT_BYTES) return dataUrl(png);
+  const webp = await canvas.convertToBlob({ type: "image/webp", quality: 0.95 });
+  if (webp.type === "image/webp" && webp.size <= MAX_INPUT_BYTES) return dataUrl(webp);
+  throw new Error("调整后的图生图底图超过 8MB，请降低倍率");
 }
 
 async function pixels(blob: Blob) {

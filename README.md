@@ -42,21 +42,21 @@
 
 多画板独立保存各自的提示词与参数方案，共用本页历史池（`#h`）；拖入 PNG / JPEG 可直接解析并勾选导入参数（含隐写元数据与内嵌 Vibe 编码）。
 
-- **NovelAI V4.5 / V5**：完整接入 Anime / Furry 模式、Effort（High / Medium）、Complexity、质量与负向预设、透明底、Guidance Rescale，以及 V4.5 的 Variety+、Vibe Transfer 与 Precise Reference。
+- **NovelAI V4.5 / V5** 支持 Anime / Furry 模式、Effort（High / Medium）、Complexity、质量与负向预设、透明底与 Guidance Rescale。V4.5 可用 Variety+、Vibe Transfer 和精确参考。V5 官方来源支持精确参考，可指定衣装或优先相同衣装。
 - **多角色控制**：支持稳定角色槽位、独立正负词、V4.5 网格定位与 V5 自由坐标定位。
 - **本地分词与估算**：内置 T5 / Qwen3.5 分词 Worker，按正负方向实时合计基础词与启用角色的共享 Token 及 `Text:` 字符上限，并提供单次消耗本地估算。
 
 ### 💬 CHAT · 多轮对话改图
 
-接入 OpenAI Images、Gemini 与 Seedream 原生接口，通过自然语言与多参考图生成或修改画面。右侧上下文面板可自由勾选参与当前分支的历史轮次与锁定底图，支持在任意轮次分叉对比多个版本，或一键将多轮叠改提纯为新分支。
+通过 OpenAI Images、Gemini、Seedream 原生接口或自配的第三方图像渠道，使用自然语言与参考图生成或修改画面。右侧上下文面板可自由勾选参与当前分支的历史轮次与锁定底图，支持在任意轮次分叉对比多个版本，或一键将多轮叠改提纯为新分支。
 
 ### 🛠️ EDIT · 局部重绘与 Photopea
 
 每张来源图拥有独立的编辑画板（`#e板.版`），所有衍生版本留在板内对比：
 
-- **NAI 编辑工具链**：支持图生图、Enhance（1× / 1.5× / 2×）与 V5 Max Enhance、普通蒙版重绘、**聚焦重绘（Focused Inpainting，手动框选参考范围 + 自动裁切放大至约 1MP 重绘后缩回贴合原图）**、官方 4× 放大，以及 6 项 **Director Tools**（去背景三结果同组切换、线稿、草图、上色、24 种表情、去杂物）。同尺寸切换衍生版本时默认保留画布蒙版。
+- **NAI 编辑工具链** 支持普通图生图、Enhance（1× / 1.5× / 2×）与 V5 Max Enhance、普通蒙版重绘、聚焦重绘、官方 4× 放大，以及 6 项 Director Tools（去背景三结果同组切换、线稿、草图、上色、24 种表情、去杂物）。普通图生图在 NovelAI 官方和 Koma 标准网关均可指定输出倍率。聚焦重绘可手动框选参考范围，自动裁切放大至约 1MP 重绘并贴回原图。同尺寸切换衍生版本时默认保留画布蒙版。
 - **内嵌 Photopea 工作栈**：页内一键打开保活的 Photopea 实例，自动建立 **「原图 + 涂鸦与修补 + Koma 蒙版」** 三层结构；应用返回时自动分离干净底图与重绘蒙版，并保留各画板独立分层现场。纯手动修图结果无需再跑生成，即可直接收藏或绑入任务交付。
-- **Koma Layer 立绘分层（衔接 [Koma Live](https://github.com/hasheeper/koma-live)）**：在 EDIT 内将平面立绘定稿拆分为可绑骨驱动的分层素材，支持 Seedream 5.5 自动拆层与递归细拆、框选／套索切分、蓝橙标记局部补画、画布精修与 Photopea 嵌套分组往返，直接导出分层 PSD 或 `koma-rig.slices.v2` 切片包送入兄弟项目 **[Koma Live](https://github.com/hasheeper/koma-live)** 完成 2D 绑骨、轮廓网格与实时 WebGL 活立绘演出。详见[Koma Layer](docs/workspaces/layer.md)。
+- **Koma Layer 立绘分层** 可从平面定稿或 8 位 RGB PSD 开始。桌面可一边在左栏筛选拆层候选，一边看中间画布与右侧图层树。画布协创把图层、拆层和补画集中在同一面板，手机从底部展开。支持 Seedream 自动拆层与递归细拆、框选／套索切分、蓝橙标记局部补画、画布精修与 Photopea 嵌套分组往返。缺少被遮挡的部件时，可选母版或多层合成作为底图补出单件。分层 PSD 或 `koma-rig.slices.v2` 切片包可交给兄弟项目做 2D 绑骨、轮廓网格与实时 WebGL 活立绘演出。[Koma Layer](docs/workspaces/layer.md) · [Koma Live](https://github.com/hasheeper/koma-live)
 - **结果融合精修**：蒙版回贴默认进行边界色彩／明度对齐，可关闭对比；EDIT／CHAT 可将原图、AI 结果和软图层蒙版送入同一 Photopea 修边，应用后保留正式合成与原始直出。详见[局部回贴](docs/workspaces/annotations.md#人工审核与合成边界)。
 
 ### 🏷️ TAGS · 标签词典
@@ -103,6 +103,7 @@ https://koma-image.pages.dev/skills/koma-bridge/SKILL.md
 | OpenAI Images | `CHAT` 图像生成与多参考图修改 |
 | Gemini 原生 | `CHAT` 多模态图文生成与参考图修改 |
 | Seedream 原生 | `CHAT` / `EDIT` 生图与多参考图修改，5.0 参数参考及 5.5 手动模板 |
+| 通用图像接口 | 自填基础地址、操作后缀与模型 ID。支持 OpenAI Images、Seedream JSON、Gemini generateContent、OpenRouter 同步 JSON、Kie 异步任务和 fal.ai 模型队列。操作与型号见[渠道对照](docs/integrations/image-protocols.md#第三方图像渠道) |
 | Koma 标准网关 | `IMAGE` / `CHAT` / `EDIT` 统一目录、预报价与生成路由 |
 | OpenAI Chat / Anthropic / Gemini 原生 | `ASK` 流式推理、工具调用、自动命名与上下文压缩 |
 

@@ -48,7 +48,10 @@ async function fixture({ official = false, openai = false } = {}) {
     } });
     if (path.endsWith("/media/quota")) { await state.onQuota?.(key); return json({ credits: { remaining: state[key].credit } }, state.quotaStatus); }
     if (path.endsWith("/token_stats_data")) return json({});
-    if (path.endsWith("/estimate")) return json({ cost: state[key].cost }, key === "high" ? state.quoteStatus : 200);
+    if (path.endsWith("/estimate")) {
+      await state.onEstimate?.(key);
+      return json({ cost: state[key].cost }, key === "high" ? state.quoteStatus : 200);
+    }
     return json({ result: key }, state.generationStatus);
   };
   const gateway = key => {
@@ -63,6 +66,26 @@ async function fixture({ official = false, openai = false } = {}) {
 }
 const generations = calls => calls.filter(c => c.method === "POST" && !c.path.endsWith("/estimate"));
 
+test("priority preview checks balance while waiting for the quote on the same source", async () => {
+  const t = await fixture();
+  t.state.high.credit = 10;
+  const quoteStarted = Promise.withResolvers(), releaseQuote = Promise.withResolvers();
+  t.state.onEstimate = () => {
+    quoteStarted.resolve();
+    return releaseQuote.promise;
+  };
+  const selection = t.priority.select(t.wanted, undefined, t.input);
+  try {
+    await quoteStarted.promise;
+    assert.ok(t.calls.some(c => c.key === "high" && c.path.endsWith("/media/quota")));
+    assert.equal(generations(t.calls).length, 0);
+  } finally {
+    releaseQuote.resolve();
+    await selection;
+  }
+  assert.equal((await selection).model.connection, "high");
+});
+
 test("priority execution: fresh quote skips insufficient credit before POST, recovered first source wins next time", async () => {
   const t = await fixture(), selections = [], notices = [];
   const first = await t.priority.execute(t.wanted, t.input, r => r.json(), { onSource: s => selections.push(s), onNotice: n => notices.push(n) });
@@ -76,6 +99,17 @@ test("priority execution: fresh quote skips insufficient credit before POST, rec
   const second = await t.priority.execute(t.wanted, t.input, r => r.json());
   assert.equal(second.via.connection, "high");
   assert.equal(generations(t.calls).at(-1).body.max_cost, 6);
+});
+
+test("explicit layer source uses the selected connection even when another source has priority or funds", async () => {
+  const t = await fixture();
+  t.state.high.credit = 10;
+  const output = await t.priority.execute(t.wanted, t.input, r => r.json(), { onlyConnection: 'low' });
+  assert.equal(output.via.connection, 'low');
+  t.state.low.credit = 0;
+  await assert.rejects(t.priority.execute(t.wanted, t.input, r => r.json(), { onlyConnection: 'low' }), /所选供应商额度不足/);
+  assert.deepEqual(generations(t.calls).map(c => c.key), ['low']);
+  assert.ok(t.calls.every(call => call.key === 'low'));
 });
 
 test("priority execution: exhausted official V5 uses the next source; restored official supports infill", async () => {

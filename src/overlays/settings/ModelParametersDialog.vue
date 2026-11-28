@@ -8,13 +8,14 @@ import type { ModelIdentity } from "../../domain/models";
 import type { Connection, Routing } from "../../config/connections";
 import { modelParameterOverrides, withModelParameters } from "../../config/connections";
 import type { ParameterField, ParameterFields, ParameterOverrides } from "../../domain/model-parameters";
-import { acceptsParameter } from "../../domain/model-parameters";
+import { acceptsParameter, channelParameterField } from "../../domain/model-parameters";
 import { nativeMappedCatalog } from "../../gateway/native-protocols";
 import { profileFor } from "../../gateway/profile";
 import AppIcon from "../../shared/AppIcon.vue";
 import ModelIcon from "../../shared/ModelIcon.vue";
 import ModelParameterInput from "../../shared/ModelParameterInput.vue";
 import { chatOptionLabel } from "../../domain/chat-options";
+import ImageChannelOperations from "./ImageChannelOperations.vue";
 
 const props = defineProps<{ routing: Routing; raw: Record<string, unknown>; statuses: Record<string, { s: string; text: string }> }>();
 const emit = defineEmits<{ reload: [connection: string] }>();
@@ -22,10 +23,12 @@ const { connections } = useServices();
 const dialog = useTemplateRef<HTMLDialogElement>("dialog");
 type Row = { uid: number; original: string; key: string; on: boolean; type: "string" | "number" | "boolean"; options: string; optionDraft: string; default: string; min: string; max: string; allowCustom: boolean; dirty: boolean; label?: string };
 const selected = ref<{ model: ModelIdentity; connection: Connection; upstreamId: string } | null>(null);
+const binding = computed(() => selected.value && profileFor(selected.value.connection).channelModels?.find(item => item.generate === selected.value?.upstreamId));
 const rows = ref<Row[]>([]), busy = ref(false), error = ref("");
 const referenceFields = computed(() => {
   if (!selected.value) return {} as ParameterFields;
-  const { model, connection } = selected.value, protocol = profileFor(connection.profileId).protocol;
+  const { model, connection } = selected.value, protocol = profileFor(connection).protocol;
+  if (binding.value) return base.value.fields;
   return imageModelFields(model, protocol === 'openai-images' || model.family === 'gpt' && protocol !== 'gemini-native');
 });
 const expanded = ref<number | null>(null);
@@ -39,15 +42,15 @@ const base = computed(() => {
     routing.links[connection.id][model.id] = withModelParameters(routing.links[connection.id][model.id], {});
     routing.links[connection.id][model.id].on = true;
   }
-  const profile = profileFor(connection.profileId), raw = (props.raw[connection.id] ?? { models: {} }) as Record<string, unknown>;
+  const profile = profileFor(connection), raw = (props.raw[connection.id] ?? { models: {} }) as Record<string, unknown>;
   const resolved = normalizeCatalog(nativeMappedCatalog(profile, raw, routing, connection.id), routing, connection.id, profile)
     .models.find(m => m.id === model.id);
   return { fields: resolved?.configurationFields ?? resolved?.fields ?? {}, parameterSource: resolved?.parameterSource ?? 'declared' };
 });
 const status = computed(() => selected.value ? props.statuses[selected.value.connection.id] : undefined);
 const sourceLabel = computed(() => base.value.parameterSource === "reference" ? "参考预设" : Object.keys(base.value.fields).length ? "接口声明" : "未声明参数");
-const sourceHint = computed(() => selected.value?.model.referenceNote || (base.value.parameterSource === "reference" ? "接口未声明参数，当前使用参考预设，可自行修改。" : Object.keys(base.value.fields).length ? "参数来自此来源的模型目录声明，可自行补充和调整。" : "接口未声明参数，可手动添加。"));
-const protocolHint = computed(() => selected.value && profileFor(selected.value.connection.profileId).protocol === "gemini-native"
+const sourceHint = computed(() => binding.value ? "可调整此图像来源的默认值和参数开关。" : selected.value?.model.referenceNote || (base.value.parameterSource === "reference" ? "接口未声明参数，当前使用参考预设，可自行修改。" : Object.keys(base.value.fields).length ? "参数来自此来源的模型目录声明，可自行补充和调整。" : "接口未声明参数，可手动添加。"));
+const protocolHint = computed(() => selected.value && profileFor(selected.value.connection).protocol === "gemini-native"
   ? "扩展字段相对 generationConfig，如 temperature、imageConfig.imageSize。" : "字段按接口原名填写，如 quality、size、output_format。");
 function row(key: string, field: ParameterField | null): Row {
   return { uid: ++nextId, original: key, key, on: field !== null, type: field?.type ?? "string", options: field?.options.join(", ") ?? "", optionDraft: "", default: field?.default ?? "",
@@ -55,13 +58,14 @@ function row(key: string, field: ParameterField | null): Row {
 }
 function refreshRows() {
   const fields = base.value.fields;
-  const keys = new Set([...Object.keys(fields), ...Object.keys(overrides)]);
+  const keys = new Set([...Object.keys(fields), ...(binding.value ? [] : Object.keys(overrides))]);
   const previousRows = rows.value;
   const current = new Map(previousRows.filter(r => r.original).map(r => [r.original, r]));
   rows.value = [...keys].filter(key => !removed.has(key)).map(key => {
     const previous = current.get(key);
     if (previous?.dirty) return previous;
-    const value = row(key, overrides[key] ?? fields[key] ?? null);
+    const saved = overrides[key];
+    const value = row(key, binding.value ? channelParameterField(fields[key], saved) : saved ?? fields[key] ?? null);
     if (overrides[key] === null) value.on = false;
     return value;
   });
@@ -141,13 +145,14 @@ defineExpose({ open, close });
   <dialog ref="dialog" class="modal set-ui model-parameters-dialog" aria-label="来源参数" @cancel.prevent="close">
     <form class="modal-form" @submit.prevent="save">
       <header class="modal-head">
-        <div class="mp-heading" :title="`上游 ID：${selected?.upstreamId ?? ''}`">
+        <div class="mp-heading" :title="binding ? undefined : `上游 ID：${selected?.upstreamId ?? ''}`">
           <h2 tabindex="-1" autofocus><ModelIcon :family="selected?.model.family" />{{ selected?.model.name }}</h2>
           <div class="mp-tags">
             <span class="type" :title="`供应商：${selected?.connection.name ?? ''}`">{{ selected?.connection.name }}</span>
             <span class="type" :title="sourceHint">{{ sourceLabel }}<span v-if="base.parameterSource === 'reference'" class="sr-only"> · 接口未声明参数</span></span>
           </div>
-          <span class="sr-only">上游 ID：{{ selected?.upstreamId }}</span>
+          <ImageChannelOperations v-if="binding" :model="binding" class="sr-only" />
+          <span v-else class="sr-only">上游 ID：{{ selected?.upstreamId }}</span>
         </div>
         <div class="mp-head-actions">
           <button class="ibtn" type="button" :aria-label="status?.s === 'wait' ? '读取中…' : '重新读取'" :title="status?.s === 'wait' ? '读取中…' : '重新读取参数声明'" :disabled="busy || status?.s === 'wait'" @click="selected && emit('reload', selected.connection.id)"><AppIcon name="i-retry" /></button>
@@ -158,12 +163,13 @@ defineExpose({ open, close });
         <p v-if="status?.s === 'err'" class="modal-error" role="status">{{ status.text }}</p>
         <div class="mp-fields">
           <div class="mp-columns">
-            <div class="mp-column-title"><span>参数</span><button class="ibtn ibtn-xs mp-add" type="button" aria-label="添加参数" title="添加参数" :disabled="busy" @click="add"><AppIcon name="i-plus" /></button></div>
+            <div class="mp-column-title"><span>参数</span><button v-if="!binding" class="ibtn ibtn-xs mp-add" type="button" aria-label="添加参数" title="添加参数" :disabled="busy" @click="add"><AppIcon name="i-plus" /></button></div>
             <span v-if="rows.length">默认值</span>
           </div>
           <div v-for="r in rows" :key="r.uid" class="mp-field" role="group" :aria-label="r.key || '新参数'" :data-off="!r.on">
             <div class="mp-row">
-              <div v-if="expanded === r.uid" class="mp-key-editor">
+              <code v-if="binding" class="mp-name">{{ r.key }}</code>
+              <div v-else-if="expanded === r.uid" class="mp-key-editor">
                 <button class="ibtn" type="button" :disabled="busy" :aria-label="`${r.key || '新参数'} 字段设置`" aria-expanded="true" :aria-controls="`mp-definition-${r.uid}`" title="收起字段设置" @click="expanded = null"><AppIcon name="i-chevron" /></button>
                 <label class="sr-only" :for="`mp-key-${r.uid}`">字段名</label><input :id="`mp-key-${r.uid}`" v-model="r.key" class="mp-key-input" type="text" placeholder="字段名" maxlength="128" required spellcheck="false" :disabled="busy" :title="protocolHint" :aria-describedby="`mp-protocol-${r.uid}`" @input="r.dirty = true" />
               </div>
@@ -214,7 +220,7 @@ defineExpose({ open, close });
               </div>
             </fieldset>
           </div>
-          <p v-if="!rows.length" class="hint mp-empty">暂无参数，可手动添加。</p>
+          <p v-if="!rows.length" class="hint mp-empty">{{ binding ? '此渠道没有可配置的参数。' : '暂无参数，可手动添加。' }}</p>
         </div>
         <p v-if="error" role="alert" class="modal-error">{{ error }}</p>
       </div>

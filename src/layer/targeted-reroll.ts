@@ -1,5 +1,5 @@
 import type { ApplicationServices } from '../services/application.ts';
-import { normalizeOptions, type CatalogModel } from '../domain/catalog.ts';
+import { normalizeOptions, supportsLayerDecomposition, type CatalogModel } from '../domain/catalog.ts';
 import { buildChatPayload, MAX_INPUT_BYTES, MAX_TOTAL_BYTES } from '../domain/media.ts';
 import { SEEDREAM_55 } from '../domain/seedream.ts';
 import type { ImagePayload } from '../gateway/routes.ts';
@@ -17,7 +17,7 @@ import {
   type StackLayer,
 } from './project.ts';
 import { compositeLayers } from './stack.ts';
-import { layerPictureId, referenceBlob, referenceSources, scalpelInputs } from './scalpel-references.ts';
+import { layerPictureId, referenceBlob, referenceSources, scalpelInputs, scalpelSource } from './scalpel-references.ts';
 import {
   closestAspectOption,
   placeScalpelReply,
@@ -41,7 +41,7 @@ export function rerollCapable(m: CatalogModel): boolean {
 export function preferredRerollModel(models: readonly CatalogModel[], activeId?: string): CatalogModel | undefined {
   const eligible = models.filter(rerollCapable);
   return (
-    eligible.find((m) => (m.templateId ?? m.id) === SEEDREAM_55 && m.profileId === 'seedream-v1') ??
+    eligible.find((m) => (m.templateId ?? m.id) === SEEDREAM_55 && supportsLayerDecomposition(m)) ??
     eligible.find((m) => (m.templateId ?? m.id) === SEEDREAM_55) ??
     eligible.find((m) => !!m.fields.background?.options.includes('transparent')) ??
     eligible.find((m) => m.id === activeId) ??
@@ -157,15 +157,19 @@ export function targetedRerollPrompt(
     references: readonly { name: string; usage: string }[];
     hasBlue?: boolean;
     hasOrange?: boolean;
+    sourceLayers?: readonly string[];
   },
 ): string {
   const name = p.scalpelName.trim();
-  const target = name ? `"${name}"` : 'the indicated component';
+  const target = name ? `"${name}"` : options.sourceLayers?.length ? 'selected artwork' : 'the indicated component';
   const note = p.scalpelInstruction.trim();
   const lines: string[] = [];
 
   const { workspaceIndex: guide, occluderIndex, firstReference, context } = options.layout;
   const sourceRef = context ? 'Image 1' : `Image ${guide}`;
+  if (options.sourceLayers?.length) {
+    lines.push(`The source artwork contains only the selected layers (${options.sourceLayers.join(', ')}), composited in their original positions and stacking order. Preserve their relative placement.`);
+  }
   if (context) {
     lines.push(
       'Image 1 is the clean, unmarked original artwork crop at exact 1:1 position and scale. Use Image 1 as the authoritative source for all linework, colors, shading, and natural object boundaries.',
@@ -178,9 +182,10 @@ export function targetedRerollPrompt(
   if (options.hasOrange) {
     guideMarks.push('translucent ORANGE highlighter strokes roughly mark occluded or missing areas to reconstruct');
   }
-  lines.push(
-    `Image ${guide} is ONLY a rough, imprecise human brush annotation overlaid on the intact artwork (${guideMarks.join('; ') || 'colored strokes roughly point to the target region'}). IMPORTANT: Human brush strokes are loose and approximate—they frequently spill past the true edge onto neighboring hair, clothes, limbs, or background, or stop slightly short. Treat Image ${guide} strictly as a semantic region hint, NEVER as a literal pixel cutout mask.`,
+  if (guideMarks.length) lines.push(
+    `Image ${guide} is ONLY a rough, imprecise human brush annotation overlaid on the intact artwork (${guideMarks.join('; ')}). IMPORTANT: Human brush strokes are loose and approximate—they frequently spill past the true edge onto neighboring hair, clothes, limbs, or background, or stop slightly short. Treat Image ${guide} strictly as a semantic region hint, NEVER as a literal pixel cutout mask.`,
   );
+  else lines.push(`Image ${guide} is the unmarked selected artwork. Complete it as one transparent component using its existing silhouette.`);
   if (occluderIndex) {
     lines.push(
       `Image ${occluderIndex} shows the exact already-separated foreground occluder layers (${options.occluderNames.join(', ')}) at the same 1:1 position. Everything shown in Image ${occluderIndex} is an occluder and MUST be completely excluded from your output.`,
@@ -193,7 +198,8 @@ export function targetedRerollPrompt(
   }
   lines.push(
     '',
-    `Task: Extract and complete ONLY the clean, continuous ${target} on a fully transparent RGBA PNG background at the exact same 1:1 position, scale, linework, and shading as ${sourceRef}. Follow the true natural silhouette and linework in ${sourceRef}—do NOT follow the rough brush outline of Image ${guide}, do NOT retain jagged spillover fragments from adjacent parts or background, seamlessly reconstruct any occluded sections, and leave zero blue or orange guide tint.`,
+    `Task: Extract and complete ONLY the clean, continuous ${target} on a fully transparent RGBA PNG background at the exact same 1:1 position, scale, linework, and shading as ${sourceRef}. Follow the true natural silhouette and linework in ${sourceRef}` +
+      (guideMarks.length ? `—do NOT follow the rough brush outline of Image ${guide}, do NOT retain jagged spillover fragments from adjacent parts or background, seamlessly reconstruct any occluded sections, and leave zero blue or orange guide tint.` : '. Seamlessly reconstruct occluded sections.'),
   );
   if (note) lines.push('', `Artist note: ${note}`);
   return lines.join('\n');
@@ -238,9 +244,16 @@ export async function requestTargetedReroll(
   signal: AbortSignal,
   notice: (s: string) => void,
   framing: ScalpelFraming = 'auto',
+  source = scalpelSource(p.reference, p.layers, p.scalpelLayerIds),
 ): Promise<RerollCandidate> {
-  const frame = scalpelFrame(p, { mode: framing, model });
-  const rect = editRect(frame, p.reference);
+  const { raster: reference, layers } = source;
+  if (layers && !layers.length) throw new Error('请先选择补画图层');
+  if (layers?.some(l => occluders.some(o => o.id === l.id))) throw new Error('补画底图与排除遮挡不能使用同一图层');
+  const unmarkedLayers = !!layers && !p.alpha.some(Boolean) && !p.occluded?.some(Boolean);
+  const layerBounds = unmarkedLayers ? alphaBounds(reference) : undefined;
+  if (unmarkedLayers && !layerBounds) throw new Error('所选图层在画布内没有可补画的像素');
+  const frame = scalpelFrame(p, { mode: framing, model, layerBounds });
+  const rect = editRect(frame, reference);
   const isFullCanvas =
     frame.x === 0 &&
     frame.y === 0 &&
@@ -254,27 +267,28 @@ export async function requestTargetedReroll(
     if (excluded.has(picture)) throw new Error(`「${source.name}」同时被设为参考和排除遮挡，请选择一种用途`);
     return { source, name: source.name, usage };
   });
-  const layout = scalpelInputs(model.maxImages, references.length, occluders.length > 0);
+  const layout = scalpelInputs(model.maxImages, references.length, occluders.length > 0, unmarkedLayers);
   if (layout.issue) throw new Error(layout.issue);
   const run = await services.runTask(
     {
       id: crypto.randomUUID(),
       workspace: 'editor',
       sessionId: p.id,
-      snapshot: { model: model.id, mode: 'targeted-reroll', framing, occluders: occluders.map((l) => l.id), references: p.scalpelReferences ?? [] },
+      snapshot: { model: model.id, mode: 'targeted-reroll', framing, sourceLayers: layers?.map(l => l.id), occluders: occluders.map((l) => l.id), references: p.scalpelReferences ?? [] },
     },
     async (task) => {
       notice(isFullCanvas ? '正在按整图原比例编码并提交生成…' : '正在编码局部选区并提交生成…');
       const { resolution, options } = rerollRequestOptions(model, rect);
-      const cleanLocal = crop(p.reference, rect);
+      const cleanLocal = crop(reference, rect);
       const blue = saveChannel(p.alpha, rect, p.reference.width);
       const orange = p.occluded ? saveChannel(p.occluded, rect, p.reference.width) : undefined;
-      const workspace = buildTransparentWorkspace(cleanLocal, blue, orange);
+      const workspace = unmarkedLayers ? cleanLocal : buildTransparentWorkspace(cleanLocal, blue, orange);
 
       const job = targetedRerollPrompt(p, {
         layout,
         occluderNames: occluders.map((l) => l.name),
         references,
+        sourceLayers: layers?.map(l => [...(l.groups ?? []), l.name].join(' / ')),
         hasBlue: blue.some(Boolean),
         hasOrange: !!orange?.some(Boolean),
       });
@@ -316,6 +330,7 @@ export async function requestTargetedReroll(
         },
         {
           signal: task.signal,
+          onlyConnection: p.rerollConnection,
           onNotice: notice,
           onSource: (source) => {
             route = routeLabel(source.model);
@@ -325,7 +340,7 @@ export async function requestTargetedReroll(
       );
       task.signal.throwIfAborted();
       const decoded = await decodeLayerBlob(output.value.blob);
-      const fullCanvas = placeScalpelReply(decoded, rect, p.reference);
+      const fullCanvas = placeScalpelReply(decoded, rect, reference);
       const box = alphaBounds(fullCanvas) ?? rect;
       const preview = crop(fullCanvas, box);
       let transparent = false;
@@ -344,7 +359,7 @@ export async function requestTargetedReroll(
           height: fullCanvas.height,
           data: fullCanvas.data.slice(),
         };
-        restoreScalpelSurface(overlayRaster, p, rect);
+        restoreScalpelSurface(overlayRaster, { reference, alpha: p.alpha, occluded: p.occluded }, rect);
         overlayBox = alphaBounds(overlayRaster) ?? box;
         overlayPreview = crop(overlayRaster, overlayBox);
       }
@@ -352,6 +367,7 @@ export async function requestTargetedReroll(
         id: crypto.randomUUID(),
         model: actualModel,
         route,
+        sourceReference: layers ? reference : undefined,
         prompt: job,
         raster: fullCanvas,
         preview,

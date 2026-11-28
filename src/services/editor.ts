@@ -22,13 +22,14 @@ import { prepareFocusedInpaint } from "../native/inpaint-focus.ts";
 import { activeCharacters, readCharacters, characterCapability, nextCharacterId } from "../domain/characters.ts";
 import { compileNaiPrompt, naiCapabilities, readNaiSettings, NAI_OFFICIAL_UPSCALE } from "../domain/nai.ts";
 import { modelSamplers, editStrengthRange, naiNoiseSchedule, supportsNaiVariety } from "../domain/nai-parameters.ts";
-import { supportsNaiEnhance, availableEnhanceScales, naiEnhanceSize, naiEnhanceMagnitudes, isEnhanceScale } from "../domain/nai-enhance.ts";
+import { availableEnhanceScales, naiEnhanceSize, naiEnhanceMagnitudes, isEnhanceScale } from "../domain/nai-enhance.ts";
 import type { EnhanceScale } from "../domain/nai-enhance.ts";
+import { isImg2ImgScale, naiImg2ImgPixelLimit, naiImg2ImgSize, supportsOfficialNaiImg2Img } from "../domain/nai-img2img.ts";
 import { randomSeed, readHistoryLimit } from "../domain/drawing.ts";
-import { emptyReferences, readReferences, referencePlan, referenceModel, referenceOperation, referenceSurcharge } from "../domain/nai-references.ts";
+import { emptyReferences, readReferences, referencePlan, referenceSource, referenceKinds, referenceProblem, referenceSurcharge } from "../domain/nai-references.ts";
 import type { NaiReferences } from "../domain/nai-references.ts";
 import { insufficientFunds } from "../domain/source-funding.ts";
-import type { ImagePayload } from "../gateway/routes.ts";
+import type { GatewayImageResponse, ImagePayload } from "../gateway/routes.ts";
 import type { NaiSettings } from "../domain/nai.ts";
 import type { Character, Placement } from "../domain/characters.ts";
 import type { ApplicationServices } from "./application";
@@ -46,6 +47,7 @@ import type { CatalogModel } from "../domain/catalog";
 import {
   editorModels,
   isGenerativeEditorModel,
+  naiImg2ImgScaleSource,
   validateEditorSource,
   buildEditorPayload,
 } from "../domain/media.ts";
@@ -128,6 +130,7 @@ export interface EditorSession {
   noise: Record<EditMode, number>;
   focus: { on: boolean; rect: FocusRect | null };
   enhance: { on: boolean; scale: EnhanceScale; magnitude: number | null; strength: number; noise: number };
+  img2imgScale?: number;
   options: Record<string, Record<string, string>>;
   imageEdit: ImageEditSettings;
   references: EditReference[];
@@ -264,6 +267,7 @@ export function createEditor(
   const connectionSamplers = new Map<string, string[]>();
   const blank = () => ({
     quote: null as Quote | null,
+    quoting: false,
     error: "",
     price: "",
     revision: 0,
@@ -302,8 +306,8 @@ export function createEditor(
     return {has_mask:false,status:'pending'};
   }
   function configuration(s:EditorSession):EditConfiguration {
-    const {mode,chosen,strength,noise,focus,enhance,fields,characters,placement,naiReferences,director,options,references}=s;
-    return structuredClone({mode,chosen,strength,noise,focus,enhance,fields,characters,placement,naiReferences,director,options,references,
+    const {mode,chosen,strength,noise,focus,enhance,img2imgScale,fields,characters,placement,naiReferences,director,options,references}=s;
+    return structuredClone({mode,chosen,strength,noise,focus,enhance,img2imgScale,fields,characters,placement,naiReferences,director,options,references,
       upscaleOpen:s===current?upscaleOpen:askPanels.get(s)?.upscaleOpen??false,directorOpen:s===current?directorOpen:askPanels.get(s)?.directorOpen??false});
   }
   function askSnapshot(id=current.id):EditDraftState|undefined {
@@ -347,10 +351,29 @@ export function createEditor(
   const focusing = () => !generative() && current.mode === "inpaint" && current.focus.on;
   const focusAvailable = () => models.some(m => m.id === current.chosen.inpaint && supportsFocusedInpaint(m));
   const enhancing = () => !generative() && current.mode === "img2img" && current.enhance.on;
-  const enhanceAvailable = () => models.some(m => m.id === current.chosen.img2img && supportsNaiEnhance(m));
+  const officialImg2Img = () => models.find(m => m.id === current.chosen.img2img && supportsOfficialNaiImg2Img(m));
+  const enhanceAvailable = () => !!officialImg2Img();
+  const ordinaryImg2Img = () => current.mode === "img2img" && !generative() && !enhancing();
+  const img2imgScale = () => ordinaryImg2Img() ? current.img2imgScale : undefined;
+  function scaledImg2ImgSource() {
+    const v = base();
+    return naiImg2ImgScaleSource(models, current.chosen.img2img, v && { width: v.width, height: v.height, bytes: v.blob.size }, img2imgScale());
+  }
+  function img2imgResolution() {
+    const v = base();
+    if (!v || !ordinaryImg2Img()) return null;
+    const m = scaledImg2ImgSource();
+    const scale = current.img2imgScale ?? 1;
+    if (!m) return scale === 1 ? null : { scale, size: null, error: "此型号没有支持 NAI 图生图倍率的来源，请将倍率改为 1× 或切换型号" };
+    try {
+      const size = scale === 1 ? { width: v.width, height: v.height } : naiImg2ImgSize(v, scale, naiImg2ImgPixelLimit(m));
+      return { scale, size, error: "" };
+    } catch (e) { return { scale, size: null, error: message(e) }; }
+  }
   const selected = (mode: EditorMode = current.mode) =>
     (mode === "inpaint" && focusing() ? models.find(m => m.id === current.chosen[mode] && supportsFocusedInpaint(m)) : undefined) ??
-    (mode === "img2img" && enhancing() ? models.find(m => m.id === current.chosen[mode] && supportsNaiEnhance(m)) : undefined) ??
+    (mode === "img2img" && enhancing() ? officialImg2Img() : undefined) ??
+    (mode === "img2img" && img2imgScale() !== undefined ? scaledImg2ImgSource() : undefined) ??
     editorModels({ models }, mode).find((m) => m.id === current.chosen[mode]);
   // The catalog model supplies connection identity only. Augment has no model
   // field and is independent of the generation model selected in the left form.
@@ -366,12 +389,9 @@ export function createEditor(
   const source = (key: Job) => (key === "upscale" ? viewed() : base());
   const target = (key: Job): EditorMode =>
     key === "upscale" ? "upscale" : current.mode;
-  const referenceSupported = () => models.some(m => m.id === current.chosen[current.mode] &&
-    m.profileId === "nai-official-v1" && referenceModel(m.id) &&
-    m.upstreamId.replace(/@local$/, "") === m.id.replace(/@local$/, "") && m.tools.includes(current.mode));
-  const referenceKinds = () => referenceSupported() ? (["vibe", "precise"] as const).filter(kind => referenceOperation(current.chosen[current.mode], kind, current.mode)) : [];
-  const referenceProblem = () => current.naiReferences.active && current.naiReferences[current.naiReferences.active].some(r => r.on) && !referenceKinds().includes(current.naiReferences.active)
-    ? current.mode === "inpaint" && current.naiReferences.active === "vibe" ? "局部重绘暂不支持 Vibe Transfer，配置已保留" : "当前模型或操作不支持已启用的参考，配置已保留" : "";
+  const availableReferences = () => models.some(m => m.id === current.chosen[current.mode] && referenceSource(m) && m.tools.includes(current.mode))
+    ? referenceKinds(current.chosen[current.mode], current.mode) : [];
+  const referenceIssue = () => referenceProblem(current.naiReferences, current.chosen[current.mode], availableReferences(), current.mode);
   const characterProblem = () => {
     const cap = characterCapability(current.chosen[current.mode]);
     return cap.max > 0 && current.characters.filter(c => c.on).length > cap.max ? `当前模型最多 ${cap.max} 个启用角色` : "";
@@ -386,7 +406,7 @@ export function createEditor(
   const warning = (key: Job) => {
     const v = source(key);
     if (key==='edit' && generative() && current.references.length>referenceCapacity()) return `当前底图与标注占位后，最多可用 ${referenceCapacity()} 张参考图；请移除部分参考或切换模型／标注方式`;
-    if (key === "edit" && !generative() && (referenceProblem() || characterProblem())) return referenceProblem() || characterProblem();
+    if (key === "edit" && !generative() && (referenceIssue() || characterProblem())) return referenceIssue() || characterProblem();
     if (key === "edit" && focusing()) {
       if (!focusAvailable()) return "聚焦重绘仅支持 NovelAI 官方连接，设置已保留";
       if (!current.focus.rect) return "请框选聚焦范围，包含蒙版与周边参考";
@@ -395,6 +415,10 @@ export function createEditor(
     if (key === "edit" && enhancing()) {
       if (!enhanceAvailable()) return "Enhance 仅支持 NovelAI 官方连接，设置已保留";
       if (v) try { naiEnhanceSize(v, current.enhance.scale, current.chosen.img2img); } catch (e) { return message(e); }
+    }
+    if (key === "edit") {
+      const issue = img2imgResolution()?.error;
+      if (issue) return issue;
     }
     return v
       ? validateEditorSource(target(key), selected(target(key)), {
@@ -409,6 +433,8 @@ export function createEditor(
     j.revision++;
     clearTimeout(j.timer);
     j.abort?.abort();
+    j.timer = j.abort = undefined;
+    j.quoting = false;
     j.quote = null;
     j.error = "";
     j.price = "";
@@ -516,6 +542,7 @@ export function createEditor(
     const owner = current, config = configuration(owner), characters = structuredClone(current.characters), placement = current.placement;
     const focus = mode === "inpaint" && focusing() && current.focus.rect ? inpaintFocusPlan(v, current.focus.rect) : undefined;
     const enhance = mode === "img2img" && enhancing() ? { ...current.enhance } : undefined;
+    const resolutionScale = mode === "img2img" ? img2imgScale() : undefined;
     const references = readReferences(current.naiReferences), provenance = structuredClone(current.provenance), isRandom = !!enhance || current.fields.seed.trim() === "" || Number(current.fields.seed) === -1;
     const f: EditorFields = {
       ...current.fields,
@@ -525,6 +552,7 @@ export function createEditor(
       noise: enhance ? enhance.noise : current.noise[current.mode],
       ...(focus ? { inpaintFocus: focus } : {}),
       ...(enhance ? { enhance: true, enhanceScale: enhance.scale, enhanceMagnitude: enhance.magnitude } : {}),
+      ...(resolutionScale !== undefined ? { img2imgScale: resolutionScale } : {}),
       detail: current.fields.detail.trim(),
       options: current.options[m.id] || normalizeOptions(m),
     };
@@ -597,6 +625,7 @@ export function createEditor(
       return;
     }
     const rev = j.revision;
+    j.quoting = true;
     emit();
     j.timer = setTimeout(async () => {
       const controller = (j.abort = new AbortController());
@@ -612,9 +641,14 @@ export function createEditor(
       } catch (e) {
         if (rev !== j.revision || controller.signal.aborted) return;
         if (message(e).includes("先涂抹")) j.price = "先涂抹";
-        else j.error = failure(e);
+        else j.error = e instanceof DOMException && e.name === "TimeoutError" ? "报价超时，请重新报价" : failure(e);
+      } finally {
+        if (rev === j.revision) {
+          j.quoting = false;
+          j.timer = j.abort = undefined;
+          emit();
+        }
       }
-      emit();
     }, delay);
   }
   function requote(delay = 400) {
@@ -959,7 +993,10 @@ export function createEditor(
       startedAt = Date.now(); upscaleOpen = false; directorOpen = false;
       cancelQuote("edit"); cancelQuote("upscale"); cancelQuote("director"); emit();
       const result = await services.runTask({ id: group, workspace: "editor", sessionId: owner.id, snapshot: request }, async task => {
-        const output = await task.execute(model, request, (response, _native, signal) => consumeDirector(response, settings.tool, signal), {
+        const output = await task.execute(model, request, (response, _native, signal) => {
+          if (!(response instanceof Response)) throw new Error("来源未返回 Director Tools 图片包");
+          return consumeDirector(response, settings.tool, signal);
+        }, {
           shownCost, signal: task.signal, onNotice: n => ui.toast(n),
           onSource: source => { if (current === owner) { applySource(source); emit(); } },
         });
@@ -1026,6 +1063,9 @@ export function createEditor(
       taskOwner = undefined;
       return;
     }
+    const requestedSize = p.payload.img2imgScale !== undefined &&
+      typeof p.payload.width === "number" && typeof p.payload.height === "number"
+      ? { requestedWidth: p.payload.width, requestedHeight: p.payload.height } : undefined;
     preparing = false;
     busy = true;
     running = p.mode;
@@ -1070,7 +1110,7 @@ export function createEditor(
             });
           }
           // Paid reference preparation fixes the source for this run; never re-route or retry it.
-          const consume = async (r: Response, n: boolean, signal: AbortSignal) => {
+          const consume = async (r: GatewayImageResponse, n: boolean, signal: AbortSignal) => {
             // A 4× result can exceed the usual ZIP bound. Allow one RGBA output plus PNG overhead.
             const upscaleBytes = p.model.profileId === "nai-official-v1" && p.mode === "upscale"
               ? Math.max(32 * 1024 * 1024, p.parent.width * p.parent.height * NAI_OFFICIAL_UPSCALE.factor ** 2 * 4 + 1024 * 1024) : undefined;
@@ -1115,7 +1155,7 @@ export function createEditor(
                     varietyPlus: supportsNaiVariety(p.model) && p.payload.varietyPlus === true,
                     ...(p.model.profileId === "nai-official-v1" && p.mode === "inpaint" ? { noise: 0 } : {}),
                     cfgRescale: typeof p.payload.cfg_rescale === "number" ? p.payload.cfg_rescale : 0, tool: p.mode, via: output.via } as Fields);
-            Object.assign(params, { evolutionInput: JSON.parse(JSON.stringify({ ...p.input, params: { ...p.input!.params, width:block.size.width,height:block.size.height, ...(params.noise_schedule ? { noise_schedule: params.noise_schedule } : {}) } })) }, originOf(p.owner, p.parent), { editId: crypto.randomUUID(), editParent: parentIdentity(p.parent), editedAt: new Date().toISOString() });
+            Object.assign(params, requestedSize, { evolutionInput: JSON.parse(JSON.stringify({ ...p.input, params: { ...p.input!.params, ...requestedSize, width:block.size.width,height:block.size.height, ...(params.noise_schedule ? { noise_schedule: params.noise_schedule } : {}) } })) }, originOf(p.owner, p.parent), { editId: crypto.randomUUID(), editParent: parentIdentity(p.parent), editedAt: new Date().toISOString() });
             last = await addVersion(p.owner, {
               kind: "result", configuration: p.config,
               blob: block.blob,
@@ -1142,6 +1182,9 @@ export function createEditor(
             if(last!==rawResult)landed(rawResult.recordId);
           }
           if (last) {
+            if (current === p.owner && requestedSize &&
+              (last.width !== requestedSize.requestedWidth || last.height !== requestedSize.requestedHeight))
+              ui.toast(`请求 ${requestedSize.requestedWidth}×${requestedSize.requestedHeight}，已保留实际回图 ${last.width}×${last.height}`, "warn");
             if (
               p.mode === "upscale" &&
               last.width <= p.parent.width &&
@@ -1150,7 +1193,7 @@ export function createEditor(
               ui.toast("放大后尺寸没有变化", "warn");
             p.owner.viewId = last.id;
             if (current === p.owner) maskPort?.save();
-            if (!isGenerativeEditorModel(p.model)) {
+            if (!isGenerativeEditorModel(p.model) && p.payload.img2imgScale === undefined) {
               alignMask(p.owner, last);
               if (p.mode === "inpaint") p.owner.appliedMaskRevision = p.owner.maskRevision;
             }
@@ -1271,7 +1314,7 @@ export function createEditor(
       const issue=checkEditConfiguration(state,state.config);if(issue)throw new Error(issue);
       if(current!==s&&!switchBoard(boardId))throw new Error('无法切换编辑画板');
       maskPort?.save();
-      const {upscaleOpen:up,directorOpen:dt,...config}=state.config;Object.assign(s,config);upscaleOpen=up;directorOpen=dt;
+      const {upscaleOpen:up,directorOpen:dt,...config}=state.config;Object.assign(s,config,{img2imgScale:config.img2imgScale});upscaleOpen=up;directorOpen=dt;
       selectBase(s,v.id); draftPaused.add(s);
       cancelQuote('edit');cancelQuote('upscale');cancelQuote('director');emit();
     },
@@ -1301,7 +1344,7 @@ export function createEditor(
       if(baseChange){const source=s.versions.find(v=>v.id===baseChange.before)!,target=s.versions.find(v=>v.id===baseChange.after)!;if(source.width!==target.width||source.height!==target.height)throw new Error('回退图片尺寸不同，请先从该图开始并检查蒙版');}
       if ((after.references ?? []).some(r => !referencePool.has(r.id))) throw new Error('参考图已失效，请重新提议');
       const {upscaleOpen:up,directorOpen:dt,...values}=structuredClone(after);
-      draftPaused.add(s);askPanels.set(s,{upscaleOpen:up,directorOpen:dt});Object.assign(s,values);s.nextCharacterId=Math.max(s.nextCharacterId,nextCharacterId(s.characters));s.updatedAt=Date.now();
+      draftPaused.add(s);askPanels.set(s,{upscaleOpen:up,directorOpen:dt});Object.assign(s,values,{img2imgScale:values.img2imgScale});s.nextCharacterId=Math.max(s.nextCharacterId,nextCharacterId(s.characters));s.updatedAt=Date.now();
       // Same-size draft rollback changes the base, not mask pixels. Keeping the mask
       // revision lets transactional compensation and older checkpoints remain exact.
       if(baseChange){const revision=s.maskRevision;selectBase(s,baseChange.after);s.maskRevision=revision;}
@@ -1407,9 +1450,9 @@ export function createEditor(
       },
       contextId: contextId(),
       externalId: external?.id,
-      referenceSupported: referenceSupported(),
-      referenceKinds: referenceKinds(),
-      referenceProblem: referenceProblem(),
+      referenceSupported: availableReferences().length > 0,
+      referenceKinds: availableReferences(),
+      referenceProblem: referenceIssue(),
       characterCapability: characterCapability(current.chosen[current.mode]),
       characterProblem: characterProblem(),
       models,
@@ -1421,6 +1464,7 @@ export function createEditor(
       enhancing: enhancing(),
       enhanceAvailable: enhanceAvailable(),
       enhanceScales: base() ? availableEnhanceScales(base()!, current.chosen.img2img) : [],
+      img2imgResolution: img2imgResolution(),
       upscaleModel: selected("upscale"),
       base: base(),
       viewed: viewed(),
@@ -1444,6 +1488,7 @@ export function createEditor(
       startedAt,
       edit: {
         canRun: canRun("edit"),
+        quoting: jobs.edit.quoting,
         quote: jobs.edit.quote,
         error: jobs.edit.error,
         price: jobs.edit.price,
@@ -1703,6 +1748,8 @@ export function createEditor(
           const value = settings[field];
           if (typeof value === "number" && Number.isFinite(value) && value >= 0 && value <= 1) current[field][tool] = value;
         }
+        if (tool === "img2img" && isImg2ImgScale(settings.img2imgScale) && settings.img2imgScale > 1)
+          current.img2imgScale = settings.img2imgScale;
         if (settings.enhance === true && isEnhanceScale(settings.enhanceScale)) {
           const magnitude = settings.enhanceMagnitude;
           current.enhance = { on: true, scale: settings.enhanceScale,
@@ -1819,6 +1866,13 @@ export function createEditor(
       const scale = value === "max" ? value : Number(value);
       if (locked() || reading || !base() || !isEnhanceScale(scale) || !availableEnhanceScales(base()!, current.chosen.img2img).includes(scale)) return;
       current.enhance.scale = scale; changed();
+    },
+    setImg2ImgScale(value: number) {
+      if (locked() || reading || !img2imgResolution() || !isImg2ImgScale(value)) return;
+      const scale = value === 1 ? undefined : value;
+      if (scale === current.img2imgScale) return;
+      current.img2imgScale = scale;
+      changed();
     },
     setEnhanceMagnitude(magnitude: number) {
       if (locked() || reading || !Number.isInteger(magnitude) || magnitude < 1 || magnitude > 5) return;

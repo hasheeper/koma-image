@@ -6,6 +6,7 @@ import { catalogEntries, linkFor, sourceState, supportsModel } from "../../domai
 import type { Routing, ModelLink } from "../../config/connections";
 import type { CatalogModel } from "../../domain/catalog";
 import { imageConnections } from "../../config/connections";
+import { profileFor } from "../../gateway/profile.ts";
 import { useUi, message } from "../../app/ui";
 import { useServices } from "../../app/services";
 import ModelIcon from "../../shared/ModelIcon.vue";
@@ -42,7 +43,7 @@ const configuredSources = (m: ModelIdentity) => modelSources(m).flatMap(c => {
 });
 const unlinkedSources = (m: ModelIdentity) => modelSources(m).filter(c => !link(c.id, m))
   .map(c => ({ connection: c, entries: spare(c.id, m) }))
-  .filter(source => m.family !== "novelai" || source.entries.length > 0);
+  .filter(source => m.family !== "novelai" && !profileFor(source.connection).channelModels || source.entries.length > 0);
 const showSourceAdd = (m: ModelIdentity) => opened.value.has(m.id) && (unlinkedSources(m).length > 0 || !configuredSources(m).length);
 async function closeSource(id: string) {
   if (addingSource.value !== id) return;
@@ -62,7 +63,9 @@ function summary(m: ModelIdentity) {
 }
 function spare(c: string, m: ModelIdentity) {
   const claimed = new Set(models.value.map(model => link(c, model)?.id).filter(Boolean));
-  return entries(c).filter(e => !claimed.has(e.id) && (!e.family || e.family === m.family));
+  const bindings = profileFor(props.routing.connections[c]).channelModels;
+  const binding = bindings?.find(item => item.templateId === (m.templateId ?? m.id));
+  return entries(c).filter(e => (!bindings || binding?.generate === e.id) && !claimed.has(e.id) && (!e.family || e.family === m.family));
 }
 // Inline edits can blur just before another control is used. Serialize local writes
 // and clone the latest saved configuration so unrelated source edits stay intact.
@@ -79,6 +82,9 @@ function change(c: string, m: ModelIdentity, value: ModelLink | null | boolean, 
       if (typeof value === "boolean" && !previous) throw new Error("请先填写上游 ID");
       const updated = typeof value === "boolean" && previous ? { ...previous, on: value } : typeof value === "boolean" ? null : value;
       if (updated) {
+        const bindings = profileFor(next.connections[c]).channelModels;
+        if (bindings && !bindings.some(item => item.templateId === (model.templateId ?? model.id) && item.generate === updated.id))
+          throw new Error("此上游 ID 与所选模型不匹配");
         const other = configuredModels(next).find(item => item.id !== m.id && linkFor(next, c, item, entries(c))?.id === updated.id);
         if (other) throw new Error(`此 ID 已用于「${other.name}」`);
       }

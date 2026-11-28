@@ -7,6 +7,8 @@ export interface Raster {
   data: Uint8Array;
 }
 
+export type ScalpelMode = 'paint' | 'missing';
+
 export interface Rect {
   x: number;
   y: number;
@@ -100,6 +102,8 @@ export interface RerollCandidate {
   id: string;
   model: string;
   route: string;
+  /** Frozen selected-layer composite used for later manual alignment. */
+  sourceReference?: Raster;
   prompt: string;
   /** Untouched model output placed at 1:1 canvas position (default). */
   raster: Raster;
@@ -130,6 +134,7 @@ export interface LayerProject {
   title: string;
   revision: number;
   sourceRecordId?: string;
+  sourceDigest?: string;
   /** Immutable locked master artwork (reference.png). */
   reference: Raster;
   /** Formal PS-like layer stack ordered bottom-to-top. */
@@ -142,11 +147,17 @@ export interface LayerProject {
   guides?: Uint8Array;
   scalpelName: string;
   scalpelInstruction: string;
+  scalpelMode?: ScalpelMode;
+  missingLayerIds?: string[];
+  /** Unset uses the master. An empty selection in layer mode waits for an explicit choice. */
+  scalpelLayerIds?: string[];
   scalpelOccluderIds: string[];
   referenceFiles?: { id: string; name: string; width: number; height: number; blob: Blob }[];
   scalpelReferences?: { picture: string; usage: string }[];
   rerollModel?: string;
+  rerollConnection?: string;
   decomposeModel?: string;
+  decomposeConnection?: string;
   otherSplits?: NonNullable<LayerProject['pendingSplit']>[];
   pendingSplit?: {
     batch: import('./recursive.ts').DecomposeBatch;
@@ -193,6 +204,9 @@ export function migrateProject(raw: unknown): LayerProject {
   const p = raw as Record<string, unknown>;
   if (p.format === 'koma-layer.v2') {
     const project = p as unknown as LayerProject;
+    const selected = (ids?: string[]) => Array.isArray(ids)
+      ? [...new Set(ids.filter(id => Array.isArray(project.layers) && project.layers.some(l => l.id === id && !l.archived)))].sort()
+      : undefined;
     return {
       ...project,
       layers: Array.isArray(project.layers)
@@ -204,6 +218,8 @@ export function migrateProject(raw: unknown): LayerProject {
           }))
         : [],
       scalpelName: typeof project.scalpelName === 'string' ? project.scalpelName : '',
+      scalpelLayerIds: selected(project.scalpelLayerIds),
+      missingLayerIds: selected(project.missingLayerIds),
       scalpelInstruction:
         typeof project.scalpelInstruction === 'string' ? project.scalpelInstruction : '',
       scalpelOccluderIds: Array.isArray(project.scalpelOccluderIds) ? project.scalpelOccluderIds : [],

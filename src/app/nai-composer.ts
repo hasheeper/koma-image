@@ -19,7 +19,7 @@ export interface NaiComposer {
     catalogLoading?: boolean;
     catalogError?: string;
     referenceSupported: boolean;
-    referenceKinds?: readonly ReferenceKind[];
+    referenceKinds: readonly ReferenceKind[];
     referenceProblem: string;
     characterCapability: ReturnType<typeof characterCapability>;
     characterProblem: string | boolean;

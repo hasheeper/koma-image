@@ -70,7 +70,8 @@ async function open(profile, seed = true, customId = "", account = { status: 200
   });
   const workspace = profile === "nai-official-v1" ? "image" : "chat";
   await page.goto(origin + `/#/${workspace}${seed ? "" : "/settings/connections"}`);
-  await page.waitForFunction(() => !!document.body.__vue_app__?._instance);
+  // Each isolated Vite server starts with a cold module cache.
+  await page.waitForFunction(() => !!document.body.__vue_app__?._instance, undefined, { timeout: 45_000 });
   await bind(page);
   return { page, context, requests, errors, png };
 }

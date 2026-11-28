@@ -98,6 +98,7 @@ Koma 字标在亮色中为纯墨蓝，方块保留品牌紫，形状与字体不
 | `public/styles/styles.css` | 绘图布局、画幅、参数导入、图片栏扩展及结果元数据；先放原公共元数据规则，再放绘图覆盖 |
 | `public/styles/chat.css`／`tags.css` | 对话／词典布局与各自上下文；按各工作区加载 |
 | `public/styles/editor.css` | 独立编辑页面、画布及版本栏；工具栏、放大／Director 共用的紧凑面板几何与排版、去背景变体与工具角标 |
+| `src/layer/*.vue`、`use-layer-workspace.ts` | Koma Layer 拆分工作台的共享状态与各子视图 scoped 样式（顶栏／浮岛胶囊、空态、底部双层画布工具、自动拆层与候选池、图层栈与精修检查器、局部补画）；直接消费 `controls.css`／`ui.css`／`editor.css` 材质与主题 tokens，不再维护全局 `layer-panel.css` |
 | `public/styles/settings.css`／`transfer.css` | 设置与备份界面；持续加载。设置行统一为「文字列 + 一个控件或一组控件」：`.s-ctl` 控件组、`.s-field` 字段宽度（≤640px 换到文字下方）、`.s-toggle` 开关、`.s-block` 整行内容、`.s-meta` 标签加说明 |
 | `src/home/*.vue` | HOME 头部、空状态、继续／进行中、定稿与大图的 scoped 布局；不复制 IMAGE／CHAT 全局样式。HOME 标记复用 `WaveMark.vue` 的分块动画与现有品牌字标；`HomeEmpty.vue` 维护五格欢迎卡，整页空状态柔光与静态粒纹归 `HomeWorkspace.vue` scoped 样式，不写全局背景补丁。其独立样式块仅维护带 HOME 临时状态限定的 View Transition 伪元素；资源 URL 留给既有服务 |
 | `src/ask/AskModelPicker.vue`、`AskSend.vue`、`AskActivity.vue`、`src/bridge/DirectoryChip.vue` | ASK 与 HOME 共用的模型菜单、发送／停止、运行动作与工具计数、目录状态与菜单；目录的 HOME 尺寸通过 prop 区分，菜单 ID 保持唯一，停用时关闭 |
@@ -162,6 +163,8 @@ EDIT 右上角发送操作带的横向布局、胶囊玻璃与亮色悬停归 `e
 批注覆盖层与专用工具栏归 `shared/annotations/RegionAnnotator.vue`，指针与临时几何归 `native/region-annotator.ts`；共享 `AnnotationCard.vue` 在 ASK 使用 `usePopover` 列表，在 CHAT 内联展开。控件沿用主题变量与图标库，图像上的线框／编号采用独立媒体强调色，不追加全局样式覆盖。
 
 版本栏使用 132px／中等宽度 112px 及原有窄屏断点；主动折叠用 `.editor[data-rail="off"]` 设置为 0，不读取其他工作区的 `--hist`。
+
+Koma Layer 通过 `EditWorkspace.vue` 的 Teleport 宿主在两套布局间复用同一套状态（`src/layer/use-layer-workspace.ts`）与组件：传统布局（`!coCreate`）将项目菜单与原图对照放在中栏画布左上角，EDIT 顶栏提供编辑／分件切换与 Photopea 精修。左栏承载拆层与补画，右侧 `.layer-rail` 可拖动左缘调宽、双击重置，也可经顶栏或图层栏按钮收起；画布协创 BETA（`coCreate`）将项目胶囊与视图切换放入画布顶部玻璃浮岛，右侧单一玻璃托盘以「图层／拆层／局部补画」三页签承载全部任务，移动端共用 `canvas-sheet` 抽屉与窥视条。图层栈采用独立滚动树、悬停显露行操作与平齐的双行底栏（按需向上展开「精修／变换」+ 单一无缝分体导出），不在灰底上嵌套灰框；空画布状态经独立 `emptyHost` 居中在舞台内，底部双层画布工具（上方上下文参数条、下方主工具与底板／缩放弹出菜单）复用 `.editor-tool-capsule` 与 `PopoverMenu`。
 
 ## 角色、画板与命名
 

@@ -5,7 +5,7 @@ import { naiCapabilities, complexities, naiModes } from '../domain/nai.ts';
 import { findModel } from '../domain/models.ts';
 import { characterCapability } from '../domain/characters.ts';
 import { modelSamplers, noiseSchedules, supportsNaiVariety, naiVarietySigma } from '../domain/nai-parameters.ts';
-import { activeReferences, referenceOperation, referenceSurcharge } from '../domain/nai-references.ts';
+import { activeReferences, referenceKinds, referenceSource, referenceProblem, referenceSurcharge } from '../domain/nai-references.ts';
 import { naiInputLimits, naiInputParts, naiTextLength } from '../domain/nai-input.ts';
 import { naiCost } from '../domain/nai-cost.ts';
 import { countNaiTokens } from '../native/nai-tokenizer.ts';
@@ -27,6 +27,7 @@ export interface NaiAwarenessInput {
   account?: unknown;
   accountAt?: number;
   accountSource?: string;
+  referenceModelIds?: readonly string[];
   referenceMinimum?: number;
   referenceCosts?: Readonly<Record<string, number | undefined>>;
   quoteKey?: string;
@@ -52,7 +53,10 @@ export function naiAwareness(input: NaiAwarenessInput, counter = countNaiTokens)
   const inputModel = naiInputModel(form.model, model);
   const cap = naiCapabilities(form.model), operation = input.operation ?? 'image';
   const applicable = cap.supported && operation !== 'upscale' && operation !== 'director';
-  const supported = (kind: 'vibe' | 'precise') => model?.profileId === 'nai-official-v1' && referenceOperation(form.model, kind, operation === 'image' ? undefined : operation);
+  const tool = operation === 'image' ? undefined : operation;
+  const hasSource = input.referenceModelIds?.includes(form.model) ?? input.models.some(m =>
+    m.id === form.model && referenceSource(m) && (!tool || m.tools.includes(tool)));
+  const kinds = hasSource ? referenceKinds(form.model, tool) : [];
   const refs = form.naiReferences, roles = characterCapability(form.model);
   let params: ReturnType<typeof collect> | null = null, payload: ImagePayload = {model:form.model}, inputError = '';
   try {
@@ -81,13 +85,13 @@ export function naiAwareness(input: NaiAwarenessInput, counter = countNaiTokens)
   if (!model) diagnostics.push({ severity:'error', code:'source_unavailable', message:'当前型号没有可用来源' });
   if (form.characters.filter(c=>c.on).length > roles.max) diagnostics.push({ severity:'error', message:`当前型号最多 ${roles.max} 个启用角色` });
   if (limits && usedText > limits.text) diagnostics.push({ severity:'error', message:`Text: ${usedText}/${limits.text} 字符，执行前须缩短` });
-  if (refs.active && activeReferences(refs).length && (model ? !supported(refs.active) : !referenceOperation(form.model, refs.active, operation === 'image' ? undefined : operation)))
-    diagnostics.push({severity:'error',message:'当前型号、来源或操作不支持已启用的参考'});
+  const referenceIssue = applicable ? referenceProblem(refs, form.model, model ? kinds : referenceKinds(form.model, tool), tool) : '';
+  if (referenceIssue) diagnostics.push({severity:'error',message:referenceIssue});
   const freshAccount = input.accountSource===naiSourceKey(model) && input.accountAt !== undefined && Date.now()-input.accountAt < 60_000 ? input.account : undefined;
   const estimated = !inputError && model?.profileId === 'nai-official-v1' ? naiCost(payload, freshAccount) : null;
   const matchedQuote = !!model && input.quoteKey === naiQuoteKey(form,model) && !!input.quoteAt && Date.now()-input.quoteAt < 60_000;
   const quoted = !inputError && matchedQuote && input.quote?.status === 'ready' ? input.quote.quote : null;
-  const price = quoted ?? estimated;
+  const price = referenceIssue ? null : quoted ?? estimated;
   const encoding = typeof price?.encodingCost === 'number' ? price.encodingCost : undefined;
   const cost = { status: price ? 'ready' : input.quote?.quote ? 'stale' : input.quote?.status === 'loading' ? 'loading' : input.quote?.status === 'unsupported' ? 'unsupported' : input.quote?.status === 'error' ? 'error' : 'unknown', input_hash,
     operation, dimensions:[payload.width,payload.height],
@@ -95,7 +99,7 @@ export function naiAwareness(input: NaiAwarenessInput, counter = countNaiTokens)
       ...(encoding !== undefined ? {per_image:price.cost-encoding,encoding_once:encoding,batch_total:(price.cost-encoding)*form.batchCount+encoding} : {per_image:price.cost,...(!payload.referencePlan ? {batch_total:price.cost*form.batchCount}: {})}),
       ...(payload.referencePlan ? {reference_per_image:referenceSurcharge(payload.referencePlan)} : {}),
       ...(price.usagePercent !== undefined ? {usage_note:'另有 V5 用量消耗；百分比仅为基准近似'} : {})
-    } : { reason:inputError || '尚无适用于当前输入与来源的费用；不会主动请求报价', ...(payload.referencePlan && model?.profileId === 'nai-official-v1' ? {lower_bound:referenceSurcharge(payload.referencePlan),lower_bound_unit:'Anlas'} : {}) }) };
+    } : { reason:referenceIssue || inputError || '尚无适用于当前输入与来源的费用；不会主动请求报价', ...(payload.referencePlan && model?.profileId === 'nai-official-v1' ? {lower_bound:referenceSurcharge(payload.referencePlan),lower_bound_unit:'Anlas'} : {}) }) };
   const snapshot = {
     capabilities: { ready:!!model, model_id: form.model, model_name:model?.name, profile:model?.profileId, operation,
       available_models:input.models.map(m=>({id:m.id,name:m.name})),
@@ -106,7 +110,7 @@ export function naiAwareness(input: NaiAwarenessInput, counter = countNaiTokens)
         naiMode:{supported:cap.supported,options:naiModes},complexity:{supported:cap.v5,options:cap.v5?complexities:['none']}, transparentBg:{supported:!!model?.transparentBackground}, effort:cap.effort ? cap.medium ? 'medium' : 'high' : null },
       dimensions:{alignment:64,min:64,max_pixels:model?.maxPixels, ...(operation==='image'?{max_side:2048}:{file_bytes:8*1024*1024})},
       characters:{...roles,enabled:form.characters.filter(c=>c.on).length},
-      references:{supported_kinds:(['vibe','precise'] as const).filter(supported), active_kind:refs.active,active_count:activeReferences(refs).length,mutually_exclusive:true},
+      references:{supported_kinds:kinds, active_kind:refs.active,active_count:activeReferences(refs).length,mutually_exclusive:true},
     },
     effective:{ model_id:form.model, effort:cap.effort ? cap.medium?'medium':'high':null, steps:payload.steps, sampler:payload.sampler, scale:payload.scale, cfgRescale:cap.medium ? null : payload.cfg_rescale,
       noiseSchedule:payload.noise_schedule, varietyPlus:supportsNaiVariety(model) && form.varietyPlus,

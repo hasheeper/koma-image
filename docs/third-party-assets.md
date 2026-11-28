@@ -26,6 +26,8 @@ README 的产品拼图位于 `docs/assets/screenshots/workspaces.jpg`，由 Page
 
 Koma Layer 的直通 RGBA 编码使用 fast-png、fflate 和 iobuffer。[fast-png](https://github.com/image-js/fast-png) · [fflate](https://github.com/101arrowz/fflate) · [iobuffer](https://github.com/image-js/iobuffer)
 
+Koma Layer 在本机读取 PSD 使用 ag-psd、base64-js 和 pako。MIT、zlib 许可及 ag-psd 所含 PDF.js 系数和 JPEG 解码器的 Apache-2.0 声明随构建分发。[ag-psd](https://github.com/Agamnentzar/ag-psd) · [许可声明](../public/assets/psd-import-LICENSE) · [Apache-2.0](../public/tokenizers/LICENSE)
+
 ```text
 MIT License
 

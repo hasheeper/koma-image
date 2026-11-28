@@ -1,16 +1,19 @@
 <script setup lang="ts">
-import { nextTick, ref, useTemplateRef } from "vue";
+import { computed, nextTick, ref, useTemplateRef } from "vue";
 import type { Connection, ModelLink } from "../../config/connections";
 import type { CatalogEntry } from "../../domain/catalog";
 import type { ModelIdentity } from "../../domain/models";
 import { message } from "../../app/ui";
+import { profileFor } from "../../gateway/profile.ts";
 import AppIcon from "../../shared/AppIcon.vue";
+import ImageChannelOperations from "./ImageChannelOperations.vue";
 const props = defineProps<{
   model: ModelIdentity; connection: Connection; link: ModelLink; state: string;
   entries: CatalogEntry[]; current: boolean; saving: boolean;
   save: (value: ModelLink | null | boolean) => Promise<void>;
 }>();
 const emit = defineEmits<{ parameters: [] }>();
+const binding = computed(() => profileFor(props.connection).channelModels?.find(item => item.generate === props.link.id));
 const editing = ref(false), value = ref(""), error = ref(""), busy = ref(false);
 const input = useTemplateRef<HTMLInputElement>("input");
 const trigger = useTemplateRef<HTMLButtonElement>("trigger");
@@ -61,7 +64,8 @@ function keydown(event: KeyboardEvent) {
   <div class="sm-line" :data-s="state">
     <span class="sm-conn" :title="connection.name">{{ connection.name }}<span v-if="current" class="sm-current" title="当前工作区使用此来源" role="img" aria-label="当前使用" /></span>
     <div class="sm-where">
-      <div v-if="editing" class="sm-inline" @focusout="blur">
+      <ImageChannelOperations v-if="binding" :model="binding" />
+      <div v-else-if="editing" class="sm-inline" @focusout="blur">
         <input :id="`model-source-${model.id}-${connection.id}`" ref="input" v-model="value" class="sm-id-input" type="text" :aria-label="`${model.name} · ${connection.name} 上游 ID`" :aria-invalid="!!error" :aria-describedby="error ? `model-error-${model.id}-${connection.id}` : undefined" :disabled="busy" :list="`model-suggestions-${model.id}-${connection.id}`" maxlength="512" autocomplete="off" spellcheck="false" @keydown="keydown" />
         <button v-if="link?.manual" class="md-act" type="button" :disabled="busy" :aria-label="`恢复 ${connection.name} 自动匹配`" title="恢复自动匹配" @click="persist(null, true)"><AppIcon name="i-reset" /></button>
         <datalist :id="`model-suggestions-${model.id}-${connection.id}`"><option v-for="entry in entries" :key="entry.id" :value="entry.id" /></datalist>

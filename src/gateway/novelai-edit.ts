@@ -1,12 +1,13 @@
 import { readInpaintFocus } from "../domain/inpaint-focus.ts";
 import { naiCapabilities, naiOfficialInpaintModel, NAI_OFFICIAL_UPSCALE, NAI_OFFICIAL_EDIT_MAX_PIXELS } from "../domain/nai.ts";
-import { referenceOperation } from "../domain/nai-references.ts";
+import { referenceOperation, v5PreciseModel } from "../domain/nai-references.ts";
 import { imageDimensions } from "../native/image-dimensions.ts";
 import { toNativePayload } from "./routes.ts";
 import type { ImagePayload } from "./routes.ts";
 import { novelaiProfile, profilePath } from "./profile.ts";
 import { editStrengthRange } from "../domain/nai-parameters.ts";
 import { naiEnhanceSize, naiEnhancePrompt, isEnhanceScale } from "../domain/nai-enhance.ts";
+import { naiImg2ImgSize } from "../domain/nai-img2img.ts";
 import { directorRequest } from "../domain/director-tools.ts";
 
 function image(value: unknown, label: string) {
@@ -21,12 +22,26 @@ function unit(value: unknown, fallback: number, min: number, max: number) {
   return number;
 }
 
+/** Official JSON transport signs the base64 text. Always include the bytes, including on subsequent requests. */
+async function cachedReferenceImages(images: string[], image?: string) {
+  const key = await crypto.subtle.generateKey({name:"HMAC", hash:"SHA-256", length:256}, false, ["sign"]);
+  async function signature(data: string) {
+    const mac = await crypto.subtle.sign("HMAC", key, new TextEncoder().encode(data));
+    return Array.from(new Uint8Array(mac), b => b.toString(16).padStart(2, "0")).join("");
+  }
+  const cached = [];
+  for (const data of images) cached.push({ cache_secret_key: await signature(data), data });
+  return { director_reference_images_cached: cached, ...(image ? { image_cache_secret_key: await signature(image) } : {}) };
+}
+
 /** Operation variants stay on the wire, not in the user's generation model list. */
 export function novelaiRequest(payload: ImagePayload) {
   if (payload.tool === "director") return { path: profilePath(novelaiProfile, "augment"), body: directorRequest(payload), native: true };
   if (payload.inpaintFocus !== undefined && (payload.tool !== "inpaint" || payload.enhance || !readInpaintFocus(payload.inpaintFocus))) throw new Error("聚焦重绘参数或操作无效");
   if (payload.upscaled_enhance !== undefined) throw new Error("Max 须通过 Enhance 倍率选择，不能直接传入上游标记");
   if (payload.enhance && payload.tool !== "img2img") throw new Error("Enhance 仅支持图生图");
+  if (payload.img2imgScale !== undefined && (payload.tool !== "img2img" || payload.enhance))
+    throw new Error("分辨率倍率仅支持普通图生图");
   if (!naiCapabilities(payload.model).supported) throw new Error("此 NovelAI 型号尚未适配编辑协议");
   if (payload.tool && !["img2img", "inpaint", "upscale"].includes(payload.tool)) throw new Error("此协议尚未支持本次编辑操作");
   const inpaintModel = payload.tool === "inpaint" ? naiOfficialInpaintModel(payload.model) : undefined;
@@ -51,9 +66,12 @@ export function novelaiRequest(payload: ImagePayload) {
       throw new Error("聚焦重绘参数或预处理尺寸无效");
   }
   const enhancedSize = source && payload.enhance ? naiEnhanceSize(source, payload.enhanceScale, payload.model) : undefined;
-  const size = enhancedSize && payload.enhanceScale !== "max" ? enhancedSize : source;
+  const scaledSize = source && payload.img2imgScale !== undefined ? naiImg2ImgSize(source, payload.img2imgScale) : undefined;
+  const size = enhancedSize && payload.enhanceScale !== "max" ? enhancedSize : scaledSize ?? source;
   if (payload.enhance && (!source || payload.width !== undefined && payload.width !== size?.width || payload.height !== undefined && payload.height !== size?.height))
     throw new Error("Enhance 输出尺寸与倍率不一致");
+  if (scaledSize && (payload.width !== scaledSize.width || payload.height !== scaledSize.height))
+    throw new Error("图生图输出尺寸与倍率不一致");
   const { max_cost: _cost, ...wire } = toNativePayload({ ...payload,
     ...(size ? { width: size.width, height: size.height } : {}),
     ...(payload.enhance && isEnhanceScale(payload.enhanceScale) ? { prompt: naiEnhancePrompt(String(payload.prompt || "best quality"), payload.enhanceScale) } : {}),
@@ -75,5 +93,11 @@ export function novelaiRequest(payload: ImagePayload) {
       if (payload.enhance && payload.enhanceScale === "max") Object.assign(wire.parameters, { upscaled_enhance: true });
     }
   }
-  return { path: profilePath(novelaiProfile, "generate"), body: wire, native: true };
+  const path = profilePath(novelaiProfile, "generate");
+  if (v5PreciseModel(payload.model) && "director_reference_images" in wire.parameters && wire.parameters.director_reference_images) {
+    const { director_reference_images, ...parameters } = wire.parameters;
+    return cachedReferenceImages(director_reference_images, source?.data).then(cached => ({
+      path, body: { ...wire, parameters: { ...parameters, ...cached } }, native: true }));
+  }
+  return { path, body: wire, native: true };
 }

@@ -5,10 +5,10 @@ import type { HistoryRecord } from '../domain/drawing.ts';
 import { imageEntity } from "../domain/image-identity.ts";
 import { assignFavorite, retireFavorite, identityStores, readFavoriteIdentity } from "./image-identities.ts";
 import { validateNaiText } from "../domain/nai-input.ts";
-import { readReferences, referenceModel, referencePlan, referenceSurcharge, activeReferences } from "../domain/nai-references.ts";
+import { readReferences, referenceSource, referenceKinds, referenceProblem, referencePlan, referenceSurcharge, activeReferences } from "../domain/nai-references.ts";
 import { insufficientFunds } from "../domain/source-funding.ts";
 import type { PreparedReferences } from "../domain/nai-references.ts";
-import type { ImagePayload } from "../gateway/routes.ts";
+import type { GatewayImageResponse, ImagePayload } from "../gateway/routes.ts";
 import type { ApplicationServices } from "./application.ts";
 import {
   DEFAULTS,
@@ -115,6 +115,7 @@ export function createDrawing(
   let reveal: ((record: ImageRecord) => Promise<void>) | undefined;
   const favoritePending = new Set<string>();
   const referenceModels = new Set<string>();
+  const availableReferences = () => referenceModels.has(form.model) ? referenceKinds(form.model) : [];
   const connectionSamplers = new Map<string, string[]>();
   let catalogFingerprint = "",
     catalogQueued = false,
@@ -405,7 +406,7 @@ export function createDrawing(
       if (result.status === "fulfilled") {
         for (const m of result.value.catalog.models) {
           next.push(m);
-          if (m.profileId === "nai-official-v1" && referenceModel(m.id) && m.upstreamId.replace(/@local$/, "") === m.id.replace(/@local$/, "")) referenceModels.add(m.id);
+          if (availableIds.has(m.connection) && referenceSource(m) && (!m.operations.length || m.operations.includes("generate"))) referenceModels.add(m.id);
         }
         connectionSamplers.set(result.value.id, result.value.catalog.samplers);
       } else catalogError = message(result.reason);
@@ -658,6 +659,8 @@ export function createDrawing(
     )
       return;
     const sourceBoardId = boards.activeId;
+    const issue = referenceProblem(form.naiReferences, form.model, availableReferences());
+    if (issue) { notify(issue, "warn"); return; }
     let selected = model;
     // Keep the price the user saw, including during a pending preview refresh.
     // A later board switch must not replace this batch's comparison baseline.
@@ -760,7 +763,7 @@ export function createDrawing(
             else emit();
             const params = batchParams(base, index),
               payload: ImagePayload = { ...drawingPayload(params), ...(prepared ? { preparedReferences:prepared } : {}) };
-            const consume = (response: Response, native: boolean, s: AbortSignal) => consumeImage(response, native, s, payload, params.optimize);
+            const consume = (response: GatewayImageResponse, native: boolean, s: AbortSignal) => consumeImage(response, native, s, payload, params.optimize);
             const options = { notice, onNotice: (text: string) => notify(text), signal:task.signal };
             const result = await (prepared ? referenceGateway!.execute(payload, consume, {
               ...options, beforeSubmit: async (freshQuote) => {
@@ -965,7 +968,9 @@ export function createDrawing(
       boards: boards.items,
       activeBoardId: boards.activeId,
       referenceSupported: referenceModels.has(form.model),
-      referenceProblem: form.naiReferences.active && form.naiReferences[form.naiReferences.active].some(r=>r.on) && !referenceModels.has(form.model) ? "当前模型或来源不支持已启用的参考，配置已保留" : "",
+      referenceKinds: availableReferences(),
+      referenceModelIds: [...referenceModels],
+      referenceProblem: referenceProblem(form.naiReferences, form.model, availableReferences()),
       characterCapability: characterCapability(form.model),
       characterProblem: characterCapability(form.model).max > 0 && form.characters.filter(c => c.on).length > characterCapability(form.model).max,
       models,

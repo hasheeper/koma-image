@@ -1,6 +1,7 @@
 import { readInpaintFocus, supportsFocusedInpaint } from "./inpaint-focus.ts";
-import { referenceModel, referenceOperation, referenceSurcharge } from "./nai-references.ts";
+import { referenceSource, referenceOperation, referenceSurcharge, supportsReferencePlan, referenceWire } from "./nai-references.ts";
 import type { CatalogModel } from "./catalog.ts";
+import { supportsLayerDecomposition } from "./catalog.ts";
 import type { QuotaStatus } from "./quota.ts";
 import { novelaiUsage } from "./quota.ts";
 import type { Quote } from "./quote.ts";
@@ -10,7 +11,11 @@ import type { ImagePayload } from "../gateway/routes.ts";
 import { imageDimensions } from "../native/image-dimensions.ts";
 import { validateEditorSource } from "./media.ts";
 import { supportsNaiEnhance, naiEnhanceSize } from "./nai-enhance.ts";
+import { naiImg2ImgPixelLimit, naiImg2ImgSize, supportsNaiImg2ImgScale } from "./nai-img2img.ts";
 import { directorRequest } from "./director-tools.ts";
+import { channelTemplates } from "../config/image-channel.ts";
+import { acceptsSplitOptions } from "../gateway/image-channel-models.ts";
+import { profileFor } from "../gateway/profile.ts";
 import { acceptsParameter } from "./model-parameters.ts";
 
 /** Only positive evidence of insufficient funds may advance the priority list. */
@@ -22,7 +27,7 @@ export function insufficientFunds(model: CatalogModel, quota: QuotaStatus | null
       if (credits !== null && quote && credits < quote.cost) return "Anlas 不足以支付本次预计费用";
       return null;
     }
-    const minimum = Math.max(referenceSurcharge(payload?.referencePlan), Number(payload?.referenceMinimum) || 0);
+    const minimum = Math.max(referenceSurcharge(payload?.referencePlan ?? payload?.preparedReferences), Number(payload?.referenceMinimum) || 0);
     if (credits !== null && minimum > credits) return "Anlas 不足以支付本次参考费用";
     if (quote?.estimated && credits !== null && quote.cost > credits) return "Anlas 不足以支付本次预计费用";
     if (credits !== 0) return null;
@@ -48,7 +53,8 @@ export function supportsSourcePayload(model: CatalogModel, payload?: ImagePayloa
   if (!payload) return true;
   if (payload.markup_image !== undefined && !model.markup) return false;
   if (payload.layerDecomposition) {
-    if (model.profileId !== "seedream-v1" || payload.tool !== "image-edit" || typeof payload.init_image !== "string") return false;
+    if (model.splitLimits && !acceptsSplitOptions(model.splitLimits, payload.layerDecomposition)) return false;
+    if (!supportsLayerDecomposition(model) || payload.tool !== "image-edit" || typeof payload.init_image !== "string") return false;
     const extra = Array.isArray(payload.additional_images) ? payload.additional_images.length : 0;
     const max = payload.layerDecomposition.maxImages;
     if (extra !== 0 || (max !== undefined && (!Number.isInteger(max) || max < 2 || max > 100))) return false;
@@ -69,9 +75,20 @@ export function supportsSourcePayload(model: CatalogModel, payload?: ImagePayloa
     if (!supportsNaiEnhance(model) || payload.tool !== "img2img" || typeof payload.init_image !== "string") return false;
     try { naiEnhanceSize(imageDimensions(payload.init_image), payload.enhanceScale, model.id); } catch { return false; }
   }
-  if ((payload.referencePlan || payload.preparedReferences) && (model.profileId !== "nai-official-v1" || !referenceModel(model.id) || model.upstreamId && model.upstreamId.replace(/@local$/, "") !== model.id.replace(/@local$/, ""))) return false;
+  if (payload.img2imgScale !== undefined) {
+    if (!supportsNaiImg2ImgScale(model) || payload.tool !== "img2img" || payload.enhance || typeof payload.init_image !== "string") return false;
+    try {
+      const size = naiImg2ImgSize(imageDimensions(payload.init_image), payload.img2imgScale, naiImg2ImgPixelLimit(model));
+      if (size.width !== payload.width || size.height !== payload.height) return false;
+    } catch { return false; }
+  }
   const references = payload.referencePlan ?? payload.preparedReferences;
-  if (references && !referenceOperation(model.id, references.kind, payload.tool)) return false;
+  if (references && (payload.model !== model.id || !referenceSource(model) || !referenceOperation(model.id, references.kind, payload.tool) ||
+      payload.mask_image && payload.tool !== "inpaint")) return false;
+  if (payload.referencePlan && !supportsReferencePlan(model.id, payload.referencePlan, payload.tool)) return false;
+  if (payload.preparedReferences && !payload.referencePlan) {
+    try { referenceWire(payload.preparedReferences, model.id); } catch { return false; }
+  }
   if (model.operations.length && !model.operations.includes(payload.tool ? "edit" : "generate")) return false;
   if (payload.tool && payload.tool !== "image-edit" && !model.tools.includes(payload.tool)) return false;
   const width = finite(payload.width), height = finite(payload.height);
@@ -82,6 +99,12 @@ export function supportsSourcePayload(model: CatalogModel, payload?: ImagePayloa
     const mode = payload.tool as "img2img" | "inpaint" | "upscale";
     if (validateEditorSource(mode, model, imageDimensions(payload.init_image))) return false;
   }
-  return Object.entries(object(payload.image_options)).every(([key, value]) =>
-    value === "" || !!model.fields[key] && acceptsParameter(model.fields[key], String(value)));
+  const options = object(payload.image_options);
+  const binding = model.channelFormat
+    ? channelTemplates(model.channelFormat)?.find(item => item.templateId === (model.templateId ?? model.id))
+    : model.profileId && profileFor(model.profileId).channelModels?.find(item => item.generate === model.upstreamId);
+  if (binding && binding.optionError?.(options)) return false;
+  const fields = payload.layerDecomposition && model.splitFields ? model.splitFields : model.fields;
+  return Object.entries(options).every(([key, value]) =>
+    value === "" || !!fields[key] && acceptsParameter(fields[key], String(value)));
 }

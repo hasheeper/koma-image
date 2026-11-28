@@ -23,7 +23,7 @@ export interface ConnectionContext {
   assertCurrent(): void;
 }
 export interface ConnectionChange { refresh: boolean }
-const endpointIdentity = (c: Connection) => JSON.stringify([c.id, c.baseUrl, c.profileId, c.credentialRef]);
+const endpointIdentity = (c: Connection) => JSON.stringify([c.id, c.baseUrl, c.profileId, c.credentialRef, c.imageChannel]);
 export function createConnections(
   storage: Pick<Storage, "getItem" | "setItem">,
   write: Writer,

@@ -1,10 +1,26 @@
-import type { ParameterFields } from './model-parameters.ts';
+import type { ParameterField, ParameterFields } from './model-parameters.ts';
 
 /** Local identities remain separate from the source's (possibly custom) model ID. */
 export const SEEDREAM_LITE = 'doubao-seedream-5-0-260128';
 export const SEEDREAM_PRO = 'doubao-seedream-5-0-pro-260628';
 export const SEEDREAM_FLASH = 'doubao-seedream-5-0-flash-260915';
 export const SEEDREAM_55 = 'seedream-5.5';
+export const SEEDREAM_MIN_SPLIT_PIXELS = 262_144;
+export const kieSeedreamModels = {
+  generate: 'seedream/5-5-text-to-image',
+  edit: 'seedream/5-5-image-to-image',
+  decompose: 'seedream/5-5-layer-decomposition',
+} as const;
+export const kieSeedreamSizes = ['1K', '1.5K', '2K', '3K'];
+export const kieSeedreamRatios = ['1:1', '4:3', '3:4', '16:9', '9:16', '2:3', '3:2', '21:9'];
+export const safetyCheckerField: ParameterField = { label: '附加 NSFW 审核', type: 'boolean', options: ['false', 'true'], default: 'false' };
+export const kieSeedreamFields: ParameterFields = {
+  size: { label: '尺寸', options: kieSeedreamSizes, default: '2K' },
+  aspect_ratio: { label: '比例', options: ['auto', ...kieSeedreamRatios], default: 'auto' },
+  output_format: { label: '格式', options: ['png', 'jpeg'], default: 'png' },
+  background: { label: '背景', options: ['auto', 'transparent', 'opaque'], default: 'auto' },
+  nsfw_checker: safetyCheckerField,
+};
 export const seedreamLimits = (templateId: string) => templateId === SEEDREAM_LITE
   ? { images: 14, minPixels: 3_686_400, maxPixels: 16_777_216, sizes: ['2K', '3K', '4K'] }
   : templateId === SEEDREAM_PRO || templateId === SEEDREAM_FLASH

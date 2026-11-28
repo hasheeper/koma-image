@@ -5,7 +5,7 @@ import { readCharacters } from "./characters.ts";
 import { readReferences } from "./nai-references.ts";
 import { imageOrigin } from "./image-origin.ts";
 
-const parameterKeys = [...Object.keys(DEFAULTS), "basePrompt", "baseNegative", "negative_prompt", "modelName", "randomSeed", "batchIndex", "batchTotal", "seedStart", "cache", "transform_prompt", "transform_mode", "strength", "noise", "noise_schedule", "cfg_rescale", "enhance", "enhanceScale", "enhanceMagnitude", "tool", "directorTool", "directorVariant", "directorGroup", "directorWidth", "directorHeight", "defry", "emotion", "boardId", "boardName", "boardColor", "isComparison", "comparisonTotal", "version", "image_index", "selected"];
+const parameterKeys = [...Object.keys(DEFAULTS), "basePrompt", "baseNegative", "negative_prompt", "modelName", "randomSeed", "batchIndex", "batchTotal", "seedStart", "cache", "transform_prompt", "transform_mode", "strength", "noise", "noise_schedule", "cfg_rescale", "enhance", "enhanceScale", "enhanceMagnitude", "img2imgScale", "requestedWidth", "requestedHeight", "tool", "directorTool", "directorVariant", "directorGroup", "directorWidth", "directorHeight", "defry", "emotion", "boardId", "boardName", "boardColor", "isComparison", "comparisonTotal", "version", "image_index", "selected"];
 function recipeParameters(params: Readonly<Record<string, unknown>>) {
   const out: Record<string, unknown> = {};
   const input=readEvolutionInput(params.evolutionInput);if(input)out.evolutionInput=input;

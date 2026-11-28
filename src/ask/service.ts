@@ -3,7 +3,7 @@ import { createBranchTurn } from './retrospect/branch-turn.ts';
 import { isStaged, stagedCount, versionCount } from './retrospect/model.ts';
 import { evolutionTarget, evolutionTargetId, evolutionWorkspace } from '../domain/evolution-input.ts';
 import { chatEvolutionInput } from '../domain/chat-evolution.ts';
-import { activeReferences, referenceOperation } from '../domain/nai-references.ts';
+import { activeReferences, referenceSummary } from '../domain/nai-references.ts';
 import type { ReviewStatus, EvolutionTreeChange } from './retrospect/store.ts';
 import { createRetrospects } from './retrospect/store.ts';
 import { pendingWorkshopResult, workshopPending } from './retrospect/workshops.ts';
@@ -209,7 +209,7 @@ export function createAsk(deps: {
       const r = retrospects.get(load.evolution.id, load.evolution.boardId), node = r?.value.nodes.find(n => n.id === load.evolution.after.cursor.nodeId);
       if (!r || !node || currentEvolutionTarget() !== r.boardId) return false;
       const source = boundPicture(load.source.tag, { [load.source.tag]: load.source });
-      if (!source || activeReferences(load.references).length && (!referenceOperation(load.model, load.references.active!) || services.references.cachedCost(load.references, load.model) === undefined)) return false;
+      if (!source || activeReferences(load.references).length && (!drawing.snapshot().referenceModelIds.includes(load.model) || services.references.cachedCost(load.references, load.model) === undefined)) return false;
       return !isStaged(node) || node.staged.signature === load.signature && recipeSignature(recipeOf(source.params)) === recipeSignature(node.staged.baseRecipe);
     },
     available: base => {
@@ -823,7 +823,7 @@ export function createAsk(deps: {
     const state = JSON.parse(digest.json);
     return { ...digest, baseHash:stateHash(readDraftState()), json: JSON.stringify({ ...state, base_hash:stateHash(readDraftState()),
       ...(workspace === "home" && deps.home ? { home: homeContext(deps.home, ids, chat) } : {}),
-      image: state.image.form ? { ...state.image, ...naiAwareness({form: d.form, models:d.models, samplers:d.samplers, quote:d.quote, quoteKey:d.quoteKey,quoteAt:d.quoteAt,account:d.quota?.media.subscription, accountAt:d.quotaAt,accountSource:naiSourceKey(d.model),referenceCosts:Object.fromEntries(d.models.map(m=>[m.id,services.references.cachedCost(d.form.naiReferences,m.id)]))}).snapshot } : state.image,
+      image: state.image.form ? { ...state.image, ...naiAwareness({form: d.form, models:d.models, referenceModelIds:d.referenceModelIds, samplers:d.samplers, quote:d.quote, quoteKey:d.quoteKey,quoteAt:d.quoteAt,account:d.quota?.media.subscription, accountAt:d.quotaAt,accountSource:naiSourceKey(d.model),referenceCosts:Object.fromEntries(d.models.map(m=>[m.id,services.references.cachedCost(d.form.naiReferences,m.id)]))}).snapshot } : state.image,
       ...(workspace==='edit' && layerPort()?.read() ? {layer:layerPort()!.read()} : {}),
       picture_ref_version: 2, picture_scope_id: pictureScope(), favorites_scope_id:drawing.favoritesScopeId,
       edit: (()=>{const directory=editWorkspaceContext(deps.editor,pictureLibrary()); const edit=deps.editor?.askSnapshot(); return workspace==='edit'&&edit?.ready ? {...directory,...editAwareness(edit).snapshot}:directory;})(),
@@ -1273,7 +1273,7 @@ export function createAsk(deps: {
     const includeImageForm = !!JSON.parse(digest.json).image.form;
     const readBoards = new Set(draftBase.boardId && includeImageForm ? [draftBase.boardId] : []);
     if (!metadataOnly) for (const a of attached) if (a.kind === "image") turnViewed.add(a.entity_key ?? a.id);
-    const frozenNai = structuredClone({ form: draftBase.form, models: draftBase.models, samplers: draftBase.samplers,
+    const frozenNai = structuredClone({ form: draftBase.form, models: draftBase.models, referenceModelIds:snapshot.referenceModelIds, samplers: draftBase.samplers,
       account:naiAccountSnapshot(snapshot.quota?.media.subscription), accountAt:snapshot.quotaAt,accountSource:naiSourceKey(snapshot.model), quoteKey:snapshot.quoteKey,quoteAt:snapshot.quoteAt,referenceCosts:Object.fromEntries(snapshot.models.map(m=>[m.id,services.references.cachedCost(draftBase.form.naiReferences,m.id)])), quote:snapshot.quote.status === 'error' ? undefined : snapshot.quote });
     const awareness = includeImageForm ? await naiAwareness(frozenNai).counted() : undefined;
     const initialEdit = frozenEdits.get(draftBase.edit?.id ?? '');
@@ -1429,15 +1429,15 @@ export function createAsk(deps: {
               const board = boards.find(b => b.id === boardId);
               if (!board) throw new Error("画板不在该状态快照中");
               readBoards.add(board.id);
-              const input=scope==='initial'?{...frozenNai,referenceCosts:frozenReferenceCosts.get(board.id)}:(()=>{const d=drawing.snapshot();return {models:d.models,samplers:d.samplers,account:d.quota?.media.subscription,accountAt:d.quotaAt,accountSource:naiSourceKey(d.model),referenceCosts:Object.fromEntries(d.models.map(m=>[m.id,services.references.cachedCost(board.form.naiReferences,m.id)]))};})();
+              const input=scope==='initial'?{...frozenNai,referenceCosts:frozenReferenceCosts.get(board.id)}:(()=>{const d=drawing.snapshot();return {models:d.models,referenceModelIds:d.referenceModelIds,samplers:d.samplers,account:d.quota?.media.subscription,accountAt:d.quotaAt,accountSource:naiSourceKey(d.model),referenceCosts:Object.fromEntries(d.models.map(m=>[m.id,services.references.cachedCost(board.form.naiReferences,m.id)]))};})();
               const awareness=await naiAwareness({...input,form:{...frozenNai.form,...board.form},quote:undefined}).counted();
-              return { text: JSON.stringify({ ...awareness, board_id: board.id, name: board.name, form: { ...board.form, characters: board.form.characters.map(c => ({ ...characterSummary(c, board.form.placement, board.form.model), centers: c.centers })) }, character_capability: characterCapability(board.form.model), draft_base_hash: digest.baseHash }), images: snapshot.history.length };
+              return { text: JSON.stringify({ ...awareness, board_id: board.id, name: board.name, form: { ...board.form, naiReferences:referenceSummary(board.form.naiReferences), characters: board.form.characters.map(c => ({ ...characterSummary(c, board.form.placement, board.form.model), centers: c.centers })) }, character_capability: characterCapability(board.form.model), draft_base_hash: digest.baseHash }), images: snapshot.history.length };
             }
             if (scope === "initial") return { text: stateBlock(initialState), images: snapshot.history.length };
             await deps.editor?.prepareAsk();
             const d = drawing.snapshot(), latest = digestNow(turnAnchor, true, metadataOnly), state = JSON.parse(latest.json);
             const edit = deps.editor?.askSnapshot();
-            if (state.image.form) state.image = {...state.image,...await naiAwareness({form:d.form,models:d.models,samplers:d.samplers,
+            if (state.image.form) state.image = {...state.image,...await naiAwareness({form:d.form,models:d.models,referenceModelIds:d.referenceModelIds,samplers:d.samplers,
               quote:d.quote,quoteKey:d.quoteKey,quoteAt:d.quoteAt,account:d.quota?.media.subscription,accountAt:d.quotaAt,
               accountSource:naiSourceKey(d.model),referenceCosts:Object.fromEntries(d.models.map(m=>[m.id,services.references.cachedCost(d.form.naiReferences,m.id)]))}).counted()};
             if (state.workspace === 'edit' && edit?.ready) state.edit = {...state.edit,...await editAwareness(edit).counted()};

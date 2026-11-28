@@ -4,7 +4,7 @@
 
 在 EDIT 的 Koma Layer 内，ASK 可按需查看母版，并投递拆层词、两级备忘和按需改名的 Diff 卡。画师负责筛选、收纳、销项及发起生成。[分件协同与提示词](../workspaces/layer-recursive-plan.md#3-ask-的三处词栏与两级备忘)
 
-局部补画还提供当前目标、图像模型上限、正向参考的顺序和用途，以及排除的遮挡层。ASK 可用 `view_image` 或 `view_sheet` 按本轮编号查看导入文件和正式图层。用 `layer_references` 提议参考组合，可与 `layer_prompt` 的 `scalpel` 目标一起预览、应用和撤回。参考图片仅在本轮按需查看时发送。[局部补画](../workspaces/layer.md#2-局部拆分与局部补画)
+局部补画提供当前部件、底图所选层、图像模型上限、正向参考的顺序和用途，以及排除的遮挡层。ASK 可用 `view_image` 或 `view_sheet` 按本轮编号查看导入文件和正式图层。用 `layer_scalpel_source` 按正式层 ID 提议补画底图，普通补画与补缺失件均可用空图层列表选择母版原图。补缺失件时同一步提供 `mode: "missing"`、`component` 和所选层 ID。`layer_references` 提议普通补画的正向参考组合。两者可与 `layer_prompt` 的 `scalpel` 目标一起预览、应用和撤回。参考图片仅在本轮按需查看时发送。[局部补画](../workspaces/layer.md#2-局部拆分与局部补画)
 
 版本演进以 IMAGE 为唯一实时主干，支持阶段相册、事后单图提拔、ASK 修改落点和完整并行预设；EDIT／CHAT 明确交接后作为工坊，用户选图交付，支持原板追加与下一步。ASK 只重整 IMAGE，预设、工坊交付与关联由本地合并保留；工坊回退／定位不抢 IMAGE 游标，原始输入不混做词文 Diff。现行规则见[版本演进](../workspaces/recipe-retrospect.md)。ASK 不自动生成或发送。
 

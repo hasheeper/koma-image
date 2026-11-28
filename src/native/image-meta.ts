@@ -1,6 +1,6 @@
 import { inflateMetadata, readStealthText } from "./png-stealth.ts";
 import { base64Blob } from "./reference-images.ts";
-import { referenceModel } from "../domain/nai-references.ts";
+import { vibeModel } from "../domain/nai-references.ts";
 import type { PngVibes, NaiReferences } from "../domain/nai-references.ts";
 import { noiseSchedules } from "../domain/nai-parameters.ts";
 import type { NoiseSchedule } from "../domain/nai-parameters.ts";
@@ -246,7 +246,7 @@ function pngVibes(data: Record<string, unknown>, model: string | undefined): Pic
   const images = data.reference_image_multiple;
   if (images === undefined || Array.isArray(images) && !images.length) return {};
   try {
-    if (!model || !referenceModel(model)) throw new Error("参考编码缺少受支持的 V4.5 型号");
+    if (!model || !vibeModel(model)) throw new Error("参考编码缺少受支持的 V4.5 型号");
     if (!Array.isArray(images) || images.length > 16) throw new Error("参考编码最多 16 个");
     const strengths = data.reference_strength_multiple, information = data.reference_information_extracted_multiple;
     if (strengths !== undefined && (!Array.isArray(strengths) || strengths.length !== images.length) || information !== undefined && (!Array.isArray(information) || information.length !== images.length)) throw new Error("参考编码与参数数量不一致");

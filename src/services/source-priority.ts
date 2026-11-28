@@ -4,33 +4,41 @@ import type { CatalogModel } from "../domain/catalog.ts";
 import type { QuotaStatus } from "../domain/quota.ts";
 import type { Quote } from "../domain/quote.ts";
 import { insufficientFunds, supportsSourcePayload } from "../domain/source-funding.ts";
-import type { ImagePayload } from "../gateway/routes.ts";
+import type { GatewayImageResponse, ImagePayload } from "../gateway/routes.ts";
 import type { createGateway } from "../gateway/client.ts";
 import type { createConnections } from "./connections.ts";
 import { profileFor } from "../gateway/profile.ts";
+import { acceptsSplitOptions } from "../gateway/image-channel-models.ts";
 import { supportsNaiEnhance } from "../domain/nai-enhance.ts";
 import { naiCost } from "../domain/nai-cost.ts";
 import { referenceSurcharge } from "../domain/nai-references.ts";
 
 type Gateway = ReturnType<typeof createGateway>;
 type GatewayOptions = NonNullable<Parameters<Gateway["execute"]>[2]>;
-type Consume<T> = (response: Response, native: boolean, signal: AbortSignal) => Promise<T>;
+type Consume<T> = (response: GatewayImageResponse, native: boolean, signal: AbortSignal) => Promise<T>;
 export interface SourceSelection { model: CatalogModel; quota: QuotaStatus | null; quote: Quote | null; insufficient: string | null; skipped: string[] }
 export type SourceOptions = Omit<GatewayOptions, "beforeSubmit"> & {
   onSource?: (selection: SourceSelection) => void | Promise<void>;
+  onlyConnection?: string;
 };
 class InsufficientSource extends Error {}
 
 export function createSourcePriority(connections: ReturnType<typeof createConnections>, gateway: (id: string) => Gateway,
   pendingCost?: (plan: NonNullable<ImagePayload["referencePlan"]>, model: string) => Promise<number>) {
-  async function* candidates(wanted: CatalogModel, payload: ImagePayload | undefined, signal?: AbortSignal, get = gateway, operation?: string) {
+  async function* candidates(wanted: CatalogModel, payload: ImagePayload | undefined, signal?: AbortSignal, get = gateway, operation?: string, onlyConnection?: string) {
     const routing = connections.configuration;
-    const configured = imageConnections(routing).filter(c => connections.hasCredential(c.credentialRef));
+    const configured = imageConnections(routing).filter(c => (!onlyConnection || c.id === onlyConnection) && connections.hasCredential(c.credentialRef));
     const assertCurrent = configured[0] ? connections.context(configured[0].id).assertCurrent : () => {};
     for (const connection of configured) {
       signal?.throwIfAborted();
       assertCurrent();
-      if (profileFor(connection.profileId).protocol === "novelai" && wanted.provider !== "novelai") continue;
+      const profile = profileFor(connection);
+      if (profile.protocol === "novelai" && wanted.provider !== "novelai") continue;
+      if (profile.channelModels) {
+        const binding = profile.channelModels.find(item => item.templateId === (wanted.templateId ?? wanted.id));
+        if (!binding || (payload?.layerDecomposition && !binding.decompose)) continue;
+        if (payload?.layerDecomposition && binding.splitLimits && !acceptsSplitOptions(binding.splitLimits, payload.layerDecomposition)) continue;
+      }
       const client = get(connection.id), catalog = await client.catalog(false, signal);
       const model = catalog.models.find(m => m.id === wanted.id);
       if (!model || !supportsSourcePayload(model, payload)) continue;
@@ -56,9 +64,11 @@ export function createSourcePriority(connections: ReturnType<typeof createConnec
       const skipped: string[] = [];
       let first: SourceSelection | undefined;
       for await (const { model, client } of candidates(wanted, payload, signal, gateway, operation)) {
-        let quote = payload && (client.profile.quote.supported || client.profile.costCeiling)
-          ? await client.estimate(payload, signal) : null;
-        const quota = await readQuota(client, model, signal);
+        const [serverQuote, quota] = await Promise.all([
+          payload && (client.profile.quote.supported || client.profile.costCeiling) ? client.estimate(payload, signal) : null,
+          readQuota(client, model, signal),
+        ]);
+        let quote = serverQuote;
         let assessed = payload;
         if (payload && client.profile.protocol === "novelai") {
           const minimum = payload.referencePlan && !payload.preparedReferences && pendingCost
@@ -79,7 +89,7 @@ export function createSourcePriority(connections: ReturnType<typeof createConnec
     /** Advance only before submission, on a fresh quote/balance check. Never retry a submitted request. */
     async execute<T>(wanted: CatalogModel, payload: ImagePayload, consume: Consume<T>, options: SourceOptions = {}, get = gateway) {
       const skipped: string[] = [];
-      for await (const { model, client } of candidates(wanted, payload, options.signal, get)) {
+      for await (const { model, client } of candidates(wanted, payload, options.signal, get, undefined, options.onlyConnection)) {
         try {
           return await client.execute(payload, consume, {
             ...options,
@@ -95,6 +105,7 @@ export function createSourcePriority(connections: ReturnType<typeof createConnec
           skipped.push(model.connection);
         }
       }
+      if (options.onlyConnection) throw new Error(skipped.length ? "所选供应商额度不足，未提交生成" : "所选供应商暂不可用或不支持当前参数");
       throw new Error(skipped.length ? "所有可用来源的额度均不足，未提交生成" : "没有支持当前模型与参数的可用来源");
     },
   };

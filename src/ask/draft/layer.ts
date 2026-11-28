@@ -3,6 +3,7 @@ import { hash } from '../digest/index.ts';
 import {
   defaultForm,
   layerConflict,
+  scalpelSetup,
   type LayerContext,
   type LayerEdit,
   type LayerPatch,
@@ -27,6 +28,16 @@ const leaf = {
   properties: todoFields,
 };
 export const layerSchemas = [
+  {
+    type: 'object', additionalProperties: false, required: ['kind', 'layer_ids'],
+    description: '给出 layer.stack 中的未归档图层 ID，按层序合成一张图。空列表使用母版原图。paint 为普通补画，missing 让 Seedream 5.5 Layer 生成指定的新部件。component 填部件名称，补充说明用 layer_prompt 的 scalpel 目标。',
+    properties: {
+      kind: { type: 'string', enum: ['layer_scalpel_source'] },
+      layer_ids: { type: 'array', items: word },
+      mode: { type: 'string', enum: ['paint', 'missing'] },
+      component: word,
+    },
+  },
   {
     type: 'object', additionalProperties: false, required: ['kind', 'references'],
     description: '局部补画的完整正向参考列表，按送图顺序填写。picture 来自 layer.scalpel.sources，usage 说明借鉴的细节。空列表清空参考。',
@@ -187,6 +198,23 @@ export function parseLayerPatch(base: LayerContext, steps: unknown[], question: 
           ...(s.max === undefined ? {} : { max: limit(s.max), unlimited: false }),
         },
       });
+    } else if (kind === 'layer_scalpel_source') {
+      const s = object(raw, ['kind', 'layer_ids', 'mode', 'component']);
+      if (!Array.isArray(s.layer_ids)) throw new Error('请列出补画底图的图层 ID');
+      const ids = s.layer_ids.map(id => text(id)).sort();
+      if (new Set(ids).size !== ids.length) throw new Error('补画底图包含重复图层');
+      const beforeMode = base.scalpel.mode ?? 'paint';
+      const mode = s.mode === undefined ? beforeMode : s.mode;
+      if (mode !== 'paint' && mode !== 'missing') throw new Error('请选择有效的局部补画方式');
+      const edit: LayerEdit = mode === 'missing' || s.mode !== undefined || s.component !== undefined
+        ? { kind: 'scalpelSetup', key: 'scalpel', sourceMode: mode, label: '补画方式、部件与底图',
+            before: scalpelSetup(base.scalpel, mode),
+            after: { mode, target: s.component === undefined ? base.scalpel.target : text(s.component),
+              layerIds: ids.length ? ids : null } }
+        : { kind: 'scalpelSource', key: 'scalpel', label: '补画底图', before: base.scalpel.sourceLayerIds ?? null, after: ids.length ? ids : null };
+      const issue = layerConflict(base, { projectId: base.projectId, edits: [edit] }, 'before');
+      if (issue) throw new Error(issue);
+      edits.push(edit);
     } else if (kind === 'layer_references') {
       const s = object(raw, ['kind', 'references']);
       if (!Array.isArray(s.references)) throw new Error('请按送图顺序列出补画参考');
@@ -227,9 +255,9 @@ export function parseLayerPatch(base: LayerContext, steps: unknown[], question: 
         before: layer.name,
         after: text(s.name),
       });
-    } else throw new Error('分件项目只接受填词、补画参考、两级备忘和按需改名');
+    } else throw new Error('分件项目只接受填词、补画底图与参考、两级备忘和按需改名');
   }
-  if (new Set(edits.map((e) => e.kind + ':' + e.key)).size !== edits.length)
+  if (new Set(edits.map((e) => (e.kind === 'scalpelSetup' ? 'scalpelSource' : e.kind) + ':' + e.key)).size !== edits.length)
     throw new Error('同一字段只需投递一次');
   return {
     projectId: base.projectId,
@@ -237,6 +265,16 @@ export function parseLayerPatch(base: LayerContext, steps: unknown[], question: 
   };
 }
 function describe(e: LayerEdit, side: 'before' | 'after', layer?: LayerContext) {
+  if (e.kind === 'scalpelSource' || e.kind === 'scalpelSetup') {
+    const ids = e.kind === 'scalpelSetup' ? e[side].layerIds : e[side];
+    const names = ids?.map(id => {
+      const item = layer?.stack.find(l => l.id === id);
+      return item ? [...item.groups, item.name].join(' / ') : id;
+    }).join('\n') ?? '母版';
+    if (e.kind === 'scalpelSource') return names || '尚未选择图层';
+    const setup = e[side], sourceLabel = e.sourceMode === 'missing' ? '缺失件底图' : '补画底图';
+    return [setup.mode === 'missing' ? '补缺失件 · SD Layer' : '局部重绘', setup.target || '尚未命名', sourceLabel + ' · ' + (names || '尚未选择图层')].join('\n');
+  }
   if (e.kind === 'references') return e[side].map((r, i) => {
     const name = layer?.scalpel?.sources.find(s => s.picture === r.picture)?.name ?? r.picture;
     return (i + 1) + '. ' + name + (r.usage ? ' · ' + r.usage : '');

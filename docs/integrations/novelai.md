@@ -1,10 +1,10 @@
 # NovelAI 官方接入与模型能力
 
-更新：2026-11-14。官方 API 作为独立 `nai-official-v1` Profile；用户单独添加连接和 Key。本文区分已实现的请求与界面、真实只读验证、尚未接入的能力和真实生成待验项；接口来源与核验日期集中在[来源与验证边界](#来源与验证边界)。
+更新：2026-11-27。官方 API 作为独立 `nai-official-v1` Profile；用户单独添加连接和 Key。本文区分已实现的请求与界面、真实只读验证、尚未接入的能力和真实生成待验项；接口来源与核验日期集中在[来源与验证边界](#来源与验证边界)。
 
 ## 适配结论
 
-当前已覆盖五个型号的文生图／单图图生图、V4.5 与 V5 Full High／Medium 四型号的普通／聚焦蒙版重绘，以及官方 4× 放大、绘图页参数与模式、角色、账户额度、来源优先级，以及 V4.5 的 Vibe／Precise 生成准备、编码缓存和备份链路。它们已完成代码和本地模拟验证；官方 Key 与账户已有真实只读验证，公开 Furry 补全已有免鉴权只读核对。
+当前已覆盖五个型号的文生图／单图图生图、V4.5 与 V5 Full High／Medium 四型号的普通／聚焦蒙版重绘，以及官方 4× 放大、绘图页参数与模式、角色、账户额度、来源优先级，以及 V4.5 的 Vibe 编码缓存、V4.5／V5 的 Precise 生成与备份链路。它们已完成代码和本地模拟验证；官方 Key 与账户已有真实只读验证，公开 Furry 补全已有免鉴权只读核对。
 
 普通 Enhance 已在官方五型号图生图中接入，V5 三型号另提供 Max；EDIT 另有六项 Director Tools。真实文生图／图生图／Enhance／重绘／放大／Director Tools 效果、参考编码与缓存命中、角色采用效果、实际扣费和订阅优惠尚未完成验证。本地单次消耗估算、输入检查及 PNG 参考编码恢复已接入，剩余边界见[后续工作](#后续工作与核验顺序)。
 
@@ -60,9 +60,9 @@ IMAGE／EDIT 的原字符小计位置改为 token 数，悬停／辅助阅读显
 | --- | --- | --- | --- |
 | V4.5 Full | `nai-diffusion-4-5-full` | 文生图、单图 img2img、普通／聚焦 Inpaint、角色参数 | 绘图／img2img 接入，仅官方；Inpaint 仅 Precise |
 | V4.5 Curated | `nai-diffusion-4-5-curated` | 文生图、单图 img2img、普通／聚焦 Inpaint、角色参数 | 绘图／img2img 接入，仅官方；Inpaint 仅 Precise |
-| V5 Full（High） | `nai-diffusion-5-full` | 文生图、单图 img2img、普通／聚焦 Inpaint、角色参数、透明底提示词开关 | 不开放 |
-| V5 Curated | `nai-diffusion-5-curated` | 文生图、单图 img2img、角色参数、透明底提示词开关；无独立 Inpaint 接口 | 不开放 |
-| V5 Full Medium | `nai-diffusion-5-full-medium` | 文生图、img2img、普通／聚焦 Inpaint；保留角色正向、质量／Complexity／透明底 | 不开放 |
+| V5 Full（High） | `nai-diffusion-5-full` | 文生图、单图 img2img、普通／聚焦 Inpaint、角色参数、透明底提示词开关 | 官方文生图、无蒙版 Img2Img（含 Enhance／Max）支持 Precise |
+| V5 Curated | `nai-diffusion-5-curated` | 文生图、单图 img2img、角色参数、透明底提示词开关；无独立 Inpaint 接口 | 官方文生图、无蒙版 Img2Img（含 Enhance／Max）支持 Precise |
+| V5 Full Medium | `nai-diffusion-5-full-medium` | 文生图、img2img、普通／聚焦 Inpaint；保留角色正向、质量／Complexity／透明底 | 官方文生图、无蒙版 Img2Img（含 Enhance／Max）支持 Precise |
 
 Full 与 Curated 主要是训练数据覆盖和取舍不同，并不是「收费版／免费版」。两代都有 Full／Curated；V5 的两者还有不同的提示长度限制。Furry／Background 是数据集提示词，不是需要增加的 V4.5／V5 独立型号。
 
@@ -81,7 +81,7 @@ Full 与 Curated 主要是训练数据覆盖和取舍不同，并不是「收费
 | 原生 Alpha 透明 | 不支持 | 两个型号均支持 | 开关只在支持的模型出现；附加 `transparent background`，保留原描述，不保证每次结果都有 Alpha |
 | Effort | 无该切换 | 仅 Full：High／Medium | 已接入文生图／图生图／普通重绘；Medium 固定 14 步、Euler Ancestral 和 Heavy 负向正文，不发送自定义负向／角色负向／Rescale，仍可改 Guidance；High 参数在本地保留 |
 | Complexity 标签 | 无 V5 的这组能力 | `low`／`medium`／`high`／`ultra complexity` | 已有独立选择器，发送时添加所选标签；影响画面复杂度和风格，不是 Effort 算力档位 |
-| Precise Reference 精确参考 | 官方明确支持，含角色／风格／角色加风格，可结合重绘 | 官方专题明确仅 V4.5，不能宣称 V5 支持 | 已接绘图页上传、类型／强度／保真度、预处理和请求数组；与 Vibe 互斥，不等于角色文字提示或 img2img；真实效果待验 |
+| Precise Reference 精确参考 | 支持角色／风格／角色加风格，可结合重绘 | 官网已开放 Full High／Medium 与 Curated，新增衣装参考，暂不支持结合重绘。见 [V5 精确参考核验](#v5-精确参考核验) | 两代共用原图与抽屉，按型号处理卡片、图片及发送字段。真实采用效果与消费待验 |
 | Vibe Transfer | 两个型号在当前官网均有入口 | 当前官网 Full High／Medium、Curated 均无入口；通用专题的“V4 及以上”不足以证明 V5 可用 | 已接 V4.5 上传、生成时编码、本机缓存、强度／提取量、归一化及文件导入导出；真实编码、扣费与效果待验 |
 | 提示词语言 | 主要英文，T5 对日文等 Unicode 有限制 | 多语言理解更强，官方明确举出日文等 | 原文发送，无按语言拦截；本地 T5／Qwen3.5 计数，超长提示不改原文 |
 | 提示长度 | 基础与角色提示合计约 512 T5 tokens | Full 基础提示约 1,471 有效 tokens；Curated 约 703 | 已按型号词表及公开客户端预处理计数；正负预算独立，合计启用角色，不使用 ASK 文本估算代替 |
@@ -182,21 +182,44 @@ Furry 模式只在有效基础提示词首位补充 `fur dataset`，原文不变
 
 ## Vibe 与精确参考边界
 
-2026-10-25 在未登录的[官方生图页](https://novelai.net/image)逐一切换核对：V4.5 Full／Curated 的 Reference Images 分区同时显示 Image2Image、Vibe Transfer、Precise Reference；V5 Curated、V5 Full High／Medium 只显示 Image2Image。Vibe 通用专题仍写“V4 及以上”，与当前界面存在范围差异，不能据此直接开放 V5。界面未显示不等于已证明 API 必然拒绝；在有进一步契约证据之前，V5 Vibe 保持未核验。精确参考则由官方专题明确限定 V4.5，并与 Vibe 互斥。
+2026-11-25 在未登录的官网逐一切换核对，V4.5 Full／Curated 的 Reference Images 分区提供 Image2Image、Vibe Transfer、Precise Reference，V5 Curated、Full High／Medium 提供 Image2Image 与 Precise Reference。V5 的官网入口与型号能力表均未启用 Vibe，通用专题仍有「V4 或更高」的说明。Koma 根据准确映射的官方来源和当前操作显示相应入口。 [官方生图页](https://novelai.net/image) · [Vibe 专题](https://docs.novelai.net/en/image/vibetransfer)
 
 Vibe 使用强度与信息提取量，最多 16 个；V4 及以上首次编码每份 2 Anlas，修改提取量需重新编码；超过 4 个后，每多一个，每张生成附加 2 Anlas。官方支持本机编码缓存、`.naiv4vibe`／Bundle 导入导出和从 PNG 元数据恢复编码；仅编码导入没有原图，不能修改提取量。编码缓存只在本机。
 
-精确参考有角色、风格、角色＋风格三类及 Strength／Fidelity 两个控制；每张参考每张生成附加 5 Anlas。多张角色参考会混合特征，不能视为独立角色绑定。图片等比缩放并黑边填入官方三种大画布；可配合官方普通重绘，本工程已接入，真实效果待验。公开客户端上限为 16 张；当前 UI 的 Strength／Fidelity 采用 0–1，类型对应 `character`／`style`／`character&style`，Fidelity 映射为接口 secondary strength 的 `1 - Fidelity`。
+V4.5 精确参考有角色、风格、角色＋风格三类及 Strength／Fidelity 两个控制；每张参考每张生成附加 5 Anlas。多张角色参考会混合特征，不能视为独立角色绑定。图片等比缩放并黑边填入官方三种大画布；可配合官方普通重绘，本工程已接入，真实效果待验。公开客户端上限为 16 张；V4.5 的 Strength／Fidelity 采用 0–1，类型对应 `character`／`style`／`character&style`，Fidelity 映射为接口 secondary strength 的 `1 - Fidelity`。
 
-绘图页与 EDIT 使用已确认的统一底部抽屉：参数／Vibe／Precise 三段入口位于内容上方，启用开关只放在正在查看的参考段旁。浏览和上传不会启用参考；启用两组互斥，独立配置保留。64×80 缩略图横向滚动，不显示文件名；每张通过眼睛图标控制参与。原有参数滑杆样式不变，生成按钮前固定保留 12px 非滚动空间；不支持参考时收为单一参数入口。切换到不支持的型号或来源后，若仍有启用参考则阻止生成并提供停用入口。
+绘图页与 EDIT 使用已确认的统一底部抽屉：可用的参数／Vibe／Precise 入口位于内容上方，启用开关只放在正在查看的参考段旁。浏览和上传不会启用参考；启用两组互斥，独立配置保留。64×80 缩略图横向滚动，不显示文件名；每张通过眼睛图标控制参与。原有参数滑杆样式不变，生成按钮前固定保留 12px 非滚动空间；不支持参考时收为单一参数入口。切换到不支持的型号或来源后，若仍有启用参考则阻止生成并提供停用入口。
 
 收费编码只在显式生成取得 `runTask` 槽位后执行。Vibe 通过官方 `POST /ai/encode-vibe` 发送原始图片 base64、型号及提取量，读取有界二进制响应；缓存按原图内容哈希＋准确型号＋提取量区分。上传、调参、恢复与预报价均不编码。每份成功编码立即经 `data.write` 落库；后续生成失败或取消不丢缓存，也不自动重试编码。生成发送编码后的 `reference_image_multiple` 和 `reference_strength_multiple`，不重复发送提取量数组。归一化只在多图绝对强度总和超过 1 时生效。
 
-Precise 用 Canvas 高质量插值等比缩放并居中填黑边，目标从 1024×1536／1536×1024／1472×1472 中按比例差选择；发送 PNG base64 及配对的描述、信息量、强度和反向 Fidelity 数组。插值实现与官网的 Lanczos 不完全相同，真实效果待验。当前两组均只开放准确映射到官方 V4.5 的来源；不假设标准中转具有相同参考协议。源选择检查已知参考附加费和待编码费下限；余额未知仍可用；可确定账户权益时提供包含参考的整次本地估算，否则保持未知且隐藏按钮费用标签。参考准备后固定来源画板／编辑会话、配置和连接上下文，不能换源重试。EDIT 的官方 V4.5 img2img 复用同一准备与缓存能力；普通 Inpaint 只开放 Precise；官网公开客户端会跳过蒙版下的 Vibe 编码，本项目保留配置并阻止发送，不付费编码或通过中转静默丢弃参考。
+V4.5 Precise 用 Canvas 高质量插值等比缩放并居中填黑边，目标从 1024×1536／1536×1024／1472×1472 中按比例差选择；发送 PNG base64 及配对的描述、信息量、强度和反向 Fidelity 数组。插值实现与官网的 Lanczos 不完全相同，真实效果待验。参考只开放给上游型号准确匹配的官方来源。源选择检查已知参考附加费和待编码费下限；余额未知仍可用；可确定账户权益时提供包含参考的整次本地估算，否则保持未知且隐藏按钮费用标签。参考准备后固定来源画板／编辑会话、配置和连接上下文，不能换源重试。EDIT 的官方 V4.5 img2img 复用同一准备与缓存能力；普通 Inpaint 只开放 Precise；官网公开客户端会跳过蒙版下的 Vibe 编码，本项目保留配置并阻止发送，不付费编码或通过中转静默丢弃参考。
 
 参考配置随画板、编辑会话和结果参数保留，原图／缩略图与编码分别存在 `koma-image-favorites` 的 `referenceAssets`／`vibeEncodings`；普通 Koma v2 备份包含其资源闭包及编码校验，恢复不触发上游。支持官方 v1 Vibe／Bundle 的原图和编码文件导入导出；仅编码导入锁定提取量，缺当前型号编码时拒绝导入；带 Mask 或未支持的编码参数明确拒绝。Precise 使用独立的 Koma JSON 格式。外部 PNG 元数据中的 Vibe 编码通过参数导入页恢复；本机历史参数导入可恢复配置。ASK 仅接收不含图片与编码的参考摘要，不因此新增写入权限。
 
 参考字段的来源及模拟验证范围见[来源与验证边界](#来源与验证边界)。
+
+### V5 精确参考核验
+
+官方于 2026-11-24 21:15 UTC（北京时间 11-25 05:15）发布 V5 Precise Reference。V5 保留角色、风格及角色＋风格，新增衣装参考。角色及角色＋风格可开启「优先相同衣装」（Prefer same outfit）。各类参考可混用，每张成图按启用参考每张加收 5 Anlas。V5 的 Strength 滑杆上限为 5，取消 Fidelity 控件。当前官网客户端限制每次生成最多启用 16 张参考。 [发布公告](https://journal.novelai.net/precise-reference-v5/) · [官网控件与计费](https://novelai.net/_next/static/chunks/3phjyktz5p57y.js?dpl=b2fe159-45513015385-1) · [上限常量](https://novelai.net/_next/static/chunks/22-cczt97ry1s.js?dpl=b2fe159-45513015385-1)
+
+官网能力表涵盖 V5 Curated、Full High 与继承 Full 能力的 Medium。生成组包允许无蒙版的文生图和 Img2Img，有蒙版时不发送 V5 Precise。官网客户端继续使用 `director_reference_*` 数组，类型通过 `director_reference_descriptions[].caption.base_caption` 发送，`char_captions` 为空。角色和服装参考作用于整次生成，当前请求没有绑定角色槽位的字段。官网将 V5 的 `director_reference_secondary_strength_values` 固定为 0，正常上传的信息量默认 1，Strength 按图发送。 [型号定义](https://novelai.net/_next/static/chunks/22-cczt97ry1s.js?dpl=b2fe159-45513015385-1) · [请求组包](https://novelai.net/_next/static/chunks/09aajvaad_e63.js?dpl=b2fe159-45513015385-1)
+
+| V5 官网类型 | `base_caption` |
+| --- | --- |
+| 角色，优先相同衣装关闭／开启 | `character`／`character_mainoutfit` |
+| 角色＋风格，优先相同衣装关闭／开启 | `character&style_anyoutfit`／`character&style` |
+| 风格 | `style` |
+| 衣装 | `costume` |
+
+V5 在官网的 97 个约 1MP 尺寸中按对数宽高比距离选取目标，等比覆盖后居中裁切并保留透明像素。常见的 1:1、2:3、3:2 原图分别得到 1024×1024、832×1216、1216×832。帮助专题的「仅 V4.5」与公开 Schema 中的三种填黑边尺寸、0–1 强度仍是旧口径。 [官网预处理](https://novelai.net/_next/static/chunks/2s4lj3fycctfh.js?dpl=b2fe159-45513015385-1) · [帮助专题](https://docs.novelai.net/en/image/precisereference/) · [公开 Schema](https://image.novelai.net/docs/doc.json)
+
+官网普通 Enhance 与 Max Enhance 都会把参考列表传给同一条无蒙版 Img2Img 链路。发送层先把参考图转换为 `director_reference_images_cached`，再按设置选择默认的 multipart 或 JSON。首次发送时，每张图都有 `data` 和 `cache_secret_key`，JSON 分支的 `data` 是图像 Base64。Koma 的 V5 请求采用该 JSON 格式，每次携带完整参考图。每次请求生成临时 256 位密钥，对图像 Base64 文本计算 HMAC-SHA-256 并发送小写十六进制结果。图生图另保留底图 `image` 与对应的 `image_cache_secret_key`。V4.5 继续使用 `director_reference_images`。 [官网增强组包](https://novelai.net/_next/static/chunks/09aajvaad_e63.js?dpl=b2fe159-45513015385-1) · [官网发送层](https://novelai.net/_next/static/chunks/06zo38h0rv3bk.js?dpl=b2fe159-45513015385-1) · [官网请求格式设置](https://novelai.net/_next/static/chunks/22-cczt97ry1s.js?dpl=b2fe159-45513015385-1)
+
+IMAGE、EDIT 和企划集统一按可用官方来源、准确型号与操作判定。V5 文生图与无蒙版图生图在原抽屉显示「参数／Precise」。普通和聚焦重绘遇到已启用的 V5 参考会提示停用，独立 4× 放大与 Director Tools 沿用各自的操作。选源、配图及发送使用同一任务的参考快照。每张成图按参与图数计入 PR 附加费，PR 编码费为零。
+
+两代共用 `naiReferences.precise` 和原图。V5 卡片的强度为 0–5，步长 0.05，衣装选项位于原类型菜单。旧配方没有 `preferSameOutfit` 时，「角色」默认关闭同衣装，「角色＋风格」默认开启。跨代切换保留类型、强度、开关和 Fidelity。V4.5 遇到参与的衣装参考或超过 1 的强度，会指出相应图片，可在卡片改值或停用。独立 Precise JSON 可读 v1、v2，带衣装类型、超过 1 的强度或显式衣装开关时导出 v2。两个版本都恢复逐图开关，普通备份仍为 Koma v2。
+
+裁切结果和请求签名仅用于发送。画板、收藏、编辑交接与 Slate 保存配方，ASK 读取能力和参考摘要。
 
 ## 后续工作与核验顺序
 
@@ -209,8 +232,6 @@ Precise 用 Canvas 高质量插值等比缩放并居中填黑边，目标从 102
 | 5 | 导入与输入检查 | 外部 PNG Vibe 编码与 Alpha 隐藏元数据恢复、型号 token 预算和 `Text:` 检查已接入；不恢复未附带的参考原图／Precise，不新增 V5 自动引号提取 |
 | 6 | 界面精简 | V4.5 只有质量入口时仍保留 Prompt 底栏；改成参数抽屉内开关尚未实施。这是界面精简项，质量标签功能本身已接入 |
 
-V5 的两种参考保持不开放：Precise 官方专题限定 V4.5，Vibe 的通用说明与所观察官网入口存在差异。获得进一步能力证据前，不把 V5 参考列成已确认应实现的缺口。
-
 真实收费验证须单独取得授权。后续每项检查 UI、请求、参数导入／恢复、原图字节与额度影响；不因此新增生成自动重试或付费确认。线上资源与页面的历史核验见[发布证据](../archive/README.md#发布记录)。
 
 ## 来源与验证边界
@@ -221,6 +242,8 @@ V5 的两种参考保持不开放：Precise 官方专题限定 V4.5，Vibe 的�
 | 2026-10-25，官方 Schema／FAQ／订阅资料 | V5 用量百分比与 Anlas 分开；FAQ 的 100% 约等于 1730 张、23 步、约 1MP 仅为条件估计 | 不当作账户实测张数、回充速度或免费资格 |
 | 2026-10-27，缓存的官方公开客户端 | 模型映射、Img2Img／Inpaint 参数与参考边界；Upscale multipart 与公开第三方 SDK 交叉核对 | 当日在线 Schema 抓取受 TLS／超时影响，不能称为新鲜官方接口验证；未执行真实收费生成 |
 | 2026-10-28，官方公开客户端部署 `6fb7f79-40608358333-1` 及文档／Schema | Enhance／Max、手动聚焦、Director Tools、费用、输入预算与参数导入；合成图片和模拟服务验证请求、原字节／蒙版、结果尺寸、取消、锁与恢复 | 不证明真实工具效果、参考质量、缓存命中或计费 |
+| 2026-11-25，官方公告、未登录生图页、公开客户端部署 `b2fe159-45513015385-1` 与 Schema | 逐一切换 V5 Curated、Full High／Medium、V4.5 Full／Curated 查看参考入口；V5 Curated 加入一张合成衣装参考后，单图按钮估价由 26 变为 31 Anlas；核对客户端组包、预处理与费用规则 | 尚待实际生成验证 JSON 直连、参考效果、额度与扣费 |
+| 2026-11-27，本地模拟服务及合成图 | IMAGE、EDIT 与两种 Enhance 的 V5 Precise 请求，六种描述与强度，裁切像素，逐图与批量费用，取消与失败，跨代配方及备份恢复，企划入口与 ASK 只读能力 | 官方服务端是否接受生成、实际衣装采用效果与账户扣费仍待核验 |
 
 公开参考为[图片 Schema](https://image.novelai.net/docs/doc.json)、[当前 API 文档](https://image.novelai.net/docs/index.html)、[产品说明](https://docs.novelai.net/en/image/)及 [Opus 用量 FAQ](https://docs.novelai.net/en/faq)。型号与功能依据为[Models](https://docs.novelai.net/en/image/models)、[Effort](https://docs.novelai.net/en/image/effort)、[特殊标签](https://docs.novelai.net/en/image/tags)、[角色](https://docs.novelai.net/en/image/multiplecharacters)、[精确参考](https://docs.novelai.net/en/image/precisereference)、[Vibe](https://docs.novelai.net/en/image/vibetransfer)、[文字绘制](https://docs.novelai.net/en/image/textrendering)、[质量预设](https://docs.novelai.net/en/image/qualitytags)、[负向预设](https://docs.novelai.net/en/image/undesiredcontent)、[重绘](https://docs.novelai.net/en/image/inpaint)和[Director Tools](https://docs.novelai.net/en/image/directortools)。
 

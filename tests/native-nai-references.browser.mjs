@@ -60,7 +60,7 @@ test('NAI references: generation failure keeps successful encodings; failed enco
   } finally {await t.context.close();}
 });
 
-test('NAI references: Precise aspect-fit PNG, paired types and inverted Fidelity; incompatible models cannot drop refs',async()=>{
+test('NAI references: V4.5 Fidelity survives switching to V5, incompatible V5 settings can be repaired in the shared drawer',async()=>{
   const t=await open('nai-official-v1'),{page}=t;
   try {
     await page.waitForFunction(()=>drawing.snapshot().model);await addReference(t,'precise');
@@ -77,12 +77,36 @@ test('NAI references: Precise aspect-fit PNG, paired types and inverted Fidelity
     assert.deepEqual(dimensions,[1472,1472]);
     const before=referencePosts(t).length;
     await chooseNai(page,'model','nai-diffusion-5-full');
-    assert.equal(await page.locator('#goBtn').isDisabled(),true);
-    assert.equal(await page.locator('.reference-problem').count(),1);
-    await page.evaluate(()=>drawing.run());assert.equal(referencePosts(t).length,before);
-    await page.getByRole('button',{name:'停用参考',exact:true}).click();
-    assert.equal(await page.locator('#goBtn').isDisabled(),false);
     assert.equal(await page.getByRole('button',{name:'Vibe Transfer',exact:true}).count(),0);
+    assert.equal(await page.getByRole('slider',{name:'保真度'}).count(),0);
+    const outfit=page.getByRole('switch',{name:'优先相同衣装'});
+    assert.equal(await outfit.isChecked(),true);
+    await outfit.uncheck();
+    await page.getByRole('slider',{name:'参考强度'}).fill('3.5');
+    await page.locator('#goBtn').click();
+    await page.waitForFunction(()=>!drawing.snapshot().busy && drawing.snapshot().history.length===2);
+    const v5=JSON.parse(referencePosts(t).at(-1).body).parameters;
+    assert.deepEqual(v5.director_reference_strength_values,[3.5]);
+    assert.deepEqual(v5.director_reference_secondary_strength_values,[0]);
+    assert.equal(v5.director_reference_descriptions[0].caption.base_caption,'character&style_anyoutfit');
+    assert.match(v5.director_reference_images_cached[0].cache_secret_key,/^[a-f0-9]{64}$/);
+    await page.getByLabel('参考类型',{exact:true}).selectOption('costume');
+    assert.equal(await outfit.count(),0);
+    await chooseNai(page,'model','nai-diffusion-4-5-full');
+    assert.equal(await page.locator('#goBtn').isDisabled(),true);
+    assert.match(await page.locator('.reference-problem').textContent(),/第 1 张/);
+    assert.equal(await page.getByRole('slider',{name:'保真度'}).inputValue(),'0.85');
+    await page.evaluate(()=>drawing.run());assert.equal(referencePosts(t).length,before+1);
+    await page.getByRole('button',{name:'此图参与参考'}).click();
+    assert.equal(await page.locator('#goBtn').isDisabled(),false);
+    await chooseNai(page,'model','nai-diffusion-5-full');
+    assert.equal(await page.getByLabel('参考类型',{exact:true}).inputValue(),'costume');
+    assert.equal(await page.getByRole('slider',{name:'参考强度'}).inputValue(),'3.5');
+    await chooseNai(page,'model','nai-diffusion-4-5-full');
+    await page.getByRole('button',{name:'此图参与参考'}).click();
+    await page.getByLabel('参考类型',{exact:true}).selectOption('character');
+    await page.getByRole('button',{name:'将强度调至 V4.5 上限 1'}).click();
+    assert.equal(await page.locator('#goBtn').isDisabled(),false);
     assert.deepEqual(t.errors,[]);
   } finally {await t.context.close();}
 });
@@ -306,4 +330,108 @@ test('NAI hidden PNG imports Vibe encoding only on Apply, preserves Precise, and
     assert.deepEqual(JSON.parse(referencePosts(t).at(-1).body).parameters.reference_image_multiple,['AAH+/w==']);
     assert.deepEqual(t.errors,[]);
   }finally{await t.context.close();}
+});
+
+test('Precise preprocessing crops centered landscape and portrait markers, preserves transparent pixels and keeps V4.5 bars',async t=>{
+  const f=await open('nai-official-v1'); t.after(()=>f.context.close());
+  const results=await f.page.evaluate(async()=>{
+    const {preciseImage,base64Blob}=await import('/src/native/reference-images.ts');
+    const results=[];
+    for (const [w,h] of [[1920,1080],[1080,1920],[512,512]]) {
+      const c=document.createElement('canvas'); c.width=w;c.height=h;
+      const ctx=c.getContext('2d');ctx.fillStyle='#00ff00';ctx.fillRect(0,0,w,h);
+      ctx.fillStyle='#ff0000';
+      if(w>h){ctx.fillRect(0,0,8,h);ctx.fillRect(w-8,0,8,h);}
+      else if(h>w){ctx.fillRect(0,0,w,8);ctx.fillRect(0,h-8,w,8);}
+      ctx.clearRect(w/2-8,h/2-8,16,16);
+      const raw=await new Promise(resolve=>c.toBlob(resolve));
+      for(const model of ['nai-diffusion-5-curated','nai-diffusion-4-5-full']){
+        const image=await createImageBitmap(base64Blob(await preciseImage(raw,model),'image/png'));
+        const dst=document.createElement('canvas');dst.width=image.width;dst.height=image.height;
+        const dc=dst.getContext('2d');dc.drawImage(image,0,0);image.close();
+        const pixel=(x,y)=>Array.from(dc.getImageData(x,y,1,1).data);
+        results.push({size:[dst.width,dst.height],center:pixel(dst.width/2,dst.height/2),corner:pixel(0,0),opposite:pixel(dst.width-1,dst.height-1)});
+      }
+    }
+    return results;
+  });
+  for (const [i,size] of [[0,[1344,768]],[2,[768,1344]],[4,[1024,1024]]]) {
+    assert.deepEqual(results[i],{size,center:[0,0,0,0],corner:[0,255,0,255],opposite:[0,255,0,255]});
+    assert.deepEqual(results[i+1].center,[0,0,0,255]);
+    if(i!==4)assert.deepEqual(results[i+1].corner,[0,0,0,255]);
+  }
+});
+
+test('V5 batch sends complete enabled references, preserves Precise JSON v1/v2, favorite and full backup',async t=>{
+  const account={status:200,body:{active:true,tier:3,trainingStepsLeft:{fixedTrainingStepsLeft:1000,purchasedTrainingSteps:0}}};
+  const f=await open('nai-official-v1',true,'',account,'',true),{page}=f;t.after(()=>f.context.close());
+  await page.waitForFunction(()=>drawing.snapshot().model);
+  await chooseNai(page,'model','nai-diffusion-5-curated');
+  const configs=await page.evaluate(async png=>{
+    const model=drawing.snapshot().form.model;
+    const swatch=new OffscreenCanvas(64,64);
+    const ctx=swatch.getContext('2d');ctx.fillStyle='lime';ctx.fillRect(0,0,64,64);
+    const [row,last]=await services.references.upload([new File([Uint8Array.from(atob(png),c=>c.charCodeAt(0))],'ref.png',{type:'image/png'}),
+      new File([await swatch.convertToBlob()],'swatch.png',{type:'image/png'})],'precise',model);
+    const old=await services.references.export([{...row,on:false}],'precise',model);
+    const restore=blob=>services.references.import(new File([blob],'refs.json'),'precise',model);
+    const v1=(await restore(old))[0];
+    const refs={...drawing.snapshot().form.naiReferences, active:'precise',precise:[
+      {...row,type:'costume',strength:3.5,fidelity:.25}, {...row,id:'disabled',on:false,type:'style'},
+      {...last,type:'character',preferSameOutfit:true,strength:5}]};
+    await drawing.patch({naiReferences:refs,batchCount:2});
+    const v2=await services.references.export(refs.precise,'precise',model);
+    const imported=await restore(v2), settings=({id,...r})=>r;
+    const bad=JSON.parse(await v2.text());bad.images[1].settings.preferSameOutfit='true';
+    const rejected=await restore(new Blob([JSON.stringify(bad)])).then(()=>false,()=>true);
+    return {v1:JSON.parse(await old.text()).version,v1on:v1.on,hasNew:Object.hasOwn(v1,'preferSameOutfit'),
+      v2:JSON.parse(await v2.text()).version,wanted:refs.precise.map(settings),imported:imported.map(settings),rejected};
+  },f.png.toString('base64'));
+  assert.equal(configs.v1,1);assert.equal(configs.v1on,false);assert.equal(configs.hasNew,false);
+  assert.equal(configs.v2,2);assert.deepEqual(configs.imported,configs.wanted);assert.ok(configs.rejected);
+  assert.equal(referencePosts(f).length,0);
+  await page.evaluate(()=>drawing.run());
+  assert.deepEqual(referencePosts(f).map(p=>p.path),Array(2).fill('/ai/generate-image'));
+  for(const post of referencePosts(f)){
+    const p=JSON.parse(post.body).parameters;
+    assert.deepEqual(p.director_reference_descriptions.map(d=>d.caption.base_caption),['costume','character_mainoutfit']);
+    assert.deepEqual(p.director_reference_strength_values,[3.5,5]);
+    assert.deepEqual(p.director_reference_secondary_strength_values,[0,0]);
+    assert.ok(p.director_reference_images_cached.every(r=>r.data.length>100 && /^[0-9a-f]{64}$/.test(r.cache_secret_key)));
+    assert.equal(p.director_reference_images_cached.length,2);
+    assert.notEqual(p.director_reference_images_cached[0].data,p.director_reference_images_cached[1].data);
+    assert.equal('director_reference_images' in p,false);
+  }
+  const restored=await page.evaluate(async()=>{
+    await drawing.ensureFavorite(drawing.snapshot().history[0]);
+    const snap=drawing.snapshot().form.naiReferences;
+    const backup=await services.backup.read((await services.backup.export()).blob);
+    await drawing.editReferences({...snap,precise:[],active:null});
+    await services.backup.import(backup);
+    const d=drawing.snapshot();
+    return {before:snap,after:d.form.naiReferences,favorite:d.favorites[0].params.naiReferences,assets:backup.referenceAssets.length,encodings:backup.vibeEncodings.length};
+  });
+  assert.deepEqual(restored.before,restored.after);assert.deepEqual(restored.favorite,restored.after);
+  assert.equal(restored.assets,2);assert.equal(restored.encodings,0);
+  account.body.trainingStepsLeft.fixedTrainingStepsLeft=9;
+  await page.evaluate(()=>drawing.run());
+  assert.match(await page.evaluate(()=>drawing.snapshot().error),/参考费用/);
+  assert.equal(referencePosts(f).length,2);
+  account.body.trainingStepsLeft.fixedTrainingStepsLeft=1000;
+  account.generationStatus=500;
+  await page.evaluate(()=>drawing.run());
+  assert.equal(referencePosts(f).length,3);
+  let submissions=0, release;
+  const hold=new Promise(resolve=>{release=resolve;});
+  await page.route('https://image.novelai.net/ai/generate-image',async route=>{
+    submissions++;await hold;await route.abort().catch(()=>{});
+  });
+  try {
+    const sent=page.waitForRequest(req=>req.url()==='https://image.novelai.net/ai/generate-image');
+    await page.locator('#goBtn').click();await sent;
+    await page.locator('#cancelBtn').click();await page.waitForFunction(()=>!drawing.snapshot().busy);
+  } finally {release();}
+  assert.equal(submissions,1);
+  assert.equal(f.requests.some(r=>r.path.startsWith('/primary/') && r.method==='POST' && !r.path.endsWith('/estimate')),false);
+  assert.deepEqual(f.errors,[]);
 });

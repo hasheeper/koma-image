@@ -54,7 +54,8 @@ function layerExtra(name: string, index: number, locked: boolean, dividerType?: 
 
 type PsdEntry =
   | { kind: 'layer'; slice: ExportSlice }
-  | { kind: 'divider'; name: string; dividerType: 1 | 3; visible: boolean };
+  | { kind: 'divider'; name: string; dividerType: 1; visible: boolean; key: string }
+  | { kind: 'divider'; name: string; dividerType: 3; visible: false };
 
 /** Expand bottom-to-top slices with nested `groups` into PSD records (bottom divider type=3, top folder type=1). */
 function buildPsdEntries(stack: readonly ExportSlice[]): PsdEntry[] {
@@ -70,7 +71,7 @@ function buildPsdEntries(stack: readonly ExportSlice[]): PsdEntry[] {
     }
     while (open.length > common) {
       const closed = open.pop()!;
-      entries.push({ kind: 'divider', name: closed.name, dividerType: 1, visible: closed.visible });
+      entries.push({ ...closed, kind: 'divider', dividerType: 1 });
     }
     for (let i = common; i < groups.length; i++) {
       open.push({
@@ -84,13 +85,17 @@ function buildPsdEntries(stack: readonly ExportSlice[]): PsdEntry[] {
   }
   while (open.length) {
     const closed = open.pop()!;
-    entries.push({ kind: 'divider', name: closed.name, dividerType: 1, visible: closed.visible });
+    entries.push({ ...closed, kind: 'divider', dividerType: 1 });
   }
   return entries;
 }
 
 /** Standard 8-bit RGB PSD, normal unassociated RGBA pixel layers + nested 8BIMlsct layer groups. */
-export function layeredPsd(p: LayerProject, allowEmpty = false) {
+function encodeLayeredPsd(
+  p: LayerProject,
+  allowEmpty: boolean,
+  binding?: { groups: Map<number, string>; initialLayers: Map<number, string> },
+) {
   if (!allowEmpty && !p.layers.length) throw new Error('图层栈为空，请先收纳至少一个图层');
   if (p.reference.width > 30000 || p.reference.height > 30000 || p.layers.length >= 16000)
     throw new Error('超过标准 PSD 的图幅或层数上限，请导出切片包');
@@ -102,8 +107,10 @@ export function layeredPsd(p: LayerProject, allowEmpty = false) {
   const records: Blob[] = [],
     planes: Blob[] = [];
   entries.forEach((entry, index) => {
+    const id = index + 1;
     if (entry.kind === 'divider') {
-      const extra = layerExtra(entry.name, index + 1, false, entry.dividerType);
+      if (entry.dividerType === 1) binding?.groups.set(id, entry.key);
+      const extra = layerExtra(entry.name, id, false, entry.dividerType);
       const info = new Blob([0, 1, 2, -1].flatMap((id) => [u16(id), u32(2)]));
       const flags = entry.dividerType === 3 ? 2 : entry.visible ? 0 : 2;
       records.push(
@@ -124,8 +131,9 @@ export function layeredPsd(p: LayerProject, allowEmpty = false) {
       return;
     }
     const layer = entry.slice;
+    if (index > 0) binding?.initialLayers.set(id, layer.id);
     const locked = !!layer.locked;
-    const extra = layerExtra(layer.name, index + 1, locked),
+    const extra = layerExtra(layer.name, id, locked),
       count = layer.width * layer.height;
     const info = new Blob([0, 1, 2, -1].flatMap((id) => [u16(id), u32(count + 2)]));
     // Layer flags bit 0 = transparency protected, bit 1 = hidden (not visible).
@@ -174,4 +182,13 @@ export function layeredPsd(p: LayerProject, allowEmpty = false) {
   );
   if (doc.size >= 2 ** 31) throw new Error('分层 PSD 超过 2 GiB，请导出切片包');
   return doc;
+}
+
+export function layeredPsd(p: LayerProject, allowEmpty = false) {
+  return encodeLayeredPsd(p, allowEmpty);
+}
+
+export function photopeaLayerPsd(p: LayerProject) {
+  const binding = { groups: new Map<number, string>(), initialLayers: new Map<number, string>() };
+  return { blob: encodeLayeredPsd(p, true, binding), ...binding };
 }

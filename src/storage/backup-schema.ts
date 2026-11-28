@@ -5,7 +5,7 @@ import type { AnnotationSnapshot } from "../domain/region-annotation.ts";
 import { isEntityKey } from "../domain/image-identity.ts";
 import type { FavoriteIdentityBackup, ImageLineage, ImageTagBinding } from "../domain/image-identity.ts";
 import { isPictureId } from "../ask/ids.ts";
-import { readReferences, encodingKey, referenceModel } from "../domain/nai-references.ts";
+import { readReferences, encodingKey, vibeModel, preciseType, inReferenceRange } from "../domain/nai-references.ts";
 import type { ReferenceAsset, VibeEncoding } from "../domain/nai-references.ts";
 import { DEFAULTS, boardKeys } from "../domain/drawing.ts";
 import { names } from "./names.ts";
@@ -164,7 +164,12 @@ export function collectBackupPreferences(
 function checkedReferences(value: unknown) {
   const raw=object(value), r=readReferences(value);
   if (!plain(value) || raw.active!==r.active || raw.normalize!==r.normalize || !Array.isArray(raw.vibe) || !Array.isArray(raw.precise) || r.vibe.length!==raw.vibe.length || r.precise.length!==raw.precise.length || r.vibe.length>16 || r.precise.length>16) throw bad();
-  for (const rawItem of [...raw.vibe,...raw.precise]) { const item=object(rawItem); if (typeof item.on!=="boolean" || [item.strength,item.information,item.fidelity].some(v=>typeof v!=="number" || !Number.isFinite(v) || v<0 || v>1) || !["character","style","character&style"].includes(String(item.type))) throw bad(); }
+  for (const kind of ["vibe", "precise"] as const) for (const rawItem of raw[kind] as unknown[]) {
+    const item = object(rawItem), precise = kind === "precise";
+    if (typeof item.on !== "boolean" || !inReferenceRange(item.strength, precise ? 5 : 1) || !inReferenceRange(item.information) ||
+        !inReferenceRange(item.fidelity) || !preciseType(item.type, precise) ||
+        item.preferSameOutfit !== undefined && (!precise || typeof item.preferSameOutfit !== "boolean")) throw bad();
+  }
   return r;
 }
 function imageReference(value: unknown, folder: string): ImageReference {
@@ -406,7 +411,7 @@ export function validateBackupManifest(value: unknown): BackupManifest {
   }
   for (const raw of (m.vibeEncodings ?? []) as unknown[]) {
     const e = object(raw);
-    if (typeof e.assetId !== "string" || !referenceIds.has(e.assetId) || typeof e.model !== "string" || !referenceModel(e.model) || typeof e.information !== "number" || !Number.isFinite(e.information) || e.information<0 || e.information>1 || e.id!==encodingKey(e.model,e.assetId,e.information) || encodingIds.has(String(e.id)) || typeof e.path!=="string" || !/^references\/encodings\/[0-9]+\.bin$/.test(e.path) || typeof e.hash!=="string" || !/^[a-f0-9]{64}$/.test(e.hash)) throw bad();
+    if (typeof e.assetId !== "string" || !referenceIds.has(e.assetId) || typeof e.model !== "string" || !vibeModel(e.model) || typeof e.information !== "number" || !Number.isFinite(e.information) || e.information<0 || e.information>1 || e.id!==encodingKey(e.model,e.assetId,e.information) || encodingIds.has(String(e.id)) || typeof e.path!=="string" || !/^references\/encodings\/[0-9]+\.bin$/.test(e.path) || typeof e.hash!=="string" || !/^[a-f0-9]{64}$/.test(e.hash)) throw bad();
     encodingIds.add(String(e.id)); vibeEncodings.push(e as unknown as VibeEncodingManifest);
   }
   if(referenceAssets.some(a=>!a.image && !vibeEncodings.some(e=>e.assetId===a.id))) throw bad();
@@ -416,9 +421,11 @@ export function validateBackupManifest(value: unknown): BackupManifest {
     const params = object(f.params);
     return [params.naiReferences, ...(["manual-edit", "director"].includes(String(params.tool)) ? [object(params.sourceRecipe).naiReferences] : [])];
   })];
+  const originals = new Set(referenceAssets.filter(a => a.image).map(a => a.id));
   for (const value of configs) {
     const r=value===undefined ? readReferences(undefined) : checkedReferences(value);
     for (const item of [...r.vibe,...r.precise]) if (!referenceIds.has(item.assetId)) throw new Error("备份缺少参考图片");
+    if (r.precise.some(item => !originals.has(item.assetId))) throw new Error("备份缺少 Precise 参考原图");
   }
   return {
     app: "koma-image",

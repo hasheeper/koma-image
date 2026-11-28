@@ -16,12 +16,15 @@ import {
   sourceEntries,
 } from "../../domain/catalog.ts";
 import type { Routing } from "../../config/connections.ts";
+import { channelOperationEntries } from "../../gateway/image-channel-models.ts";
 import { object, strings } from "../../domain/value.ts";
+import { profileFor } from "../../gateway/profile.ts";
 import ModelIcon from "../../shared/ModelIcon.vue";
 import ConnectionAvatar from "../../shared/ConnectionAvatar.vue";
 import ModelCapabilities from "../../shared/ModelCapabilities.vue";
 import AppIcon from "../../shared/AppIcon.vue";
 import ModelMappingMenu from "./ModelMappingMenu.vue";
+import ImageChannelOperations from "./ImageChannelOperations.vue";
 const props = defineProps<{
   connection: string | null;
   routing: Routing;
@@ -54,6 +57,8 @@ const groups: Record<string, string> = {
 const rows = computed(() => {
   const c = props.connection ?? "",
     entries = catalogEntries(props.raw);
+  const connection = props.routing.connections[c];
+  const bindings = connection && profileFor(connection).channelModels;
   const claimed = new Map(
     configuredModels(props.routing).flatMap((m) => {
       const l = linkFor(props.routing, c, m, entries);
@@ -64,6 +69,7 @@ const rows = computed(() => {
     const m = object(object(object(props.raw).models)[id]),
       to = claimed.get(id),
       on = to && sourceState(props.routing, c, to, entries) === "on";
+    const binding = bindings?.find(item => item.generate === id);
     const family = String(to?.family || m.editor_family || "other");
     const operations = strings(m.operations),
       tools = strings(m.tools);
@@ -74,6 +80,7 @@ const rows = computed(() => {
       on,
       active: !!to && props.activeModels.includes(to.id),
       family,
+      binding,
       caps:
         (operations.includes("generate") ? "g" : "") +
         (operations.includes("edit") ? "e" : "") +
@@ -84,6 +91,7 @@ const rows = computed(() => {
         : configuredModels(props.routing).filter(
             (model) =>
               supportsModel(props.routing, c, model) &&
+              (!binding || binding.templateId === (model.templateId ?? model.id)) &&
               (!m.editor_family || model.family === m.editor_family) &&
               ["miss", "gone"].includes(
                 sourceState(props.routing, c, model, entries),
@@ -97,7 +105,7 @@ const shown = computed(() =>
     (r) =>
       (tab.value === "all" || (tab.value === "active" ? r.active : tab.value === "used" ? r.on : !r.on)) &&
       (!query.value.trim() ||
-        `${r.name} ${r.id}`
+        `${r.name} ${r.id} ${r.binding ? channelOperationEntries(r.binding).flat().join(' ') : ''}`
           .toLowerCase()
           .includes(query.value.trim().toLowerCase())),
   ),
@@ -128,7 +136,7 @@ watch(
 );
 onBeforeUnmount(() => dialog.value?.close());
 function use(id: string, model: string) {
-  if (!model || !props.connection) return;
+  if (!props.connection || !rows.value.find(row => row.id === id)?.free.some(item => item.id === model)) return;
   const next = structuredClone(props.routing);
   (next.links[props.connection] ??= {})[model] = { id, manual: true, on: true };
   emit("change", next);
@@ -216,7 +224,8 @@ function use(id: string, model: string) {
             <span class="vtile"><ModelIcon :family="family" /></span>
             <div class="md-id md-catalog-id">
               <b :title="r.name || r.id">{{ r.name || r.id }}</b>
-              <code v-if="r.name && r.name !== r.id" :title="r.id">{{ r.id }}</code>
+              <ImageChannelOperations v-if="r.binding" :model="r.binding" />
+              <code v-else-if="r.name && r.name !== r.id" :title="r.id">{{ r.id }}</code>
             </div>
             <ModelCapabilities :value="r.caps" label="目录声明的操作类型" />
             <button

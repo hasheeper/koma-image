@@ -4,7 +4,7 @@ import { useChat } from "../app/chat.ts";
 import { useEditor } from "../app/editor.ts";
 import { useUi, message } from "../app/ui.ts";
 import type { Editor } from "../services/editor.ts";
-import type { PhotopeaTask } from "../services/photopea.ts";
+import type { PhotopeaLayerBinding, PhotopeaTask } from "../services/photopea.ts";
 import { prepareMaskedResult } from "../native/inpaint-result.ts";
 import { createPhotopeaClient } from "../native/photopea-client.ts";
 import type { PhotopeaClient } from "../native/photopea-client.ts";
@@ -31,7 +31,7 @@ let exitDecision: Promise<boolean> | undefined;
 type Retained = {
   sessionId: string; sourceId: number; width: number; height: number; documentId: string; roles: PhotopeaRoles;
   maskKey?: string; bakedVersion?: number; baked: number[]; alive?: () => boolean;
-  layerRefId?: number; layerRevision?: number;
+  layer?: { refId: number; revision: number; binding: PhotopeaLayerBinding };
 };
 let retained: Retained | undefined;
 const documents = new Map<string, Retained>();
@@ -109,19 +109,23 @@ async function load(task: PhotopeaTask, reload = false) {
       if (layer) {
         if (!layer.valid()) throw new Error('分件项目已变化，请重新打开');
         const previous = documents.get(start.sessionId);
-        const reuse = previous && previous.layerRevision === layer.revision && previous.width === layer.width && previous.height === layer.height && previous.layerRefId !== undefined
-          ? { documentId: previous.documentId, refId: previous.layerRefId }
+        const previousLayer = previous?.layer;
+        const reuse = previous && previousLayer?.revision === layer.revision && previous.width === layer.width && previous.height === layer.height
+          ? { documentId: previous.documentId, refId: previousLayer.refId, binding: previousLayer.binding }
           : undefined;
         if (previous && !reuse) { await connection.closeDocument(previous.documentId); documents.delete(start.sessionId); }
         let initialized = false;
         try {
-          const state = await connection.openLayerPsd(reuse ? new Blob() : layer.psd(), start.id, reuse);
+          const { blob, ...binding } = reuse
+            ? { blob: new Blob(), ...reuse.binding }
+            : { documentId: start.id, ...layer.psd() };
+          const state = await connection.openLayerPsd(blob, start.id, reuse);
           if (disposed || current !== revision) return;
           if (!layer.valid()) throw new Error('分件项目已变化，请重新打开');
           retained = {
             sessionId: start.sessionId, sourceId: 0, width: layer.width, height: layer.height,
             documentId: start.id, roles: { baseId: 0, scratchId: 0, maskId: 0, carrierId: 0 },
-            baked: [], alive: layer.alive, layerRefId: state.refId, layerRevision: layer.revision,
+            baked: [], alive: layer.alive, layer: { refId: state.refId, revision: layer.revision, binding },
           };
           documents.set(start.sessionId, retained); initialized = true;
           ready.value = true; working.value = false;
@@ -197,14 +201,17 @@ async function apply() {
       if (disposed || current !== revision) return;
       if (task.layer) {
         if (!task.layer.valid()) throw new Error('分件项目已变化，请重新打开');
+        const doc = retained?.documentId === start.id ? retained.layer : undefined;
+        if (!doc) throw new Error('Photopea 分层文档未初始化');
         const result = await connection.exportLayers();
         if (exitDecision && await exitDecision) return;
         if (disposed || current !== revision) return;
         applying.value = true;
         if (!task.layer.valid()) throw new Error('分件项目已变化，请重新打开');
-        const nextRevision = await task.layer.apply(result);
-        if (retained && retained.documentId === start.id && typeof nextRevision === 'number') {
-          retained.layerRevision = nextRevision;
+        const nextRevision = await task.layer.apply(result, doc.binding);
+        if (typeof nextRevision === 'number') {
+          doc.revision = nextRevision;
+          doc.binding.initialLayers = undefined;
         }
         if (!disposed && current === revision) emit('close');
         return;

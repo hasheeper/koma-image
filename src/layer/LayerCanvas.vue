@@ -1,5 +1,7 @@
 <script setup lang="ts">
-import { computed, onMounted, shallowRef, watch } from 'vue';
+import { computed, onBeforeUnmount, onMounted, shallowRef, watch } from 'vue';
+import AppIcon from '../shared/AppIcon.vue';
+import LayerThumbnail from './LayerThumbnail.vue';
 import type { GuideChannel } from './mask-history.ts';
 import type { LayerProject, Raster, Rect, StackLayer } from './project.ts';
 import { layerVisible } from './project.ts';
@@ -17,6 +19,7 @@ export type CanvasTool = StackTool | GuideChannel;
 const props = defineProps<{
   project: LayerProject;
   mode: 'stack' | 'scalpel';
+  scalpelRaster?: Raster;
   tool: CanvasTool;
   activeLayerId?: string;
   soloLayerIds?: readonly string[];
@@ -58,6 +61,8 @@ const emit = defineEmits<{
 
 const canvas = shallowRef<HTMLCanvasElement>();
 const cursor = shallowRef<HTMLElement>();
+const hitMenuEl = shallowRef<HTMLElement>();
+const hitMenu = shallowRef<{ x: number; y: number; layers: StackLayer[] }>();
 const reference = computed(() => props.project.reference);
 const emptyGuide = computed(() => new Uint8Array(reference.value.width * reference.value.height));
 
@@ -399,7 +404,7 @@ function redraw() {
   }
 
   if (props.mode === 'scalpel') {
-    ctx.drawImage(getBitmap(width, height, reference.value.data), 0, 0);
+    ctx.drawImage(getBitmap(width, height, (props.scalpelRaster ?? reference.value).data), 0, 0);
     ensureGuideOverlay();
     if (overlay) ctx.drawImage(overlay, 0, 0);
     return;
@@ -454,6 +459,7 @@ watch(
   [
     () => props.project,
     () => props.mode,
+    () => props.scalpelRaster,
     () => props.tool,
     () => props.activeLayerId,
     () => props.soloLayerIds,
@@ -492,6 +498,80 @@ function canvasPoint(e: PointerEvent) {
     y: ((e.clientY - box.top) * reference.value.height) / Math.max(1, box.height),
   };
 }
+
+function hitTestAllLayers(x: number, y: number): StackLayer[] {
+  const ix = Math.floor(x);
+  const iy = Math.floor(y);
+  const isHit = (layer: StackLayer) => {
+    const lx = ix - layer.x;
+    const ly = iy - layer.y;
+    if (lx < 0 || ly < 0 || lx >= layer.width || ly >= layer.height) return false;
+    return layer.pixels[(ly * layer.width + lx) * 4 + 3] > 0;
+  };
+  const soloSet = props.soloLayerIds?.length ? new Set(props.soloLayerIds) : undefined;
+  const hits: StackLayer[] = [];
+  for (let i = props.project.layers.length - 1; i >= 0; i--) {
+    const layer = props.project.layers[i];
+    if (layer.archived) continue;
+    const shown = soloSet ? soloSet.has(layer.id) : layerVisible(layer);
+    if (shown && isHit(layer)) hits.push(layer);
+  }
+  return hits;
+}
+
+function closeHitMenu() {
+  if (!hitMenu.value) return;
+  hitMenu.value = undefined;
+  window.removeEventListener('pointerdown', onOutsideHitMenu, true);
+  window.removeEventListener('keydown', onHitMenuKey, true);
+  window.removeEventListener('blur', closeHitMenu);
+}
+
+function onOutsideHitMenu(e: PointerEvent) {
+  if (hitMenuEl.value?.contains(e.target as Node)) return;
+  closeHitMenu();
+}
+
+function onHitMenuKey(e: KeyboardEvent) {
+  if (e.key === 'Escape') {
+    e.preventDefault();
+    e.stopPropagation();
+    closeHitMenu();
+  }
+}
+
+function openHitMenu(e: MouseEvent | PointerEvent): boolean {
+  if (
+    props.mode !== 'stack' ||
+    props.compareReference ||
+    props.previewRaster ||
+    props.previewLayers !== undefined ||
+    props.busy ||
+    !props.project.layers.length
+  )
+    return false;
+  const pt = canvasPoint(e as PointerEvent);
+  const hits = hitTestAllLayers(pt.x, pt.y);
+  if (!hits.length) return false;
+  e.preventDefault();
+  e.stopPropagation();
+  const estWidth = 250;
+  const estHeight = Math.min(hits.length * 34 + 38, 300);
+  const x = Math.max(8, Math.min(e.clientX, window.innerWidth - estWidth - 8));
+  const y = Math.max(8, Math.min(e.clientY, window.innerHeight - estHeight - 8));
+  hitMenu.value = { x, y, layers: hits };
+  window.addEventListener('pointerdown', onOutsideHitMenu, true);
+  window.addEventListener('keydown', onHitMenuKey, true);
+  window.addEventListener('blur', closeHitMenu);
+  return true;
+}
+
+function pickHitLayer(id: string) {
+  emit('selectLayer', id);
+  closeHitMenu();
+}
+
+onBeforeUnmount(closeHitMenu);
 
 function hitTestLayer(x: number, y: number): StackLayer | undefined {
   const ix = Math.floor(x);
@@ -635,7 +715,7 @@ function paintGuide(x: number, y: number) {
         channel[i] = Math.round(channel[i] + (target - channel[i]) * Math.min(1, r - distance + 0.5));
       }
       if (props.smartSnap && tool === 'alpha') {
-        channel[i] = Math.min(channel[i], reference.value.data[4 * i + 3]);
+        channel[i] = Math.min(channel[i], (props.scalpelRaster ?? reference.value).data[4 * i + 3]);
       }
       updateGuideTint(i, tool, channel[i]);
     }
@@ -649,6 +729,7 @@ function paintGuide(x: number, y: number) {
 }
 
 function down(e: PointerEvent) {
+  closeHitMenu();
   if (
     props.compareReference ||
     props.previewRaster ||
@@ -658,6 +739,7 @@ function down(e: PointerEvent) {
     pointerState
   )
     return;
+  if ((e.metaKey || e.ctrlKey) && openHitMenu(e)) return;
   const pt = canvasPoint(e);
   const tool = props.tool;
 
@@ -920,6 +1002,7 @@ defineExpose({ clearSelection, cancelStroke });
 </script>
 
 <template>
+  <div class="layer-mat" :data-mat="mat" aria-hidden="true"></div>
   <canvas
     ref="canvas"
     class="layer-surface"
@@ -930,6 +1013,7 @@ defineExpose({ clearSelection, cancelStroke });
     @pointerenter="cursorAt"
     @pointerleave="cursorAt()"
     @pointerdown="down"
+    @contextmenu="openHitMenu"
     @pointermove="move"
     @pointerup="end($event)"
     @pointercancel="end($event, true)"
@@ -947,18 +1031,54 @@ defineExpose({ clearSelection, cancelStroke });
       height: (diameter / reference.height) * 100 + '%',
     }"
   ></span>
+  <Teleport to="body">
+    <div
+      v-if="hitMenu"
+      ref="hitMenuEl"
+      class="menu layer-hit-menu"
+      role="menu"
+      aria-label="此处重叠图层"
+      :style="{ left: `${hitMenu.x}px`, top: `${hitMenu.y}px` }"
+    >
+      <p class="layer-hit-head">此处图层 · {{ hitMenu.layers.length }}</p>
+      <div class="layer-hit-list">
+        <button
+          v-for="layer in hitMenu.layers"
+          :key="layer.id"
+          type="button"
+          class="menu-item layer-hit-item"
+          role="menuitemradio"
+          :aria-checked="layer.id === activeLayerId"
+          @click="pickHitLayer(layer.id)"
+        >
+          <LayerThumbnail :image="layer" class="layer-hit-thumb" />
+          <span class="menu-label layer-hit-label" :title="[...(layer.groups ?? []), layer.name].join(' / ')">
+            <small v-if="layer.groups?.length" class="layer-hit-group">{{ layer.groups.join(' / ') }} / </small>
+            <span>{{ layer.name }}</span>
+          </span>
+          <AppIcon class="menu-check" name="i-check" />
+        </button>
+      </div>
+    </div>
+  </Teleport>
 </template>
 
 <style scoped>
+.layer-mat {
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  background-color: transparent;
+}
+.layer-mat[data-mat='black'] {
+  background-color: #000;
+}
+.layer-mat[data-mat='white'] {
+  background-color: #fff;
+}
 canvas.layer-surface {
   opacity: 1;
-  background: var(--image-checker);
-}
-canvas.layer-surface[data-mat='black'] {
-  background: #000;
-}
-canvas.layer-surface[data-mat='white'] {
-  background: #fff;
+  background: transparent;
 }
 canvas.layer-surface[data-tool='move'] {
   cursor: grab;
@@ -1001,5 +1121,53 @@ canvas.layer-surface:is([data-tool='rect'], [data-tool='lasso']) {
 }
 .layer-brush-cursor.erasing {
   border-style: dashed;
+}
+
+.layer-hit-menu {
+  position: fixed;
+  z-index: 60;
+  display: flex;
+  flex-direction: column;
+  min-width: 210px;
+  max-width: 280px;
+  padding: 4px;
+  border-radius: var(--r3);
+  background: var(--glass-bg);
+  border: 1px solid var(--line-2);
+  box-shadow: var(--sh-2);
+  backdrop-filter: blur(var(--glass-blur));
+}
+.layer-hit-head {
+  margin: 0;
+  padding: 4px 8px 5px;
+  font-size: var(--fz-2xs);
+  font-weight: var(--fw-medium);
+  color: var(--fg-3);
+  border-bottom: 1px solid var(--line);
+}
+.layer-hit-list {
+  display: flex;
+  flex-direction: column;
+  max-height: 256px;
+  overflow-y: auto;
+  padding-top: 2px;
+}
+.layer-hit-item {
+  gap: 7px;
+}
+.layer-hit-thumb {
+  width: 20px;
+  height: 20px;
+  flex: none;
+  border-radius: 4px;
+}
+.layer-hit-label {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.layer-hit-group {
+  font-size: var(--fz-2xs);
+  color: var(--fg-4);
 }
 </style>

@@ -4,6 +4,7 @@ import type { Connection } from "../../config/connections";
 import type { CatalogEntry } from "../../domain/catalog";
 import type { ModelIdentity } from "../../domain/models";
 import { message } from "../../app/ui";
+import { profileFor } from "../../gateway/profile.ts";
 import AppIcon from "../../shared/AppIcon.vue";
 const props = defineProps<{
   model: ModelIdentity;
@@ -15,7 +16,7 @@ const connection = ref(props.sources[0]?.connection.id ?? ""), value = ref(""), 
 const field = useTemplateRef<HTMLInputElement | HTMLSelectElement>("field");
 const suggestions = `source-add-${useId()}`;
 const source = computed(() => props.sources.find(s => s.connection.id === connection.value));
-const fixed = computed(() => props.model.family === "novelai");
+const fixed = computed(() => props.model.family === "novelai" || !!source.value && !!profileFor(source.value.connection).channelModels);
 function selectSource() { value.value = fixed.value ? source.value?.entries[0]?.id ?? "" : ""; error.value = ""; }
 selectSource();
 onMounted(() => field.value?.focus());

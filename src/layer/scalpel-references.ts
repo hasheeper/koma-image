@@ -1,10 +1,19 @@
 import type { Picture } from '../ask/library.ts';
 import { png } from './images.ts';
-import type { LayerProject, StackLayer } from './project.ts';
+import type { LayerProject, Raster, StackLayer } from './project.ts';
+import { compositeLayers } from './stack.ts';
 
 export type ScalpelReference = NonNullable<LayerProject['scalpelReferences']>[number];
 export const layerPictureId = (id: string) => '#lref-layer-' + id;
 export const filePictureId = (id: string) => '#lref-file-' + id;
+
+export function scalpelSource(master: Raster, stack: readonly StackLayer[], ids?: readonly string[]) {
+  if (!ids) return { raster: master, layers: undefined };
+  const selected = new Set(ids);
+  const layers = stack.filter(l => !l.archived && selected.has(l.id));
+  const raster = compositeLayers(layers, master.width, master.height, { includeHidden: true });
+  return { raster, layers };
+}
 
 export interface ReferenceSource {
   picture: string;
@@ -48,9 +57,9 @@ export function referencePictures(p: LayerProject) {
 }
 
 /** Explicit inputs always travel. Include the unmarked local frame whenever an input slot remains. */
-export function scalpelInputs(maxImages: number, references: number, hasOccluders: boolean) {
+export function scalpelInputs(maxImages: number, references: number, hasOccluders: boolean, unmarkedLayers = false) {
   const required = 1 + Number(hasOccluders) + references;
-  const context = required < maxImages;
+  const context = !unmarkedLayers && required < maxImages;
   return {
     context, workspaceIndex: context ? 2 : 1,
     occluderIndex: hasOccluders ? (context ? 3 : 2) : undefined,

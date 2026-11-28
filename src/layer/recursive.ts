@@ -21,12 +21,15 @@ export interface DecomposeBatch {
   sentSize?: { width: number; height: number };
   requestedSize?: string;
   inputDownscaled?: boolean;
+  inputUpscale?: string;
   responseSize?: { width: number; height: number };
   model: string;
   route: string;
   prompt: string;
   maxImages?: number;
   targetName: string;
+  /** A single new part inferred from these references, inserted behind the frontmost one. */
+  componentName?: string;
   insertAbove?: string;
   groupName?: string;
   source: SplitSource;
@@ -116,6 +119,14 @@ export function splitInput(p: LayerProject, source: SplitSource): Raster {
   return compositeLayers(local, source.rect.width, source.rect.height, { includeHidden: true });
 }
 
+export function insertMissingComponent(stack: StackLayer[], part: StackLayer, source: SplitSource) {
+  if (source.kind === 'master') return [...stack, part];
+  const index = stack.findIndex(l => l.id === source.members.at(-1)?.id);
+  if (index < 0) throw new Error('参考图层已变化，请重新选择');
+  const { groups, groupIds, mutedGroups } = stack[index];
+  return [...stack.slice(0, index), { ...part, groups, groupIds, mutedGroups }, ...stack.slice(index)];
+}
+
 export function admitSplit(
   p: LayerProject,
   batch: DecomposeBatch,
@@ -138,6 +149,12 @@ export function admitSplit(
     )
   )
     throw new Error('来源层已变化，请重新选择来源并细拆。候选仍保留。');
+  if (batch.componentName) {
+    if (fresh.length !== 1 || fresh[0].isBase || parents.some(l => l.archived))
+      throw new Error('请选择一个独立部件候选，并保留参考图层');
+    const [part] = admitPoolLayers({ ...p, layers: [] }, [{ ...fresh[0], name: batch.componentName }]).layers;
+    return { ...p, layers: insertMissingComponent(p.layers, part, source), activeLayerId: part.id };
+  }
   if (archive && parents.some((l) => l.locked && !l.archived))
     throw new Error('来源层已锁定，可选仅添加或先解锁');
   const accepted = admitPoolLayers({ ...p, layers: [] }, fresh).layers;

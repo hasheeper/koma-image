@@ -1,7 +1,9 @@
 import type { ApplicationServices } from '../services/application.ts';
 import type { CatalogModel } from '../domain/catalog.ts';
-import { MAX_INPUT_BYTES } from '../domain/media.ts';
-import { SEEDREAM_55 } from '../domain/seedream.ts';
+import { supportsLayerDecomposition } from '../domain/catalog.ts';
+import { buildUpscalePayload, MAX_INPUT_BYTES } from '../domain/media.ts';
+import { NAI_OFFICIAL_UPSCALE } from '../domain/nai.ts';
+import { SEEDREAM_55, SEEDREAM_MIN_SPLIT_PIXELS } from '../domain/seedream.ts';
 import { profileFor } from '../gateway/profile.ts';
 import type { ImagePayload } from '../gateway/routes.ts';
 import { dataUrl } from '../services/assets.ts';
@@ -20,19 +22,34 @@ import { splitInput, type SplitSource, type DecomposeBatch } from './recursive.t
 export { placeOnCanvas } from './images.ts';
 export type { DecomposeBatch } from './recursive.ts';
 
-export type DecomposeSize = '2K' | '1.5K' | '1K' | 'auto';
+const splitSizes = ['2K', '1.5K', '1K', 'auto'] as const;
+export type DecomposeSize = typeof splitSizes[number];
+export function decomposeSizes(model?: CatalogModel): readonly DecomposeSize[] {
+  if (!model?.splitLimits) return splitSizes;
+  const field = (model.splitFields ?? model.fields).size;
+  return splitSizes.filter(size => size === 'auto' || field?.options.includes(size));
+}
+type ImageSize = Pick<Raster, 'width' | 'height'>;
+export type SplitInputUpscale = 'local' | CatalogModel;
+export interface SmallSplitInput {
+  name: string;
+  source: ImageSize;
+  target: ImageSize;
+  minPixels: number;
+}
+type ChooseSplitUpscale = (input: SmallSplitInput, signal: AbortSignal) => Promise<SplitInputUpscale>;
 
 export const routeLabel = (m: CatalogModel) =>
   m.profileId ? (profileFor(m.profileId).label ?? '图像编辑连接') : '图像编辑连接';
 
-export function decomposeCapable(m: CatalogModel): boolean {
-  return (
-    m.profileId === 'seedream-v1' && m.operations.includes('edit') && m.tools.includes('image-edit')
-  );
+export { supportsLayerDecomposition as decomposeCapable };
+
+export function supportsMissingComponent(model: CatalogModel) {
+  return supportsLayerDecomposition(model) && (model.templateId ?? model.id) === SEEDREAM_55;
 }
 
 export function preferredDecomposeModel(models: readonly CatalogModel[]): CatalogModel | undefined {
-  const eligible = models.filter(decomposeCapable);
+  const eligible = models.filter(supportsLayerDecomposition);
   return eligible.find((m) => (m.templateId ?? m.id) === SEEDREAM_55) ?? eligible[0];
 }
 
@@ -47,9 +64,20 @@ async function encodeCanvasPng(src: OffscreenCanvas, width: number, height: numb
   return dst.convertToBlob({ type: 'image/png' });
 }
 
+function sizeForPixels({ width, height }: ImageSize, pixels: number): ImageSize {
+  const scale = Math.sqrt(pixels / (width * height));
+  return { width: Math.ceil(width * scale), height: Math.ceil(height * scale) };
+}
+
+function resizeInput(source: Raster, size: ImageSize): Raster {
+  return placeOnCanvas(source, { ...size, x: 0, y: 0 }, size.width, size.height);
+}
+
 async function prepareInputBlob(
   source: Raster,
+  minPixels: number,
 ): Promise<{ blob: Blob; width: number; height: number; downscaled: boolean }> {
+  if (source.width * source.height < minPixels) throw new Error('拆层送图仍低于模型的最小像素要求');
   const fast = png(source, 3);
   if (fast.size <= MAX_INPUT_BYTES) {
     return { blob: fast, width: source.width, height: source.height, downscaled: false };
@@ -68,15 +96,21 @@ async function prepareInputBlob(
     return { blob: nativeFull, width: source.width, height: source.height, downscaled: false };
   }
   // Gradually step down preserving natural aspect ratio instead of chopping straight to 2048px.
-  for (const factor of [0.9, 0.8, 0.72, 0.64, 0.56, 0.48, 0.4]) {
-    const w = Math.max(64, Math.round(source.width * factor));
-    const h = Math.max(64, Math.round(source.height * factor));
-    const fitted = await encodeCanvasPng(src, w, h);
+  const smaller = [0.9, 0.8, 0.72, 0.64, 0.56, 0.48, 0.4].map(factor => ({
+    width: Math.max(1, Math.round(source.width * factor)),
+    height: Math.max(1, Math.round(source.height * factor)),
+  }));
+  if (minPixels > 0) smaller.push(sizeForPixels(source, minPixels));
+  for (const { width, height } of smaller) {
+    if (width * height < minPixels || width >= source.width && height >= source.height) continue;
+    const fitted = await encodeCanvasPng(src, width, height);
     if (fitted.size <= MAX_INPUT_BYTES) {
-      return { blob: fitted, width: w, height: h, downscaled: true };
+      return { blob: fitted, width, height, downscaled: true };
     }
   }
-  throw new Error('输入图像 PNG 超过单图 8MB 上传上限，请缩小画幅后再拆层');
+  throw new Error(minPixels > 0
+    ? '拆层送图无法同时满足最小像素与单图 8MB 上限'
+    : '输入图像 PNG 超过单图 8MB 上传上限，请缩小画幅后再拆层');
 }
 
 export async function decodeLayerBlob(blob: Blob): Promise<Raster> {
@@ -120,20 +154,40 @@ export async function requestLayerDecompose(
   services: ApplicationServices,
   p: LayerProject,
   model: CatalogModel,
-  options: { prompt: string; maxImages?: number; size?: DecomposeSize; source: SplitSource },
+  options: { prompt: string; maxImages?: number; size?: DecomposeSize; source: SplitSource; componentName?: string },
   signal: AbortSignal,
   notice: (s: string) => void,
+  chooseUpscale: ChooseSplitUpscale,
 ): Promise<DecomposeBatch> {
-  const maxImages =
-    options.maxImages !== undefined
-      ? Math.max(2, Math.min(99, Math.round(options.maxImages)))
-      : undefined;
-  const requestedSize: DecomposeSize = options.size ?? '2K';
-  const prompt = options.prompt.trim();
+  const sizes = decomposeSizes(model);
+  const requestedSize = options.size && sizes.includes(options.size) ? options.size : sizes[0];
   const source = options.source;
+  const componentName = options.componentName?.trim();
+  if (options.componentName !== undefined) {
+    if (!componentName || source.kind === 'region' || source.kind === 'layers' && !source.members.length)
+      throw new Error('请填写缺失部件名称并选择母版或参考图层');
+    if (!supportsMissingComponent(model)) throw new Error('补缺失件需要支持拆层的 Seedream 5.5 来源');
+  }
+  const limit = componentName ? 2 : options.maxImages;
+  const maxImages = limit === undefined ? undefined : Math.max(2, Math.min(99, Math.round(limit)));
+  const prompt = componentName ? [
+    (source.kind === 'master' ? '以整张母版原图为参考。' : `参考图由「${source.name}」按原位合成。`) +
+      `请生成一个新的独立图层「${componentName}」。`,
+    '参照合成图的朝向、比例、线条、颜色与光照，在原画面对应的位置画出完整部件。即使部件完全被遮住，也请推断其轮廓，画全藏在前景下的连接端，留出可供转动的重叠区。目标层只含该部件，其余像素透明。参考图层留在底图。',
+    options.prompt.trim(),
+  ].filter(Boolean).join('\n') : options.prompt.trim();
   const inputRaster = splitInput(p, source);
+  if (componentName && !alphaBounds(inputRaster)) throw new Error('所选补画底图完全透明');
   const targetRect = source.rect;
-  const targetName = source.kind === 'master' ? '整图总拆' : `细拆「${source.name}」`;
+  const targetName = componentName ? `补缺失件「${componentName}」` : source.kind === 'master' ? '整图总拆' : `细拆「${source.name}」`;
+  const needsMinimum = !!model.splitLimits || (model.templateId ?? model.id) === SEEDREAM_55;
+  const minPixels = needsMinimum ? SEEDREAM_MIN_SPLIT_PIXELS : 0;
+  const upscaleTarget = inputRaster.width * inputRaster.height < minPixels
+    ? sizeForPixels(inputRaster, minPixels) : undefined;
+  const method = upscaleTarget
+    ? await chooseUpscale({ name: targetName, source: targetRect, target: upscaleTarget, minPixels }, signal)
+    : undefined;
+  signal.throwIfAborted();
 
   const run = await services.runTask(
     {
@@ -142,26 +196,60 @@ export async function requestLayerDecompose(
       sessionId: p.id,
       snapshot: {
         model: model.id,
-        mode: 'decompose',
+        mode: componentName ? 'missing-component' : 'decompose',
+        ...(componentName ? { componentName } : {}),
         maxImages,
         size: requestedSize,
         sourceLayerIds: source.members.map((m) => m.id),
       },
     },
     async (task) => {
-      notice(`正在提交 ${targetName}（Seedream 原生拆层 · ${requestedSize === 'auto' ? '自动分辨率' : requestedSize}）…`);
-      const inputBlob = await prepareInputBlob(inputRaster);
+      let prepared = inputRaster;
+      if (upscaleTarget && method) {
+        const local = resizeInput(inputRaster, upscaleTarget);
+        prepared = local;
+        if (method !== 'local') {
+          notice(`正在用「${method.name}」放大送图…`);
+          // Undersized Seedream inputs fit within the single-image byte limit even as lossless RGBA PNG.
+          const payload = buildUpscalePayload(method, await dataUrl(png(inputRaster)));
+          const expected = method.profileId === 'nai-official-v1' ? {
+            width: inputRaster.width * NAI_OFFICIAL_UPSCALE.factor,
+            height: inputRaster.height * NAI_OFFICIAL_UPSCALE.factor,
+          } : undefined;
+          const reply = await task.execute(method, payload, async (response, native, s) => {
+            const images = (await consumeMedia(response, native, s, { ...payload, ...expected })).filter(block => block.type === 'image');
+            if (images.length !== 1) throw new Error('放大模型须返回一张图像');
+            const [image] = images;
+            const { width, height } = image.size;
+            if (width * height > 32_000_000) throw new Error('放大回图超过 EDIT 的 3200 万像素上限');
+            if (expected && (width !== expected.width || height !== expected.height))
+              throw new Error('NovelAI 放大回图尺寸异常');
+            const expectedWidth = height * inputRaster.width / inputRaster.height;
+            if (
+              width < inputRaster.width || height < inputRaster.height ||
+              width === inputRaster.width && height === inputRaster.height ||
+              Math.abs(width - expectedWidth) > Math.max(1, expectedWidth * 0.01)
+            ) throw new Error('放大模型回图未保持原图比例或尺寸，请改用本地放大');
+            s.throwIfAborted();
+            return decodeLayerBlob(image.blob);
+          }, { onlyConnection: method.connection, onNotice: notice });
+          task.signal.throwIfAborted();
+          prepared = resizeInput(reply.value, upscaleTarget);
+          for (let i = 3; i < prepared.data.length; i += 4) prepared.data[i] = local.data[i];
+        }
+      }
+      notice(`正在提交 ${targetName}（${routeLabel(model)} · ${requestedSize === 'auto' ? '自动分辨率' : requestedSize}）…`);
+      const inputBlob = await prepareInputBlob(prepared, minPixels);
       const inputUrl = await dataUrl(inputBlob.blob);
       const image_options: Record<string, string> = {};
-      if (model.fields.output_format?.options.includes('png')) image_options.output_format = 'png';
-      if (model.fields.watermark?.options.includes('false')) image_options.watermark = 'false';
-      const sizeOptions = model.fields.size?.options ?? [];
-      if (requestedSize === 'auto') {
-        image_options.size = 'auto';
-      } else if (!sizeOptions.length || sizeOptions.includes(requestedSize)) {
-        image_options.size = requestedSize;
-      } else {
-        image_options.size = model.fields.size?.default || 'auto';
+      const fields = model.splitFields ?? model.fields;
+      if (fields.output_format?.options.includes('png')) image_options.output_format = 'png';
+      if (fields.watermark?.options.includes('false')) image_options.watermark = 'false';
+      if (fields.nsfw_checker && model.fields.nsfw_checker?.default) image_options.nsfw_checker = model.fields.nsfw_checker.default;
+      const sizeOptions = fields.size?.options ?? [];
+      if (requestedSize !== 'auto') {
+        image_options.size = !sizeOptions.length || sizeOptions.includes(requestedSize)
+          ? requestedSize : fields.size?.default || '';
       }
       const payload: ImagePayload = {
         model: model.id,
@@ -190,6 +278,7 @@ export async function requestLayerDecompose(
         },
         {
           signal: task.signal,
+          onlyConnection: p.decomposeConnection,
           onNotice: notice,
           onSource: (source) => {
             route = routeLabel(source.model);
@@ -204,6 +293,13 @@ export async function requestLayerDecompose(
         task.signal.throwIfAborted();
         notice(`正在解码候选图层 ${index + 1} / ${output.value.length}…`);
         const rawRaster = await decodeLayerBlob(item.blob);
+        const isBase =
+          !item.meta?.box &&
+          !item.meta?.normalizedBox &&
+          (item.meta?.zIndex === 0 ||
+            (index === 0 && item.meta?.background === 'opaque') ||
+            (index === 0 && item.meta?.zIndex === undefined && !hasTransparency(rawRaster)));
+        if (componentName && (isBase || item.meta?.zIndex === 0)) continue;
         const mapped = resolveLayerPlacement(rawRaster, baseSize, targetRect, item.meta);
         const placement = mapped ?? {
           x: targetRect.x,
@@ -216,6 +312,7 @@ export async function requestLayerDecompose(
             ? rawRaster
             : placeOnCanvas(rawRaster, { ...placement, x: 0, y: 0 }, placement.width, placement.height);
         const tight = alphaBounds(image);
+        if (componentName && !tight) continue;
         const pixels = tight ? crop(image, tight) : image;
         const box = {
           x: placement.x + (tight?.x ?? 0),
@@ -223,18 +320,12 @@ export async function requestLayerDecompose(
           width: pixels.width,
           height: pixels.height,
         };
-        const isBase =
-          !item.meta?.box &&
-          !item.meta?.normalizedBox &&
-          (item.meta?.zIndex === 0 ||
-            (index === 0 && item.meta?.background === 'opaque') ||
-            (index === 0 && item.meta?.zIndex === undefined && !hasTransparency(rawRaster)));
         const zIndex = item.meta?.zIndex ?? index;
-        const fallbackName = isBase
+        const fallbackName = componentName || (isBase
           ? '残余底图'
           : source.kind !== 'master'
             ? `${source.name} · 子层 #${index}`
-            : `部件 #${index + 1}`;
+            : `部件 #${index + 1}`);
         const fullDesc = item.meta?.name?.trim();
         const shortName = shortLayerName(fullDesc, fallbackName);
         const rawScale =
@@ -262,6 +353,7 @@ export async function requestLayerDecompose(
           source: 'decompose',
         });
       }
+      if (componentName && !layers.length) throw new Error(`模型未返回「${componentName}」的独立有效图层，本次未添加部件。`);
       layers.sort((a, b) => a.zIndex - b.zIndex);
       return {
         id: crypto.randomUUID(),
@@ -270,11 +362,13 @@ export async function requestLayerDecompose(
         sentSize: { width: inputBlob.width, height: inputBlob.height },
         requestedSize: image_options.size,
         inputDownscaled: inputBlob.downscaled,
+        inputUpscale: method === 'local' ? '本地放大' : method?.name,
         responseSize: baseSize && { width: baseSize.width, height: baseSize.height },
         route,
         prompt,
         maxImages,
         targetName,
+        componentName,
         source,
         layers,
         order: layers.map(l => l.id),

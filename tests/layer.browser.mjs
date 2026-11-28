@@ -106,7 +106,7 @@ test('failed Layer admission keeps the current stack and pool, exports, then ret
     };
   });
   await openLayer(page);
-  const panel=page.locator('.layer-panel'), pool=panel.getByRole('region',{name:'本次拆层候选池'});
+  const panel=page.locator('#imageEditor'), pool=panel.getByRole('region',{name:'本次拆层候选池'});
   await page.evaluate(()=>{window.failSave=true;});
   await pool.getByRole('button',{name:'收纳进图层栈 (1)'}).click();
   await panel.getByRole('button',{name:'重试保存'}).waitFor();
@@ -116,7 +116,8 @@ test('failed Layer admission keeps the current stack and pool, exports, then ret
   assert.deepEqual(await pool.locator('.layer-pool-meta strong').allTextContents(),['睫毛']);
   assert.equal(await page.evaluate(async()=>(await layerDb.read('retry')).layers.length),0);
   const download=page.waitForEvent('download');
-  await panel.getByRole('button',{name:'导出分层 PSD',exact:true}).click();
+  await panel.getByRole('button',{name:'更多导出方式',exact:true}).click();
+  await page.getByRole('menuitem',{name:/导出分层 PSD/}).click();
   assert.equal((await readFile(await (await download).path())).toString('ascii',0,4),'8BPS');
   await page.evaluate(()=>{window.failSave=false;});
   await panel.getByRole('button',{name:'重试保存'}).click();
@@ -192,8 +193,9 @@ for (const mobile of [false, true]) {
     await page.reload();
     await openLayer(page);
     assert.equal(await page.getByRole('button', { name: /在 ASK 查看拆件待办/ }).count(), 0);
-    assert.equal(await page.getByLabel('拆层说明', { exact: true }).inputValue(), '保留表单词');
     assert.equal(await page.locator('.layer-stack-meta strong').textContent(), '右马尾');
+    if (mobile) await page.getByRole('tab', { name: /拆层/ }).click();
+    assert.equal(await page.getByLabel('拆层说明', { exact: true }).inputValue(), '保留表单词');
     await page.getByRole('combobox', { name: '切换分件项目' }).selectOption('other');
     await page.getByRole('button', { name: /在 ASK 查看拆件待办/ }).click();
     assert.equal(await memo.locator('.todos-progress small').textContent(), '1/2');
@@ -231,11 +233,12 @@ for (const width of [1440, 390]) {
     }, mobile);
     if (mobile) await page.reload();
     await openLayer(page);
-    const panel = page.locator('.layer-panel');
+    const panel = page.locator('#imageEditor');
     const pool = panel.getByRole('region', { name: '本次拆层候选池' });
     const row = name => pool.locator('.layer-pool-item').filter({ has: page.getByText(name, { exact: true }) });
     const done = () => page.locator('.layer-panel[aria-busy="false"]').waitFor();
     const tool = name => page.getByRole('toolbar', { name: '分件画布工具' }).getByRole('button', { name, exact: true });
+    const views = page.getByRole('radiogroup', { name: '分件画布视图' });
     const order = () => pool.locator('.layer-pool-meta strong').allTextContents();
     const pixel = () => page.locator('canvas.layer-surface').evaluate(el => el.getContext('2d').getImageData(0, 0, 1, 1).data[0]);
     assert.equal(await pixel(), 200);
@@ -243,9 +246,13 @@ for (const width of [1440, 390]) {
     assert.ok(await pool.getByRole('button', { name: '下移候选层 残余底图' }).isDisabled());
     await row('右马尾').getByRole('checkbox').uncheck();
     if (mobile) {
+      await views.getByText('原图', { exact: true }).tap();
+      assert.equal(await pixel(), 0);
+      await views.getByText('拆分结果', { exact: true }).tap();
+      assert.equal(await pixel(), 200);
       await pool.getByRole('button', { name: '上移候选层 右马尾' }).tap();
     } else {
-      await tool('对照原图').click();
+      await views.getByText('原图', { exact: true }).click();
       assert.equal(await pixel(), 0);
       await row('右马尾').dispatchEvent('dragstart');
       await row('袖子').dispatchEvent('dragover');
@@ -285,8 +292,10 @@ for (const width of [1440, 390]) {
     await row('右马尾').getByRole('checkbox').check();
     await admit.click();
     await done();
+    if (mobile) await panel.getByRole('tab', { name: /图层/ }).click();
     assert.deepEqual(await panel.locator('.layer-stack-meta strong').allTextContents(), ['右马尾', '袖子']);
     assert.equal(await pixel(), 100);
+    if (mobile) await panel.getByRole('tab', { name: /拆层/ }).click();
     assert.deepEqual(await order(), ['残余底图']);
     assert.deepEqual(generation(f.requests), []);
     assert.deepEqual(f.errors, []);
@@ -316,7 +325,7 @@ test('candidate alignment fits saved face parts, clips a static copy, preserves 
     await store.save(p);
   });
   await openLayer(page);
-  const panel = page.locator('.layer-panel'), pool = panel.getByRole('region', { name: '本次拆层候选池' });
+  const panel = page.locator('#imageEditor'), pool = panel.getByRole('region', { name: '本次拆层候选池' });
   const done = () => page.locator('.layer-panel[aria-busy="false"]').waitFor();
   const fit = pool.getByRole('group', { name: '虹膜 校准' });
   const iris = pool.getByRole('button', { name: '校准候选层 虹膜', exact: true });
@@ -372,7 +381,7 @@ test('PS-like Layer Stack: Z-order, visibility/solo/lock/rename/duplicate/merge/
   });
   t.after(() => f.context.close());
   const page = f.page;
-  const panel = page.locator('.layer-panel');
+  const panel = page.locator('#imageEditor');
   const dock = page.getByRole('toolbar', { name: '分件画布工具' });
   const done = () => page.locator('.layer-panel[aria-busy="false"]').waitFor();
   const canvas = page.locator('canvas.layer-surface');
@@ -449,9 +458,11 @@ test('PS-like Layer Stack: Z-order, visibility/solo/lock/rename/duplicate/merge/
   // 1. Live composite & Compare Reference toggle
   assert.deepEqual(await pixelAt(28, 45), [210, 60, 60, 255]); // red sleeve on top of hair
   assert.deepEqual(await pixelAt(70, 45), [140, 145, 155, 255]); // right twintail
-  await dock.getByRole('button', { name: '对照原图', exact: true }).click();
+  const views = page.getByRole('radiogroup', { name: '分件画布视图' });
+  assert.equal(await views.getByRole('radio', { name: '图层合成' }).isChecked(), true);
+  await views.getByText('原图', { exact: true }).click();
   assert.deepEqual(await pixelAt(28, 45), [170, 175, 185, 255]); // locked reference
-  await dock.getByRole('button', { name: '对照原图', exact: true }).click();
+  await views.getByText('图层合成', { exact: true }).click();
   assert.deepEqual(await pixelAt(28, 45), [210, 60, 60, 255]);
 
   const sleeveRow = panel.locator('.layer-stack-row').filter({ hasText: '红袖子' }),
@@ -486,18 +497,21 @@ test('PS-like Layer Stack: Z-order, visibility/solo/lock/rename/duplicate/merge/
   await panel.getByRole('button', { name: '锁定 红袖子', exact: true }).click();
   await done();
 
-  // 4. Inline rename, duplicate, and merge down
-  await panel.getByRole('button', { name: '重命名图层', exact: true }).click();
+  // 4. Inline rename, duplicate, and merge down (via row context menu)
+  await panel.getByRole('button', { name: '更多操作 红袖子', exact: true }).click();
+  await page.getByRole('menuitem', { name: '重命名', exact: true }).click();
   const renameInput = panel.getByLabel('输入新图层名称', { exact: true });
   await renameInput.fill('外套左袖');
   await renameInput.press('Enter');
   await done();
   await panel.locator('.layer-stack-row', { hasText: '外套左袖' }).waitFor();
 
-  await panel.getByRole('button', { name: '复制图层', exact: true }).click();
+  await panel.getByRole('button', { name: '更多操作 外套左袖', exact: true }).click();
+  await page.getByRole('menuitem', { name: '复制', exact: true }).click();
   await done();
   assert.equal(await panel.locator('.layer-stack-row').count(), 3);
-  await panel.getByRole('button', { name: '向下合并图层', exact: true }).click();
+  await panel.getByRole('button', { name: '更多操作 外套左袖 副本', exact: true }).click();
+  await page.getByRole('menuitem', { name: '向下合并', exact: true }).click();
   await done();
   assert.equal(await panel.locator('.layer-stack-row').count(), 2);
 
@@ -518,6 +532,7 @@ test('PS-like Layer Stack: Z-order, visibility/solo/lock/rename/duplicate/merge/
   assert.equal(await panel.locator('.layer-stack-row').count(), 3); // 外套左袖 + 双马尾 (left) + 双马尾 · 拆分 (right)
 
   // 6. One-click color alignment on active right twintail (from 140,145,155 -> 170,175,185) + reversible slider
+  await panel.getByRole('button', { name: '精修', exact: true }).click();
   await panel.getByRole('button', { name: '一键色彩对齐原画', exact: true }).click();
   await done();
   const aligned = await pixelAt(70, 45);
@@ -601,7 +616,8 @@ test('PS-like Layer Stack: Z-order, visibility/solo/lock/rename/duplicate/merge/
   );
 
   const psdPromise = page.waitForEvent('download');
-  await panel.getByRole('button', { name: '导出分层 PSD', exact: true }).click();
+  await panel.getByRole('button', { name: '更多导出方式', exact: true }).click();
+  await page.getByRole('menuitem', { name: /导出分层 PSD/ }).click();
   assert.equal((await readFile(await (await psdPromise).path())).toString('ascii', 0, 4), '8BPS');
 
   // 10. Optimistic revision lock prevents concurrent clobbering
@@ -640,15 +656,15 @@ test('opaque artwork shows optional background removal hint without blocking See
   await p.locator('.layer-panel[aria-busy="false"]').waitFor();
   await panel.locator('.layer-banner', { hasText: '定稿无透明外缘' }).waitFor();
   // Mode tabs and Seedream decompose section remain immediately accessible (non-blocking).
-  await panel.getByRole('tab', { name: '图层与拆层', exact: true }).waitFor();
+  await panel.getByRole('tab', { name: '自动拆层', exact: true }).waitFor();
   assert.deepEqual(f.errors, []);
 });
 
-test('Koma Layer Photopea round-trip syncs new layers and groups, supports group fold/hide/solo, and confirms before undoing', async (t) => {
+test('Koma Layer Photopea round-trip keeps a merged middle layer in the original folder and confirms before undoing', async (t) => {
   const f = await open('/#/edit', { ready: '#imageEditor', standard: true, editModels: true });
   t.after(() => f.context.close());
   const page = f.page;
-  const panel = page.locator('.layer-panel');
+  const panel = page.locator('#imageEditor');
   const dock = page.getByRole('toolbar', { name: '分件画布工具' });
   const done = () => page.locator('.layer-panel[aria-busy="false"]').waitFor();
   const canvas = page.locator('canvas.layer-surface');
@@ -695,12 +711,14 @@ addEventListener('message', async (e) => {
     send(minimalPsd());
   } else if (e.data.includes('reply("layerTree"')) {
     reply('document', source);
+    const groups = [{ id: 7, name: '头部', visible: true }, { id: 6, name: '头发', visible: true }];
     reply('layerTree', {
       width,
       height,
       items: [
-        { id: 10, name: '旧头发', groups: ['头部', '头发'], visible: true, locked: false },
-        { id: 11, name: '新发饰', groups: ['头部', '头发'], visible: true, locked: false },
+        { id: 4, name: '旧头发', groups, visible: true, locked: false },
+        { id: 11, name: '发顶', groups, visible: true, locked: false },
+        { id: 5, name: '旧发饰', groups, visible: true, locked: false },
       ],
       skipped: [],
     });
@@ -708,6 +726,8 @@ addEventListener('message', async (e) => {
     send(await makeRectPng(12, 12, 24, 24, 'rgba(130, 140, 210, 1)'));
     reply('layer');
     send(await makeRectPng(56, 20, 20, 20, 'rgba(235, 90, 130, 1)'));
+    reply('layer');
+    send(await makeRectPng(40, 56, 24, 24, 'rgba(100, 110, 150, 1)'));
   }
   reply('complete');
   send('done');
@@ -719,7 +739,7 @@ parent.postMessage('done', '*');
     route.fulfill({ contentType: 'text/html; charset=utf-8', body: stub }),
   );
 
-  // Seed initial 1-layer project
+  // The exported PSD IDs place the two original layers in one nested group and 发顶 in another.
   await page.evaluate(async () => {
     const { newProject } = await import('/src/layer/project.ts');
     const { layerStorage } = await import('/src/layer/storage.ts');
@@ -737,25 +757,21 @@ parent.postMessage('done', '*');
     const p = newProject('pp-roundtrip', 'Photopea 往返', { width: W, height: H, data: refData });
     const px = new Uint8Array(24 * 24 * 4);
     for (let i = 0; i < 24 * 24; i++) px.set([100, 110, 150, 255], i * 4);
+    const part = (id, name, x, y, groups, groupIds) => ({
+      id, name, x, y, groups, groupIds, width: 24, height: 24, pixels: px, visible: true, locked: false,
+    });
     p.layers = [
-      {
-        id: 'orig-hair',
-        name: '旧头发',
-        x: 12,
-        y: 12,
-        width: 24,
-        height: 24,
-        pixels: px,
-        visible: true,
-        locked: false,
-      },
+      part('orig-hair', '旧头发', 12, 12, ['头部', '头发'], ['head', 'hair']),
+      part('orig-accessory', '旧发饰', 40, 56, ['头部', '头发'], ['head', 'hair']),
+      part('orig-cap', '发顶', 56, 20, ['发顶原组'], ['cap']),
     ];
     p.activeLayerId = 'orig-hair';
     await store.save(p);
   });
 
   await openLayer(page);
-  assert.equal(await panel.locator('.layer-stack-row').count(), 1);
+  assert.equal(await panel.locator('.layer-stack-row').count(), 3);
+  assert.equal(await panel.locator('.layer-group-row').count(), 3);
   assert.deepEqual(await pixelAt(20, 20), [100, 110, 150, 255]);
 
   // 1. Open Photopea from Koma Layer: single apply button (no editor return-mode dropdown).
@@ -765,13 +781,14 @@ parent.postMessage('done', '*');
   );
   assert.equal(await page.locator('.photopea-choice').count(), 0);
 
-  // 2. Apply & return: syncs 2 layers inside nested groups ['头部', '头发'] with badges.
+  // 2. The merged layer belongs between two surviving layers in the target folder.
   await page.getByRole('button', { name: '应用并返回', exact: true }).click();
   await page.waitForSelector('.photopea-panel', { state: 'hidden' });
   await done();
 
   assert.equal(await panel.locator('.layer-group-row').count(), 2); // 头部 & 头发
-  assert.equal(await panel.locator('.layer-stack-row').count(), 2); // 旧头发 & 新发饰
+  assert.equal(await panel.locator('.layer-group-row', { hasText: '发顶原组' }).count(), 0);
+  assert.equal(await panel.locator('.layer-stack-row').count(), 3);
   assert.equal(await panel.locator('.layer-change-badge', { hasText: '新增' }).count(), 1);
   assert.equal(await panel.locator('.layer-change-badge', { hasText: '已修' }).count(), 1);
   assert.deepEqual(await pixelAt(20, 20), [130, 140, 210, 255]);
@@ -789,7 +806,7 @@ parent.postMessage('done', '*');
   await panel.locator('.layer-group-row', { hasText: '头发' }).click();
   assert.equal(await panel.locator('.layer-stack-row').count(), 0);
   await panel.locator('.layer-group-row', { hasText: '头发' }).click();
-  assert.equal(await panel.locator('.layer-stack-row').count(), 2);
+  assert.equal(await panel.locator('.layer-stack-row').count(), 3);
 
   // 4. Group PopoverMenu supports deleting the entire group (and undoing cleanly).
   await panel.getByRole('button', { name: '分组操作 头部', exact: true }).click();
@@ -797,21 +814,22 @@ parent.postMessage('done', '*');
   await done();
   assert.equal(await panel.locator('.layer-group-row').count(), 0);
   assert.equal(await panel.locator('.layer-stack-row').count(), 0);
-  // Undo restores the whole group and both layers!
+  // Undo restores the whole group.
   await dock.getByRole('button', { name: '撤销', exact: true }).click();
   await done();
   assert.equal(await panel.locator('.layer-group-row').count(), 2);
-  assert.equal(await panel.locator('.layer-stack-row').count(), 2);
+  assert.equal(await panel.locator('.layer-stack-row').count(), 3);
 
   // 5. Rig ZIP export preserves nested groups in manifest.json
   const zipPromise = page.waitForEvent('download');
   await panel.getByRole('button', { name: '导出 Rig 切片包', exact: true }).click();
   const archive = await readArchive(new Blob([await readFile(await (await zipPromise).path())]));
   const manifest = JSON.parse(await (await archive.read('manifest.json')).text());
-  assert.deepEqual(manifest.layers[0].groups, ['头部', '头发']);
-  assert.deepEqual(manifest.layers[1].groups, ['头部', '头发']);
+  assert.deepEqual(manifest.layers.map(l => l.name), ['旧头发', '发顶', '旧发饰']);
+  assert.deepEqual(manifest.layers.map(l => l.groups), Array.from({ length: 3 }, () => ['头部', '头发']));
+  assert.equal(new Set(manifest.layers.map(l => l.groupId)).size, 1);
 
-  // 5. Undo back to pre-Photopea requires confirmation dialog!
+  // 6. Undo back to pre-Photopea requires confirmation.
   // First undo the two group-visibility toggles to reach the Photopea sync snapshot.
   await dock.getByRole('button', { name: '撤销', exact: true }).click();
   await done();
@@ -822,13 +840,15 @@ parent.postMessage('done', '*');
   await page.getByText('撤回本次 Photopea 精修？', { exact: true }).waitFor();
   // Cancel keeps Photopea result intact
   await page.getByRole('button', { name: '取消', exact: true }).click();
-  assert.equal(await panel.locator('.layer-stack-row').count(), 2);
-  // Confirm reverts to original 1-layer stack!
+  assert.equal(await panel.locator('.layer-group-row').count(), 2);
+  // Confirm restores the original folder and pixels.
   await dock.getByRole('button', { name: '撤销', exact: true }).click();
   await page.getByRole('button', { name: '撤回', exact: true }).click();
   await done();
-  assert.equal(await panel.locator('.layer-stack-row').count(), 1);
+  assert.equal(await panel.locator('.layer-stack-row').count(), 3);
+  assert.equal(await panel.locator('.layer-group-row', { hasText: '发顶原组' }).count(), 1);
   assert.deepEqual(await pixelAt(20, 20), [100, 110, 150, 255]);
+  assert.deepEqual(await pixelAt(64, 28), [100, 110, 150, 255]);
   assert.deepEqual(f.errors, []);
 });
 
@@ -864,7 +884,8 @@ test('scalpel references survive reload; ASK inspects a real source on demand an
     const app = providers[Object.getOwnPropertySymbols(providers).find(k => k.description === 'application-services')];
     const p = newProject('ref-cases', '头部', { width:32, height:32, data:new Uint8Array(4096).fill(255) });
     const pixels = Uint8Array.from({ length: 8 * 16 * 4 }, (_,i) => [2,225,12,255][i%4]);
-    p.layers = [{ id:'tail', name:'左马尾', x:24, y:16, width:8, height:16, pixels, visible:false, locked:true }];
+    p.layers = [{ id:'tail', name:'左马尾', x:24, y:16, width:8, height:16, pixels, visible:false, locked:true },
+      { id:'clip', name:'发夹', groups:['头饰'], x:4, y:5, width:8, height:16, pixels, visible:true, locked:false }];
     await layerStorage(app).save(p);
   });
   await openLayer(page);
@@ -883,11 +904,15 @@ test('scalpel references survive reload; ASK inspects a real source on demand an
   await bind(page);
   await panel.getByRole('button', { name:'让 ASK 拟词' }).click();
   assert.match(await page.locator('#askPrompt').inputValue(), /参考图层/);
+  await page.evaluate(() => ask.hide());
+  await panel.getByRole('button', { name:'让 ASK 选层' }).click();
+  assert.match(await page.locator('#askPrompt').inputValue(), /补画底图选择草稿/);
   assert.equal(calls.length, 0);
   llm.push(toolReply('inspect-tail', 'view_image', { id:'#lref-layer-tail', spec:'look' }));
   await askText(page, llm, '看看马尾参考层的颜色。');
   const meta = wireStates(calls[0].body).at(-1).layer.scalpel;
-  assert.deepEqual(meta.sources.map(s => [s.name,s.width,s.height]), [['发色.png',8,4], ['左马尾',8,16]]);
+  assert.equal(meta.sourceLayerIds, null);
+  assert.deepEqual(meta.sources.map(s => [s.name,s.width,s.height]), [['发色.png',8,4], ['头饰 / 发夹',8,16], ['左马尾',8,16]]);
   assert.equal(meta.references[0].usage, '发梢颜色');
   assert.equal(imageBlocks(calls[0].body).length, 0);
   const [seen] = imageBlocks(calls[1].body);
@@ -899,18 +924,41 @@ test('scalpel references survive reload; ASK inspects a real source on demand an
   }, seen.image_url.url);
   assert.ok(rgb[1] > 190 && rgb[0] < 32 && rgb[2] < 32);
   await askDraft(page, llm, [
+    { kind:'layer_scalpel_source', layer_ids:['tail','clip'] },
     { kind:'layer_references', references:[{ picture:'#lref-layer-tail', usage:'参考发束走向' }] },
     { kind:'layer_prompt', target:'scalpel', prompt:'沿左马尾的发束走向接通橙区。' },
-  ], '改用左马尾作为参考，帮我填词');
+  ], '单独补画左马尾和发夹，同时用左马尾作为参考，帮我填词');
+  const source = panel.getByRole('region',{name:'补画底图'});
+  assert.equal(await source.getByRole('button',{name:'母版'}).getAttribute('aria-pressed'), 'true');
   assert.equal(await panel.getByLabel('参考用途 左马尾').count(), 0);
   await applyDraft(page);
+  assert.equal(await source.getByLabel('左马尾').isChecked(), true);
+  assert.equal(await source.getByLabel('头饰 / 发夹').isChecked(), true);
   assert.equal(await panel.getByLabel('参考用途 左马尾').inputValue(), '参考发束走向');
   await undoCheckpoint(page);
+  assert.equal(await source.getByRole('button',{name:'母版'}).getAttribute('aria-pressed'), 'true');
   assert.equal(await panel.getByLabel('参考用途 发色.png').inputValue(), '发梢颜色');
   await restoreCheckpoint(page);
   await page.evaluate(() => ask.hide());
   await page.reload(); await openLayer(page); await scalpel();
+  assert.equal(await source.getByLabel('头饰 / 发夹').isChecked(), true);
   assert.equal(await panel.getByLabel('参考用途 左马尾').inputValue(), '参考发束走向');
+  assert.match(await panel.getByLabel('补充描述').inputValue(), /沿左马尾/);
+  await bind(page);
+  await askDraft(page, llm, [
+    { kind:'layer_scalpel_source', mode:'missing', component:'耳朵', layer_ids:['tail','clip'] },
+    { kind:'layer_prompt', target:'scalpel', prompt:'补全头发后面藏住的耳根。' },
+  ], '参考头发和发夹补一只耳朵，帮我选层和拟词');
+  assert.equal(await panel.getByLabel('部件名称').inputValue(), '');
+  await applyDraft(page);
+  const missing = panel.getByRole('region', { name:'缺失件底图' });
+  assert.equal(await missing.getByLabel('左马尾').isChecked(), true);
+  assert.equal(await missing.getByLabel('头饰 / 发夹').isChecked(), true);
+  assert.equal(await panel.getByLabel('部件名称').inputValue(), '耳朵');
+  assert.match(await panel.getByLabel('补充描述').inputValue(), /耳根/);
+  await undoCheckpoint(page);
+  assert.equal(await panel.getByLabel('部件名称').inputValue(), '');
+  assert.equal(await source.getByLabel('左马尾').isChecked(), true);
   assert.match(await panel.getByLabel('补充描述').inputValue(), /沿左马尾/);
   assert.deepEqual(generation(f.requests), []);
   assert.deepEqual(f.errors, []);
@@ -944,7 +992,7 @@ test('Layer ASK reviews explicitly rejected pixels from exactly the last three s
   });
   await page.reload();
   await openLayer(page);
-  const panel = page.locator('.layer-panel');
+  const panel = page.locator('#imageEditor');
   const done = () => page.locator('.layer-panel[aria-busy="false"]').waitFor();
   const pool = panel.getByRole('region', { name: '本次拆层候选池' });
   const dock = page.getByRole('toolbar', { name: '分件画布工具' });
@@ -954,6 +1002,7 @@ test('Layer ASK reviews explicitly rejected pixels from exactly the last three s
     const expand = panel.getByRole('button', { name: '展开参数', exact: true });
     if (await expand.isVisible()) await expand.click();
     await panel.getByRole('button', { name: /^(一键总拆|重新拆层)$/ }).click();
+    await page.getByRole('button', { name: '本地放大并继续' }).click();
     await done();
   };
   await panel.getByLabel('打开定稿', { exact: true }).setInputFiles({ name: 'reference.png', mimeType: 'image/png', buffer: base });
@@ -1111,6 +1160,7 @@ test('Layer ASK adjusts only the maximum; the confirmed value reaches the next m
   assert.equal(await field.inputValue(), prompt);
   assert.equal(requests.length, 0);
   await panel.getByRole('button', { name: '一键总拆', exact: true }).click();
+  await page.getByRole('button', { name: '本地放大并继续' }).click();
   await page.locator('.layer-pool-item').first().waitFor();
   assert.equal(requests.length, 1);
   assert.deepEqual(requests[0].layer_decomposition_options, { max_images: 12 });
@@ -1287,7 +1337,7 @@ for (const width of [1440, 390]) {
       const tools = page.getByRole('toolbar', { name: '分件画布工具' });
       await tools.getByRole('button', { name: '橡皮', exact: true }).click();
       await tools.getByRole('button', { name: '移动', exact: true }).click();
-      await tools.getByRole('button', { name: '对照原图', exact: true }).click();
+      await page.getByRole('radiogroup', { name: '分件画布视图' }).getByText('原图', { exact: true }).click();
       await page.getByRole('button', { name: '展开创作面板' }).click();
       await tabs.getByRole('button', { name: 'ASK', exact: true }).click();
       assert.equal(await memo.locator('.todos-progress small').textContent(), '1/25');
@@ -1317,7 +1367,7 @@ test('Layer stack imports external PNG images as layers with canvas render, pers
   t.after(() => f.context.close());
   const { page } = f;
   await openLayer(page);
-  const panel = page.locator('.layer-panel');
+  const panel = page.locator('#imageEditor');
   const dock = page.locator('.layer-dock');
   const done = () => page.locator('.layer-panel[aria-busy="false"]').waitFor();
   const pixelAt = (x, y) =>
@@ -1379,7 +1429,7 @@ test('Layer stack imports external PNG images as layers with canvas render, pers
   assert.deepEqual(await pixelAt(32, 32), [0, 0, 0, 0]);
 
   // Manual transform (position & size) works and updates the canvas
-  await panel.locator('summary', { hasText: '调整位置与尺寸' }).click();
+  await panel.getByRole('button', { name: '调整位置与尺寸', exact: true }).click();
   await panel.getByLabel('图层 X 坐标', { exact: true }).fill('20');
   await panel.getByLabel('图层 Y 坐标', { exact: true }).fill('22');
   await panel.getByRole('button', { name: '应用', exact: true }).click();

@@ -8,7 +8,7 @@ import {
   shallowRef,
 } from "vue";
 import { useServices } from "../../app/services";
-import { referenceModel } from "../../domain/nai-references";
+import { vibeModel } from "../../domain/nai-references";
 import { useDrawing } from "../../app/drawing";
 import { useShell } from "../../app/shell";
 import { useWorkspaceLifecycle } from "../../app/workspace-lifecycle";
@@ -109,7 +109,7 @@ const rows = computed(() => {
   const c = candidate.value;
   if (c?.vibes || c?.vibeError) {
     const target = selected.value.includes("model") ? resolveModel(view.value.models, String(fields.model)) : view.value.model;
-    const blocked = c.vibeError || (!target || target.profileId !== "nai-official-v1" || !referenceModel(target.id) || target.id.replace(/@local$/, "") !== c.vibes?.model || target.upstreamId && target.upstreamId.replace(/@local$/, "") !== c.vibes?.model ? "需选择编码对应的官方 V4.5 型号" : "");
+    const blocked = c.vibeError || (!target || target.profileId !== "nai-official-v1" || !vibeModel(target.id) || target.id.replace(/@local$/, "") !== c.vibes?.model || target.upstreamId && target.upstreamId.replace(/@local$/, "") !== c.vibes?.model ? "需选择编码对应的官方 V4.5 型号" : "");
     entries.push({ key: "pngVibes", label: "参考", keys: [], shown: c.vibes ? `Vibe · ${c.vibes.items.length}` : "无法恢复", now: referenceLabel(form.naiReferences), blocked, same: false });
   }
   return entries;

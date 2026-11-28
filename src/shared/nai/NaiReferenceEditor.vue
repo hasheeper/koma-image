@@ -4,7 +4,7 @@ import { useNaiComposer } from "../../app/nai-composer";
 import { useServices } from "../../app/services";
 import { useUi } from "../../app/ui";
 import { message } from "../../app/ui";
-import { referenceName } from "../../domain/nai-references";
+import { referenceName, v5PreciseModel, sameOutfit } from "../../domain/nai-references";
 import type { ReferenceKind, NaiReference } from "../../domain/nai-references";
 import AppIcon from "../AppIcon.vue";
 import { placeMenu, menuKeys } from "../popover";
@@ -17,6 +17,13 @@ const thumbnailIds = new Set<string>();
 function thumbnail(id: string) { thumbnailIds.add(id); return references.thumbnail(id, thumbnailIds); }
 watch(()=>refs.value.map(r=>r.assetId), (next,previous)=>{ references.releaseThumbnails(previous.filter(id=>!next.includes(id)), thumbnailIds); });
 const current = computed(()=>refs.value[selected.value]);
+const v5 = computed(() => props.kind === "precise" && v5PreciseModel(view.value.form.model));
+const controls = computed(() => {
+  const sliders: {key:"strength"|"information"|"fidelity"; label:string; max:number}[] = [{key:"strength", label:"参考强度", max:v5.value ? 5 : 1}];
+  if (props.kind === "vibe") sliders.push({key:"information", label:"信息提取量", max:1});
+  else if (!v5.value) sliders.push({key:"fidelity", label:"保真度", max:1});
+  return sliders;
+});
 watch(()=>refs.value.map(r=>r.id).join(),()=>{selected.value=Math.max(0,Math.min(selected.value,refs.value.length-1));});
 function settings() { return structuredClone(view.value.form.naiReferences); }
 function edit(values: Partial<NaiReference>) {
@@ -68,7 +75,7 @@ onDeactivated(close);onBeforeUnmount(()=>{references.releaseThumbnails(thumbnail
           <i v-if="kind==='vibe' && references.pending(item,view.form.model)" class="pending" aria-hidden="true"></i>
         </button>
         <button type="button" class="add-thumb" :disabled="working || refs.length>=16" aria-label="添加参考图片" title="添加图片" @click="upload?.click()"><AppIcon name="i-plus" /></button>
-        <p v-if="!refs.length" class="reference-empty"><b>{{working?'正在读取图片…':'添加参考图片'}}</b><span>{{kind==='vibe'?'借用整体风格与氛围':'参考角色或画风'}}</span></p>
+        <p v-if="!refs.length" class="reference-empty"><b>{{working?'正在读取图片…':'添加参考图片'}}</b><span>{{kind==='vibe'?'借用整体风格与氛围':v5?'参考角色、衣装或画风':'参考角色或画风'}}</span></p>
       </div>
       <div class="reference-image-actions">
         <button ref="more" type="button" class="ibtn" :popovertarget="id(`reference-more-${kind}`)" aria-label="更多参考操作" title="更多"><AppIcon name="i-more" /></button>
@@ -76,8 +83,19 @@ onDeactivated(close);onBeforeUnmount(()=>{references.releaseThumbnails(thumbnail
       </div>
     </div>
     <div v-if="current" class="scrubs">
-      <div v-if="kind==='precise'" class="fld"><div class="fld-top"><label :for="id('reference-type')">参考类型</label></div><select :id="id('reference-type')" :value="current.type" @change="edit({type:($event.target as HTMLSelectElement).value as NaiReference['type']})"><option value="character">角色</option><option value="style">风格</option><option value="character&style">角色＋风格</option></select></div>
-      <label v-for="control in [{key:'strength' as const,label:'参考强度'},{key:kind==='vibe'?'information' as const:'fidelity' as const,label:kind==='vibe'?'信息提取量':'保真度'}]" :key="control.key" class="scrub scrub-sm" :style="{'--p':`${current[control.key]*100}%`}"><span>{{control.label}}</span><output>{{current[control.key]}}</output><input type="range" min="0" max="1" step=".05" :value="current[control.key]" :aria-label="control.label" :disabled="control.key==='information' && !references.original(current.assetId)" :title="control.key==='information' && !references.original(current.assetId)?'此文件仅包含编码，调整信息提取量需要原图':undefined" @input="slider(control.key,$event)" /></label>
+      <div v-if="kind==='precise'" class="fld"><div class="fld-top"><label :for="id('reference-type')">参考类型</label></div>
+        <select :id="id('reference-type')" :value="current.type" @change="edit({type:($event.target as HTMLSelectElement).value as NaiReference['type']})">
+          <option value="character">角色</option><option value="style">风格</option><option value="character&style">角色＋风格</option>
+          <option v-if="v5 || current.type==='costume'" value="costume" :disabled="!v5">{{v5 ? '衣装' : '衣装（仅 V5）'}}</option>
+        </select>
+      </div>
+      <label v-for="control in controls" :key="control.key" class="scrub scrub-sm" :style="{'--p':`${Math.min(1,current[control.key]/control.max)*100}%`}">
+        <span>{{control.label}}</span><output>{{current[control.key]}}</output><input type="range" min="0" :max="control.max" step=".05" :value="current[control.key]" :aria-label="control.label" :disabled="control.key==='information' && !references.original(current.assetId)" :title="control.key==='information' && !references.original(current.assetId)?'此文件仅包含编码，调整信息提取量需要原图':undefined" @input="slider(control.key,$event)" />
+      </label>
+      <button v-if="kind==='precise' && !v5 && current.strength>1" type="button" class="btn btn-sm" @click="edit({strength:1})">将强度调至 V4.5 上限 1</button>
+      <label v-if="v5 && (current.type==='character' || current.type==='character&style')" class="outfit-toggle">
+        <span>优先相同衣装</span><input type="checkbox" role="switch" :checked="sameOutfit(current)" @change="edit({preferSameOutfit:($event.target as HTMLInputElement).checked})" /><span class="switch" aria-hidden="true"></span>
+      </label>
     </div>
     <div :id="id(`reference-more-${kind}`)" ref="menu" popover="auto" class="menu reference-menu" role="menu" aria-label="参考操作" @beforetoggle="position" @keydown="menuKey">
       <button class="menu-item" type="button" role="menuitem" @click="close();importer?.click()"><AppIcon name="i-upload" />导入参考</button>
@@ -105,6 +123,9 @@ onDeactivated(close);onBeforeUnmount(()=>{references.releaseThumbnails(thumbnail
 .image-enable[aria-pressed="true"] { color: var(--fg-2); }
 .image-enable[aria-pressed="false"] { color: var(--fg-3); }
 .scrubs { gap: 8px; margin-top: 14px; }
+.outfit-toggle { position: relative; display: flex; align-items: center; justify-content: space-between; gap: 8px; cursor: pointer; color: var(--fg-2); font-size: var(--fz-xs); }
+.outfit-toggle input { position: absolute; right: 0; opacity: 0; }
+.outfit-toggle .switch { pointer-events: none; }
 /* The empty strip explains itself beside the add tile instead of adding a row below. */
 .reference-empty { display: grid; gap: 3px; min-width: 0; margin: 0 0 0 6px; }
 .reference-empty b { font-size: var(--fz-xs); font-weight: var(--fw-medium); color: var(--fg-2); }

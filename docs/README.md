@@ -1,6 +1,6 @@
 # 文档索引
 
-更新：2026-11-14。现行文档按职责组织，完成的计划与过程文档在有效内容并入主专题后删除；归档只保留必要证据。代码实现、本地模拟、真实供应商验证和线上发布分别核验，历史记录不代表当前版本或新的发布授权。
+更新于 2026-11-28。现行文档按职责组织，已完成的计划与过程记录并入对应专题。归档收录已核验的发布证据，当前版本与本地验证范围见状态页。
 
 ## 阅读入口
 
@@ -40,7 +40,7 @@ docs/
 | [IMAGE](workspaces/image.md) | 绘图、历史／收藏、参数导入、独立画板、多角色及坐标 |
 | [CHAT](workspaces/chat.md) | 会话、上下文、分支、多版本与图片交接 |
 | [EDIT](workspaces/edit.md) | 独立编辑画板、版本、蒙版、编辑工具与来源回流 |
-| [Koma Layer](workspaces/layer.md) | EDIT 内 Seedream 两级递归与母版框选、候选与归档组、ASK 两级备忘、局部补画、Rig 切片与分层 PSD 导出 |
+| [Koma Layer](workspaces/layer.md) | PSD 导入、Seedream 拆层与母版框选、候选与归档组、ASK 两级备忘、多层底图补画与补缺失件、Rig 切片与分层 PSD 导出 |
 | [图片区域批注](workspaces/annotations.md) | 共享选区、ASK 坐标、双图／原生标注、人工局部回贴与边界色彩对齐 |
 | [设置与 TAGS](workspaces/settings-and-tags.md) | 供应商／Key、模型优先级、备份、词典与补全 |
 
@@ -52,7 +52,7 @@ docs/
 
 | 文档 | 维护范围 |
 | --- | --- |
-| [图像协议](integrations/image-protocols.md) | 标准网关、Seedream、OpenAI Images、Gemini、NovelAI 的协议能力与差异 |
+| [图像协议](integrations/image-protocols.md) | 标准网关、原生图像协议及第三方图像渠道，可查 [OpenRouter、Kie 和 fal.ai 配置示例](integrations/image-protocols.md#第三方图像渠道) |
 | [NovelAI 官方适配](integrations/novelai.md) | 型号、参数、参考、费用、输入预算及真实待验边界 |
 | [Photopea](integrations/photopea.md) | 唯一 iframe、普通编辑工作栈、结果融合软图层蒙版与 EDIT／CHAT 正式回传 |
 | [企划集、外部协同与本地任务](integrations/bridge.md) | 企划根目录／元数据、素材面板与 ASK 交接、Bridge IMAGE 外部草稿、Slate 任务与交付 |

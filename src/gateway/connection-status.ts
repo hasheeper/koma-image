@@ -12,6 +12,18 @@ export interface ConnectionStatus {
   kind?: "catalog-limited";
 }
 
+export const manualImageCatalogStatus: ConnectionStatus = {
+  s: "warn", label: "使用本地模型配置", text: "模型来自本机配置，生成权限待验证。",
+};
+
+export const publicImageCatalogStatus: ConnectionStatus = {
+  s: "ok", label: "已读取公开目录", text: "已读取公开图像目录，Key 与生成权限待验证。",
+};
+
+export const imageCatalogStatus: ConnectionStatus = {
+  s: "ok", label: "已读取图像目录", text: "已读取此连接的图像目录，生成权限待验证。",
+};
+
 export function catalogLimitedStatus(text: string): ConnectionStatus {
   return { s: "warn", text, kind: "catalog-limited" };
 }
@@ -29,12 +41,22 @@ export function connectionDisplayStatus(
   routing: Routing, id: string, raw: unknown, status?: ConnectionStatus, successfulModels: readonly string[] = [],
 ): ConnectionStatus | undefined {
   const c = routing.connections[id];
-  if (!c || !status || !hasOptionalImageCatalog(profileFor(c.profileId)) ||
+  if (!c || !status) return status;
+  const profile = profileFor(c);
+  const manual = c.imageChannel && !profile.transport.paths.catalog;
+  if ((manual || profile.catalog.public) && (status.s === "ok" || status.label === manualImageCatalogStatus.label)) {
+    const entries = catalogEntries(raw);
+    const generated = configuredModels(routing).some(m => sourceState(routing, id, m, entries) === "on" &&
+      successfulModels.includes(linkFor(routing, id, m, entries)!.id));
+    if (generated) return { s: "ok", label: "已验证生图", text: "此连接已成功完成图像请求。" };
+    return manual ? manualImageCatalogStatus : c.imageChannel ? imageCatalogStatus : publicImageCatalogStatus;
+  }
+  if (!hasOptionalImageCatalog(profile) ||
       (status.kind !== "catalog-limited" && status.s !== "ok")) return status;
   const entries = catalogEntries(raw);
   const models = configuredModels(routing).filter(m => sourceState(routing, id, m, entries) === "on");
   const count = models.length;
-  if (!count && profileFor(c.profileId).reasoning) return status;
+  if (!count && profile.reasoning) return status;
   if (!count) return { ...status, s: "wait", label: "等待配置", text: `尚未启用图像模型，请添加模型来源。${status.text}` };
   const generated = models.some(m => successfulModels.includes(linkFor(routing, id, m, entries)!.id));
   if (status.s === "ok" || generated)

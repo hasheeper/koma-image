@@ -1,14 +1,18 @@
+import { CUSTOM_IMAGES_ID, channelBindings, newImageChannel, type ImageChannelConfig, type ImageFormat } from "../config/image-channel.ts";
+import { kieImageModels, routerImageModels, type ImageChannelModel } from "./image-channel-models.ts";
 import { freeze } from "../domain/value.ts";
 
 export const STANDARD_PROFILE_ID = "koma-standard-v1";
-export type Protocol = "standard" | "seedream" | "openai-images" | "gemini-native" | "novelai" | "openai-chat" | "anthropic-messages";
-export type ProfilePath = "catalog" | "quota" | "stats" | "estimate" | "toolEstimate" | "generate" | "toolRun" | "native" | "reasoning" | "encodeVibe" | "upscale" | "augment";
+export type Protocol = "custom-images" | "standard" | ImageFormat | "novelai" | "openai-chat" | "anthropic-messages";
+export type ProfilePath = "layerDecompose" | "catalog" | "quota" | "stats" | "estimate" | "toolEstimate" | "generate" | "toolRun" | "native" | "reasoning" | "encodeVibe" | "upscale" | "augment" | "uploadImage" | "imageTask" | "imageResult";
 export interface GatewayProfile {
   readonly id: string;
   readonly protocol?: Protocol;
   readonly label?: string;
   /** Image work: catalog mappings, quotes and generation. */
   readonly image: boolean;
+  readonly layerDecomposition?: boolean;
+  readonly channelModels?: readonly ImageChannelModel[];
   /** Streaming tool calls with image input, used only by ASK. Never generates or charges media. */
   readonly reasoning?: { readonly cache: "implicit" | "breakpoints" };
   /** Without quotes the cost is unknown, never free. */
@@ -18,15 +22,16 @@ export interface GatewayProfile {
   readonly executionRoutes: { readonly nativeFree: boolean; readonly studio: boolean; readonly tools: boolean };
   readonly quotaPolicy: { readonly supported?: boolean };
   readonly quotaPresentation: { readonly lowRatio: number; readonly criticalRatio: number };
-  readonly catalog: { readonly minimumVersion: number; readonly requireCostCeiling: boolean };
+  readonly catalog: { readonly minimumVersion: number; readonly requireCostCeiling: boolean; readonly public?: boolean };
   readonly auth: {
-    readonly kind: "bearer" | "google-key" | "anthropic-key";
+    readonly kind: "bearer" | "google-key" | "anthropic-key" | "fal-key";
     readonly statsQueryKey?: string;
     /** Fixed protocol headers that accompany the credential. */
     readonly headers?: Readonly<Record<string, string>>;
   };
   readonly transport: {
     readonly apiPrefix: string;
+    readonly fixedBaseUrl?: string;
     /** Added only when the address is a bare service root, as SDK base URLs already carry their version. */
     readonly rootPrefix?: string;
     /** Only declared paths can be requested. */
@@ -70,8 +75,30 @@ export const openaiImagesProfile: GatewayProfile = freeze({
 });
 export const seedreamProfile: GatewayProfile = freeze({
   ...unquoted, id: "seedream-v1", protocol: "seedream", label: "Seedream 原生",
+  layerDecomposition: true,
   auth: { kind: "bearer" },
   transport: { apiPrefix: "/api/v3", paths: { catalog: "/models", generate: "/images/generations", toolRun: "/images/generations" }, nativeHeaders: {} },
+});
+export const customImagesProfile: GatewayProfile = freeze({
+  ...unquoted, id: CUSTOM_IMAGES_ID, protocol: "custom-images", label: "通用图像接口",
+  auth: { kind: "bearer" }, transport: { apiPrefix: "", paths: {}, nativeHeaders: {} },
+});
+
+// Earlier saved connections retain their original credential destinations.
+export const KIE_IMAGE_URL = "https://api.kie.ai";
+export const kieImagesProfile: GatewayProfile = freeze({
+  ...unquoted, id: "kie-images-v1", channelModels: kieImageModels, protocol: "kie-images", label: customImagesProfile.label,
+  auth: { kind: "bearer" },
+  transport: { apiPrefix: "", fixedBaseUrl: KIE_IMAGE_URL, paths: {
+    catalog: "/api/v1/chat/credit", uploadImage: "/api/file-base64-upload",
+    generate: "/api/v1/jobs/createTask", toolRun: "/api/v1/jobs/createTask", imageTask: "/api/v1/jobs/recordInfo",
+  }, pathBases: { uploadImage: "https://kieai.redpandaai.co" }, nativeHeaders: {} },
+});
+export const openRouterImagesProfile: GatewayProfile = freeze({
+  ...unquoted, id: "openrouter-images-v1", protocol: "openrouter-images", label: customImagesProfile.label,
+  catalog: { ...unquoted.catalog, public: true }, channelModels: routerImageModels, auth: { kind: "bearer" },
+  transport: { fixedBaseUrl: "https://openrouter.ai", apiPrefix: "/api/v1",
+    paths: { catalog: "/images/models", generate: "/images", toolRun: "/images" }, nativeHeaders: {} },
 });
 export const geminiProfile: GatewayProfile = freeze({
   ...unquoted, id: "gemini-native-v1", protocol: "gemini-native", label: "Gemini 原生",
@@ -83,7 +110,7 @@ export const novelaiProfile: GatewayProfile = freeze({
   ...unquoted, id: "nai-official-v1", protocol: "novelai", label: "NovelAI 官方 · 基础接入",
   quote: { ...unquoted.quote, local: true },
   auth: { kind: "bearer" },
-  transport: { apiPrefix: "", paths: { catalog: "/user/subscription", quota: "/user/subscription", generate: "/ai/generate-image", toolRun: "/ai/generate-image", encodeVibe: "/ai/encode-vibe", upscale: "/ai/upscale", augment: "/ai/augment-image" }, nativeHeaders: {} },
+  transport: { apiPrefix: "", fixedBaseUrl: NOVELAI_IMAGE_URL, paths: { catalog: "/user/subscription", quota: "/user/subscription", generate: "/ai/generate-image", toolRun: "/ai/generate-image", encodeVibe: "/ai/encode-vibe", upscale: "/ai/upscale", augment: "/ai/augment-image" }, nativeHeaders: {} },
 });
 const reasoningOnly = {
   ...unquoted,
@@ -128,11 +155,40 @@ export const anthropicMessagesProfile: GatewayProfile = freeze({
   auth: { kind: "anthropic-key", headers: { "anthropic-version": ANTHROPIC_VERSION, "anthropic-dangerous-direct-browser-access": "true" } },
   transport: { apiPrefix: "/v1", paths: { catalog: "/models", reasoning: "/messages" }, nativeHeaders: {} },
 });
-export const connectionProfiles: readonly GatewayProfile[] = freeze([standardProfile, seedreamProfile, openaiImagesProfile, geminiProfile, novelaiProfile, openaiChatProfile, anthropicMessagesProfile, openaiSharedProfile, geminiChatProfile, geminiSharedProfile]);
+export const connectionProfiles: readonly GatewayProfile[] = freeze([standardProfile, seedreamProfile, customImagesProfile, openaiImagesProfile, geminiProfile, novelaiProfile, openaiChatProfile, anthropicMessagesProfile, openaiSharedProfile, geminiChatProfile, geminiSharedProfile]);
 /** Only locally registered protocols can be selected or restored. */
 const profiles: Readonly<Record<string, GatewayProfile>> = freeze(Object.fromEntries(connectionProfiles.map(profile => [profile.id, profile])));
 
-export function profileFor(id: string): GatewayProfile {
+const imageWireProfiles: Record<ImageFormat, GatewayProfile> = {
+  "openai-images": openaiImagesProfile, "seedream": seedreamProfile, "gemini-native": geminiProfile,
+  "kie-images": kieImagesProfile, "openrouter-images": openRouterImagesProfile,
+  "fal-queue": { ...customImagesProfile, protocol: "fal-queue", auth: { kind: "fal-key" } },
+};
+type ProfileConnection = { profileId: string; imageChannel?: ImageChannelConfig };
+
+/** Open an existing third-party connection in the same editable form as a new one. */
+export function editableImageChannel(connection: ProfileConnection): ImageChannelConfig | undefined {
+  if (connection.imageChannel) return connection.imageChannel;
+  if (connection.profileId === kieImagesProfile.id) return {
+    ...newImageChannel("kie-images"), uploadBaseUrl: kieImagesProfile.transport.pathBases?.uploadImage,
+  };
+  if (connection.profileId === openRouterImagesProfile.id) return newImageChannel("openrouter-images");
+}
+
+export function profileFor(connection: string | ProfileConnection): GatewayProfile {
+  const id = typeof connection === "string" ? connection : connection.profileId;
+  if (typeof connection !== "string" && id === CUSTOM_IMAGES_ID) {
+    const config = connection.imageChannel;
+    if (!config) throw new Error("请配置通用图像接口");
+    const wire = imageWireProfiles[config.format];
+    return {
+      ...wire, id, label: customImagesProfile.label, channelModels: channelBindings(config),
+      transport: { apiPrefix: "", nativeHeaders: wire.transport.nativeHeaders, paths: config.paths,
+        ...(config.uploadBaseUrl ? { pathBases: { uploadImage: config.uploadBaseUrl } } : {}) },
+    };
+  }
+  if (id === kieImagesProfile.id) return kieImagesProfile;
+  if (id === openRouterImagesProfile.id) return openRouterImagesProfile;
   // Read the short-lived duplicate entry without dropping its saved connection.
   if (id === "image-studio-v1") return standardProfile;
   if (!Object.hasOwn(profiles, id)) throw new Error("连接协议不受支持");

@@ -1,7 +1,7 @@
 import { object } from "../domain/value.ts";
 import type { ConnectionContext } from "../services/connections.ts";
 import { hasOptionalImageCatalog, profileFor, profilePath } from "./profile.ts";
-import { catalogLimitedStatus } from "./connection-status.ts";
+import { catalogLimitedStatus, imageCatalogStatus, manualImageCatalogStatus, publicImageCatalogStatus } from "./connection-status.ts";
 import type { ConnectionStatus } from "./connection-status.ts";
 import { endpoint, authHeaders, errorMessage } from "./transport.ts";
 import { nativeCatalog, novelaiConnectionLabel } from "./native-protocols.ts";
@@ -10,14 +10,15 @@ export async function testConnection(
   fetcher: typeof fetch = fetch,
   timeout = 10_000,
 ): Promise<ConnectionStatus> {
-  const profile = profileFor(context.connection.profileId),
-    url = endpoint(
+  const profile = profileFor(context.connection);
+  context.assertCurrent();
+  if (context.connection.imageChannel && !profile.transport.paths.catalog) return manualImageCatalogStatus;
+  const url = endpoint(
       context.connection.baseUrl,
       profilePath(profile, "catalog"),
       profile,
     );
   const manualImageSource = hasOptionalImageCatalog(profile);
-  context.assertCurrent();
   try {
     const response = await fetcher(url, {
       headers: {
@@ -47,6 +48,7 @@ export async function testConnection(
     if (profile.protocol && profile.protocol !== "standard") {
       try {
         const catalog = nativeCatalog(profile, data);
+        if (profile.catalog.public) return context.connection.imageChannel ? imageCatalogStatus : publicImageCatalogStatus;
         return { s: "ok", text: profile.protocol === "novelai" ? novelaiConnectionLabel(catalog)
           : `可用，共 ${Object.keys(catalog.models).length} 个模型 ID${profile.reasoning ? " · 推理尚未实测" : ""}` };
       } catch (error) {

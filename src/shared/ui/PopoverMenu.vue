@@ -87,6 +87,7 @@ defineExpose({ close, escape });
 <style scoped>
 .popover-menu-host { position: relative; display: inline-flex; flex: 0 1 auto; align-items: center; min-width: 0; }
 .popover-menu { width: max-content; min-width: 156px; max-width: min(224px, calc(100vw - 16px)); }
+.popover-menu[tabindex="-1"]:focus { outline: none; }
 .popover-menu.left { width: 300px; max-width: calc(100vw - 32px); }
 /* The existing ASK and task menus retain their approved compact touch rows. */
 @media (pointer: coarse), (max-width: 860px) { .popover-menu.compact :deep(.menu-item) { min-height: 32px; font-size: var(--fz-sm); } }

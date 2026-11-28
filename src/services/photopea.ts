@@ -18,10 +18,16 @@ export interface FusionInput {
   apply: (blob: Blob) => Promise<void>;
 }
 
+export interface PhotopeaFolder {
+  id: number;
+  name: string;
+  visible: boolean;
+}
+
 export interface PhotopeaReturnedLayer {
   id: number;
   name: string;
-  groups: string[];
+  groups: PhotopeaFolder[];
   visible: boolean;
   locked: boolean;
   blob: Blob;
@@ -34,17 +40,24 @@ export interface PhotopeaLayerResult {
   skipped: string[];
 }
 
+/** Koma identities for the layer IDs written into this Photopea document's PSD. */
+export interface PhotopeaLayerBinding {
+  documentId: string;
+  groups: ReadonlyMap<number, string>;
+  initialLayers?: ReadonlyMap<number, string>;
+}
+
 export interface LayerPhotopeaInput {
   key: string;
   revision: number;
   title: string;
   width: number;
   height: number;
-  psd: () => Blob;
+  psd: () => { blob: Blob; groups: ReadonlyMap<number, string>; initialLayers: ReadonlyMap<number, string> };
   valid: () => boolean;
   alive?: () => boolean;
   cancel?: (keep: boolean) => void;
-  apply: (result: PhotopeaLayerResult) => Promise<number | void>;
+  apply: (result: PhotopeaLayerResult, binding: PhotopeaLayerBinding) => Promise<number | void>;
 }
 
 export type PhotopeaTask = { id: string; title: string } & (

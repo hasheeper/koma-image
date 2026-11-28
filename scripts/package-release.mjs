@@ -47,7 +47,11 @@ export async function packageRelease(output = join(root, ".local/releases")) {
   const runtimeFiles = [
     "LICENSE",
     "server.mjs",
+    "src/config/base-url.ts",
     "src/config/connections.ts",
+    "src/config/image-channel.ts",
+    "src/gateway/fal-models.ts",
+    "src/gateway/image-channel-models.ts",
     "src/gateway/profile.ts",
     "src/gateway/transport.ts",
     "src/domain/models.ts",

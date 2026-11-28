@@ -31,13 +31,13 @@ function fitAspectInsideCanvas(rect: Rect, targetRatio: number, maxW: number, ma
  */
 export function scalpelFrame(
   p: Pick<LayerProject, 'alpha' | 'occluded' | 'reference'>,
-  options?: { mode?: ScalpelFraming; model?: CatalogModel },
+  options?: { mode?: ScalpelFraming; model?: CatalogModel; layerBounds?: Rect },
 ): Rect {
   const refW = p.reference.width;
   const refH = p.reference.height;
   const visible = bounds(p.alpha, refW);
   const extend = p.occluded && bounds(p.occluded, refW);
-  let box = visible ?? extend;
+  let box = visible ?? extend ?? options?.layerBounds;
   if (visible && extend) {
     const x = Math.min(visible.x, extend.x),
       y = Math.min(visible.y, extend.y);

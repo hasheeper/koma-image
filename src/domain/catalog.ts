@@ -1,3 +1,5 @@
+import type { ImageFormat } from "../config/image-channel.ts";
+import type { ImageChannelModel, SplitLimits } from "../gateway/image-channel-models.ts";
 import { configuredModels, findModel, imageModelFields } from "./models.ts";
 import type { ModelIdentity } from "./models.ts";
 import type { Routing } from "../config/connections.ts";
@@ -5,12 +7,16 @@ import { imageConnections, modelParameterOverrides } from "../config/connections
 import { object, strings } from "./value.ts";
 import type { GatewayProfile } from "../gateway/profile.ts";
 import { profileFor } from "../gateway/profile.ts";
-import { acceptsParameter, applyParameterOverrides, declaredParameterFields, requestParameterFields } from "./model-parameters.ts";
+import { acceptsParameter, applyParameterOverrides, channelParameterField, declaredParameterFields, requestParameterFields } from "./model-parameters.ts";
 import type { ParameterFields } from "./model-parameters.ts";
 
 export interface CatalogEntry { id: string; family?: string }
 export interface CatalogModel {
   profileId?: string;
+  channelFormat?: ImageFormat;
+  layerDecomposition?: boolean;
+  splitLimits?: SplitLimits;
+  splitFields?: ParameterFields;
   templateId?: string;
   /** Non-secret connection revision; invalidates cached read-only estimates. */
   sourceRevision?: string;
@@ -35,6 +41,16 @@ export function autoMatch(entries: CatalogEntry[], model: ModelIdentity) {
 export function linkFor(routing: Routing, connection: string, model: ModelIdentity, entries: CatalogEntry[]) {
   if (!supportsModel(routing, connection, model)) return null;
   const records = routing.links[connection] ?? {};
+  const bindings = profileFor(routing.connections[connection]).channelModels;
+  if (bindings) {
+    const binding = bindings.find(item => item.templateId === (model.templateId ?? model.id));
+    if (!binding) return null;
+    const id = binding.generate;
+    const saved = records[model.id];
+    if (saved) return saved.id === id ? { ...saved, manual: false } : null;
+    return model.id === binding.templateId && entries.some(e => e.id === id) && !Object.values(records).some(link => link.id === id)
+      ? { id, manual: false, on: true } : null;
+  }
   if (records[model.id]) return records[model.id];
   const id = autoMatch(entries, model);
   return id && !Object.values(records).some(link => link.id === id) ? { id, manual: false, on: true } : null;
@@ -42,10 +58,19 @@ export function linkFor(routing: Routing, connection: string, model: ModelIdenti
 export function supportsModel(routing: Routing, connection: string, model: ModelIdentity) {
   const c = routing.connections[connection];
   if (!c) return false;
-  const profile = profileFor(c.profileId);
+  const profile = profileFor(c);
   return profile.image && (profile.protocol === "novelai" ? model.family === "novelai"
     : profile.protocol === "seedream" ? model.family === "seedream"
+    : profile.channelModels ? profile.channelModels.some(binding => binding.templateId === (model.templateId ?? model.id))
     : ["openai-images", "gemini-native"].includes(profile.protocol ?? "") ? model.family !== "novelai" : true);
+}
+export function supportsLayerDecomposition(model: CatalogModel) {
+  if (!model.profileId || !model.operations.includes("edit") || !model.tools.includes("image-edit")) return false;
+  if (model.layerDecomposition !== undefined) return model.layerDecomposition;
+  const profile = profileFor(model.profileId);
+  return profile.channelModels
+    ? !!profile.channelModels.find(binding => binding.generate === model.upstreamId)?.decompose
+    : !!profile.layerDecomposition;
 }
 export function sourceState(routing: Routing, connection: string, model: ModelIdentity, entries: CatalogEntry[]) {
   const link = linkFor(routing, connection, model, entries);
@@ -89,6 +114,25 @@ export function validateCatalog(raw: unknown, profile: GatewayProfile) {
   if (!Object.keys(object(value.models)).length) throw new Error("连接没有可用模型");
   return value;
 }
+
+function splitParameterFields(binding: ImageChannelModel, fields: ParameterFields): ParameterFields {
+  const result: ParameterFields = {};
+  for (const [key, split] of Object.entries(binding.splitFields ?? {})) {
+    const regular = binding.fields[key];
+    if (!regular) {
+      result[key] = split;
+      continue;
+    }
+    const enabled = fields[key];
+    if (!enabled) continue;
+    // Keep split-only tiers, such as 1.5K on Kie Pro, when the regular operation has a different schema.
+    const options = split.options.filter(value => !regular.options.includes(value) || enabled.options.includes(value));
+    if (!options.length) continue;
+    result[key] = { ...split, options, default: options.includes(split.default) ? split.default : options[0] };
+  }
+  return result;
+}
+
 export function normalizeCatalog(raw: unknown, routing: Routing, connection: string, profile?: GatewayProfile) {
   const value = object(raw), features = object(value.studio_features);
   const contextImages = Number(features.max_context_images) || 15;
@@ -101,7 +145,7 @@ export function normalizeCatalog(raw: unknown, routing: Routing, connection: str
   for (const [upstreamId, rawModel] of Object.entries(object(value.models))) {
     const meta = object(rawModel), entry = claimed.get(upstreamId);
     if (entry && routing.links[connection]?.[entry.id]?.on === false) continue;
-    if (!entry && findModel(bareId(upstreamId))) continue;
+    if (!entry && (profile?.channelModels || findModel(bareId(upstreamId)))) continue;
     // Once the editable list is saved, managed image families require a configured mapping.
     // This prevents deleted entries resurfacing under a supplier's alias; other gateway tools remain available.
     if (!entry && routing.models && (["gpt", "gemini", "seedream"].includes(String(meta.editor_family)) ||
@@ -119,14 +163,22 @@ export function normalizeCatalog(raw: unknown, routing: Routing, connection: str
     for (const [key, value] of Object.entries(entry?.defaults ?? {})) {
       if (fields[key] && acceptsParameter(fields[key], value)) fields[key] = { ...fields[key], default: value };
     }
-    if (profile?.protocol === 'openai-images') {
+    const binding = profile?.channelModels?.find(item => item.generate === upstreamId);
+    if (profile?.protocol === 'openai-images' || binding?.markup) {
       const declared = object(meta.image_capabilities).markup;
       if (typeof declared === 'boolean') fields.markup = { type: 'boolean', options: ['true', 'false'], default: String(declared) };
       else if (!fields.markup && entry?.parameters?.markup) fields.markup = { ...entry.parameters.markup, options: [...entry.parameters.markup.options] };
     }
     const overrides = modelParameterOverrides(routing.links[connection]?.[id] ?? {});
-    const markupEligible = profile?.protocol === 'openai-images' && (!!fields.markup || !!overrides.markup);
-    if (entry?.family !== "novelai") fields = applyParameterOverrides(fields, overrides);
+    const markupEligible = (profile?.protocol === 'openai-images' || !!binding?.markup) && (!!fields.markup || !!overrides.markup);
+    if (profile?.channelModels) {
+      // Fixed channels keep their wire schema when applying saved source preferences.
+      for (const [key, field] of Object.entries(fields)) {
+        const saved = overrides[key];
+        if (saved === null) delete fields[key];
+        else if (saved) fields[key] = channelParameterField(field, saved);
+      }
+    } else if (entry?.family !== "novelai") fields = applyParameterOverrides(fields, overrides);
     // Known defaults fill only compatible, enabled fields; source defaults keep precedence.
     if (entry && entry.family !== 'novelai') {
       const reference = imageModelFields(entry, profile?.protocol === 'openai-images' || entry.family === 'gpt' && profile?.protocol !== 'gemini-native');
@@ -135,10 +187,15 @@ export function normalizeCatalog(raw: unknown, routing: Routing, connection: str
         if (!field.default && fallback && acceptsParameter(field, fallback)) fields[key] = { ...field, default: fallback };
       }
     }
-    const configurationFields = profile?.protocol === 'openai-images' ? fields : requestParameterFields(fields);
+    const configurationFields = markupEligible || profile?.protocol === 'openai-images' ? fields : requestParameterFields(fields);
     fields = requestParameterFields(configurationFields);
     const native = profile?.protocol && profile.protocol !== "standard";
-    models.push({ id, templateId: entry?.templateId ?? entry?.id, upstreamId, connection, sourceRevision: routing.connections[connection]?.revision, ...(profile ? { profileId: profile.id } : {}), name: String(entry?.name || meta.name || id), description: String(meta.description || ""),
+    const custom = routing.connections[connection]?.imageChannel;
+    models.push({ ...(custom && profile ? { channelFormat: custom.format,
+      layerDecomposition: profile.channelModels ? !!binding?.decompose : !!profile.layerDecomposition } : {}),
+      ...(binding?.splitLimits ? { splitLimits: binding.splitLimits } : {}),
+      ...(binding?.splitFields ? { splitFields: splitParameterFields(binding, fields) } : {}),
+      id, templateId: entry?.templateId ?? entry?.id, upstreamId, connection, sourceRevision: routing.connections[connection]?.revision, ...(profile ? { profileId: profile.id } : {}), name: String(entry?.name || meta.name || id), description: String(meta.description || ""),
       provider, family: entry?.family ?? (typeof meta.editor_family === "string" ? meta.editor_family : undefined),
       quotaGroup: typeof meta.quota_group === "string" ? meta.quota_group : undefined,
       maxPixels: Number(meta.max_resolution) || 1_048_576, operations: strings(meta.operations), fields, configurationFields,

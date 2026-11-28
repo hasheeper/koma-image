@@ -1,7 +1,7 @@
 import { shallowRef } from 'vue';
 import { canonical } from '../ask/canonical.ts';
 import type { Picture } from '../ask/library.ts';
-import { layerVisible, type LayerProject } from './project.ts';
+import { layerVisible, type LayerProject, type ScalpelMode } from './project.ts';
 import { layerPictureId, referenceSources, scalpelInputs, type ScalpelReference } from './scalpel-references.ts';
 
 export const macroPrompt =
@@ -80,6 +80,10 @@ export interface LayerContext {
   forms: Record<string, SplitForm>;
   scalpel: {
     target: string;
+    mode: ScalpelMode;
+    missingModel?: string;
+    missingLayerIds: string[] | null;
+    sourceLayerIds: string[] | null;
     references: ScalpelReference[];
     sources: Omit<ReturnType<typeof referenceSources>[number], 'image'>[];
     excluded: { picture: string; name: string }[];
@@ -89,7 +93,19 @@ export interface LayerContext {
   recent?: LayerProject['lastSplit'];
   generationRounds: ReturnType<typeof rejectionSummary>;
 }
+export interface ScalpelSetup {
+  mode: ScalpelMode;
+  target: string;
+  layerIds: string[] | null;
+}
+/** Freeze the selection for the proposed mode, including when the other mode is currently open. */
+export function scalpelSetup(s: LayerContext['scalpel'], sourceMode: ScalpelMode): ScalpelSetup {
+  return { mode: s.mode ?? 'paint', target: s.target,
+    layerIds: sourceMode === 'missing' ? s.missingLayerIds ?? null : s.sourceLayerIds ?? null };
+}
 export type LayerEdit =
+  | { kind: 'scalpelSource'; key: 'scalpel'; label: string; before: string[] | null; after: string[] | null }
+  | { kind: 'scalpelSetup'; key: 'scalpel'; sourceMode: ScalpelMode; label: string; before: ScalpelSetup; after: ScalpelSetup }
   | { kind: 'prompt'; key: string; label: string; before: SplitForm; after: SplitForm }
   | { kind: 'references'; key: string; label: string; before: ScalpelReference[]; after: ScalpelReference[] }
   | { kind: 'todos'; key: string; label: string; before: LayerTodo[]; after: LayerTodo[] }
@@ -122,6 +138,8 @@ export function layerContext(
     rect,
     scalpel: {
       target: p.scalpelName, references: p.scalpelReferences ?? [], model,
+      mode: p.scalpelMode ?? 'paint', missingLayerIds: p.missingLayerIds?.slice().sort() ?? null,
+      sourceLayerIds: p.scalpelLayerIds?.slice().sort() ?? null,
       sources: referenceSources(p).map(({ image: _image, ...meta }) => meta),
       excluded: p.layers.filter(l => p.scalpelOccluderIds.includes(l.id)).map(l => ({ picture: layerPictureId(l.id), name: l.name })),
     },
@@ -168,6 +186,17 @@ export function patchedForm(
 export function layerConflict(s: LayerContext | undefined, patch: LayerPatch, side: Side): string {
   if (!s || s.projectId !== patch.projectId) return '分件项目已切换或关闭';
   for (const e of patch.edits) {
+    if (e.kind === 'scalpelSource' || e.kind === 'scalpelSetup') {
+      const current = e.kind === 'scalpelSetup' ? scalpelSetup(s.scalpel, e.sourceMode) : s.scalpel.sourceLayerIds ?? null;
+      if (canonical(current) !== canonical(e[side])) return e.label + '选择已变化';
+      const next = side === 'before' ? 'after' : 'before';
+      const ids = e.kind === 'scalpelSetup' ? e[next].layerIds : e[next];
+      for (const id of ids ?? []) {
+        if (!s.stack.some(l => l.id === id && !l.archived)) return '所选补画图层已删除或归档';
+        if ((e.kind === 'scalpelSource' || e.sourceMode === 'paint') && s.scalpel.excluded.some(l => l.picture === layerPictureId(id))) return '所选补画图层已用于排除遮挡';
+      }
+      continue;
+    }
     if (e.kind === 'references') {
       if (canonical(s.scalpel.references) !== canonical(e[side])) return '局部补画参考已变化';
       const desired = e[side === 'before' ? 'after' : 'before'];
@@ -211,7 +240,14 @@ export function applyLayerEdits(p: LayerProject, patch: LayerPatch, undo: boolea
       next.layers = next.layers.map((l) => (l.id === e.key ? { ...l, name: e[side] } : l));
     else if (e.kind === 'todos') next.todos = e[side];
     else if (e.kind === 'references') next.scalpelReferences = e[side];
-    else {
+    else if (e.kind === 'scalpelSource') next.scalpelLayerIds = e[side] ?? undefined;
+    else if (e.kind === 'scalpelSetup') {
+      const setup = e[side];
+      next.scalpelMode = setup.mode;
+      next.scalpelName = setup.target;
+      if (e.sourceMode === 'missing') next.missingLayerIds = setup.layerIds ?? undefined;
+      else next.scalpelLayerIds = setup.layerIds ?? undefined;
+    } else {
       const f = patchedForm(current.forms[e.key], e, side);
       if (e.key === 'master')
         next = {

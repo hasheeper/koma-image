@@ -3,6 +3,8 @@ import assert from "node:assert/strict";
 
 import { createServer } from './helpers/vite.mjs';
 import { chromium } from "playwright";
+import { decode } from "fast-png";
+import { imageDimensions } from "../src/native/image-dimensions.ts";
 let browser, server, origin;
 const catalog = {
   studio_features: { version: 2, max_cost: true, max_context_images: 3 },
@@ -80,7 +82,7 @@ async function bind(page) {
       ];
   });
 }
-async function open(path = "#/chat", extraModels = {}) {
+async function open(path = "#/chat", extraModels = {}, sourceSize = [512, 512]) {
   const context = await browser.newContext({
       viewport: { width: 1440, height: 900 },
       reducedMotion: "reduce",
@@ -90,11 +92,13 @@ async function open(path = "#/chat", extraModels = {}) {
     requests = [];
   const state = {
     cost: 0,
+    onEstimate: null,
     generations: 0,
     fail: false,
     hold: false,
     release: null,
     multiple: false,
+    img2imgFollowsInput: false,
   };
   await context.addInitScript(() => {
     if (location.protocol === "about:") return;
@@ -152,7 +156,7 @@ async function open(path = "#/chat", extraModels = {}) {
       ),
       "base64",
     );
-  const png = await image(512, 512, "#26344d"),
+  const png = await image(...sourceSize, "#26344d"),
     up = await image(1024, 1024, "#514b80"),
     ref = await image(384, 512, "#735057");
   page.on("pageerror", (e) => errors.push(e.message));
@@ -178,8 +182,10 @@ async function open(path = "#/chat", extraModels = {}) {
       });
     if (url.pathname.endsWith("/token_stats_data"))
       return route.fulfill({ json: { temp_limits: { is_temp: false } } });
-    if (url.pathname.endsWith("/estimate"))
+    if (url.pathname.endsWith("/estimate")) {
+      await state.onEstimate?.(payload);
       return route.fulfill({ json: { cost: state.cost } });
+    }
     state.generations++;
     if (state.hold) await new Promise((r) => (state.release = r));
     if (state.fail)
@@ -187,8 +193,11 @@ async function open(path = "#/chat", extraModels = {}) {
         status: 500,
         json: { error: "synthetic failure" },
       });
-    const bytes =
-      payload.tool === "upscale" || payload.model === "fal-upscale" ? up : png;
+    let bytes = payload.tool === "upscale" || payload.model === "fal-upscale" ? up : png;
+    if (payload.tool === "img2img" && state.img2imgFollowsInput) {
+      const { width, height } = decode(Buffer.from(payload.init_image.split(",")[1], "base64"));
+      bytes = await image(width, height, "#514b80");
+    }
     return route.fulfill({
       json: {
         candidates: [
@@ -232,7 +241,6 @@ async function open(path = "#/chat", extraModels = {}) {
     requests,
     png,
     ref,
-    up,
     errors,
     async close() {
       state.release?.();
@@ -924,6 +932,76 @@ test("M5 drawing handoff is one-use, retained chat receives it, oversized image 
     await t.close();
   }
 });
+test("Koma standard NAI Img2Img quotes and generates with a resized input", async () => {
+  const model = "nai-diffusion-5-full";
+  const t = await open("#/image", { [model]: { ...catalog.models[model], max_resolution: 3_145_728 } }, [704, 1472]), p = t.page;
+  const estimateGate = Promise.withResolvers();
+  try {
+    await editorSource(t);
+    const input = p.getByLabel("输出分辨率倍率", { exact: true });
+    const size = p.locator('output[for="editorImg2ImgScale"]');
+    const setScale = async value => {
+      await input.fill(value);
+      await p.evaluate(() => editor.setNumber("strength", .4));
+      assert.equal(await input.inputValue(), value);
+      await input.blur();
+    };
+    assert.equal(await input.inputValue(), "1");
+    assert.equal((await size.textContent()).trim(), "704×1472");
+    const defaultQuote = t.requests.filter(r => r.path.endsWith("/tools/estimate")).at(-1).payload;
+    assert.equal(defaultQuote.width, undefined);
+    assert.deepEqual(imageDimensions(defaultQuote.init_image), { width: 704, height: 1472 });
+
+    await setScale("2.1");
+    assert.match(await p.evaluate(() => editor.snapshot().warning), /3,145,728.*降低倍率/);
+    assert.equal(await p.locator("#editorRun").isDisabled(), true);
+    assert.equal(posts(t).length, 0);
+
+    t.state.cost = 1;
+    t.state.img2imgFollowsInput = true;
+    t.state.onEstimate = request => request.width === 1216 ? estimateGate.promise : undefined;
+    await setScale("1.7");
+    assert.equal((await size.textContent()).trim(), "1216×2496");
+    await p.getByRole("button", { name: "报价中…", exact: true }).waitFor();
+    assert.equal(await p.locator("#editorRun").isDisabled(), true);
+    assert.equal(posts(t).length, 0);
+    estimateGate.resolve();
+    await p.waitForFunction(() => editor.snapshot().edit.quote?.cost === 1);
+    t.state.cost = 2;
+    await p.locator("#editorRun").click();
+    await p.waitForFunction(() => !editor.snapshot().busy && editor.session.versions.length === 2);
+    const [run] = posts(t);
+    assert.equal(posts(t).length, 1);
+    assert.equal(run.path, "/v1/image/tools/run");
+    assert.deepEqual([run.payload.width, run.payload.height, run.payload.tool, run.payload.max_cost], [1216, 2496, "img2img", 2]);
+    assert.deepEqual(imageDimensions(run.payload.init_image), { width: 1216, height: 2496 });
+    const quotes = t.requests.filter(r => r.path.endsWith("/tools/estimate") && r.payload.width === 1216);
+    assert.ok(quotes.length >= 2);
+    for (const request of [...quotes, run]) {
+      assert.equal(request.payload.img2imgScale, undefined);
+      assert.equal(request.payload.init_image, run.payload.init_image);
+      assert.deepEqual([request.payload.width, request.payload.height], [1216, 2496]);
+    }
+    assert.deepEqual(await p.evaluate(() => {
+      const { base, viewed } = editor.snapshot();
+      return [base.width, base.height, viewed.width, viewed.height, viewed.params.img2imgScale, viewed.quote.cost];
+    }), [704, 1472, 1216, 2496, 1.7, 2]);
+
+    t.state.img2imgFollowsInput = false;
+    await p.waitForFunction(() => editor.snapshot().edit.canRun);
+    await p.evaluate(() => editor.run());
+    assert.equal(await p.evaluate(() => editor.snapshot().runError), "");
+    assert.equal(await p.evaluate(() => editor.session.versions.length), 3);
+    assert.deepEqual(await p.evaluate(() => {
+      const { viewed } = editor.snapshot();
+      return [viewed.width, viewed.height, viewed.params.requestedWidth, viewed.params.requestedHeight];
+    }), [704, 1472, 1216, 2496]);
+    await p.getByText('请求 1216×2496，已保留实际回图 704×1472', { exact: true }).waitFor();
+    assert.match(await p.locator(".editor-info-meta").innerText(), /704×1472.*请求 1216×2496/);
+    assert.equal(posts(t).length, 2);
+  } finally { estimateGate.resolve(); await t.close(); }
+});
+
 test("[core] M6 editor modes, quote protection, source-pixel mask, undo/redo, persistent sessions, and EDIT-owned results", async () => {
   const t = await open("#/image"),
     p = t.page;

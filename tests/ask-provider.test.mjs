@@ -115,8 +115,8 @@ test("ASK tool schemas: full registry avoids uniqueItems rejected by Gemini rela
     assert.equal(sheet.properties.ids.minItems, 2);
     assert.equal(sheet.properties.ids.maxItems, 6);
     const draft = definitions.find((t) => t.name === "propose_draft").parameters;
-    assert.equal(draft.properties.steps.items.anyOf.length, 16);
-    assert.deepEqual(draft.properties.steps.items.anyOf.flatMap(s=>s.properties.kind.enum).filter(k=>k.startsWith("layer_")).sort(),["layer_prompt","layer_references","layer_rename","layer_todos"]);
+    assert.equal(draft.properties.steps.items.anyOf.length, 17);
+    assert.deepEqual(draft.properties.steps.items.anyOf.flatMap(s=>s.properties.kind.enum).filter(k=>k.startsWith("layer_")).sort(),["layer_prompt","layer_references","layer_rename","layer_scalpel_source","layer_todos"]);
     assert.ok(draft.properties.steps.items.anyOf.some(s => s.properties.kind.enum.includes("edit_references")));
     assert.deepEqual(draft.properties.steps.items.anyOf.find(s => s.properties.kind.enum.includes("chat_open_child")).required, ["kind", "source"]);
     assert.deepEqual(Object.keys(draft.properties.steps.items.anyOf.find(s => s.properties.kind.enum.includes("chat_handoff")).properties.options.properties).sort(), ["aspect_ratio", "image_size", "size"]);

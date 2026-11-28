@@ -5,8 +5,9 @@ import { naiAwareness, naiInputModel, naiQuoteKey, naiSourceKey } from './nai-aw
 import { collect, drawingPayload } from '../domain/drawing.ts';
 import { inpaintFocusPlan, focusContains, supportsFocusedInpaint } from '../domain/inpaint-focus.ts';
 import { supportsNaiEnhance, availableEnhanceScales, naiEnhanceSize } from '../domain/nai-enhance.ts';
+import { naiImg2ImgPixelLimit, naiImg2ImgSize, supportsNaiImg2ImgScale } from '../domain/nai-img2img.ts';
 import { directorTools, directorSize, directorCost } from '../domain/director-tools.ts';
-import { editorModels, isGenerativeEditorModel, validateEditorSource, naiUpscaleLimit, MAX_INPUT_BYTES } from '../domain/media.ts';
+import { editorModels, isGenerativeEditorModel, validateEditorSource, naiImg2ImgScaleSource, naiUpscaleLimit, MAX_INPUT_BYTES } from '../domain/media.ts';
 import { canonical } from '../ask/canonical.ts';
 import { editStrengthRange } from '../domain/nai-parameters.ts';
 import { normalizeOptions } from '../domain/catalog.ts';
@@ -21,7 +22,10 @@ export function editAwareness(s: EditDraftState, counter?: Parameters<typeof nai
     return { snapshot, async counted() { return snapshot; } };
   }
   const c = s.config, form = editDrawingForm(s), mode = c.upscaleOpen ? 'upscale' : c.mode;
-  const model = s.models.find(m => m.id === form.model), source = mode==='upscale'?(s.viewing??s.source):s.source;
+  const img2imgScale = mode === 'img2img' && !c.enhance.on ? c.img2imgScale : undefined;
+  const source = mode==='upscale'?(s.viewing??s.source):s.source;
+  const model = (img2imgScale === undefined ? undefined : naiImg2ImgScaleSource(s.models, form.model, source, img2imgScale)) ??
+    s.models.find(m => m.id === form.model);
   if (mode !== 'upscale' && model && isGenerativeEditorModel(model)) {
     const identity=(m:CatalogModel)=>({connection_id:m.connection??null,name:s.connectionNames?.[m.connection]??null,
       upstream_id:m.upstreamId,protocol:connectionProfiles.find(p=>p.id===m.profileId)?.protocol??'standard',parameter_source:m.parameterSource});
@@ -61,8 +65,19 @@ export function editAwareness(s: EditDraftState, counter?: Parameters<typeof nai
     payload.enhance=true;payload.enhanceScale=c.enhance.scale;
     try {if(c.enhance.scale!=='max')Object.assign(payload,naiEnhanceSize(source,c.enhance.scale,form.model));} catch { /* Invalid saved values stay visible. */ }
   }
+  let resolutionIssue = '';
+  if (payload && img2imgScale !== undefined) {
+    try {
+      if (!model || !supportsNaiImg2ImgScale(model)) throw new Error('当前来源不支持 NAI 普通图生图倍率');
+      Object.assign(payload, naiImg2ImgSize(source, img2imgScale, naiImg2ImgPixelLimit(model)), { img2imgScale });
+    } catch (e) {
+      resolutionIssue = e instanceof Error ? e.message : '图生图输出尺寸无效';
+      payload.width = payload.height = undefined;
+    }
+  }
   const pricing=s.pricing, sameSource=pricing?.sourceKey===canonical(model?[model.id,naiSourceKey(model),model.upstreamId]:null);
-  const nai=naiAwareness({form,models:s.models,samplers:s.samplers,operation:mode,payload,
+  const models = model && s.models.find(m => m.id === model.id) !== model ? [model, ...s.models.filter(m => m !== model)] : s.models;
+  const nai=naiAwareness({form,models,samplers:s.samplers,operation:mode,payload,
     referenceCosts:pricing?.referenceCosts, account:sameSource?pricing?.account:undefined,accountAt:sameSource?pricing?.accountAt:undefined,accountSource:naiSourceKey(model),
     quote:sameSource?pricing?.quote:undefined,quoteAt:pricing?.quoteAt,
     quoteKey:sameSource && pricing?.configKey===canonical(c) ? naiQuoteKey(form,model) : undefined}, counter);
@@ -71,7 +86,7 @@ export function editAwareness(s: EditDraftState, counter?: Parameters<typeof nai
   // selectable models as its mode menus, not unrelated text models or repeats.
   const selectable=[...available('img2img'),...available('inpaint'),...available('upscale')];
   const availableModels=selectable.filter((m,i)=>selectable.findIndex(other=>other.id===m.id)===i);
-  const sourceIssue=source ? validateEditorSource(mode,model,source) : null;
+  const sourceIssue=resolutionIssue || validateEditorSource(mode,model,source);
   const capabilities={...nai.snapshot.capabilities,
     available_models:availableModels.map(m=>({id:m.id,name:m.name})),
     parameters:mode==='upscale'?{upscaleKind:{options:[...new Set(available('upscale').map(m=>m.provider==='fal'?'external':'native'))]}}:{...nai.snapshot.capabilities.parameters,
@@ -94,7 +109,8 @@ export function editAwareness(s: EditDraftState, counter?: Parameters<typeof nai
   const snapshot={ready:s.ready,active_board_id:s.id,board_seq:s.boardSeq,board_name:s.name,base_hash:editStateHash(s),mask_revision:s.maskRevision,
     mode,inpaint_kind:mode==='inpaint'?(c.focus.on?'focused':'normal'):undefined,mask:s.mask,focus_box,
     form:mode==='upscale'?{model:form.model,upscale:{kind:model?.provider==='fal'?'external':'native'}}:
-      {...saved,references_summary:nai.snapshot.capabilities.references,strength:c.strength[mode],...(mode==='img2img'?{noise:c.noise.img2img}:{}),enhance:c.enhance},
+      {...saved,references_summary:nai.snapshot.capabilities.references,strength:c.strength[mode],...(mode==='img2img'?{noise:c.noise.img2img}:{}),
+        ...(img2imgScale !== undefined ? { img2imgScale } : {}),enhance:c.enhance},
     director_tool:{tool:c.director.tool,...directorOptions,open:c.directorOpen,size:directorSizeValue,
       cost:directorPrice?{status:'ready',source:'local_estimate',unit:directorPrice.unit,per_image:directorPrice.cost}:{status:'unknown'}},
     ...nai.snapshot,capabilities,effective:{...nai.snapshot.effective,dimensions:[payload?.width,payload?.height],...(mode!=='upscale'?{strength:payload?.strength,...(mode==='img2img'?{noise:payload?.noise,enhance:!!payload?.enhance,enhanceScale:payload?.enhanceScale}: {})}:{})},...(s.blocked?{blocked:s.blocked}:{})};

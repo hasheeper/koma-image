@@ -1,7 +1,8 @@
+import { channelCatalogEntry } from "./image-channel-models.ts";
 import { countNaiTokens } from "../native/nai-tokenizer.ts";
 import { validateNaiText } from "../domain/nai-input.ts";
 import { readEncoding } from "../native/reference-images.ts";
-import { referenceModel } from "../domain/nai-references.ts";
+import { referenceSource, vibeModel } from "../domain/nai-references.ts";
 import { normalizeCatalog, validateCatalog } from "../domain/catalog.ts";
 import type { Catalog } from "../domain/catalog.ts";
 import { normalizeQuota } from "../domain/quota.ts";
@@ -9,14 +10,19 @@ import { createCostNotice, validateQuote } from "../domain/quote.ts";
 import type { Quote } from "../domain/quote.ts";
 import type { ConnectionContext } from "../services/connections.ts";
 import type { ReservationPort } from "../services/scheduler.ts";
-import { hasOptionalImageCatalog, profileFor, profilePath } from "./profile.ts";
+import { hasOptionalImageCatalog, profileFor, profilePath, STANDARD_PROFILE_ID } from "./profile.ts";
 import type { GatewayProfile } from "./profile.ts";
 import { createTransport, readJson, errorMessage } from "./transport.ts";
 import { executionRoute, toNativePayload, toStandardPayload } from "./routes.ts";
-import type { ImagePayload } from "./routes.ts";
+import type { GatewayImageResponse, ImagePayload } from "./routes.ts";
 import { nativeCatalog, nativeMappedCatalog, nativeRequest } from "./native-protocols.ts";
 import { naiCost } from "../domain/nai-cost.ts";
 import { requestOptions } from "../domain/model-parameters.ts";
+import { imageChannelFor } from "./image-channels.ts";
+import { channelImageRequest } from "./image-channel.ts";
+import { isImg2ImgScale, naiImg2ImgPixelLimit, supportsStandardNaiImg2ImgScale } from "../domain/nai-img2img.ts";
+import { NAI_OFFICIAL_MAX_PIXELS } from "../domain/nai-parameters.ts";
+import { resizeImg2ImgInput } from "../native/edit-input.ts";
 
 export class QuoteUnsupported extends Error {
   constructor() {
@@ -39,16 +45,24 @@ export interface GatewayCatalogCache {
 export function createGateway(
   context: ConnectionContext,
   fetcher: typeof fetch = fetch,
-  profile: GatewayProfile = profileFor(context.connection.profileId),
+  profile: GatewayProfile = profileFor(context.connection),
   catalogCache: GatewayCatalogCache = {},
   onSuccess?: () => void,
 ) {
   const transport = createTransport(context, profile, fetcher);
+  const channel = imageChannelFor(profile);
   let cached: Catalog | undefined;
   let mappedRaw: Record<string, unknown> | undefined;
+  let scaledInput: { image: string; width: number; height: number; encoded: Promise<string> } | undefined;
   async function rawCatalog(force = false, signal?: AbortSignal) {
     context.assertCurrent();
     if (catalogCache.raw && !force) return catalogCache.raw;
+    signal?.throwIfAborted();
+    if (context.connection.imageChannel && !profile.transport.paths.catalog) {
+      // Channel schemas provide local templates. Native schemas also accept manual mappings.
+      return (catalogCache.raw = { models: Object.fromEntries((profile.channelModels ?? []).map(binding =>
+        [binding.generate, channelCatalogEntry(binding)])) });
+    }
     const readSignal = timedSignal(15_000, signal);
     const source = await readJson(await transport.request(profilePath(profile, "catalog"), { signal: readSignal }));
     const raw = validateCatalog(profile.protocol && profile.protocol !== "standard" ? nativeCatalog(profile, source) : source, profile);
@@ -85,7 +99,8 @@ export function createGateway(
   function wire(payload: ImagePayload): ImagePayload {
     const model = cached?.models.find((m) => m.id === payload.model);
     if (payload.markup_image !== undefined && !model?.markup) throw new Error("此模型来源未启用原生标注，请检查来源参数");
-    const options = model && payload.image_options ? requestOptions(model.fields, payload.image_options) : undefined;
+    const fields = payload.layerDecomposition && model?.splitFields ? model.splitFields : model?.fields;
+    const options = fields && payload.image_options ? requestOptions(fields, payload.image_options) : undefined;
     if (options && (!profile.protocol || profile.protocol === "standard") && payload.tool === "image-edit" && model?.family === "gemini" && typeof options.image_size === "string") {
       // Studio's edit endpoint uses output_size; keep logical options unchanged until the source is chosen.
       options.output_size = options.image_size.toLowerCase();
@@ -96,6 +111,40 @@ export function createGateway(
       model: model?.upstreamId ?? payload.model,
       ...(options ? { image_options: options } : {}),
     };
+  }
+  async function prepareWire(input: ImagePayload, signal?: AbortSignal): Promise<ImagePayload> {
+    if (channel && !(await catalog(false, signal)).models.some(m => m.id === input.model))
+      throw new Error("此图像来源未启用该模型");
+    if (input.referencePlan || input.preparedReferences) {
+      if (profile.protocol !== "novelai") throw new Error("此连接未声明参考生成协议");
+      const model = (cached ?? await catalog(false, signal)).models.find(m => m.id === input.model);
+      if (!model || !referenceSource(model)) throw new Error("当前来源不支持参考生成或型号映射不匹配");
+    }
+    if (profile.id !== STANDARD_PROFILE_ID || input.tool !== "img2img" || input.img2imgScale === undefined)
+      return wire(input);
+    signal?.throwIfAborted();
+    const model = (await catalog(false, signal)).models.find(m => m.id === input.model);
+    signal?.throwIfAborted();
+    if (!model || !supportsStandardNaiImg2ImgScale(model) || !isImg2ImgScale(input.img2imgScale) || input.enhance || input.mask_image)
+      throw new Error("当前来源或操作不支持 NAI 普通图生图倍率");
+    const { init_image: image, width, height } = input;
+    const limit = Math.min(naiImg2ImgPixelLimit(model), NAI_OFFICIAL_MAX_PIXELS);
+    if (typeof image !== "string" || typeof width !== "number" || typeof height !== "number" ||
+      !Number.isInteger(width) || !Number.isInteger(height) || Math.min(width, height) < 64 || width % 64 || height % 64)
+      throw new Error("图生图底图或目标尺寸无效");
+    if (width * height > limit) throw new Error(`图生图输出最多 ${limit.toLocaleString()} 像素，请降低倍率`);
+
+    // The tools route can derive its canvas from the input image. Reuse the same
+    // encoded input for the preview quote, fresh quote, and single generation.
+    if (scaledInput?.image !== image || scaledInput.width !== width || scaledInput.height !== height) {
+      const prepared = { image, width, height, encoded: resizeImg2ImgInput(image, width, height) };
+      scaledInput = prepared;
+      void prepared.encoded.catch(() => { if (scaledInput === prepared) scaledInput = undefined; });
+    }
+    const init_image = await scaledInput.encoded;
+    signal?.throwIfAborted();
+    context.assertCurrent();
+    return wire({ ...input, init_image });
   }
   async function estimateWire(
     payload: ImagePayload,
@@ -133,8 +182,8 @@ export function createGateway(
     rawCatalog,
     fetchedAt: () => catalogCache.fetchedAt ?? 0,
     successfulModels: () => [...(catalogCache.successfulModels ?? [])],
-    estimate: (payload: ImagePayload, signal?: AbortSignal) =>
-      estimateWire(wire(payload), signal),
+    estimate: async (payload: ImagePayload, signal?: AbortSignal) =>
+      estimateWire(await prepareWire(payload, signal), signal),
     async quota(quotaGroup?: string, signal?: AbortSignal) {
       if (profile.quotaPolicy.supported === false) {
         context.assertCurrent();
@@ -163,10 +212,10 @@ export function createGateway(
       return normalizeQuota(profile, media, stats, quotaGroup);
     },
     async encodeVibe(model: string, image: string, information: number, signal: AbortSignal) {
-      if (profile.protocol !== "novelai" || !referenceModel(model)) throw new Error("此连接不支持 Vibe 编码");
+      if (profile.protocol !== "novelai" || !vibeModel(model)) throw new Error("此连接不支持 Vibe 编码");
       if (!image || !Number.isFinite(information) || information < 0 || information > 1) throw new Error("Vibe 编码参数无效");
       const upstream = wire({model}).model.replace(/@local$/, "");
-      if (!referenceModel(upstream) || upstream !== model.replace(/@local$/, "")) throw new Error("Vibe 编码模型映射无效");
+      if (!vibeModel(upstream) || upstream !== model.replace(/@local$/, "")) throw new Error("Vibe 编码模型映射无效");
       const bounded = timedSignal(120_000, signal);
       const response = await transport.request(profilePath(profile, "encodeVibe"), { body:{ image, information_extracted:information, model:upstream }, signal:bounded });
       if (!response.ok) throw new Error(errorMessage(await response.json().catch(()=>null), `Vibe 编码失败 (${response.status})`));
@@ -179,7 +228,7 @@ export function createGateway(
     async execute<T>(
       input: ImagePayload,
       consume: (
-        response: Response,
+        response: GatewayImageResponse,
         native: boolean,
         signal: AbortSignal,
       ) => Promise<T>,
@@ -215,9 +264,11 @@ export function createGateway(
       let submitted = false,
         acknowledged = false;
       try {
-        const payload = wire(input);
+        const payload = await prepareWire(input, signal);
         validateNaiText(payload);
-        const adapted = profile.protocol && profile.protocol !== "standard" ? nativeRequest(profile, payload, cached?.models.find(m => m.id === input.model)) : null;
+        const model = cached?.models.find(m => m.id === input.model);
+        const channelRequest = channel && channelImageRequest(profile, payload, model);
+        const adapted = !channel && profile.protocol && profile.protocol !== "standard" ? await nativeRequest(profile, payload, model) : null;
         if (profile.protocol === "novelai" && payload.tool !== "upscale" && payload.tool !== "director") {
           const counts = await countNaiTokens(payload).catch(() => null);
           if (counts && [counts.prompt, counts.negative].some(parts => parts.reduce((a, b) => a + b, 0) > counts.tokens))
@@ -264,17 +315,19 @@ export function createGateway(
           quote && profile.costCeiling
             ? { ...payload, [profile.costCeiling.field]: quote.cost }
             : payload;
-        const requestBody = adapted ? adapted.body : native ? toNativePayload(body) : toStandardPayload(body);
+        const requestBody = channel ? undefined : adapted ? adapted.body : native ? toNativePayload(body) : toStandardPayload(body);
         submitted = true;
-        const response = await transport.request(route.path, {
-          body: requestBody,
-          signal,
-          native,
-          model: adapted && "model" in adapted ? adapted.model : undefined,
-        });
+        const response = channel && channelRequest
+          ? await channel.execute(channelRequest, { profile, transport, fetcher, signal })
+          : await transport.request(route.path, {
+            body: requestBody,
+            signal,
+            native,
+            model: adapted && "model" in adapted ? adapted.model : undefined,
+          });
         signal.throwIfAborted();
         context.assertCurrent();
-        if (!response.ok)
+        if (response instanceof Response && !response.ok)
           throw new Error(
             errorMessage(
               await response.json().catch(() => null),
@@ -291,7 +344,7 @@ export function createGateway(
           quote,
           native,
           ms: performance.now() - start,
-          via: { connection: context.connection.id, upstreamId: payload.model },
+          via: { connection: context.connection.id, upstreamId: channelRequest?.upstreamId ?? payload.model },
         };
       } finally {
         clearTimeout(timer);

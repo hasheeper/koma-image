@@ -3,7 +3,7 @@ import type { Ref } from "vue";
 import { useServices } from "../../app/services";
 import { novelaiConnectionLabel } from "../../gateway/native-protocols";
 import type { Routing } from "../../config/connections";
-import { catalogFailureStatus, connectionDisplayStatus } from "../../gateway/connection-status";
+import { catalogFailureStatus, connectionDisplayStatus, manualImageCatalogStatus } from "../../gateway/connection-status";
 import type { ConnectionStatus } from "../../gateway/connection-status";
 import { profileFor } from "../../gateway/profile";
 
@@ -77,12 +77,13 @@ export function useConnectionCatalogs(options: {
         if (connections.context(id).cacheKey !== contextKey) { queueLoad([id]); return; }
         if (results[0].status === "fulfilled") {
           raw.value = { ...raw.value, [id]: results[0].value };
-          recordStatus(id, { s: "ok", text: gateway.profile.protocol === "novelai" ? novelaiConnectionLabel(results[0].value) : gateway.profile.reasoning ? "可用 · 推理尚未实测" : "可用 · 刚刚检查" });
+          recordStatus(id, c.imageChannel && !gateway.profile.transport.paths.catalog ? manualImageCatalogStatus :
+            { s: "ok", text: gateway.profile.protocol === "novelai" ? novelaiConnectionLabel(results[0].value) : gateway.profile.reasoning ? "可用 · 推理尚未实测" : "可用 · 刚刚检查" });
         } else recordStatus(id, catalogFailureStatus(gateway.profile, results[0].reason));
         if (results[1].status === "fulfilled") balances.value = { ...balances.value, [id]: results[1].value.media };
       } catch (error) {
         if (!disposed && !signal.aborted && checks.get(id) === check)
-          recordStatus(id, catalogFailureStatus(profileFor(c.profileId), error));
+          recordStatus(id, catalogFailureStatus(profileFor(c), error));
       } finally { if (checks.get(id) === check) checks.delete(id); }
     })();
     return check.promise;

@@ -443,6 +443,20 @@ test('P5 project panel reads roles and long lore, applies one outfit once, group
     assert.equal(await panel.getByRole('heading',{name:'scene',exact:true}).count(),1);
     await page.waitForFunction(()=>document.querySelector('.image-meta')?.textContent.includes('120 × 180'));
     await panel.getByRole('button',{name:'资料操作',exact:true}).click();
+    const precise = page.getByRole('menuitem',{name:'用作 Precise 参考'}), vibe = page.getByRole('menuitem',{name:'用作 Vibe 参考'});
+    assert.equal(await precise.isDisabled(),true);
+    await page.route('https://image.novelai.net/user/subscription',route=>route.fulfill({json:{active:true,tier:3,trainingStepsLeft:{fixedTrainingStepsLeft:100,purchasedTrainingSteps:0}}}));
+    await page.evaluate(async()=>{
+      const config=structuredClone(services.connections.configuration);
+      config.connections.official={id:'official',name:'模拟 NAI',baseUrl:'https://image.novelai.net',profileId:'nai-official-v1',credentialRef:'nai-key',revision:'r1'};
+      await services.connections.save(config);services.connections.supplyKey('nai-key','synthetic');
+      await drawing.patch({model:'nai-diffusion-5-full'});
+    });
+    await page.waitForFunction(()=>drawing.snapshot().referenceKinds.includes('precise'));
+    assert.equal(await vibe.isDisabled(),true);
+    await precise.click();
+    await page.waitForFunction(()=>drawing.snapshot().form.naiReferences.active==='precise' && drawing.snapshot().form.naiReferences.precise.length===1);
+    await panel.getByRole('button',{name:'资料操作',exact:true}).click();
     await page.getByRole('menuitem',{name:'文件信息与说明',exact:true}).click();
     const information=panel.getByRole('region',{name:'文件信息与说明',exact:true});
     assert.match(await information.textContent(),/references\/scenes\/scene.png/);

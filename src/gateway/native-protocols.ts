@@ -12,6 +12,7 @@ import { naiOfficialInpaintModel } from "../domain/nai.ts";
 import { naiSamplers, NAI_OFFICIAL_MAX_PIXELS } from "../domain/nai-parameters.ts";
 import { declaredParameterFields, validParameterKey } from "../domain/model-parameters.ts";
 import { validateMarkupImage } from "../domain/image-markup.ts";
+import { imageChannelFor } from "./image-channels.ts";
 
 export function novelaiConnectionLabel(catalog: unknown) {
   const active = object(object(catalog).subscription).active;
@@ -20,6 +21,11 @@ export function novelaiConnectionLabel(catalog: unknown) {
 
 /** Discovery lists upstream IDs; their use is decided by the existing model mappings. */
 export function nativeCatalog(profile: GatewayProfile, raw: unknown) {
+  const channel = imageChannelFor(profile);
+  if (channel) {
+    if (!channel.catalog) throw new Error('此图像格式使用本地模型配置');
+    return channel.catalog(raw, profile.channelModels ?? []);
+  }
   const data = object(raw), models: Record<string, unknown> = {};
   if (profile.protocol === "novelai") {
     if (typeof data.active !== "boolean" || typeof data.tier !== "number")
@@ -54,7 +60,7 @@ export function nativeCatalog(profile: GatewayProfile, raw: unknown) {
 /** Capabilities follow the chosen application model, never an upstream alias's spelling. */
 export function nativeMappedCatalog(profile: GatewayProfile, raw: Record<string, unknown>, routing: Routing, connection: string) {
   const standard = !profile.protocol || profile.protocol === "standard";
-  if (!standard && profile.protocol !== "openai-images" && profile.protocol !== "gemini-native" && profile.protocol !== "seedream") return raw;
+  if (!standard && !["openai-images", "gemini-native", "seedream"].includes(profile.protocol ?? "")) return raw;
   const entries = catalogEntries(raw);
   const models: Record<string, unknown> = Object.assign(Object.create(null), standard ? object(raw.models) : {});
   for (const model of configuredModels(routing).filter(m => ["gpt", "gemini", "seedream"].includes(m.family))) {
@@ -114,11 +120,11 @@ export function nativeRequest(profile: GatewayProfile, payload: ImagePayload, mo
   if (payload.tool && payload.tool !== "image-edit")
     throw new Error("此协议仅支持参考图编辑");
   const input = images(payload), options = object(payload.image_options);
-  const path = profilePath(profile, payload.tool ? "toolRun" : "generate");
+  const decomposing = profile.protocol === "seedream" && (!!payload.layerDecomposition || options.layer_decomposition === true);
+  const path = profilePath(profile, decomposing && profile.transport.paths.layerDecompose ? "layerDecompose" : payload.tool ? "toolRun" : "generate");
   if (profile.protocol === "seedream") {
     if (!payload.model?.trim() || payload.model.length > 512 || /[\x00-\x1f\x7f]/.test(payload.model)) throw new Error("模型 ID 无效");
     const templateId = model?.templateId ?? payload.model;
-    const decomposing = !!payload.layerDecomposition || options.layer_decomposition === true;
     if (decomposing && input.length !== 1)
       throw new Error("Seedream 图层拆分需要且仅接受 1 张输入图");
     const limit = model?.maxImages ?? seedreamLimits(templateId)?.images ?? 10;

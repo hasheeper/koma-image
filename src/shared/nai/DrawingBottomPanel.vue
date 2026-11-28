@@ -12,7 +12,7 @@ const { drawing, view, id } = useNaiComposer();
 const section = ref<"parameters" | ReferenceKind>("parameters"), open = ref(false), mounted = ref(false);
 const shell = shallowRef<HTMLElement>(), content = shallowRef<HTMLElement>();
 const supported = computed(() => view.value.referenceSupported);
-const referenceKinds = computed(() => view.value.referenceKinds ?? ["vibe", "precise"] as const);
+const referenceKinds = computed(() => view.value.referenceKinds);
 const parameterPreview = computed(() => {
   const form = view.value.form, medium = naiCapabilities(form.model).medium;
   const sampler = samplerName(medium ? "k_euler_ancestral" : form.sampler);

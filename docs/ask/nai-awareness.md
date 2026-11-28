@@ -1,6 +1,6 @@
 # ASK 的 NAI 基础感知
 
-更新：2026-11-14。EA0 已接入 IMAGE，并由 [EDIT](edit.md)复用；本文维护现行读取与计算口径。本地模拟覆盖只读能力、预算和费用投影及无报价／生成请求；真实模型理解、参考效果和实际消耗仍见[待办](../status.md#仍待真实验证)。
+更新：2026-11-27。EA0 已接入 IMAGE，并由 [EDIT](edit.md)复用；本文维护现行读取与计算口径。本地模拟覆盖只读能力、预算和费用投影及无报价／生成请求；真实模型理解、参考效果和实际消耗仍见[待办](../status.md#仍待真实验证)。
 
 ## 数据来源与权限
 
@@ -21,7 +21,7 @@ IMAGE 表单在初始状态中展开或经 `get_state({board_id})` 显式读取�
 | `cost` | 状态、估算或报价、单位、操作、计算尺寸、输入指纹、取得时间和已知分项 |
 | `diagnostics` | 能力、结构和输入问题，区分 warning 与 error |
 
-当前支持性来自实际来源与操作：Variety+ 仅官方 V4.5；V5 固定 Karras；Medium 生效为 14 步、Euler Ancestral、固定 Heavy 负向，不采用保存的用户负向与可调 Rescale。切换型号可保留休眠配置，但不能把新提议的不支持字段静默吞掉。参考的 `supported_kinds` 与 `active_kind` 分开；支持 Vibe／Precise 不代表可同时启用，Inpaint 仅 Precise，V5 两种参考仍未开放。
+当前支持性来自实际来源与操作：Variety+ 仅官方 V4.5；V5 固定 Karras；Medium 生效为 14 步、Euler Ancestral、固定 Heavy 负向，不采用保存的用户负向与可调 Rescale。切换型号可保留休眠配置，但不能把新提议的不支持字段静默吞掉。参考的 `supported_kinds` 与 `active_kind` 分开；V4.5 文生图与 Img2Img 可选 Vibe 或 Precise，重绘仅支持 Precise。V5 文生图与无蒙版 Img2Img（含 Enhance／Max）仅支持 Precise，普通／聚焦重绘需要停用参考。跨代沿用的衣装或强度超限会进入诊断。
 
 具体范围由 [NAI 专题](../integrations/novelai.md)和 `domain/nai*.ts` 维护。ASK 不把 Guidance 滑杆的 10 当作 API 硬上限，不把 IMAGE 的 2048 单边限制套给 EDIT，也不重开遗留 cfg 写入。
 

@@ -1,3 +1,5 @@
+import { v5PreciseModel } from "../domain/nai-references.ts";
+
 /** Binary references remain outside Vue and JSON form state. */
 export const bytesBase64 = (bytes: Uint8Array) => {
   let result = "";
@@ -19,16 +21,37 @@ export async function referenceBitmap(blob: Blob) {
   return bitmap;
 }
 const png = (canvas: HTMLCanvasElement) => new Promise<Blob>((resolve, reject) => canvas.toBlob(blob => blob ? resolve(blob) : reject(new Error("参考图片处理失败")), "image/png"));
-export async function preciseImage(blob: Blob) {
+// Official V5 buckets, portrait to landscape (including the square once).
+const wideBuckets = Array.from({length: 49}, (_, i) => {
+  const width = 1024 + i * 64;
+  return [width, 64 * Math.floor(1024 ** 2 / width / 64)];
+});
+const v5Buckets = [...wideBuckets.slice(1).reverse().map(([w, h]) => [h, w]), ...wideBuckets];
+export function v5ReferenceSize(width: number, height: number) {
+  const ratio = Math.log(width / height);
+  const distance = ([w, h]: number[]) => Math.abs(Math.log(w / h) - ratio);
+  return v5Buckets.reduce((best, size) => distance(size) < distance(best) ? size : best);
+}
+export async function preciseImage(blob: Blob, model: string) {
   const image = await referenceBitmap(blob);
   try {
-    const [width, height] = [[1024,1536], [1536,1024], [1472,1472]].reduce((best, size) => Math.abs(image.width / image.height - size[0] / size[1]) < Math.abs(image.width / image.height - best[0] / best[1]) ? size : best);
+    const crop = v5PreciseModel(model);
+    const [width, height] = crop ? v5ReferenceSize(image.width, image.height) : [[1024,1536], [1536,1024], [1472,1472]].reduce((best, size) => Math.abs(image.width / image.height - size[0] / size[1]) < Math.abs(image.width / image.height - best[0] / best[1]) ? size : best);
     const canvas = document.createElement("canvas"); canvas.width = width; canvas.height = height;
     const ctx = canvas.getContext("2d")!;
-    ctx.fillStyle = "#000"; ctx.fillRect(0, 0, width, height);
     ctx.imageSmoothingEnabled = true; ctx.imageSmoothingQuality = "high";
-    const scale = Math.min(width / image.width, height / image.height), w = Math.round(image.width * scale), h = Math.round(image.height * scale);
-    ctx.drawImage(image, Math.round((width - w) / 2), Math.round((height - h) / 2), w, h);
+    if (crop) {
+      const scale = Math.max(width / image.width, height / image.height);
+      const w = Math.round(image.width * scale), h = Math.round(image.height * scale);
+      // Map the center crop back to original pixels without allocating an oversized intermediate.
+      const sx = image.width / w, sy = image.height / h;
+      ctx.drawImage(image, Math.floor((w - width) / 2) * sx, Math.floor((h - height) / 2) * sy,
+        width * sx, height * sy, 0, 0, width, height);
+    } else {
+      ctx.fillStyle = "#000"; ctx.fillRect(0, 0, width, height);
+      const scale = Math.min(width / image.width, height / image.height), w = Math.round(image.width * scale), h = Math.round(image.height * scale);
+      ctx.drawImage(image, Math.round((width - w) / 2), Math.round((height - h) / 2), w, h);
+    }
     return blobBase64(await png(canvas));
   } finally { image.close(); }
 }
@@ -54,9 +77,14 @@ export async function readEncoding(response: Response, signal: AbortSignal) {
     return bytesBase64(bytes);
   } finally { signal.removeEventListener("abort", abort); reader.releaseLock(); }
 }
+export async function identifyImageBlob(raw: Blob) {
+  const bytes = new Uint8Array(await raw.slice(0, 12).arrayBuffer());
+  const type = bytes[0] === 137 && bytes[1] === 80 && bytes[2] === 78 && bytes[3] === 71 ? "image/png"
+    : bytes[0] === 255 && bytes[1] === 216 ? "image/jpeg"
+    : String.fromCharCode(...bytes.slice(0, 4)) === "RIFF" && String.fromCharCode(...bytes.slice(8, 12)) === "WEBP" ? "image/webp" : null;
+  if (!type) throw new Error("文件没有有效图片");
+  return raw.slice(0, raw.size, type);
+}
 export async function imageBase64(value: unknown, limit = 16 * 1024 * 1024) {
-  const raw = base64Blob(value,"application/octet-stream",limit), bytes = new Uint8Array(await raw.slice(0,16).arrayBuffer());
-  const type = bytes[0]===137 && bytes[1]===80 && bytes[2]===78 && bytes[3]===71 ? "image/png" : bytes[0]===255 && bytes[1]===216 ? "image/jpeg" : String.fromCharCode(...bytes.slice(0,4))==="RIFF" && String.fromCharCode(...bytes.slice(8,12))==="WEBP" ? "image/webp" : null;
-  if (!type) throw new Error("参考文件没有有效图片");
-  return new Blob([raw],{type});
+  return identifyImageBlob(base64Blob(value, "application/octet-stream", limit));
 }

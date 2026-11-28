@@ -8,6 +8,7 @@ import { naiEnhanceSize, naiEnhancePrompt, supportsNaiEnhance } from "./nai-enha
 import { readInpaintFocus, supportsFocusedInpaint } from "./inpaint-focus.ts";
 import type { InpaintFocus } from "./inpaint-focus.ts";
 import type { EnhanceScale } from "./nai-enhance.ts";
+import { naiImg2ImgPixelLimit, naiImg2ImgSize, supportsNaiImg2ImgScale } from "./nai-img2img.ts";
 
 export type EditMode = "img2img" | "inpaint";
 export type EditorMode = EditMode | "upscale";
@@ -29,6 +30,7 @@ export interface EditorFields extends Partial<NaiSettings> {
   enhance?: boolean;
   enhanceScale?: EnhanceScale;
   enhanceMagnitude?: number | null;
+  img2imgScale?: number;
   inpaintFocus?: InpaintFocus;
 }
 type ModelCatalog = { models: CatalogModel[] };
@@ -66,6 +68,7 @@ export type NAIEditPayload = PayloadBase & EditNumbers & {
   enhance?: true;
   enhanceScale?: EnhanceScale;
   enhanceMagnitude?: number | null;
+  img2imgScale?: number;
   inpaintFocus?: InpaintFocus;
 } & (
   | { tool: "img2img"; mask_image?: never }
@@ -311,6 +314,9 @@ function validateNAIEditPayload(
   const sourceProblem = validateEditorSource(input.tool, model, size);
   if (sourceProblem) throw new Error(sourceProblem);
   if (input.enhance && (input.tool !== "img2img" || !supportsNaiEnhance(model))) throw new Error("Enhance 仅支持 NovelAI 官方图生图");
+  if (input.img2imgScale !== undefined && (input.tool !== "img2img" || input.enhance || !supportsNaiImg2ImgScale(model)))
+    throw new Error("当前来源或操作不支持 NAI 普通图生图倍率");
+  const outputSize = input.img2imgScale === undefined ? undefined : naiImg2ImgSize(size, input.img2imgScale, naiImg2ImgPixelLimit(model));
   const enhancedSize = input.enhance ? naiEnhanceSize(size, input.enhanceScale, model.id) : undefined;
   const focus = input.inpaintFocus === undefined ? undefined : readInpaintFocus(input.inpaintFocus);
   if (input.inpaintFocus !== undefined && (!focus || input.tool !== "inpaint" || input.enhance || !supportsFocusedInpaint(model) ||
@@ -363,6 +369,7 @@ function validateNAIEditPayload(
   if (input.varietyPlus !== undefined) Object.assign(fields, { varietyPlus: input.varietyPlus });
   if (enhancedSize) Object.assign(fields, { ...(input.enhanceScale === "max" ? { width: size.width, height: size.height } : enhancedSize), enhance: true, enhanceScale: input.enhanceScale,
     enhanceMagnitude: input.enhanceMagnitude ?? null });
+  if (outputSize) Object.assign(fields, outputSize, { img2imgScale: input.img2imgScale });
   if (focus) Object.assign(fields, { inpaintFocus: focus });
   if (!naiCapabilities(model.id).medium) fields.cfg_rescale = number("cfgRescale", 0, 1, 0);
   if (official) validateNaiParameters({ ...fields, noiseSchedule: input.noiseSchedule });
@@ -397,6 +404,22 @@ export function editorModels(catalog: ModelCatalog, mode: EditorMode): CatalogMo
     ? upscaleModels(catalog)
     : [...naiEditModels(catalog, mode), ...catalog.models.filter(isGenerativeEditorModel)];
   return available.filter((m, i) => available.findIndex(other => other.id === m.id) === i);
+}
+
+export function naiImg2ImgScaleSource(
+  models: readonly CatalogModel[],
+  id: string,
+  source?: { width: number; height: number; bytes?: number },
+  scale?: number,
+) {
+  const eligible = models.filter(m => m.id === id && supportsNaiImg2ImgScale(m));
+  if (source && scale !== undefined) {
+    try {
+      const { width, height } = naiImg2ImgSize(source, scale);
+      return eligible.find(m => width * height <= naiImg2ImgPixelLimit(m) && !validateEditorSource("img2img", m, source)) ?? eligible[0];
+    } catch { /* The caller displays the invalid output size. */ }
+  }
+  return eligible[0];
 }
 
 /** Explains why a base cannot be sent, before any re-encoding or mask allocation. */
@@ -464,6 +487,7 @@ export function buildEditorPayload(
     enhance,
     enhanceScale,
     enhanceMagnitude,
+    img2imgScale,
     inpaintFocus,
   } = fields;
   return buildNAIEditPayload(
@@ -471,7 +495,8 @@ export function buildEditorPayload(
     mode,
     source.png,
     { prompt: enhance ? naiEnhancePrompt(compiled.prompt, enhanceScale) : compiled.prompt, negative_prompt: compiled.negative_prompt, sampler: medium ? "k_euler_ancestral" : sampler, steps: medium ? 14 : steps, scale, cfgRescale, noiseSchedule, varietyPlus, seed, strength, noise,
-      ...(enhance ? { enhance, enhanceScale, enhanceMagnitude } : {}), ...(inpaintFocus ? { inpaintFocus } : {}) },
+      ...(enhance ? { enhance, enhanceScale, enhanceMagnitude } : {}), ...(inpaintFocus ? { inpaintFocus } : {}),
+      ...(img2imgScale !== undefined ? { img2imgScale } : {}) },
     mode === "inpaint" ? mask : null,
     samplers,
   );

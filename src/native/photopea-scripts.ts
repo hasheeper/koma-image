@@ -191,13 +191,13 @@ export function exportPhotopeaLayers(id: string, refId: number) {
           try{l.visible=false;}catch(e){}
         }
       }
-      function walk(container,groups,ancestors,parentVisible){
+      function walk(container,groups,ancestors){
         var list=container.layers;
         for(var i=list.length-1;i>=0;i--){
           var l=list[i];
-          var vis=parentVisible&&!!l.visible;
           if(l.typename==="LayerSet"){
-            walk(l,groups.concat([String(l.name||"图层组")]),ancestors.concat([l]),vis);
+            var group={id:Number(l.id),name:String(l.name||"图层组"),visible:!!l.visible};
+            walk(l,groups.concat([group]),ancestors.concat([l]));
             continue;
           }
           if(l.typename!=="ArtLayer")continue;
@@ -212,10 +212,10 @@ export function exportPhotopeaLayers(id: string, refId: number) {
           if(groups.length===0&&((${refId}>0&&l.id===${refId})||l.name==="锁定原图"))continue;
           if(isAdj(l)){skipped.push(String(l.name||"调整层"));continue;}
           items.push({layer:l,ancestors:ancestors.slice(),clips:clips});
-          meta.push({id:Number(l.id)||0,name:String(l.name||"图层"),groups:groups.slice(),visible:vis,locked:!!l.allLocked});
+          meta.push({id:Number(l.id)||0,name:String(l.name||"图层"),groups:groups,visible:!!l.visible,locked:!!l.allLocked});
         }
       }
-      walk(temp,[],[],true);
+      walk(temp,[],[]);
       hideAll(temp);
       reply("layerTree",{width:Number(temp.width),height:Number(temp.height),items:meta,skipped:skipped});
       for(var idx=0;idx<items.length;idx++){

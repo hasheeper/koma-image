@@ -8,6 +8,7 @@ export interface LayerSummary {
   title: string;
   revision: number;
   updated: number;
+  sourceDigest?: string;
 }
 
 interface PixelCheckpoint {
@@ -59,12 +60,20 @@ export function layerStorage(services: ApplicationServices) {
     );
     return items.sort((a, b) => b.updated - a.updated);
   }
-  function save(next: LayerProject): Promise<LayerProject> {
+  function persist(next: LayerProject, replacing?: readonly LayerSummary[]): Promise<LayerProject> {
     return services.data.write(async () => {
       const tx = services.databases.transaction(db, ['projects', 'index'], 'readwrite'),
         done = transactionDone(tx);
       try {
         const index = tx.objectStore('index'), records = tx.objectStore('projects');
+        if (replacing) {
+          const latest = await idbRequest<LayerSummary[]>(index.getAll());
+          const revisions = new Map(replacing.map(s => [s.id, s.revision]));
+          if (latest.length !== revisions.size || latest.some(s => revisions.get(s.id) !== s.revision))
+            throw new Error('另一页面已更新分件缓存，请重新打开文件');
+          records.clear();
+          index.clear();
+        }
         const current: LayerSummary | undefined = await idbRequest(index.get(next.id));
         if ((current?.revision ?? 0) !== next.revision) {
           throw new Error('另一页面已更新此项目，可先导出本页图层，再打开最新存档');
@@ -97,7 +106,7 @@ export function layerStorage(services: ApplicationServices) {
         }
         records.put({ format: 'koma-layer.checkpoint.v1', project: metadata, pixelIds: [...planes.keys()] } satisfies PixelCheckpoint, next.id);
         index.put(
-          { id: next.id, title: next.title, revision: saved.revision, updated: Date.now() },
+          { id: next.id, title: next.title, revision: saved.revision, updated: Date.now(), sourceDigest: next.sourceDigest },
           next.id,
         );
         await done;
@@ -113,5 +122,15 @@ export function layerStorage(services: ApplicationServices) {
       }
     });
   }
-  return { read, list, save };
+  function clear() {
+    return services.data.write(async () => {
+      const tx = services.databases.transaction(db, ['projects', 'index'], 'readwrite');
+      const done = transactionDone(tx);
+      tx.objectStore('projects').clear();
+      tx.objectStore('index').clear();
+      await done;
+    });
+  }
+  return { read, list, clear, save: (next: LayerProject) => persist(next),
+    replace: (next: LayerProject, previous: readonly LayerSummary[]) => persist(next, previous) };
 }

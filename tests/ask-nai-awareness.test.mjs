@@ -39,3 +39,25 @@ test('connection revision invalidates price and input identity; saved account da
  assert.equal(old.cost.status,'ready');assert.equal(next.cost.status,'stale');assert.notEqual(old.input_budget.input_hash,next.input_budget.input_hash);assert.notEqual(naiSourceKey(a),naiSourceKey(b));
  assert.deepEqual(naiAccountSnapshot({active:true,tier:3,email:'private',token:'private',usage:{isNegative:false,private:'private'}}),{active:true,tier:3,usage:{isNegative:false}});
 });
+
+test('V5 Precise awareness follows available official source and operation, pricing excludes encoding and counts enabled rows per image',()=>{
+ const id='nai-diffusion-5-full-medium',official={...model,id,upstreamId:id,tools:['img2img','inpaint']};
+ const first={...official,profileId:'koma-standard-v1'}, row={id:'ref',assetId:'a'.repeat(64),on:true,type:'costume',strength:3.5,information:1,fidelity:.9};
+ const refs={active:'precise',normalize:false,vibe:[],precise:[row,{...row,id:'off',on:false}]};
+ const input=make({model:id,batchCount:3,naiReferences:refs},{models:[official]});
+ const result=naiAwareness(input).snapshot;
+ assert.deepEqual(result.capabilities.references.supported_kinds,['precise']);
+ assert.equal(result.cost.reference_per_image,5);assert.equal(result.cost.encoding_once,0);
+ assert.equal(result.cost.batch_total,3*result.cost.per_image);
+ for(const state of [{...input,operation:'img2img',models:[first,official]}, {...input,models:[first],referenceModelIds:[id]}])
+   assert.deepEqual(naiAwareness(state).snapshot.capabilities.references.supported_kinds,['precise']);
+ for(const state of [{...input,operation:'inpaint'}, {...input,models:[first]}, {...input,models:[{...official,upstreamId:model.id}]}]){
+   const result=naiAwareness(state).snapshot;
+   assert.deepEqual(result.capabilities.references.supported_kinds,[]);
+   assert.ok(result.diagnostics.some(d=>d.message.includes('参考')||d.message.includes('Precise')));
+   assert.notEqual(result.cost.status,'ready');
+ }
+ const v4=naiAwareness(make({naiReferences:refs},{models:[{...model,upstreamId:model.id}]})).snapshot;
+ assert.ok(v4.diagnostics.some(d=>d.message.includes('第 1 张')));
+ assert.deepEqual(naiAwareness({...input,operation:'upscale'}).snapshot.diagnostics,[]);
+});

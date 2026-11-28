@@ -2,6 +2,7 @@ import { test } from "node:test";
 import assert from "node:assert/strict";
 
 import { useNativeFixture, open, chooseNai, addReference, referencePosts, openEditorFixture, paintEditorMask, solidPng } from "./helpers/native-fixture.mjs";
+import { imageDimensions } from "../src/native/image-dimensions.ts";
 
 useNativeFixture();
 
@@ -186,6 +187,77 @@ test("EDIT official: five Img2Img and four Inpaint variants, painted-area pixels
   } finally {await t.context.close();}
 });
 
+test('EDIT official ordinary Img2Img adjusts output dimensions with a single generation and quotes the target size', async () => {
+  const account = { status: 200, body: { active: true, tier: 2,
+    trainingStepsLeft: { fixedTrainingStepsLeft: 1000, purchasedTrainingSteps: 0 } } };
+  const t = await open('nai-official-v1', true, '', account), { page } = t;
+  try {
+    await openEditorFixture(t, { model: 'nai-diffusion-4-5-curated', prompt: 'synthetic illustration', seed: 9,
+      tool: 'img2img', strength: .5, noise: .2, varietyPlus: true });
+    const scale = page.getByLabel('输出分辨率倍率', { exact: true });
+    const size = page.locator('output[for="editorImg2ImgScale"]');
+    const edit = () => page.evaluate(() => editor.snapshot().edit);
+    const setScale = async value => { await scale.fill(value); await scale.press('Tab'); };
+    assert.equal(await scale.inputValue(), '1');
+    assert.equal((await size.textContent()).trim(), '512×512');
+    await page.waitForFunction(() => editor.snapshot().edit.quote?.cost > 0);
+    const originalQuote = (await edit()).quote.cost;
+
+    await setScale('4');
+    assert.match(await page.evaluate(() => editor.snapshot().warning), /请降低倍率/);
+    assert.equal(await page.locator('#editorRun').isDisabled(), true);
+    assert.equal(referencePosts(t).length, 0);
+    await setScale('1.35');
+    assert.equal((await size.textContent()).trim(), '704×704');
+    await page.waitForFunction(cost => editor.snapshot().edit.quote?.cost > cost, originalQuote);
+    const targetQuote = (await edit()).quote.cost;
+
+    await page.evaluate(() => editor.setEnhance(true));
+    assert.equal(await scale.count(), 0);
+    await page.evaluate(() => editor.setEnhance(false));
+    assert.equal(await scale.inputValue(), '1.35');
+    await page.evaluate(() => editor.setMode('inpaint'));
+    assert.equal(await scale.count(), 0);
+    await paintEditorMask(page);
+    await page.evaluate(() => editor.setMode('img2img'));
+    assert.equal(await scale.inputValue(), '1.35');
+    const maskRevision = await page.evaluate(() => editor.session.maskRevision);
+
+    account.generatedImage = await solidPng(page, 704, 704);
+    await page.evaluate(() => editor.run());
+    const posts = referencePosts(t);
+    assert.equal(posts.length, 1);
+    const wire = JSON.parse(posts[0].body);
+    assert.equal(wire.action, 'img2img');
+    assert.equal(wire.model, 'nai-diffusion-4-5-curated');
+    assert.deepEqual([wire.parameters.width, wire.parameters.height], [704, 704]);
+    assert.deepEqual(imageDimensions('data:image/png;base64,' + wire.parameters.image), { width: 512, height: 512 });
+    assert.deepEqual([wire.parameters.seed, wire.parameters.strength, wire.parameters.noise], [9, .5, .2]);
+    assert.equal(wire.parameters.skip_cfg_above_sigma, 58 * Math.sqrt(88 * 88 / (104 * 152)));
+    assert.equal(wire.parameters.upscaled_enhance, undefined);
+    assert.equal(wire.parameters.mask, undefined);
+    assert.doesNotMatch(wire.input, /-2::upscaled, blurry::/);
+    assert.equal(t.requests.some(r => r.path === '/ai/upscale'), false);
+    const result = await page.evaluate(() => {
+      const v = editor.snapshot();
+      return { base: [v.base.width, v.base.height], image: [v.viewed.width, v.viewed.height],
+        scale: v.viewed.params.img2imgScale, cost: v.viewed.quote.cost, maskRevision: editor.session.maskRevision };
+    });
+    assert.deepEqual(result, { base: [512, 512], image: [704, 704], scale: 1.35, cost: targetQuote, maskRevision });
+
+    account.generatedImage = t.png;
+    await page.evaluate(() => editor.run());
+    assert.equal(await page.evaluate(() => editor.snapshot().runError), "");
+    assert.equal(await page.evaluate(() => editor.session.versions.length), 3);
+    assert.deepEqual(await page.evaluate(() => {
+      const { viewed } = editor.snapshot();
+      return [viewed.width, viewed.height, viewed.params.requestedWidth, viewed.params.requestedHeight];
+    }), [512, 512, 704, 704]);
+    assert.equal(referencePosts(t).length, 2);
+    assert.deepEqual(t.errors, []);
+  } finally { await t.context.close(); }
+});
+
 test('EDIT official Upscale: one menu choice, 4x ZIP/raw output, original bytes, validation, failure and cancellation never retry',async()=>{
   const account={status:200,body:{active:true,tier:3,trainingStepsLeft:{fixedTrainingStepsLeft:1000,purchasedTrainingSteps:0}}};
   const t=await open('nai-official-v1',true,'',account),{page}=t;
@@ -341,4 +413,64 @@ test('EDIT drawer and uploads: reference selection and stale imports cannot muta
     assert.equal(await page.evaluate(()=>drawing.snapshot().form.naiReferences.vibe.length),0);
     assert.deepEqual(t.errors,[]);
   } finally {await t.context.close();}
+});
+
+test('EDIT inherits V5 Precise, signs Img2Img and both Enhance modes, and blocks both forms of masked inpaint',async t=>{
+  const account={status:200,body:{active:true,tier:3,trainingStepsLeft:{fixedTrainingStepsLeft:1000,purchasedTrainingSteps:0}}};
+  const f=await open('nai-official-v1',true,'',account,'',true),{page}=f;t.after(()=>f.context.close());
+  await page.waitForFunction(()=>drawing.snapshot().model);
+  const refs=await page.evaluate(async png=>{
+    const model='nai-diffusion-5-full-medium';
+    const rows=await services.references.upload([new File([Uint8Array.from(atob(png),c=>c.charCodeAt(0))],'outfit.png',{type:'image/png'})],'precise',model);
+    const refs={...drawing.snapshot().form.naiReferences,active:'precise',precise:[{...rows[0],type:'costume',strength:3.5}]};
+    await drawing.patch({model,naiReferences:refs});return refs;
+  },f.png.toString('base64'));
+  await openEditorFixture(f);
+  const root=page.locator('#imageEditor');
+  await root.getByRole('button',{name:'Precise Reference',exact:true}).click();
+  assert.equal(await root.getByLabel('参考类型',{exact:true}).inputValue(),'costume');
+  assert.equal(await root.getByRole('slider',{name:'参考强度'}).inputValue(),'3.5');
+  assert.equal(await root.getByRole('button',{name:'Vibe Transfer',exact:true}).count(),0);
+  assert.equal(referencePosts(f).length,0);
+  for(const mode of ['img2img','enhance','max']){
+    if(mode==='enhance'){
+      await page.locator('.enhance-toggle').click();
+      await page.locator('#editorEnhanceScale').selectOption('1');
+    }else if(mode==='max'){
+      await page.locator('#editorEnhanceScale').selectOption('max');
+      account.generatedImage=await solidPng(page,1024,1024);
+    }
+    await page.waitForFunction(()=>editor.snapshot().edit.canRun);
+    await page.locator('#editorRun').click();
+    await page.waitForFunction(()=>!editor.snapshot().busy && !editor.snapshot().preparing);
+    assert.equal(await page.evaluate(()=>editor.snapshot().runError),'');
+    const post=referencePosts(f).at(-1),{action,model,parameters:p}=JSON.parse(post.body);
+    assert.equal(action,'img2img');assert.equal(model,'nai-diffusion-5-full-medium');assert.equal(p.steps,14);
+    assert.equal(Boolean(p.upscaled_enhance),mode==='max');
+    assert.equal(p.image,f.png.toString('base64'));assert.match(p.image_cache_secret_key,/^[a-f0-9]{64}$/);
+    assert.notEqual(p.image,p.director_reference_images_cached[0].data);
+    assert.notEqual(p.image_cache_secret_key,p.director_reference_images_cached[0].cache_secret_key);
+    assert.deepEqual(p.director_reference_strength_values,[3.5]);
+    const saved=await page.evaluate(()=>editor.snapshot().viewed.params);
+    assert.deepEqual(saved.naiReferences,refs);
+    assert.doesNotMatch(JSON.stringify(saved),/cache_secret_key|director_reference_images|preparedReferences/);
+  }
+  const posts=referencePosts(f);
+  assert.deepEqual(posts.map(p=>p.path),Array(3).fill('/ai/generate-image'));
+  await page.evaluate(async()=>{await editor.setMode('inpaint');await editor.setModel('nai-diffusion-5-full-medium');});
+  for(const focus of [false,true]) {
+    if(focus){
+      await page.locator('#editorInpaintToggle').click();
+      await page.getByRole('menuitemradio',{name:'聚焦重绘',exact:true}).click();
+    }
+    assert.match(await root.locator('.reference-problem').textContent(),/不支持 Precise/);
+    assert.equal(await page.locator('#editorRun').isDisabled(),true);
+    assert.equal(await root.getByRole('button',{name:'Precise Reference',exact:true}).count(),0);
+    await page.evaluate(()=>editor.run());
+  }
+  await root.getByRole('button',{name:'停用参考',exact:true}).click();
+  assert.equal(await page.evaluate(()=>editor.session.naiReferences.active),null);
+  assert.equal(referencePosts(f).length,posts.length);
+  assert.equal(f.requests.some(r=>r.path.endsWith('/tools/run')),false);
+  assert.deepEqual(f.errors,[]);
 });

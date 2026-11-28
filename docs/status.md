@@ -1,10 +1,14 @@
 # 当前状态与待办
 
-更新：2026-11-23。本文维护发布边界、本地未发布能力、剩余问题与真实待验事项；操作和实现细节见[专题索引](README.md)，产品介绍见[产品总览](product/overview.md)。
+更新于 2026-11-28。本文记录发布边界、本地未发布能力、剩余问题与真实待验事项。操作和实现细节见[专题索引](README.md)，产品介绍见[产品总览](product/overview.md)。
 
 ## 发布与本地工作区
 
-当前生产版本为 **0.9.0**，产品提交 `b300f93` 与标签 `v0.9.0` 已推送，Pages 部署为 [addd4fca](https://addd4fca.koma-image.pages.dev/)。本版包含 EDIT 内 Koma Layer 立绘拆层与局部补画工坊（直出 `koma-rig.slices.v2` 与分层 PSD 对接 Koma Live / Koma Rig）、企划目录挂载与外部任务协同增强，以及豆包即梦 Seedream 5.5 原生拆层协议。详见[更新日志](../CHANGELOG.md#090---2026-11-23)、[Koma Layer 工作区](workspaces/layer.md)与[发布证据](archive/README.md#发布记录)。
+**0.9.1 版本内容**　Koma Layer 分件工作台已改版。桌面采用左侧拆层与补画、中间画布、右侧图层树的三栏布局，协创模式将三项操作放进同一个面板，手机使用底部抽屉。本版另含通用图像渠道、PSD 导入、多层底图补画与补缺失件、NovelAI V5 精确参考和普通图生图输出倍率。完整改动见 [0.9.1 更新日志](../CHANGELOG.md#091---2026-11-28)。
+
+**0.9.1 本地核验**　严格类型、626 项单元测试、构建、样式与字体检查通过。17 项专题浏览器用例串行通过，覆盖第三方生图与拆层、PSD 换图清理、补缺失件、Photopea 回传和 NAI 参考与倍率。PSD 换图清理用例在首轮并行运行时曾在进入 EDIT 前超时。另有 12 项核心冒烟通过。独立包已补齐图像渠道依赖，解压后可从根路径和子路径启动。桌面与手机宽度下均已核对「关于」的版本、当前更新条目与已读状态。真实账户的出图效果与扣费仍待核验。
+
+最近有部署记录的生产版本为 **0.9.0**，产品提交 `b300f93`，标签 `v0.9.0`。Koma Layer 分层工坊、Seedream 5.5 原生拆层、分层 PSD 导出与企划目录挂载均已包含在该版本中。[Pages 部署](https://addd4fca.koma-image.pages.dev/) · [0.9.0 更新日志](../CHANGELOG.md#090---2026-11-23) · [发布证据](archive/README.md#发布记录)
 
 **0.7.2 补充修正已发布**：ASK 移除出站整包原词拦截，避免协议字段、图片数据、签名历史及替换目标误触发停止发送；创作配置导入仍整体覆盖，词条规范化去重，同原文替换取文件最后一条，合并后再检查容量与逆向映射冲突。词表和文本替换均新增垃圾桶，确认后仅清空对应列表，取消保留内容与编辑状态。严格类型、561 项单元测试、构建、12 项核心冒烟、创作配置浏览器回归与相关样式检查通过，Git 历史、本次改动和 dist 脱敏扫描通过；[main CI](https://github.com/hasheeper/koma-image/actions/runs/43722852318) 全部通过。线上 10 项主要资源与构建一致，合并日志、重复导入、模拟 ASK 发送、手机清空确认／取消与刷新保持及五工作区导航通过，无页面错误或意外外部请求。未执行真实上游请求；三协议模拟发送与 Gemini 签名历史由单元回归覆盖，桌面／手机按钮及确认弹窗已目视检查。行为见 [ASK 设置](ask/README.md#设置自由创作与附件)及[提示词维护](ask/prompts.md#自由创作)。
 
@@ -18,13 +22,17 @@ ASK 创作分组另已完成独立 JSON 导入／导出、条目与替换长度�
 
 以下为近期已实现范围。源码实现、本地模拟、真实供应商核验和线上发布分别判断，不将其中一种结果替代另一种。
 
-Koma Layer 已在本地实现两级递归、原位归档、母版框选、多选细拆及 ASK 两级备忘。DKH 48 层包已由 Rig Studio 打开，静态复原在容差 1 下超差 0 像素。实际供应商重抽画质待验。[操作与分期验收](workspaces/layer-recursive-plan.md)
+Koma Layer 已在本地实现两级递归、原位归档、母版框选、多选细拆及 ASK 两级备忘。拆层结果和正式图层可在画布顶部直接切换到原图对照。[原图对照](workspaces/layer.md#1-图层栈与自动拆层) · [操作与分期验收](workspaces/layer-recursive-plan.md)。DKH 48 层包已由 Rig Studio 打开，静态复原在容差 1 下超差 0 像素。实际供应商重抽画质待验。
 
-局部补画支持导入参考图、引用正式图层和 ASK 参考草稿。Koma 标准路由与三种原生协议的模拟请求已核对图序和用途。2048 像素局部框的细线样例覆盖了送图、较小回图的原位合成和 Rig 纹理导出。[局部补画](workspaces/layer.md#2-局部拆分与局部补画)
+Koma Layer 本地版支持打开 8 位 RGB PSD 或向当前项目追加分层。合成样本已验证 Koma 母版往返、外部分组与像素、批量撤销和刷新恢复。[PSD 导入](workspaces/layer.md#1-图层栈与自动拆层)
+
+局部补画已接入 Seedream 5.5 Layer 补缺失件。底图可选母版原图或多层合成；换图成功会替换旧分件缓存，也可清空后直接从母版重做。完全被遮挡部件的真实模型画质待验。[用参考图层补缺失件](workspaces/layer.md#用参考图层补缺失件)
+
+局部补画支持多选正式层作为底图，也可导入独立参考图。ASK 可提议底图选择和参考组合。合成图像已核对多层底图预览、带笔触与无笔触的请求像素，以及草稿确认、撤销和刷新恢复。Koma 标准路由与三种原生协议的模拟请求已核对参考图序和用途。2048 像素局部框的细线样例覆盖了送图、较小回图的原位合成和 Rig 纹理导出。[局部补画](workspaces/layer.md#2-局部拆分与局部补画)
 
 | 范围 | 当前能力与维护入口 |
 | --- | --- |
-| Koma Layer（本地原型） | 收敛为「Seedream 5.5 自动拆层／递归细拆进候选池（支持多层叠加显隐、2–99 或不限制层数、短名提取）➔ 图层栈管理（拖拽层序／显隐／独显／锁定／重命名／合并／复制／删除、嵌套分组折叠与整组显隐／独显、框选与套索切分、软硬橡皮、刷回原图、可逆对色、移动回弹预览、30 步撤销重做）➔ 一键 Photopea 精修（分层 PSD 往返、支持新图层与嵌套组同步、新增／已修标记与撤回确认弹窗）➔ 局部补画（保留原件／遮挡补全、默认折叠的排除遮挡图层、原生透明 PNG 候选对比）」并输出带 `groups` 的 `koma-rig.slices.v2`（ZIP／目录）与含 `8BIMlsct` 分组的分层 PSD（`8BPS`）。本地单测与 Playwright 模拟回归通过，真实 Photopea iframe 多层／分组回传与真实供应商拆层质量待验。[Koma Layer](workspaces/layer.md) |
+| Koma Layer | PSD 或图片可作母版。按来源选择拆层数量与尺寸，筛选候选并管理图层栈，可局部补画或生成缺失部件，送入 Photopea 精修，最后导出 Rig 切片包或分层 PSD。真实 Photopea 多层分组回传与供应商拆层画质仍待验证。[Koma Layer](workspaces/layer.md) |
 | 三工作区画布协创 BETA | 设置 → 通用统一开启 IMAGE／EDIT／CHAT 协创；同一 ASK 与表单／配方／上下文切换，桌面可调宽侧栏，手机返回工作区默认展示画布。IMAGE 历史与 EDIT 版本在手机使用自适应瀑布流。传统三工作区移除手机外壳，窄屏提示切换 BETA；HOME／TAGS／设置仍保留小屏适配，开启 BETA 时换用同款角落岛、玻璃浮层，设置为舞台底加顶部分组岛。共享交互见[ASK UI](ask/ui.md#12-画布协创beta)，各工作区负责自己的画布和工具 |
 | 演进与工坊 | IMAGE 唯一实时主干、阶段相册、单图提拔与并行预设；EDIT／CHAT 显式交接、交付、续交和接力，恢复／提拔／交付共用撤销。CHAT 图片编号带会话身份；IMAGE 保留完整历史索引、缩略图和配方，按保留策略释放不受保护的原图。见[版本演进](workspaces/recipe-retrospect.md)、[IMAGE](workspaces/image.md) |
 | ASK 参数与模型选择 | 按连接／模型配置可选生成参数，默认关闭留空，Anthropic 保留协议必填上限；推理、命名和压缩按对应模型配置执行。快捷菜单只展示当前供应商已选模型。见[每模型参数](ask/runtime.md#每模型参数)、[ASK UI](ask/ui.md#7-输入框与附件) |
@@ -50,9 +58,9 @@ IMAGE／EDIT 协创已用合成图片和模拟接口检查相关面板、蒙版�
 | HOME | 创作线、继续入口、收藏定稿、布局／封面、来源链及同一 ASK 停靠。见[HOME](workspaces/home.md) |
 | IMAGE | 独立画板、多角色、参数往返、串行批量、历史／收藏及冻结的任务归属。见[IMAGE](workspaces/image.md) |
 | CHAT | 持久会话、上下文、分支、多版本、同轮重新生成（可改模型和参数）与 A/B 检视、逐图收藏及显式交接。见[CHAT](workspaces/chat.md) |
-| EDIT | 独立编辑画板、版本／蒙版、通用图像编辑、NAI 工具、参考与来源回流；编辑现场仅本页。见[EDIT](workspaces/edit.md) |
+| EDIT | 独立编辑画板、版本／蒙版、通用图像编辑、NAI 普通图生图输出倍率（官方与 Koma 标准网关）、NAI 工具、参考与来源回流；编辑现场仅本页。见[EDIT](workspaces/edit.md) |
 | 批注与融合 | 共享选区、ASK 原图／指示图、CHAT 双图／原生标注、本地边界色彩对齐与人工回贴；Photopea 单 iframe、分层保活与正式结果回传。见[区域批注](workspaces/annotations.md)、[Photopea](integrations/photopea.md) |
-| 图像协议 | 标准网关、Seedream、OpenAI Images、Gemini、NovelAI 官方；具体能力、费用和限制见[图像协议](integrations/image-protocols.md)、[NovelAI](integrations/novelai.md) |
+| 图像协议 | 标准网关、通用图像接口、Seedream、OpenAI Images、Gemini、NovelAI 官方。第三方可自配基础地址、接口后缀与请求格式。见[图像协议](integrations/image-protocols.md)、[NovelAI](integrations/novelai.md) |
 | 设置与词典 | 中性连接、文字／图像用途、模型与来源参数、外观、补全、备份和更新日志。见[设置与 TAGS](workspaces/settings-and-tags.md) |
 | ASK | 三种推理协议、只读工具／视觉、草稿确认／冲突／撤销、收藏／命名、压缩／召回、跨工作区交接及演进；不自动生成或发送。见[ASK 入口](ask/README.md) |
 | 企划集与外部协同 | 角色／设定／参考／成果、目录挂载、Slate 任务／绑图、确认后写入、回执与 JSON 兜底；外部草稿仍只写 IMAGE。见[协同与任务](integrations/bridge.md) |
@@ -86,7 +94,10 @@ IMAGE／EDIT 协创已用合成图片和模拟接口检查相关面板、蒙版�
 - **手机底部抽屉**：实际 Safari／Android 的拖拽手感、软键盘、安全区与横竖屏切换仍待真机确认；桌面浏览器的小屏模拟不代替。
 - **供应商与模型**：逐地址核验鉴权、CORS、账户权限、型号、手动来源参数、请求／返回、生成质量和扣费。既有标准网关[目录协同实测](integrations/bridge.md#验证边界)仅证明该次报价免费路径。
 - **Seedream**：目录和生图端点的 CORS 预检结果不同；5.0 Lite／Pro／Flash 权限、参考图／局部回贴及 Studio 目录／报价保护／生图路径仍待验。5.5 已接入 `background`（含 `transparent` 透明底 + PNG 联动）及官方常见别名，具体渠道的模型 ID、透明底实际出图质量与扣费仍待真实验证。见[接入边界](integrations/image-protocols.md)。
-- **NovelAI**：各型号文生图、Img2Img／Enhance／Max Enhance、普通／聚焦 Inpaint、Upscale、Director Tools、多角色及参考效果、Vibe 缓存；实际额度、Opus 资格、订阅优惠与回充也待核验。本地近似费用和只读账户结果不代替生成验证。
+- **第三方图像渠道（本地）**　「通用图像接口」支持自定义地址、后缀和操作模型 ID。OpenRouter 同步 JSON 当日目录匹配 16 款，Kie 异步任务有 15 款模板，fal 模型队列有 17 款。三种格式均支持 GPT Image 2.6 独立标注及 Seedream 5.5 拆层，Kie 和 fal 另支持 5.0 Pro／Flash 自动拆层。fal 的 37 个操作已对照公开 OpenAPI 核验，设置、生图、参考图续改和裁片落位已通过浏览器模拟。具体渠道的账号权限、画质、跨域与计费待验。[图像渠道](integrations/image-protocols.md#第三方图像渠道)
+- **其他供应商调查**　已核对六家渠道的公开协议并回放浏览器预检。fal 公开样例的五个部件可按现有 Koma 坐标逻辑归位。BytePlus 海外官方拆层协议可复用，所测生图端点的预检限制网页直连。[供应商实测](integrations/image-protocols.md#其他供应商的图像接口实测)
+- **NovelAI**：真实文生图、Img2Img／Enhance／Max、重绘、放大和 Director Tools 的效果与消费待验。V5 Precise 已接入现有 IMAGE／EDIT 抽屉，仍待核验官方 JSON 接受、衣装采用与实际附加费。多角色、Vibe 缓存、Opus 权益及回充也待实测。见 [V5 精确参考](integrations/novelai.md#v5-精确参考核验)。
+- **Koma 标准网关 NAI 图生图**：调整请求底图后的倍率回图通过模拟验证，真实网关的输出尺寸与超 2048 单边的输入支持仍待核验。见[EDIT](workspaces/edit.md#nai-与专用工具)。
 - **ASK、批注与演进质量**：真实图片、诊断／提纯／命名、Unicode 编码、EDIT 状态理解、交接备忘录、CHAT 尺寸、工具正文与缓存；多区域／原生标注、换题／回退／分支和视觉归因均需真实案例。并行预设的完整度与区分度尚未由实际创作验证。
 - **ASK 空响应稳定性**：诊断、EDIT 冗余状态及锚点已有修正，空流报错并保留手动重试。曾观察到同内容非流式 `content_filter`、流式仅结束事件；一次字段隔离成功不代表稳定修复，也不能将所有空流归因于过滤。见[隔离证据](ask/runtime.md#空响应的已知证据)。
 - **目录与企划集**：Chromium OPFS 和 macOS Edge 本地选择器／授权／刷新恢复／外部文件闭环已有验证；浏览器重启、撤权、其他浏览器、跨进程竞争，以及真实企划规模、复杂元数据和外部刷新体验仍待验。
@@ -94,8 +105,8 @@ IMAGE／EDIT 协创已用合成图片和模拟接口检查相关面板、蒙版�
 
 ## 尚未开放与范围边界
 
-- NAI V4.5 质量入口迁入参数抽屉、V5 自动引号提取尚未实施；V5 Vibe／Precise 继续关闭，需先有适用能力证据。未附带的参考原图／Precise 不能从 PNG 凭空恢复。见[NAI 后续工作](integrations/novelai.md#后续工作与核验顺序)。
-- EDIT 跨刷新恢复、PSD 持久化、外部 Bridge EDIT 草稿未开放；原图可收藏或交付 Slate，分层由用户另存 PSD。
+- NAI V4.5 质量入口迁入参数抽屉、V5 自动引号提取尚未实施。PNG 参数导入的参考恢复仅支持实际附带的 Vibe 编码。见 [NAI 后续工作](integrations/novelai.md#后续工作与核验顺序)。
+- 普通 EDIT 画板与 Photopea 分层文档只保留在本页，可收藏原图、交付 Slate 或另存 PSD。Koma Layer 分件项目可在刷新后恢复，外部 Bridge EDIT 草稿仍待开放。
 - SVG／动画 GIF 输出、OpenAI Responses／Mask 上传／部分图片流式返回、Gemini 图像有状态多轮与签名续传、原生图像协议本地代理不在基础适配范围。
 - ASK 不做 RAG／Embedding、跨会话记忆、云同步、后台静默压缩、自动生成或自动发送。自定义并发和额度预占只保留边界。
 - 旧应用迁移已整条取消，不建迁移桥、旧库检测／清理、旧备份转换或对应 UI；新版 Koma 字段兼容不属于旧应用迁移。

@@ -1,5 +1,5 @@
 import type { PngVibes, ReferenceAsset, VibeEncoding, NaiReference, ReferenceKind, ReferencePlan, PreparedReferences } from "../domain/nai-references.ts";
-import { encodingKey, encodingGroup, referenceModel, referenceStrengths, referencePlan, referenceSurcharge } from "../domain/nai-references.ts";
+import { encodingKey, encodingGroup, vibeModel, supportsReferencePlan, needsV5Precise, sameOutfit, preciseType, inReferenceRange, referenceStrengths, referencePlan, referenceSurcharge } from "../domain/nai-references.ts";
 import { blobBase64, base64Blob, sha256, referenceBitmap, preciseImage, imageBase64 } from "../native/reference-images.ts";
 import { object } from "../domain/value.ts";
 import { makeThumb } from "./image-response.ts";
@@ -64,7 +64,7 @@ export function createNaiReferences(databases: () => Databases, data: DataLease)
       let plan: ReferencePlan | undefined;
       try { plan = referencePlan(config); } catch { return; }
       if (!plan) return 0;
-      if (!loaded) return;
+      if (!loaded || !supportsReferencePlan(model, plan)) return;
       const missing = new Set<string>();
       for (const r of plan.items) {
         const a = assets.get(r.assetId), key = encodingKey(model, r.assetId, r.information);
@@ -92,7 +92,7 @@ export function createNaiReferences(databases: () => Databases, data: DataLease)
     /** Called only inside runTask. Each completed paid encoding commits before the next request. */
     async prepare(plan: ReferencePlan, model: string, signal: AbortSignal, encode: (image: string, information: number) => Promise<string>): Promise<PreparedReferences> {
       await ready();
-      if (!referenceModel(model)) throw new Error("当前模型不支持参考，配置已保留");
+      if (!supportsReferencePlan(model, plan)) throw new Error("当前型号不支持已启用的参考设置，配置已保留");
       const images: string[] = [];
       for (const r of plan.items) {
         signal.throwIfAborted();
@@ -101,7 +101,7 @@ export function createNaiReferences(databases: () => Databases, data: DataLease)
         if (!a) throw new Error("参考原图缺失，请重新添加");
         if (plan.kind === "precise") {
           if (!a.blob) throw new Error("Precise Reference 需要原图");
-          images.push(await preciseImage(a.blob));
+          images.push(await preciseImage(a.blob, model));
         } else {
           const id = encodingKey(model,r.assetId,r.information);
           // Another tab may have populated this paid cache while this task waited for the global slot.
@@ -117,7 +117,8 @@ export function createNaiReferences(databases: () => Databases, data: DataLease)
         }
       }
       signal.throwIfAborted();
-      return { kind:plan.kind, images, strengths:referenceStrengths(plan), information:plan.items.map(r=>r.information), fidelities:plan.items.map(r=>r.fidelity), types:plan.items.map(r=>r.type) };
+      return { kind:plan.kind, images, strengths:referenceStrengths(plan), information:plan.items.map(r=>r.information), fidelities:plan.items.map(r=>r.fidelity), types:plan.items.map(r=>r.type),
+        ...(plan.kind === "precise" ? { preferSameOutfits: plan.items.map(sameOutfit) } : {}) };
     },
     async export(items: NaiReference[], kind: ReferenceKind, model: string) {
       await ready();
@@ -138,12 +139,13 @@ export function createNaiReferences(databases: () => Databases, data: DataLease)
         if (!image && !first) throw new Error("Vibe 编码缺失");
         vibes.push({ identifier:"novelai-vibe-transfer", version:1, type:image ? "image" : "encoding", image, id:await sha256(image ?? first!.data), encodings:entries, thumbnail:a.thumbnail ? `data:${a.thumbnail.type};base64,${await blobBase64(a.thumbnail)}` : undefined, importInfo:{model, information_extracted:r.information, strength:r.strength} });
       }
-      return new Blob([JSON.stringify(kind === "vibe" ? { identifier:"novelai-vibe-transfer-bundle", version:1, vibes } : { identifier:"koma-precise-references", version:1, images:vibes })], {type:"application/json"});
+      const version = items.some(r => needsV5Precise(r) || r.preferSameOutfit !== undefined) ? 2 : 1;
+      return new Blob([JSON.stringify(kind === "vibe" ? { identifier:"novelai-vibe-transfer-bundle", version:1, vibes } : { identifier:"koma-precise-references", version, images:vibes })], {type:"application/json"});
     },
     /** PNG metadata contains model-bound encodings, never the original reference pixels. */
     async importPng(vibes: PngVibes) {
       await ready();
-      if (!referenceModel(vibes.model) || !vibes.items.length || vibes.items.length > 16) throw new Error("PNG 参考编码格式无效");
+      if (!vibeModel(vibes.model) || !vibes.items.length || vibes.items.length > 16) throw new Error("PNG 参考编码格式无效");
       const imported: ReferenceAsset[] = [], encoded: VibeEncoding[] = [], rows: NaiReference[] = [];
       let bytes = 0;
       for (const entry of vibes.items) {
@@ -161,7 +163,8 @@ export function createNaiReferences(databases: () => Databases, data: DataLease)
     async import(file: File, kind: ReferenceKind, model: string) {
       await ready(); if (file.size > 64*1024*1024) throw new Error("参考文件最多 64MB");
       const source = object(JSON.parse(await file.text()));
-      if (source.version !== 1) throw new Error("不支持此参考文件版本");
+      const v2 = kind === "precise" && source.version === 2;
+      if (source.version !== 1 && !v2) throw new Error("不支持此参考文件版本");
       const raw = kind === "precise" && source.identifier === "koma-precise-references" ? source.images : kind === "vibe" && source.identifier === "novelai-vibe-transfer-bundle" ? source.vibes : kind === "vibe" && source.identifier === "novelai-vibe-transfer" ? [source] : null;
       if (!Array.isArray(raw) || !raw.length || raw.length > 16) throw new Error("参考文件格式无效，最多 16 张");
       const imported:ReferenceAsset[] = [], encoded:VibeEncoding[] = [], rows:NaiReference[] = [];
@@ -186,10 +189,24 @@ export function createNaiReferences(databases: () => Databases, data: DataLease)
           a.thumbnail=await makeThumb(thumb);
         }
         const r = row(a.id,kind,model);
+        if (kind === "precise") {
+          // The v1 reader accepted numeric text and the information_extracted spelling.
+          const strength = info.strength === undefined ? r.strength : v2 ? info.strength : Number(info.strength);
+          const extraction = v2 ? info.information : info.information_extracted ?? info.information;
+          const information = extraction === undefined ? r.information : v2 ? extraction : Number(extraction);
+          const type = info.type === undefined ? r.type : info.type;
+          const fidelity = info.fidelity === undefined ? r.fidelity : info.fidelity;
+          if (!inReferenceRange(strength, v2 ? 5 : 1) || !inReferenceRange(information) ||
+              !preciseType(type, v2) || !inReferenceRange(fidelity) || info.on !== undefined && typeof info.on !== "boolean" ||
+              info.preferSameOutfit !== undefined && (!v2 || typeof info.preferSameOutfit !== "boolean"))
+            throw new Error("Precise 参考参数无效");
+          Object.assign(r, {type, strength, information, fidelity, on: info.on !== false});
+          if (typeof info.preferSameOutfit === "boolean") r.preferSameOutfit = info.preferSameOutfit;
+          imported.push(a); rows.push(r); continue;
+        }
         const strength = Number(info.strength), information = Number(info.information_extracted ?? info.information);
         if (Number.isFinite(strength) && strength >= 0 && strength <= 1) r.strength = strength;
         if (Number.isFinite(information) && information >= 0 && information <= 1) r.information = information;
-        if (kind === "precise") { if (info.type === "character" || info.type === "style") r.type = info.type; if (typeof info.fidelity === "number" && info.fidelity >= 0 && info.fidelity <= 1) r.fidelity = info.fidelity; }
         let count = 0; let encodingHashMatches = !!a.blob;
         for (const [group, values] of Object.entries(object(v.encodings))) {
           const m = group === "v4-5full" ? "nai-diffusion-4-5-full" : group === "v4-5curated" ? "nai-diffusion-4-5-curated" : null;

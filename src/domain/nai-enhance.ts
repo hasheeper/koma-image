@@ -1,6 +1,6 @@
-import type { CatalogModel } from "./catalog.ts";
 import { naiCapabilities } from "./nai.ts";
 import { NAI_OFFICIAL_MAX_PIXELS } from "./nai-parameters.ts";
+export { supportsOfficialNaiImg2Img as supportsNaiEnhance } from "./nai-img2img.ts";
 
 export const naiEnhanceMagnitudes = [
   { strength: .2, noise: 0 }, { strength: .4, noise: 0 },
@@ -13,10 +13,6 @@ export const isEnhanceScale = (value: unknown): value is EnhanceScale => value =
 // The official client only offers Max below 80% of the 3MP limit.
 export const NAI_MAX_ENHANCE_AREA_CUTOFF = NAI_OFFICIAL_MAX_PIXELS * .8;
 type Size = { width: number; height: number };
-export function supportsNaiEnhance(model: Pick<CatalogModel, "id" | "profileId" | "upstreamId" | "tools" | "operations">) {
-  return model.profileId === "nai-official-v1" && naiCapabilities(model.id).supported &&
-    (!model.upstreamId || model.upstreamId === model.id) && model.operations.includes("edit") && model.tools.includes("img2img");
-}
 
 /** Actual output dimensions. Max keeps source dimensions on the wire and the
  * server scales the result; it must not use ordinary Enhance's 64px snapping. */

@@ -10,7 +10,7 @@
 npm start
 ```
 
-打开 http://127.0.0.1:3218。未设置环境变量时，在网页「设置 → 连接」中选择协议并填写 URL 和 Key，浏览器直接访问所填服务。标准网关或 ASK 推理服务不允许跨域时，可使用下面的本地代理模式；Seedream 原生、OpenAI Images、Gemini 原生和 NovelAI 官方目前仅支持浏览器直连。
+打开 http://127.0.0.1:3218。未设置环境变量时，在网页「设置 → 连接」中选择协议并填写 URL 和 Key。通用图像接口（含 OpenRouter、Kie.ai、fal.ai）、Seedream 原生、OpenAI Images、Gemini 原生和 NovelAI 官方均由浏览器直连。第三方渠道在「配置供应商 → 通用图像接口」中填写基础地址并选择请求格式。标准网关或 ASK 推理服务需要本地转发时，可使用下面的代理模式。
 
 ## 本地代理
 

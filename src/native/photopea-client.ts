@@ -17,7 +17,7 @@ import {
 } from "./photopea-scripts.ts";
 import type { PhotopeaReturnMode, PhotopeaRoles } from "./photopea-scripts.ts";
 import type { EditReturn } from "../services/editor.ts";
-import type { PhotopeaLayerResult } from "../services/photopea.ts";
+import type { PhotopeaLayerResult, PhotopeaReturnedLayer } from "../services/photopea.ts";
 import { MAX_INPUT_BYTES } from "../domain/media.ts";
 import { decodeMask, maskBitmapPixels, validateMaskCarrier } from "./edit-input.ts";
 import { validatePhotopeaProject } from "./photopea-project.ts";
@@ -28,7 +28,7 @@ export interface PhotopeaLayerState { refId: number; width: number; height: numb
 interface LayerTreeMeta {
   width: number;
   height: number;
-  items: { id: number; name: string; groups: string[]; visible: boolean; locked: boolean }[];
+  items: Omit<PhotopeaReturnedLayer, "blob">[];
   skipped: string[];
 }
 type Pending = {
@@ -125,13 +125,19 @@ export function createPhotopeaClient(frame: HTMLIFrameElement, id: string, optio
       if (!value || !Number.isInteger(value.width) || Number(value.width) <= 0 || !Number.isInteger(value.height) || Number(value.height) <= 0 || !Array.isArray(value.items) || !Array.isArray(value.skipped)) {
         fatal("Photopea 图层列表无效，请重新载入"); return;
       }
+      if (!value.items.every(item => Array.isArray(item?.groups) && item.groups.every(group =>
+        group && Number.isSafeInteger(group.id) && group.id > 0 &&
+        typeof group.name === "string" && typeof group.visible === "boolean"
+      ))) {
+        fatal("Photopea 图层组信息无效，请重新载入"); return;
+      }
       const tree: LayerTreeMeta = {
         width: Number(value.width),
         height: Number(value.height),
         items: value.items.map((item) => ({
           id: Number(item.id) || 0,
           name: String(item.name || "图层"),
-          groups: Array.isArray(item.groups) ? item.groups.map(String) : [],
+          groups: item.groups,
           visible: !!item.visible,
           locked: !!item.locked,
         })),

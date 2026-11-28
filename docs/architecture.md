@@ -46,7 +46,7 @@ Photopea 由 App 通过 `services/photopea.ts` 持有单个按需创建、原位
 
 依赖方向为工作区 → domain／services → Gateway Profile → transport。Profile 声明目录、鉴权、报价、额度、路线及图像／推理能力，不按连接名称或域名分支。
 
-登记表包含 Koma 标准网关、Seedream 原生、OpenAI Images、Gemini 原生、NovelAI 官方、OpenAI Chat 兼容和 Anthropic Messages，OpenAI 与 Gemini 原生均可共用连接开启文字和图像入口。图像与推理入口按各自能力筛选；共用 Profile 维护一份地址和 Key，图像客户端和 ASK 分别使用对应协议适配器。实现边界见[图像协议](integrations/image-protocols.md)和[ASK 运行契约](ask/runtime.md)。
+登记表包含 Koma 标准网关、通用图像接口、Seedream 原生、OpenAI Images、Gemini 原生、NovelAI 官方、OpenAI Chat 兼容和 Anthropic Messages。第三方图像连接共用一个设置入口，每条连接保存自己的基础地址、操作后缀和请求格式，执行时复用对应的图像适配器。OpenAI 与 Gemini 的共用连接可分别开启文字和图像，ASK 按推理能力筛选连接。见[图像协议](integrations/image-protocols.md)和[ASK 运行契约](ask/runtime.md)。
 
 标准网关保留防抖报价、执行前重报、`max_cost`、原生／Studio／工具分流和余额检查。无报价能力保留未知费用状态，与报价失败、零值、加载分开；生成按钮暂不展示未知费用标签。没有协议自动回退或生成自动重试。
 

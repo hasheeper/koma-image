@@ -1,6 +1,7 @@
 import { naiCapabilities } from "./nai.ts";
 import { referenceSurcharge } from "./nai-references.ts";
 import { naiEnhanceSize } from "./nai-enhance.ts";
+import { naiImg2ImgSize } from "./nai-img2img.ts";
 import { imageDimensions } from "../native/image-dimensions.ts";
 import { object } from "./value.ts";
 import type { ImagePayload } from "../gateway/routes.ts";
@@ -18,7 +19,10 @@ export function naiCost(payload: ImagePayload, account: unknown): Quote | null {
   if (payload.tool && typeof payload.init_image === "string") {
     try {
       const source = imageDimensions(payload.init_image);
-      const effective = payload.enhance && payload.enhanceScale !== "max" ? naiEnhanceSize(source, payload.enhanceScale, payload.model) : source;
+      const effective = payload.enhance && payload.enhanceScale !== "max"
+        ? naiEnhanceSize(source, payload.enhanceScale, payload.model)
+        : payload.tool === "img2img" && payload.img2imgScale !== undefined
+          ? naiImg2ImgSize(source, payload.img2imgScale) : source;
       ({ width, height } = effective);
     } catch { return null; }
   }
@@ -31,11 +35,10 @@ export function naiCost(payload: ImagePayload, account: unknown): Quote | null {
   const steps = cap.medium ? 14 : Number(payload.steps ?? 23);
   if (!Number.isInteger(steps) || steps < 1 || steps > 50) return null;
   const reference = payload.referencePlan ?? payload.preparedReferences;
-  const count = reference ? "items" in reference ? reference.items.length : reference.images.length : 0;
-  const surcharge = reference?.kind === "precise" ? count * 5 : Math.max(0, count - 4) * 2;
+  const surcharge = referenceSurcharge(reference);
   // referenceMinimum includes the per-image surcharge; the remainder is a
   // one-time encoding fee. Prepared references have already paid that fee.
-  const encodingCost = payload.preparedReferences ? 0 : payload.referencePlan
+  const encodingCost = reference?.kind === "precise" || payload.preparedReferences ? 0 : payload.referencePlan
     ? typeof payload.referenceMinimum === "number" && Number.isFinite(payload.referenceMinimum)
       ? Math.max(0, payload.referenceMinimum - referenceSurcharge(payload.referencePlan)) : null
     : 0;

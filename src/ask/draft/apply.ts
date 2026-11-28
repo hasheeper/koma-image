@@ -277,6 +277,13 @@ export function createDraftWriter(drawing: Drawing, chat: Chat, router: AppRoute
             for(const e of plan.layerPatch.edits) {
               if(e.kind==='todos') layerState.todos=e.before;
               else if(e.kind==='references') layerState.scalpel.references=e.before;
+              else if(e.kind==='scalpelSource') layerState.scalpel.sourceLayerIds=e.before;
+              else if(e.kind==='scalpelSetup') {
+                layerState.scalpel.mode=e.before.mode;
+                layerState.scalpel.target=e.before.target;
+                if(e.sourceMode==='missing') layerState.scalpel.missingLayerIds=e.before.layerIds;
+                else layerState.scalpel.sourceLayerIds=e.before.layerIds;
+              }
               else if(e.kind==='prompt') layerState.forms[e.key]=patchedForm(layerState.forms[e.key],e,'before');
               else layerState.stack.find(l=>l.id===e.key)!.name=e.before;
             }

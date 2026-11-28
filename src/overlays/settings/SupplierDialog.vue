@@ -2,10 +2,13 @@
 import { computed, onBeforeUnmount, ref, useTemplateRef } from "vue";
 import { useServices } from "../../app/services";
 import { message } from "../../app/ui";
+import CustomImageChannelFields from "./CustomImageChannelFields.vue";
+import { CUSTOM_IMAGES_ID, newImageChannel, readImageChannel } from "../../config/image-channel";
+import { configuredModels } from "../../domain/models";
 import AppIcon from "../../shared/AppIcon.vue";
 import type { Routing } from "../../config/connections";
 import { normalizeBaseUrl, validateRouting } from "../../config/connections";
-import { STANDARD_PROFILE_ID, connectionProfiles, profileFor, NOVELAI_IMAGE_URL, isOpenAIConnection, OPENAI_SHARED_PROFILE_ID, isGeminiConnection, GEMINI_CHAT_PROFILE_ID, GEMINI_SHARED_PROFILE_ID } from "../../gateway/profile";
+import { STANDARD_PROFILE_ID, connectionProfiles, profileFor, editableImageChannel, NOVELAI_IMAGE_URL, isOpenAIConnection, OPENAI_SHARED_PROFILE_ID, isGeminiConnection, GEMINI_CHAT_PROFILE_ID, GEMINI_SHARED_PROFILE_ID } from "../../gateway/profile";
 const props = defineProps<{ routing: Routing }>();
 const { connections, vault } = useServices();
 const local = connections.local, routing = computed(() => props.routing);
@@ -22,10 +25,12 @@ const formTarget = ref<string | null>(null),
   formBusy = ref(false),
   formKeyVisible = ref(false),
   formRemember = ref(true);
+const formChannel = ref(newImageChannel("openai-images"));
 const formChat = ref(false), formImages = ref(true);
 const openAI = computed(() => isOpenAIConnection(formProfile.value));
 const gemini = computed(() => isGeminiConnection(formProfile.value));
 const dual = computed(() => openAI.value || gemini.value);
+const fixedFormUrl = computed(() => profileFor(formProfile.value).transport.fixedBaseUrl);
 // One visible entry per protocol family; profiles describe enabled uses.
 const protocols = connectionProfiles.flatMap(p => isOpenAIConnection(p.id)
   ? p.id === "openai-images-v1" ? [{ id: "openai", label: "OpenAI 兼容" }] : []
@@ -90,6 +95,7 @@ function add() {
   formName.value = "";
   formUrl.value = "";
   formProfile.value = STANDARD_PROFILE_ID;
+  formChannel.value = newImageChannel("openai-images");
   syncInterfaces();
   formRemember.value = true;
   formError.value = "";
@@ -102,7 +108,9 @@ function edit(id: string) {
   formTarget.value = id;
   formName.value = c.name;
   formUrl.value = c.baseUrl;
-  formProfile.value = c.profileId;
+  const channel = editableImageChannel(c);
+  formProfile.value = channel ? CUSTOM_IMAGES_ID : c.profileId;
+  formChannel.value = channel ? structuredClone(channel) : newImageChannel("openai-images");
   syncInterfaces();
   formRemember.value = vault.key(c.credentialRef) ? vault.remembered(c.credentialRef) : true;
   formError.value = "";
@@ -114,13 +122,13 @@ function selectProtocol() {
   formError.value = "";
   const target = formTarget.value ? routing.value.connections[formTarget.value] : undefined;
   if (target && profileFor(formProfile.value).protocol === "novelai" && target.baseUrl !== NOVELAI_IMAGE_URL) {
-    formProfile.value = target.profileId;
+    formProfile.value = editableImageChannel(target) ? CUSTOM_IMAGES_ID : target.profileId;
     syncInterfaces();
     formError.value = "请单独配置 NovelAI 官方供应商，并填写对应 Key";
     return;
   }
-  if (profileFor(formProfile.value).protocol === "novelai") formUrl.value = NOVELAI_IMAGE_URL;
-  else if (formUrl.value === NOVELAI_IMAGE_URL) formUrl.value = "";
+  if (fixedFormUrl.value) formUrl.value = fixedFormUrl.value;
+  else if (connectionProfiles.some(profile => profile.transport.fixedBaseUrl === formUrl.value)) formUrl.value = "";
 }
 async function saveForm() {
   if (local || formBusy.value) return;
@@ -135,16 +143,29 @@ async function saveForm() {
     const previous = formTarget.value ? next.connections[formTarget.value] : undefined;
     if (formTarget.value && !previous) throw new Error("供应商已被删除，请重新配置");
     const input = formKeyFromSaved ? "" : formKey.value?.value.trim() ?? "", oldKey = previous ? vault.key(previous.credentialRef) : null;
-    const sameFamily = previous && ((isOpenAIConnection(previous.profileId) && openAI.value) || (isGeminiConnection(previous.profileId) && gemini.value));
-    const endpointChanged = previous && (previous.baseUrl !== baseUrl || (previous.profileId !== formProfile.value && !sameFamily));
+    const imageChannel = formProfile.value === CUSTOM_IMAGES_ID ? readImageChannel(formChannel.value) : undefined;
+    const oldChannel = previous && editableImageChannel(previous);
+    const sameFormat = !!imageChannel && imageChannel.format === oldChannel?.format;
+    const sameFamily = sameFormat || previous && ((isOpenAIConnection(previous.profileId) && openAI.value) || (isGeminiConnection(previous.profileId) && gemini.value));
+    const endpointChanged = previous && (previous.baseUrl !== baseUrl || (previous.profileId !== formProfile.value && !sameFamily) ||
+      (imageChannel && oldChannel && !sameFormat) || (imageChannel?.uploadBaseUrl || baseUrl) !== (oldChannel?.uploadBaseUrl || previous.baseUrl));
     if (endpointChanged && !input) throw new Error("地址或协议已更改，请重新填写对应的 API Key");
     if (!input && !oldKey) throw new Error("请填写 API Key");
     const id = previous?.id ?? `connection-${crypto.randomUUID()}`;
     // Stage a fresh reference so a new Key can never be paired with the previous destination.
     const replaceKey = !previous || Boolean(input && input !== oldKey) || endpointChanged;
     const credentialRef = replaceKey ? `key-${crypto.randomUUID()}` : previous.credentialRef;
-    next.connections[id] = { id, name, baseUrl, profileId: formProfile.value, credentialRef, revision: previous?.revision ?? crypto.randomUUID() };
-    if (previous && previous.profileId !== formProfile.value && !sameFamily) next.links[id] = {};
+    next.connections[id] = { id, name, baseUrl, profileId: formProfile.value, ...(imageChannel ? { imageChannel } : {}), credentialRef, revision: previous?.revision ?? crypto.randomUUID() };
+    if (previous && !sameFamily && (previous.profileId !== formProfile.value || oldChannel?.format !== imageChannel?.format)) next.links[id] = {};
+    if (previous && sameFormat && next.links[id]) {
+      const before = profileFor(previous).channelModels, after = profileFor(next.connections[id]).channelModels;
+      for (const model of configuredModels(next)) {
+        const link = next.links[id][model.id], template = model.templateId ?? model.id;
+        const old = before?.find(item => item.templateId === template);
+        const updated = after?.find(item => item.templateId === template);
+        if (link && old && updated && link.id === old.generate) link.id = updated.generate;
+      }
+    }
     const validated = validateRouting(next);
     if (replaceKey) {
       await vault.setKey(credentialRef, input || oldKey!, formRemember.value);
@@ -221,18 +242,19 @@ defineExpose({ add, edit, close: dismiss, busy: formBusy });
           />
         </div>
         <div class="fld">
-          <label for="connectionUrl">地址</label
+          <label for="connectionUrl">{{ formProfile === CUSTOM_IMAGES_ID ? '基础地址' : '地址' }}</label
           ><input
             id="connectionUrl"
             v-model="formUrl"
             :disabled="formBusy"
-            :readonly="profileFor(formProfile).protocol === 'novelai'"
+            :readonly="!!fixedFormUrl"
             type="text"
             placeholder="https://"
             autocomplete="off"
             spellcheck="false"
           />
         </div>
+        <CustomImageChannelFields v-if="formProfile === CUSTOM_IMAGES_ID" v-model="formChannel" :base-url="formUrl" :disabled="formBusy" />
         <div class="fld">
           <label for="connectionKey">API Key</label>
           <div class="connection-secret">

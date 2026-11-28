@@ -96,6 +96,61 @@ const project = () => ({
     leaf('手套', 1, 1, raster(1, 1)),
   ],
 });
+test('ASK validates scalpel layer selections by identity at proposal, apply and undo', () => {
+  const p = project(), ctx = layerContext(p, '局部补画', 'scalpel');
+  const step = ids => ({ kind:'layer_scalpel_source', layer_ids:ids });
+  const patch = parseLayerPatch(ctx, [step(['手套','头部'])], '选择这两层补画');
+  const applied = applyLayerEdits(p, patch, false);
+  assert.deepEqual(applied.scalpelLayerIds, ['头部','手套']);
+  assert.throws(() => parseLayerPatch(ctx,[step(['手套','手套'])],''), /重复/);
+  assert.throws(() => parseLayerPatch(ctx,[step(['不存在'])],''), /已删除或归档/);
+  assert.throws(() => applyLayerEdits({ ...p, layers:p.layers.map(l => ({...l, archived:l.id==='手套'})) }, patch, false), /已删除或归档/);
+  assert.throws(() => applyLayerEdits({ ...p, scalpelOccluderIds:['头部'] }, patch, false), /排除遮挡/);
+  assert.throws(() => applyLayerEdits({ ...applied, scalpelLayerIds:['手套'] }, patch, true), /选择已变化/);
+  const reset = parseLayerPatch(layerContext(applied,'',''),[step([])],'改回母版');
+  assert.equal(applyLayerEdits(applied,reset,false).scalpelLayerIds, undefined);
+  assert.equal(applyLayerEdits(applied,patch,true).scalpelLayerIds, undefined);
+});
+test('missing-component ASK setup is reviewed atomically and can use a foreground excluded from ordinary paint', () => {
+  const p = { ...project(), scalpelName:'旧部件', scalpelLayerIds:['躯干'], scalpelOccluderIds:['手套'] };
+  const ctx = layerContext(p, '局部补画', 'scalpel');
+  const step = { kind:'layer_scalpel_source', mode:'missing', component:'袖口', layer_ids:['手套','躯干'] };
+  const patch = parseLayerPatch(ctx, [step], '补全袖口');
+  assert.equal(patch.edits.length, 1);
+  const next = applyLayerEdits(p, patch, false);
+  assert.equal(next.scalpelName, '袖口');
+  assert.equal(next.scalpelMode, 'missing');
+  assert.deepEqual(next.missingLayerIds, ['手套','躯干']);
+  assert.deepEqual(next.scalpelLayerIds, p.scalpelLayerIds);
+  assert.deepEqual(next.scalpelOccluderIds, p.scalpelOccluderIds);
+  const master = parseLayerPatch(layerContext(next,'',''), [{ ...step, layer_ids: [] }], '使用母版原图');
+  const onMaster = applyLayerEdits(next, master, false);
+  assert.equal(onMaster.scalpelMode, 'missing');
+  assert.equal(onMaster.missingLayerIds, undefined);
+  assert.deepEqual(applyLayerEdits(onMaster, master, true).missingLayerIds, next.missingLayerIds);
+  assert.throws(() => applyLayerEdits({ ...p, scalpelName:'手动改名' }, patch, false), /已变化/);
+  assert.throws(() => applyLayerEdits({ ...next, missingLayerIds:[] }, patch, true), /已变化/);
+  const changed = parseLayerPatch(layerContext(next,'',''), [{ ...step, layer_ids:['手套'] }], '只参考手套');
+  assert.throws(() => applyLayerEdits({ ...next, scalpelMode:'paint' }, changed, false), /已变化/);
+  const undo = applyLayerEdits(next, patch, true);
+  assert.equal(undo.scalpelMode, 'paint');
+  assert.equal(undo.scalpelName, p.scalpelName);
+  assert.equal(undo.missingLayerIds, undefined);
+});
+
+test('missing-component admission checks the frozen references, uncertain placement and residual base', () => {
+  const p = project(), source = splitSource(p, ['头部','手套']);
+  const r = raster(2,2), part = { id:'ear', name:'候选', local:true, raster:r, preview:r,
+    box:{ x:41,y:29,width:2,height:2 }, width:2,height:2,zIndex:1,isBase:false,source:'decompose' };
+  const batch = { id:'ear-batch', projectId:p.id, componentName:'左耳', source, layers:[part] };
+  assert.throws(() => admitSplit({ ...p, layers:p.layers.map(l => l.id === '头部' ? {...l,x:12} : l) }, batch, [part], false), /来源层已变化/);
+  assert.throws(() => admitSplit(p,batch,[{...part,needsPosition:true}],false), /确认待定位/);
+  assert.throws(() => admitSplit(p,batch,[{...part,isBase:true}],true), /独立部件/);
+  const after = admitSplit(p,batch,[part],true);
+  assert.deepEqual(after.layers.map(l => l.name), ['躯干','头部','左耳','手套']);
+  assert.deepEqual(after.layers.filter(l => l.candidateId !== 'ear'), p.layers);
+});
+
 for (const includeBase of [true, false])
   test(
     'layer package preserves native eye textures and exact absolute location ' +
